@@ -1,0 +1,34 @@
+## Executive Summary
+
+Analyzed **{{ report.total_stocks }}** stocks for fiscal year {{ report.fiscal_year }}. Average Moat Score: **{{ "%.1f"|format(report.average_moat_score) }}/10**
+
+{% if report.watchlist_candidates|length > 0 %}
+**{{ report.watchlist_candidates|length }} Watchlist Candidate(s)** identified (moat score ≥ 8.0)
+{% else %}
+**No watchlist candidates** identified in this analysis (none reached threshold of 8.0)
+{% endif %}
+
+### Top {{ top_picks|length }} Picks
+
+{% for stock in top_picks %}
+#### {{ loop.index }}. {{ stock.ticker }} - {{ "%.1f"|format(stock.moat_score) }}/10{% if stock.is_watchlist_candidate %} ⭐ *Watchlist*{% endif %}
+
+{{ stock.investment_thesis }}
+
+**Key Insights:**
+{% for insight in stock.key_insights %}
+- {{ insight }}
+{% endfor %}
+
+**Risk Factors:**
+{% for risk in stock.risk_factors %}
+- {{ risk }}
+{% endfor %}
+
+{% if include_charts %}
+![{{ stock.ticker }} Moat Breakdown](./charts/moat_{{ stock.ticker }}.png)
+{% endif %}
+
+{% if not loop.last %}---{% endif %}
+
+{% endfor %}

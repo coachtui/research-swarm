@@ -1,0 +1,50 @@
+## Watchlist Candidates
+
+{% if watchlist_candidates|length > 0 %}
+**{{ watchlist_candidates|length }} stock(s)** meet the watchlist criteria (moat score ≥ 8.0)
+
+{% for stock in watchlist_candidates|sort(attribute='moat_score', reverse=True) %}
+### {{ loop.index }}. {{ stock.ticker }} - {{ "%.1f"|format(stock.moat_score) }}/10
+
+**Investment Thesis:** {{ stock.investment_thesis }}
+
+**Moat Strengths:**
+{% set strengths = [] %}
+{% if stock.moat_breakdown.financial_health >= 7.0 %}{% set _ = strengths.append('Strong Financial Health (' + "%.1f"|format(stock.moat_breakdown.financial_health) + ')') %}{% endif %}
+{% if stock.moat_breakdown.sentiment_catalysts >= 7.0 %}{% set _ = strengths.append('Positive Sentiment (' + "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) + ')') %}{% endif %}
+{% if stock.moat_breakdown.technical_strength >= 7.0 %}{% set _ = strengths.append('Technical Strength (' + "%.1f"|format(stock.moat_breakdown.technical_strength) + ')') %}{% endif %}
+{% if stock.moat_breakdown.supply_chain_position >= 7.0 %}{% set _ = strengths.append('Supply Chain Position (' + "%.1f"|format(stock.moat_breakdown.supply_chain_position) + ')') %}{% endif %}
+{% for strength in strengths %}
+- {{ strength }}
+{% endfor %}
+
+**Key Insights:**
+{% for insight in stock.key_insights[:3] %}
+- {{ insight }}
+{% endfor %}
+
+**Top Risks:**
+{% for risk in stock.risk_factors[:3] %}
+- {{ risk }}
+{% endfor %}
+
+{% if include_charts %}
+![{{ stock.ticker }} Moat Breakdown](./charts/moat_{{ stock.ticker }}.png)
+{% endif %}
+
+{% if not loop.last %}---{% endif %}
+
+{% endfor %}
+
+{% else %}
+*No stocks currently meet the watchlist threshold of 8.0 or higher.*
+
+**Closest Candidates:**
+
+{% for stock in stocks|sort(attribute='moat_score', reverse=True) %}
+{% if loop.index <= 3 %}
+- **{{ stock.ticker }}**: {{ "%.1f"|format(stock.moat_score) }}/10 ({{ "%.1f"|format(8.0 - stock.moat_score) }} points below threshold)
+{% endif %}
+{% endfor %}
+
+{% endif %}

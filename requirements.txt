@@ -23,6 +23,12 @@ yfinance>=0.2.31
 networkx>=3.1
 numpy>=1.24.0
 pandas>=2.0.0
+matplotlib>=3.7.0
+
+# Phase 8: Report Generation
+jinja2>=3.0
+weasyprint>=60.0
+markdown>=3.5
 
 # Testing (will expand in Phase 10)
 pytest==7.4.3

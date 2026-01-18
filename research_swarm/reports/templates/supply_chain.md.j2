@@ -1,0 +1,34 @@
+## Supply Chain Analysis
+
+{% for stock in stocks %}
+{% if stock.supply_chain_nodes|length > 0 %}
+### {{ stock.ticker }} Supply Chain Network
+
+**Network Size:** {{ stock.supply_chain_nodes|length }} nodes, {{ stock.supply_chain_edges|length }} connections
+
+{% if include_charts %}
+![{{ stock.ticker }} Supply Chain Graph](./charts/supply_chain_{{ stock.ticker }}.png)
+{% endif %}
+
+#### Network Nodes
+
+{% for node in stock.supply_chain_nodes %}
+- **{{ node.name }}** ({{ node.ticker }}){% if node.node_type %} - *{{ node.node_type }}*{% endif %}
+{% endfor %}
+
+{% if stock.hidden_dependencies|length > 0 %}
+#### Hidden Dependencies
+
+{% for dep in stock.hidden_dependencies %}
+- {{ dep }}
+{% endfor %}
+{% endif %}
+
+{% if not loop.last %}---{% endif %}
+
+{% endif %}
+{% endfor %}
+
+{% if stocks|selectattr('supply_chain_nodes')|list|length == 0 %}
+*No supply chain data available for analyzed stocks.*
+{% endif %}

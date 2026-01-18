@@ -12,6 +12,7 @@ from research_swarm.orchestration import (
     resume_batch,
     run_batch,
 )
+from research_swarm.reports import generate_report
 
 
 def cmd_run(args):
@@ -224,6 +225,41 @@ def cmd_estimate(args):
         return 1
 
 
+def cmd_report(args):
+    """Generate report from completed run."""
+    try:
+        logger.info(f"Generating report for run {args.run_id}...")
+
+        result = generate_report(
+            run_id=args.run_id,
+            output_dir=args.output_dir,
+            report_type=args.format,
+            include_charts=not args.no_charts,
+            top_picks=args.top_picks,
+        )
+
+        if result.success:
+            logger.success(f"\n✓ Report generated in {result.generation_time_seconds:.1f}s!")
+
+            if result.markdown_path:
+                logger.info(f"Markdown: {result.markdown_path}")
+
+            if result.pdf_path:
+                logger.info(f"PDF: {result.pdf_path}")
+
+            if result.charts_generated:
+                logger.info(f"Charts: {len(result.charts_generated)} generated")
+
+            return 0
+        else:
+            logger.error(f"Report generation failed: {result.error_message}")
+            return 1
+
+    except Exception as e:
+        logger.error(f"Report generation failed: {e}")
+        return 1
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -293,6 +329,33 @@ def main():
         help="Estimated tokens per stock (default: 15000)",
     )
     parser_estimate.set_defaults(func=cmd_estimate)
+
+    # Report command
+    parser_report = subparsers.add_parser("report", help="Generate report from run")
+    parser_report.add_argument("run_id", help="Run ID to generate report for")
+    parser_report.add_argument(
+        "--format",
+        choices=["markdown", "pdf", "both"],
+        default="both",
+        help="Report format (default: both)",
+    )
+    parser_report.add_argument(
+        "--output-dir",
+        default="./reports",
+        help="Output directory (default: ./reports)",
+    )
+    parser_report.add_argument(
+        "--no-charts",
+        action="store_true",
+        help="Disable chart generation",
+    )
+    parser_report.add_argument(
+        "--top-picks",
+        type=int,
+        default=3,
+        help="Number of top picks to highlight (default: 3)",
+    )
+    parser_report.set_defaults(func=cmd_report)
 
     # Parse arguments
     args = parser.parse_args()

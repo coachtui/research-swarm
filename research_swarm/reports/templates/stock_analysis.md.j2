@@ -1,0 +1,42 @@
+## Detailed Stock Analysis
+
+{% for stock in stocks %}
+### {{ stock.ticker }} - {{ "%.1f"|format(stock.moat_score) }}/10{% if stock.is_watchlist_candidate %} ⭐{% endif %}
+
+**Investment Thesis:** {{ stock.investment_thesis }}
+
+**Processing Time:** {{ "%.1f"|format(stock.processing_time) }}s | **Cost:** ${{ "%.4f"|format(stock.cost_usd) }}
+
+#### Moat Score Breakdown
+
+| Component | Score | Weight |
+|-----------|-------|--------|
+| Financial Health | {{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10 | 30% |
+| Sentiment & Catalysts | {{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10 | 20% |
+| Technical Strength | {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 | 20% |
+| Supply Chain Position | {{ "%.1f"|format(stock.moat_breakdown.supply_chain_position) }}/10 | 30% |
+| **Overall Moat Score** | **{{ "%.1f"|format(stock.moat_score) }}/10** | **100%** |
+
+{% if include_charts %}
+![{{ stock.ticker }} Moat Breakdown](./charts/moat_{{ stock.ticker }}.png)
+{% endif %}
+
+#### Synthesis Narrative
+
+{{ stock.synthesis_narrative }}
+
+#### Key Insights
+
+{% for insight in stock.key_insights %}
+{{ loop.index }}. {{ insight }}
+{% endfor %}
+
+#### Risk Factors
+
+{% for risk in stock.risk_factors %}
+{{ loop.index }}. {{ risk }}
+{% endfor %}
+
+{% if not loop.last %}---{% endif %}
+
+{% endfor %}

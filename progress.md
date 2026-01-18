@@ -3,7 +3,7 @@
 **Project**: AI Stock Market Research System
 **Started**: 2025-01-18
 **Last Updated**: 2026-01-17
-**Current Phase**: 7 - Orchestration & Workflow ✅ COMPLETE (All tests passing)
+**Current Phase**: 8 - Report Generation ✅ COMPLETE
 
 ---
 
@@ -51,10 +51,12 @@ Build autonomous multi-agent system for bi-weekly stock research reports focusin
 - **Plan**: `/Users/tui/.claude/plans/polymorphic-booping-sketch.md`
 - **Success**: All orchestration modules implemented, CLI commands added
 
-### Phase 8: Report Generation
-- Markdown templates, PDF generation
-- Supply chain visualizations
-- **Success**: Generate professional demo report
+### Phase 8: Report Generation ✅ COMPLETE
+- Markdown templates, PDF generation (WeasyPrint)
+- Supply chain visualizations (matplotlib + NetworkX)
+- Moat breakdown charts, watchlist summaries
+- **Handoff**: `PHASE_8_HANDOFF.md` created with full implementation specs
+- **Success**: All 43 tests passing, CLI command integrated, professional reports generated
 
 ### Phase 9: Scheduling & Automation
 - Bi-weekly cron job, email notifications
@@ -454,6 +456,111 @@ Build autonomous multi-agent system for bi-weekly stock research reports focusin
 - ✅ **CLI smoke tests passing** (estimate, history commands work) ✅
 - ⏳ End-to-end 5-stock test with real API calls - READY TO RUN
 
+### Phase 8: Report Generation (IMPLEMENTATION COMPLETE - 2026-01-17)
+- [x] Add dependencies to requirements.txt (jinja2, weasyprint, markdown, matplotlib)
+- [x] Create Phase 8.1: Core Models & Data Extraction
+  - [x] Implement models.py (8 Pydantic models: ReportConfig, ReportType, ReportSection, StockReportData, ReportData, ReportOutput)
+  - [x] Implement data_extractor.py (SwarmRun → ReportData transformation)
+  - [x] Create __init__.py with public API
+  - [x] Add unit tests for models and extraction (9 tests)
+- [x] Create Phase 8.2: Visualizations
+  - [x] Implement visualizations.py (ChartGenerator with matplotlib + networkx)
+  - [x] Generate moat breakdown charts (horizontal bar, color-coded)
+  - [x] Generate supply chain graphs (NetworkX directed graphs)
+  - [x] Generate portfolio overview charts
+  - [x] Add visualization tests (10 tests)
+- [x] Create Phase 8.3: Template Rendering
+  - [x] Create templates directory with 5 Jinja2 templates (base, executive_summary, stock_analysis, supply_chain, watchlist)
+  - [x] Implement renderer.py (TemplateRenderer with Jinja2)
+  - [x] Add template rendering tests (11 tests)
+- [x] Create Phase 8.4: PDF Generation & CLI Integration
+  - [x] Implement pdf_generator.py (PDFGenerator with WeasyPrint + CSS styling)
+  - [x] Implement generator.py (ReportGenerator orchestrator)
+  - [x] Add report command to __main__.py CLI
+  - [x] Add integration tests (13 tests)
+- [x] Verify all tests passing (43/43 tests ✅)
+- [x] Verify CLI command working
+
+**Phase 8 Target**:
+- Zero-cost report generation (no LLM calls)
+- Professional PDF reports with charts
+- Markdown + PDF output formats
+- Rich visualizations (moat charts, supply chain graphs)
+- CLI command: `python -m research_swarm report <run_id>`
+
+**Implementation Details**:
+- Architecture: 4 sub-phases (8.1-8.4) with incremental builds
+- Phase 8.1: Models & data extraction from SwarmRun persistence
+- Phase 8.2: Chart generation with matplotlib (moat, supply chain, portfolio)
+- Phase 8.3: Jinja2 template rendering for Markdown reports
+- Phase 8.4: WeasyPrint PDF generation + CLI integration
+- Entry point: `generate_report(run_id, output_dir, report_type, include_charts, top_picks)`
+- Template system: 5 modular Jinja2 templates (base wrapper + 4 sections)
+- PDF styling: Professional CSS with page breaks, headers, typography
+- Cost: $0 (pure data transformation, no API calls)
+
+**Key Features**:
+- Complete report generation from SwarmRun data
+- Dual output formats: Markdown and PDF
+- 3 chart types:
+  - Moat breakdown: Horizontal bars with color-coding (green ≥7, gold ≥4, red <4)
+  - Supply chain: NetworkX directed graphs with node type colors
+  - Portfolio overview: Sorted moat scores with watchlist threshold line
+- 4 report sections:
+  - Executive Summary: Top N picks with thesis and insights
+  - Detailed Stock Analysis: Per-stock breakdown with moat tables
+  - Supply Chain Analysis: Network visualizations and hidden dependencies
+  - Watchlist Candidates: High-moat stocks (≥8.0) with strengths
+- PDF features:
+  - Professional typography and page layout
+  - Embedded charts and images
+  - Color-coded tables
+  - Page numbers and margins
+  - Print-optimized styling
+- CLI commands:
+  - `python -m research_swarm report <run_id>` - Generate both formats with charts
+  - `python -m research_swarm report <run_id> --format markdown` - Markdown only
+  - `python -m research_swarm report <run_id> --format pdf --no-charts` - PDF without charts
+  - `python -m research_swarm report <run_id> --output-dir ./custom --top-picks 5` - Custom settings
+- Comprehensive test coverage (43 tests across all components)
+
+**Files Created**:
+- research_swarm/reports/models.py (5.0 KB, 8 models)
+- research_swarm/reports/data_extractor.py (5.1 KB)
+- research_swarm/reports/visualizations.py (10 KB, 3 chart types)
+- research_swarm/reports/templates/ (5 files, 5.6 KB total)
+  - base.md.j2, executive_summary.md.j2, stock_analysis.md.j2, supply_chain.md.j2, watchlist.md.j2
+- research_swarm/reports/renderer.py (4.1 KB)
+- research_swarm/reports/pdf_generator.py (7.9 KB)
+- research_swarm/reports/generator.py (7.8 KB, main orchestrator)
+- research_swarm/reports/__init__.py (865 B, public API)
+- tests/test_reports.py (1,061 lines, 43 tests)
+
+**Phase 8 Statistics**:
+- Files created: 14 new files (7 Python modules + 5 templates + 2 supporting)
+- Lines of code added: ~1,500+
+- Tests written: 43 (100% passing)
+  - 9 tests: Phase 8.1 (models & extraction)
+  - 10 tests: Phase 8.2 (visualizations)
+  - 11 tests: Phase 8.3 (template rendering)
+  - 13 tests: Phase 8.4 (PDF & integration)
+- Dependencies added: 4 (matplotlib, jinja2, weasyprint, markdown)
+- Processing time: Phase 8 implementation ~4 hours (broken into 8.1→8.2→8.3→8.4)
+- Test execution time: 6.65 seconds for all 43 tests
+- Cost: $0 (no LLM API calls - pure data transformation)
+
+**Success Criteria Status**:
+- ✅ All Phase 8.1-8.4 tests passing (43/43) ✅
+- ✅ Markdown reports generate correctly
+- ✅ PDF renders with embedded charts
+- ✅ Supply chain graphs show node hierarchy
+- ✅ Moat breakdown charts are color-coded
+- ✅ Watchlist candidates correctly identified
+- ✅ Report generation < 30 seconds
+- ✅ Cost = $0 (no LLM API calls)
+- ✅ CLI command integrated and functional
+- ✅ Error handling for missing runs/failed stocks
+
 ---
 
 ## In Progress
@@ -464,7 +571,8 @@ Build autonomous multi-agent system for bi-weekly stock research reports focusin
 - [x] Phase 5 completed (2026-01-17)
 - [x] Phase 6 completed (2026-01-17)
 - [x] Phase 7 completed (2026-01-17) - Implementation complete, all tests passing ✅
-- [ ] Phase 8 - Report Generation (NEXT)
+- [x] Phase 8 completed (2026-01-17) - Implementation complete, 43/43 tests passing ✅
+- [ ] Phase 9 - Scheduling & Automation (Ready to Plan)
 
 ---
 
@@ -532,7 +640,15 @@ Build autonomous multi-agent system for bi-weekly stock research reports focusin
    - ✅ All unit tests passing (20/20) ✅
    - ✅ All integration tests passing (5/5) ✅
    - ✅ CLI smoke tests verified ✅
-8. **NEXT**: Phase 8 - Report Generation
+8. ✅ Phase 8 completed (2026-01-17) - Report Generation:
+   - ✅ Phase 8.1: Core models & data extraction (9 tests)
+   - ✅ Phase 8.2: Visualizations with matplotlib + NetworkX (10 tests)
+   - ✅ Phase 8.3: Template rendering with Jinja2 (11 tests)
+   - ✅ Phase 8.4: PDF generation & CLI integration (13 tests)
+   - ✅ All 43 tests passing ✅
+   - ✅ CLI command: `python -m research_swarm report <run_id>`
+   - ✅ Dependencies added: matplotlib, jinja2, weasyprint, markdown
+   - ✅ Cost: $0 (no LLM calls - pure data transformation)
 9. Optional: Run real E2E test with API calls:
    - `python -m research_swarm run NVDA AMD TSM ASML INTC --name "Phase 7 E2E Validation"`
    - Expected: <30 minute completion, ~$2.30 cost, watchlist generation
