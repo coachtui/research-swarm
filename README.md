@@ -20,14 +20,34 @@ Multi-agent AI system for researching supply chain bottlenecks and generating bi
 3. **Test Installation**
    ```bash
    python -m research_swarm
-   # Should print "Phase 1 Complete!"
+   # Demonstrates cache and SEC client functionality
+   ```
+
+4. **Run Tests**
+   ```bash
+   pytest tests/
    ```
 
 ## Project Status
 
-**Current Phase**: 1 of 12 (Foundation)
+**Current Phase**: 3 of 12 (Fundamentalist Agent)
 
-See [plans/master-plan.md](plans/master-plan.md) for full roadmap.
+| Phase | Status |
+|-------|--------|
+| 1. Foundation | Complete |
+| 2. Data Pipeline | Complete |
+| 3. Fundamentalist Agent | In Progress |
+| 4-12. Remaining Agents & Features | Planned |
+
+See [plans/master-plan.md](plans/master-plan.md) for the full roadmap and [progress.md](progress.md) for detailed progress.
+
+## Completed Features
+
+- SQLite caching layer with TTL support
+- SEC Edgar API client (CIK lookup, 10-K retrieval)
+- Financial Modeling Prep client (graceful degradation without API key)
+- Rate limiting middleware
+- Structured logging (console + file)
 
 ## Budget
 
@@ -36,7 +56,9 @@ See [plans/master-plan.md](plans/master-plan.md) for full roadmap.
 
 ## Tech Stack
 
-- Python 3.10+
+- Python 3.9+
 - LangGraph (agent orchestration)
 - Claude API (LLM)
 - SQLite (caching)
+- SEC Edgar API (free)
+- Financial Modeling Prep (free tier)
