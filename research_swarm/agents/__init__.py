@@ -4,6 +4,7 @@ AI agents for the Research Swarm system.
 from research_swarm.agents.fundamentalist import analyze_company, FundamentalistOutput
 from research_swarm.agents.news_hound import analyze_company_news, NewsHoundOutput
 from research_swarm.agents.quant import analyze_quant, QuantOutput
+from research_swarm.agents.manager import analyze_swarm, ManagerOutput
 
 __all__ = [
     "analyze_company",
@@ -12,4 +13,6 @@ __all__ = [
     "NewsHoundOutput",
     "analyze_quant",
     "QuantOutput",
+    "analyze_swarm",
+    "ManagerOutput",
 ]
