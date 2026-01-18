@@ -12,10 +12,17 @@ python-dotenv==1.0.0
 # API clients (will expand in Phase 2)
 requests==2.31.0
 aiohttp==3.9.0
+beautifulsoup4==4.12.3
 
 # Utilities
 loguru==0.7.2
 python-dateutil==2.8.2
+
+# Phase 5: Quant Agent
+yfinance>=0.2.31
+networkx>=3.1
+numpy>=1.24.0
+pandas>=2.0.0
 
 # Testing (will expand in Phase 10)
 pytest==7.4.3

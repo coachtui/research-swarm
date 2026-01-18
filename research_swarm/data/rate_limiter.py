@@ -16,6 +16,7 @@ class RateLimiter:
         self.limits = {
             "fmp": {"calls": 250, "period": 86400},  # 250/day
             "sec": {"calls": 10, "period": 1},       # 10/second (be nice)
+            "yfinance": {"calls": 2, "period": 1},   # 2/second (be respectful)
         }
 
     def check_limit(self, api: str) -> bool:
