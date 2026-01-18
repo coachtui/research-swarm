@@ -13,6 +13,7 @@ from loguru import logger
 from research_swarm.agents.fundamentalist import analyze_company, FundamentalistOutput
 from research_swarm.agents.news_hound import analyze_company_news, NewsHoundOutput
 from research_swarm.agents.quant import analyze_quant, QuantOutput
+from research_swarm.orchestration.cost_tracker import CostTracker
 
 from .state import ManagerState
 from .analyzer import ManagerAnalyzer
@@ -465,6 +466,60 @@ def analyze_swarm(
     processing_time = time.time() - start_time
     final_state["processing_time"] = processing_time
 
+    # Calculate costs per agent
+    cost_tracker = CostTracker()
+    cost_by_agent = {
+        "fundamentalist": 0.0,
+        "news_hound": 0.0,
+        "quant": 0.0,
+        "manager": 0.0,
+    }
+
+    # Fundamentalist cost (using haiku for scorer + sonnet for analyzer, approximate 50/50 split)
+    if final_state.get("fundamentalist_output"):
+        fund_tokens = final_state["fundamentalist_output"].get("tokens_used", 0)
+        tokens_in = int(fund_tokens * 0.3)
+        tokens_out = int(fund_tokens * 0.7)
+        # Mix of haiku (scorer) and sonnet (analyzer), use average
+        cost_by_agent["fundamentalist"] = (
+            cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "haiku") +
+            cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "sonnet")
+        )
+
+    # News Hound cost (using haiku for scorer + sonnet for analyzer, approximate 50/50 split)
+    if final_state.get("news_hound_output"):
+        news_tokens = final_state["news_hound_output"].get("tokens_used", 0)
+        tokens_in = int(news_tokens * 0.3)
+        tokens_out = int(news_tokens * 0.7)
+        # Mix of haiku (scorer) and sonnet (analyzer), use average
+        cost_by_agent["news_hound"] = (
+            cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "haiku") +
+            cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "sonnet")
+        )
+
+    # Quant cost (using haiku for scorer + sonnet for analyzer, approximate 50/50 split)
+    if final_state.get("quant_output"):
+        quant_tokens = final_state["quant_output"].get("tokens_used", 0)
+        tokens_in = int(quant_tokens * 0.3)
+        tokens_out = int(quant_tokens * 0.7)
+        # Mix of haiku (scorer) and sonnet (analyzer), use average
+        cost_by_agent["quant"] = (
+            cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "haiku") +
+            cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "sonnet")
+        )
+
+    # Manager cost (sonnet for synthesis + thesis generation)
+    manager_tokens = final_state.get("tokens_used", 0)
+    agent_tokens = sum(
+        final_state.get(f"{agent}_output", {}).get("tokens_used", 0)
+        for agent in ["fundamentalist", "news_hound", "quant"]
+    )
+    manager_only_tokens = manager_tokens - agent_tokens
+    if manager_only_tokens > 0:
+        tokens_in = int(manager_only_tokens * 0.3)
+        tokens_out = int(manager_only_tokens * 0.7)
+        cost_by_agent["manager"] = cost_tracker.calculate_cost(tokens_in, tokens_out, "sonnet")
+
     # Build output
     output = ManagerOutput(
         ticker=final_state["ticker"],
@@ -485,6 +540,7 @@ def analyze_swarm(
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time,
         agent_processing_times=final_state.get("agent_processing_times"),
+        cost_by_agent=cost_by_agent,
     )
 
     logger.success(

@@ -13,6 +13,17 @@ from research_swarm.orchestration import (
     run_batch,
 )
 from research_swarm.reports import generate_report
+from research_swarm.automation import (
+    AutomationConfig,
+    CostMonitor,
+    EmailConfig,
+    LaunchdScheduler,
+    Notifier,
+    NotificationConfig,
+    ScheduleConfig,
+    ScheduleFrequency,
+    run_automation,
+)
 
 
 def cmd_run(args):
@@ -260,8 +271,279 @@ def cmd_report(args):
         return 1
 
 
+def cmd_schedule_install(args):
+    """Install the launchd scheduled job."""
+    config = ScheduleConfig(
+        frequency=ScheduleFrequency(args.frequency),
+        day_of_week=args.day,
+        hour=args.hour,
+        tickers_file=Path(args.tickers_file),
+    )
+    scheduler = LaunchdScheduler(config)
+
+    if scheduler.install():
+        logger.success("Scheduled job installed successfully")
+        status = scheduler.get_status()
+        logger.info(f"Plist: {status.plist_path}")
+        logger.info(f"Frequency: {args.frequency}")
+        logger.info(
+            f"Day: {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][args.day]}"
+        )
+        logger.info(f"Time: {args.hour:02d}:00")
+        return 0
+    else:
+        logger.error("Failed to install scheduled job")
+        return 1
+
+
+def cmd_schedule_uninstall(args):
+    """Uninstall the launchd scheduled job."""
+    scheduler = LaunchdScheduler(ScheduleConfig())
+
+    if scheduler.uninstall():
+        logger.success("Scheduled job removed successfully")
+        return 0
+    else:
+        logger.error("Failed to remove scheduled job")
+        return 1
+
+
+def cmd_schedule_status(args):
+    """Show status of scheduled job."""
+    scheduler = LaunchdScheduler(ScheduleConfig())
+    status = scheduler.get_status()
+
+    logger.info("\n=== Schedule Status ===")
+    logger.info(f"Installed: {'YES' if status.installed else 'NO'}")
+    logger.info(f"Enabled: {'YES' if status.enabled else 'NO'}")
+    logger.info(f"Status: {status.status}")
+
+    if status.plist_path:
+        logger.info(f"Plist: {status.plist_path}")
+    if status.last_run:
+        logger.info(f"Last Run: {status.last_run.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    return 0
+
+
+def cmd_auto_run(args):
+    """Run automated analysis."""
+    config = AutomationConfig()
+    config.schedule.tickers_file = Path(args.tickers_file)
+
+    if args.skip_notify:
+        config.notification.send_on_completion = False
+        config.notification.send_on_error = False
+        config.notification.send_high_priority_alerts = False
+
+    if args.dry_run:
+        logger.info("DRY RUN - would execute:")
+        try:
+            with open(config.schedule.tickers_file) as f:
+                tickers = [
+                    line.strip()
+                    for line in f
+                    if line.strip() and not line.startswith("#")
+                ]
+            logger.info(f"  Tickers: {', '.join(tickers)}")
+        except FileNotFoundError:
+            logger.error(f"  Tickers file not found: {config.schedule.tickers_file}")
+        logger.info(f"  Reports dir: {config.reports_dir}")
+        logger.info(f"  Notifications: {'NO' if args.skip_notify else 'YES'}")
+        return 0
+
+    result = run_automation(config=config)
+
+    if result.success:
+        if result.run_id == "skipped":
+            logger.info("Run skipped - bi-weekly schedule not due")
+            return 0
+
+        logger.success(
+            f"\nAutomation complete: {result.completed_count}/{result.tickers_analyzed} stocks"
+        )
+
+        if result.watchlist_candidates:
+            logger.info(f"Watchlist: {', '.join(result.watchlist_candidates)}")
+        if result.high_priority_stocks:
+            logger.info(f"High Priority: {', '.join(result.high_priority_stocks)}")
+        if result.report_path:
+            logger.info(f"Report: {result.report_path}")
+        if result.pdf_path:
+            logger.info(f"PDF: {result.pdf_path}")
+
+        logger.info(f"Cost: ${result.cost_usd:.2f}")
+        logger.info(f"Duration: {result.duration_seconds:.0f}s")
+
+        return 0
+    else:
+        logger.error(f"Automation failed: {result.error_message}")
+        return 1
+
+
+def cmd_cost(args):
+    """View cost reports and dashboard."""
+    from research_swarm.automation.cost_monitor import CostMonitor
+    from research_swarm.orchestration.persistence import PersistenceManager
+    from research_swarm.config import settings
+
+    monitor = CostMonitor()
+    persistence = PersistenceManager()
+
+    if args.dashboard:
+        # Full dashboard view
+        logger.info("\n" + "=" * 50)
+        logger.info("       RESEARCH SWARM COST DASHBOARD")
+        logger.info("=" * 50)
+
+        # Current month summary
+        from datetime import datetime
+        now = datetime.now()
+        current = monitor.get_monthly_cost(now.year, now.month)
+        budget = settings.monthly_budget_usd
+        utilization = (current.total_cost_usd / budget) * 100 if budget > 0 else 0
+
+        logger.info(f"\n--- {current.month} Summary ---")
+        logger.info(f"Total Spend:     ${current.total_cost_usd:.2f}")
+        logger.info(f"Budget:          ${budget:.2f}")
+        logger.info(f"Remaining:       ${current.budget_remaining_usd:.2f}")
+        logger.info(f"Utilization:     {utilization:.1f}%")
+        logger.info(f"Runs:            {current.run_count}")
+        logger.info(f"Stocks Analyzed: {current.stock_count}")
+
+        # Cost by agent
+        agent_costs = persistence.get_cost_by_agent(now.year, now.month)
+        if agent_costs:
+            logger.info(f"\n--- Cost by Agent ---")
+            for agent, cost in sorted(agent_costs.items(), key=lambda x: -x[1]):
+                pct = (cost / current.total_cost_usd * 100) if current.total_cost_usd > 0 else 0
+                logger.info(f"  {agent:15} ${cost:.4f} ({pct:.1f}%)")
+
+        # 3-month trend
+        logger.info(f"\n--- 3-Month Trend ---")
+        trend = monitor.get_cost_trend(3)
+        for report in reversed(trend):
+            status = "OK" if report.within_budget else "OVER"
+            bar_len = int(report.total_cost_usd / budget * 20) if budget > 0 else 0
+            bar = "#" * min(bar_len, 20)
+            logger.info(f"  {report.month}: ${report.total_cost_usd:6.2f} [{bar:20}] {status}")
+
+        logger.info("")
+        return 0
+
+    # Existing trend logic
+    if args.trend > 0:
+        reports = monitor.get_cost_trend(args.trend)
+        logger.info(f"\n=== Cost Trend ({args.trend} months) ===")
+        for report in reports:
+            status = "OK" if report.within_budget else "OVER"
+            logger.info(
+                f"  {report.month}: ${report.total_cost_usd:.2f} "
+                f"({report.run_count} runs) [{status}]"
+            )
+    else:
+        # Existing monthly report logic
+        if args.month:
+            year, month = map(int, args.month.split("-"))
+            report = monitor.get_monthly_cost(year, month)
+        else:
+            report = monitor.get_current_month_cost()
+
+        logger.info(f"\n=== Cost Report: {report.month} ===")
+        logger.info(f"Total Cost: ${report.total_cost_usd:.2f}")
+        logger.info(f"Runs: {report.run_count}")
+        logger.info(f"Stocks Analyzed: {report.stock_count}")
+        logger.info(f"Budget Remaining: ${report.budget_remaining_usd:.2f}")
+        logger.info(f"Within Budget: {'YES' if report.within_budget else 'NO'}")
+
+    return 0
+
+
+def cmd_cache_stats(args):
+    """Show cache statistics."""
+    import os
+    from research_swarm.data.cache import cache
+
+    stats = cache.stats()
+    db_path = cache.db_path
+    db_size = os.path.getsize(db_path) / 1024 if os.path.exists(db_path) else 0
+
+    logger.info("\n=== Cache Statistics ===")
+    logger.info(f"Database:        {db_path}")
+    logger.info(f"Size:            {db_size:.1f} KB")
+    logger.info(f"Total Entries:   {stats['total_entries']}")
+    logger.info(f"Valid Entries:   {stats['valid_entries']}")
+    logger.info(f"Expired Entries: {stats['expired_entries']}")
+
+    return 0
+
+
+def cmd_cache_clear(args):
+    """Clear cache entries."""
+    from research_swarm.data.cache import cache
+    import sqlite3
+
+    if args.all:
+        if not args.force:
+            confirm = input("Clear ALL cache entries? This cannot be undone. [y/N]: ")
+            if confirm.lower() != 'y':
+                logger.info("Cancelled")
+                return 0
+        with sqlite3.connect(cache.db_path) as conn:
+            cursor = conn.execute("DELETE FROM cache")
+            deleted = cursor.rowcount
+        logger.success(f"Cleared {deleted} cache entries (all)")
+    else:
+        deleted = cache.clear_expired()
+        logger.success(f"Cleared {deleted} expired cache entries")
+
+    return 0
+
+
+def cmd_notify_test(args):
+    """Send test notification."""
+    recipients = (
+        [args.to]
+        if args.to
+        else settings.notification_recipients.split(",")
+    )
+    recipients = [r.strip() for r in recipients if r.strip()]
+
+    if not recipients:
+        logger.error("No recipients configured. Set NOTIFICATION_RECIPIENTS or use --to")
+        return 1
+
+    config = EmailConfig(
+        smtp_host=settings.smtp_host,
+        smtp_port=settings.smtp_port,
+        smtp_user=settings.smtp_user,
+        smtp_password=settings.smtp_password,
+        recipients=recipients,
+        from_email=settings.notification_from_email,
+    )
+
+    notifier = Notifier(config, NotificationConfig())
+    result = notifier.send_test()
+
+    if result.success:
+        logger.success(f"Test email sent to: {', '.join(result.recipients_sent)}")
+        return 0
+    else:
+        logger.error(f"Failed to send test email: {result.error_message}")
+        return 1
+
+
 def main():
     """Main CLI entry point."""
+    # Clean up expired cache entries on startup
+    try:
+        from research_swarm.data.cache import cache
+        deleted = cache.clear_expired()
+        if deleted > 0:
+            logger.debug(f"Cleaned up {deleted} expired cache entries")
+    except Exception as e:
+        logger.debug(f"Cache cleanup skipped: {e}")
+
     parser = argparse.ArgumentParser(
         prog="research-swarm",
         description="Research Swarm: Multi-agent stock analysis system",
@@ -357,6 +639,115 @@ def main():
     )
     parser_report.set_defaults(func=cmd_report)
 
+    # Schedule command with subcommands
+    parser_schedule = subparsers.add_parser("schedule", help="Manage scheduled automation")
+    schedule_subparsers = parser_schedule.add_subparsers(dest="schedule_command")
+
+    # schedule install
+    parser_schedule_install = schedule_subparsers.add_parser(
+        "install", help="Install scheduled job"
+    )
+    parser_schedule_install.add_argument(
+        "--frequency",
+        choices=["weekly", "bi_weekly", "monthly"],
+        default="bi_weekly",
+        help="Run frequency (default: bi_weekly)",
+    )
+    parser_schedule_install.add_argument(
+        "--day",
+        type=int,
+        default=0,
+        help="Day of week (0=Monday, 6=Sunday, default: 0)",
+    )
+    parser_schedule_install.add_argument(
+        "--hour",
+        type=int,
+        default=6,
+        help="Hour to run in 24h format (default: 6)",
+    )
+    parser_schedule_install.add_argument(
+        "--tickers-file",
+        default="./data/watchlist.txt",
+        help="Path to tickers file (default: ./data/watchlist.txt)",
+    )
+    parser_schedule_install.set_defaults(func=cmd_schedule_install)
+
+    # schedule uninstall
+    parser_schedule_uninstall = schedule_subparsers.add_parser(
+        "uninstall", help="Remove scheduled job"
+    )
+    parser_schedule_uninstall.set_defaults(func=cmd_schedule_uninstall)
+
+    # schedule status
+    parser_schedule_status = schedule_subparsers.add_parser(
+        "status", help="Show schedule status"
+    )
+    parser_schedule_status.set_defaults(func=cmd_schedule_status)
+
+    # Auto command
+    parser_auto = subparsers.add_parser("auto", help="Run automated analysis")
+    parser_auto.add_argument(
+        "--tickers-file",
+        default="./data/watchlist.txt",
+        help="File with tickers (one per line)",
+    )
+    parser_auto.add_argument(
+        "--skip-notify",
+        action="store_true",
+        help="Skip email notifications",
+    )
+    parser_auto.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without executing",
+    )
+    parser_auto.set_defaults(func=cmd_auto_run)
+
+    # Cost command
+    parser_cost = subparsers.add_parser("cost", help="View cost reports")
+    parser_cost.add_argument(
+        "--month",
+        help="Month in YYYY-MM format (default: current)",
+    )
+    parser_cost.add_argument(
+        "--trend",
+        type=int,
+        default=0,
+        help="Show trend for N months",
+    )
+    parser_cost.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="Show full cost dashboard with agent breakdown and trends",
+    )
+    parser_cost.set_defaults(func=cmd_cost)
+
+    # Cache command
+    parser_cache = subparsers.add_parser("cache", help="Manage cache")
+    cache_subparsers = parser_cache.add_subparsers(dest="cache_command", required=True)
+
+    parser_cache_stats = cache_subparsers.add_parser("stats", help="Show cache statistics")
+    parser_cache_stats.set_defaults(func=cmd_cache_stats)
+
+    parser_cache_clear = cache_subparsers.add_parser("clear", help="Clear cache entries")
+    parser_cache_clear.add_argument("--all", action="store_true", help="Clear all entries (not just expired)")
+    parser_cache_clear.add_argument("--force", "-f", action="store_true", help="Skip confirmation for --all")
+    parser_cache_clear.set_defaults(func=cmd_cache_clear)
+
+    # Notify command
+    parser_notify = subparsers.add_parser("notify", help="Test email notifications")
+    parser_notify.add_argument(
+        "--test",
+        action="store_true",
+        required=True,
+        help="Send test email",
+    )
+    parser_notify.add_argument(
+        "--to",
+        help="Override recipient for test",
+    )
+    parser_notify.set_defaults(func=cmd_notify_test)
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -364,6 +755,12 @@ def main():
     if not args.command:
         parser.print_help()
         return 0
+
+    # Handle schedule subcommand
+    if args.command == "schedule":
+        if not args.schedule_command:
+            parser_schedule.print_help()
+            return 0
 
     # Run command
     return args.func(args)

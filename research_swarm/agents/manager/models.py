@@ -151,6 +151,15 @@ class ManagerOutput(BaseModel):
         None,
         description="Processing time breakdown by agent"
     )
+    cost_by_agent: Dict[str, float] = Field(
+        default_factory=lambda: {
+            "fundamentalist": 0.0,
+            "news_hound": 0.0,
+            "quant": 0.0,
+            "manager": 0.0,
+        },
+        description="Cost breakdown by agent (USD)"
+    )
 
     @field_validator("key_insights", "risk_factors")
     @classmethod

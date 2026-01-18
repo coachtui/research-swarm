@@ -1,73 +1,72 @@
-# Phase 8: Report Generation
+# Phase 11 Session 3: Cost Dashboard & Visibility
 
-**Status**: Planning Complete - Ready for Implementation
-**Duration**: ~8 hours (2-3 sessions)
-**Owner**: Builder Agent
-**Dependencies**: Phase 7 Complete (Orchestration)
-**Handoff Doc**: `PHASE_8_HANDOFF.md`
-**Plan**: `/Users/tui/.claude/plans/polymorphic-tinkering-clock.md`
-**Started**: 2026-01-17
+**Status**: 🚧 IN PROGRESS
+**Duration**: ~2 hours
+**Owner**: Lead Builder Agent
+**Dependencies**: Phase 11 Sessions 1 & 2 Complete (24 tests passing)
+**Started**: 2026-01-18
 
 ---
 
-## Phase Objectives
+## Objectives
 
-Build the **Report Generation System** that:
-1. **Extracts** analysis data from completed SwarmRun instances
-2. **Generates** professional Markdown reports with Jinja2 templates
-3. **Creates** visualizations (moat charts, supply chain graphs) with matplotlib
-4. **Converts** to PDF using WeasyPrint
-5. **Integrates** with CLI via new `report` command
+1. Add per-agent cost tracking to ManagerOutput
+2. Implement cost aggregation by agent in persistence layer
+3. Enhance cost CLI with comprehensive dashboard
+4. Add cost section to report templates
+5. Create comprehensive tests (~10-12 tests)
 
-**Success Criteria**: Generate a professional PDF report with charts from a completed swarm run.
+**Success Criteria**: Full visibility into cost breakdown by agent, trends, and budget utilization
 
 ---
 
 ## Tasks
 
-### Infrastructure Layer
-- [ ] Add dependencies (weasyprint, jinja2, markdown) to requirements.txt
-- [ ] Install system dependencies (brew install cairo pango gdk-pixbuf)
-- [ ] Create `research_swarm/reports/` module structure
+### Task 3.1: Add cost_by_agent to ManagerOutput
+- [ ] **Step 1**: Add cost_by_agent field to ManagerOutput model (research_swarm/agents/manager/models.py:153)
+- [ ] **Step 2**: Find where ManagerOutput is instantiated (likely research_swarm/orchestration/graph.py)
+- [ ] **Step 3**: Wire up cost_tracker to populate the new field
 
-### Core Implementation
-- [ ] **Step 1**: Implement `models.py` (ReportConfig, ReportData, StockReportData, ReportOutput)
-- [ ] **Step 2**: Implement `data_extractor.py` (SwarmRun → ReportData transformation)
-- [ ] **Step 3**: Create Jinja2 templates (5 templates in templates/ directory)
-- [ ] **Step 4**: Implement `renderer.py` (Jinja2 template rendering)
-- [ ] **Step 5**: Implement `visualizations.py` (matplotlib charts + NetworkX graphs)
-- [ ] **Step 6**: Implement `pdf_generator.py` (Markdown → PDF via WeasyPrint)
-- [ ] **Step 7**: Implement `generator.py` (main ReportGenerator orchestrator)
-- [ ] **Step 8**: Update `__init__.py` (public API exports)
+### Task 3.2: Add get_cost_by_agent() to Persistence
+- [ ] **Step 4**: Add get_cost_by_agent() method to PersistenceManager (research_swarm/orchestration/persistence.py:468)
+- [ ] **Step 5**: Verify method queries cost_log table correctly
 
-### CLI Integration
-- [ ] **Step 9**: Add `report` command to `__main__.py`
+### Task 3.3: Enhance cost CLI Command
+- [ ] **Step 6**: Add --dashboard flag to cost command parser (research_swarm/__main__.py:658)
+- [ ] **Step 7**: Replace cmd_cost() function with enhanced dashboard version (research_swarm/__main__.py:384-411)
+- [ ] **Step 8**: Test dashboard displays monthly summary, agent breakdown, and 3-month trend
 
-### Testing
-- [ ] **Step 10**: Create `tests/test_reports.py` (unit + integration tests)
-- [ ] **Step 11**: Manual verification with real swarm run data
+### Task 3.4: Add Cost Section to Report Template
+- [ ] **Step 9**: Add cost summary section to executive_summary.md.j2 (research_swarm/reports/templates/executive_summary.md.j2:35)
+- [ ] **Step 10**: Verify template renders cost_by_ticker data
+
+### Task 3.5: Create Comprehensive Tests
+- [ ] **Step 11**: Create tests/test_cost_dashboard.py with:
+  - [ ] TestGetCostByAgent (3 tests)
+  - [ ] TestCostDashboard (3 tests)
+  - [ ] TestReportCostSection (1 test)
+- [ ] **Step 12**: Run all Phase 11 Session 3 tests
+- [ ] **Step 13**: Run full test suite to verify no regressions
+
+### Final Verification
+- [ ] **Step 14**: Test dashboard CLI manually: `python -m research_swarm cost --dashboard`
+- [ ] **Step 15**: Verify all ~236 tests passing (226 existing + ~10 new)
+- [ ] **Step 16**: Create PHASE_11_SESSION_3_COMPLETE.md handoff
 
 ---
 
 ## Success Criteria
 
 ### Must Have
-1. [ ] `pip install weasyprint jinja2 markdown` succeeds
-2. [ ] `pytest tests/test_reports.py -v` passes
-3. [ ] `python -m research_swarm report <run_id>` generates MD + PDF
-4. [ ] Markdown renders correctly in viewer
-5. [ ] PDF renders with embedded charts
-6. [ ] Supply chain graph shows nodes/edges
-7. [ ] Moat breakdown charts are color-coded (green/yellow/red)
-8. [ ] Watchlist section highlights correct candidates
-9. [ ] Report generation < 30 seconds
-10. [ ] Cost = $0 (no LLM API calls)
-
-### Nice to Have
-- [ ] Custom CSS styling for PDF
-- [ ] Company logo support
-- [ ] Multi-format export (HTML)
-- [ ] Interactive supply chain visualization
+1. [ ] cost_by_agent field added to ManagerOutput with proper wiring
+2. [ ] get_cost_by_agent() method working in persistence layer
+3. [ ] `python -m research_swarm cost --dashboard` shows:
+   - Monthly summary
+   - Per-agent cost breakdown
+   - 3-month trend with bar charts
+4. [ ] Cost section appears in generated reports
+5. [ ] All new tests passing (~10-12 tests)
+6. [ ] Full test suite still passing (226+ tests)
 
 ---
 
@@ -75,116 +74,121 @@ Build the **Report Generation System** that:
 
 | Component | Cost |
 |-----------|------|
-| Report generation | $0 |
-| Dependencies | Free (open source) |
+| API calls | $0 (all mocked in tests) |
+| Development time | ~2 hours |
 
-**This phase has zero API costs** - it's pure data transformation.
-
----
-
-## Technical Architecture
-
-### Module Structure
-```
-research_swarm/reports/
-├── __init__.py              # Public API: generate_report()
-├── models.py                # Pydantic models
-├── data_extractor.py        # SwarmRun → ReportData
-├── visualizations.py        # matplotlib + networkx charts
-├── templates/               # Jinja2 templates
-│   ├── base.md.j2
-│   ├── executive_summary.md.j2
-│   ├── stock_analysis.md.j2
-│   ├── supply_chain.md.j2
-│   └── watchlist.md.j2
-├── renderer.py              # Jinja2 rendering
-├── pdf_generator.py         # WeasyPrint PDF generation
-└── generator.py             # Main ReportGenerator class
-```
-
-### Data Flow
-```
-1. User runs: python -m research_swarm report <run_id>
-   ↓
-2. Load SwarmRun from SQLite persistence
-   ↓
-3. Extract ReportData (stocks, top_picks, watchlist, costs)
-   ↓
-4. Generate charts (moat breakdowns, supply chain graphs)
-   ↓
-5. Render Jinja2 templates → Markdown
-   ↓
-6. Convert Markdown → PDF (WeasyPrint)
-   ↓
-7. Output: reports/report_<run_id>.md + .pdf + charts/
-```
-
-### Report Sections
-1. **Executive Summary**: Overview, top N picks with thesis/insights
-2. **Stock Analysis**: Per-stock moat breakdown tables, narratives
-3. **Supply Chain**: Network graphs, hidden dependencies
-4. **Watchlist**: Candidates comparison, investment theses
+**This session has zero API costs - all tests use mocked data.**
 
 ---
 
-## Key Design Decisions
+## Technical Details
 
-1. **WeasyPrint over Pandoc**: Pure Python, no external binary dependencies
-2. **Jinja2 templates**: Flexible, maintainable, industry standard
-3. **matplotlib + NetworkX**: Existing dependencies, proven libraries
-4. **Markdown intermediate**: Human-readable, versionable output
-5. **Charts as PNG**: Simple, universal, embedded in both MD and PDF
+### New ManagerOutput Field
+```python
+cost_by_agent: Dict[str, float] = Field(
+    default_factory=lambda: {
+        "fundamentalist": 0.0,
+        "news_hound": 0.0,
+        "quant": 0.0,
+        "manager": 0.0,
+    },
+    description="Cost breakdown by agent (USD)"
+)
+```
 
----
+### New Persistence Method
+```python
+def get_cost_by_agent(self, year: int, month: int) -> Dict[str, float]:
+    """Aggregate costs by agent for a specific month."""
+    # SQL query against cost_log table grouping by agent_name
+```
 
-## CLI Commands
+### Dashboard Output Format
+```
+=================================================
+       RESEARCH SWARM COST DASHBOARD
+=================================================
 
-```bash
-# Full report (markdown + PDF + charts)
-python -m research_swarm report <run_id>
+--- 2026-01 Summary ---
+Total Spend:     $9.14
+Budget:          $200.00
+Remaining:       $190.86
+Utilization:     4.6%
+Runs:            1
+Stocks Analyzed: 20
 
-# Markdown only, no charts
-python -m research_swarm report <run_id> --format markdown --no-charts
+--- Cost by Agent ---
+  fundamentalist  $0.0040 (40.0%)
+  news_hound     $0.0030 (30.0%)
+  quant          $0.0020 (20.0%)
+  manager        $0.0010 (10.0%)
 
-# PDF to custom directory with 5 top picks
-python -m research_swarm report <run_id> --format pdf --output-dir ./output --top-picks 5
+--- 3-Month Trend ---
+  2025-11: $  8.00 [########            ] OK
+  2025-12: $  9.00 [#########           ] OK
+  2026-01: $ 10.00 [##########          ] OK
 ```
 
 ---
 
 ## Files to Create
 
-| File | Lines (est.) | Description |
-|------|--------------|-------------|
-| models.py | ~150 | Pydantic models |
-| data_extractor.py | ~100 | Data transformation |
-| visualizations.py | ~200 | Chart generation |
-| templates/*.j2 | ~200 | 5 Jinja2 templates |
-| renderer.py | ~80 | Template rendering |
-| pdf_generator.py | ~100 | PDF generation |
-| generator.py | ~150 | Main orchestrator |
-| __init__.py | ~50 | Public API |
-| test_reports.py | ~200 | Tests |
-| **Total** | ~1,230 | |
+| File | Lines (est.) | Tests | Description |
+|------|--------------|-------|-------------|
+| tests/test_cost_dashboard.py | ~500 | 7-10 | Cost dashboard tests |
+
+## Files to Modify
+
+| File | Lines | Change |
+|------|-------|--------|
+| research_swarm/agents/manager/models.py | +8 | Add cost_by_agent field |
+| research_swarm/orchestration/persistence.py | +25 | Add get_cost_by_agent() |
+| research_swarm/orchestration/graph.py | +10 | Wire cost_tracker to ManagerOutput |
+| research_swarm/__main__.py | +50 | Add dashboard CLI |
+| research_swarm/reports/templates/executive_summary.md.j2 | +20 | Add cost section |
 
 ---
 
-## Implementation Order
+## Critical Notes
 
-1. Models (foundation)
-2. Data extractor (data access)
-3. Templates (output structure)
-4. Renderer (template processing)
-5. Visualizations (charts)
-6. PDF generator (final output)
-7. Main generator (orchestration)
-8. CLI integration
-9. Tests
-10. Manual verification
+### 1. ManagerOutput Instantiation
+After adding cost_by_agent field, MUST find where ManagerOutput is created and populate it. Search strategy:
+```bash
+grep -r "ManagerOutput(" research_swarm/
+grep -r "cost_tracker" research_swarm/orchestration/
+```
+
+### 2. Backward Compatibility
+Adding cost_by_agent with default_factory ensures backward compatibility with existing persisted data.
+
+### 3. Cost Log Schema
+The cost_log table has: timestamp, ticker, agent_name, cost_usd
+The get_cost_by_agent() method uses the existing agent_name column.
 
 ---
 
-**Last Updated**: 2026-01-17
-**Status**: Planning Complete - Ready for Builder Agent
-**Previous Phase**: Phase 7 - Orchestration & Workflow ✅
-**Next Phase**: Phase 9 - Scheduling & Automation
+## Verification Commands
+
+```bash
+# Test new persistence method
+python -m pytest tests/test_cost_dashboard.py::TestGetCostByAgent -v
+
+# Test dashboard CLI
+python -m pytest tests/test_cost_dashboard.py::TestCostDashboard -v
+
+# Test template changes
+python -m pytest tests/test_cost_dashboard.py::TestReportCostSection -v
+
+# Run full test suite
+eval "$(pyenv init -)" && pytest -m "not integration" -v
+
+# Test dashboard manually
+python -m research_swarm cost --dashboard
+```
+
+---
+
+**Last Updated**: 2026-01-18
+**Status**: READY FOR IMPLEMENTATION
+**Previous Phase**: Phase 11 Sessions 1 & 2 ✅ (24 tests passing)
+**Next Phase**: Phase 11 Complete

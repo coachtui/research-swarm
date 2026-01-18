@@ -4,7 +4,7 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from ..config import settings
 from ..logger import logger
@@ -385,3 +385,116 @@ class PersistenceManager:
                 ),
             )
             conn.commit()
+
+    def get_monthly_costs(self, year: int, month: int) -> dict:
+        """Aggregate costs for a specific month.
+
+        Args:
+            year: Year (e.g., 2024)
+            month: Month (1-12)
+
+        Returns:
+            Dictionary with total_cost, run_count, stock_count,
+            cost_by_day, cost_by_ticker
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Date range for the month
+            start_date = f"{year:04d}-{month:02d}-01"
+            if month == 12:
+                end_date = f"{year + 1:04d}-01-01"
+            else:
+                end_date = f"{year:04d}-{month + 1:02d}-01"
+
+            # Aggregate from cost_log table
+            cursor = conn.execute(
+                """
+                SELECT
+                    SUM(cost_usd) as total_cost,
+                    COUNT(DISTINCT run_id) as run_count,
+                    COUNT(*) as entry_count
+                FROM cost_log
+                WHERE timestamp >= ? AND timestamp < ?
+                """,
+                (start_date, end_date),
+            )
+
+            row = cursor.fetchone()
+            total_cost = row["total_cost"] or 0.0
+            run_count = row["run_count"] or 0
+
+            # Cost by day
+            cursor = conn.execute(
+                """
+                SELECT DATE(timestamp) as date, SUM(cost_usd) as cost
+                FROM cost_log
+                WHERE timestamp >= ? AND timestamp < ?
+                GROUP BY DATE(timestamp)
+                """,
+                (start_date, end_date),
+            )
+            cost_by_day = {row["date"]: row["cost"] for row in cursor.fetchall()}
+
+            # Cost by ticker
+            cursor = conn.execute(
+                """
+                SELECT ticker, SUM(cost_usd) as cost
+                FROM cost_log
+                WHERE timestamp >= ? AND timestamp < ?
+                GROUP BY ticker
+                """,
+                (start_date, end_date),
+            )
+            cost_by_ticker = {row["ticker"]: row["cost"] for row in cursor.fetchall()}
+
+            # Stock count
+            cursor = conn.execute(
+                """
+                SELECT COUNT(DISTINCT ticker) as stock_count
+                FROM cost_log
+                WHERE timestamp >= ? AND timestamp < ?
+                """,
+                (start_date, end_date),
+            )
+            stock_count = cursor.fetchone()["stock_count"] or 0
+
+            return {
+                "total_cost": total_cost,
+                "run_count": run_count,
+                "stock_count": stock_count,
+                "cost_by_day": cost_by_day,
+                "cost_by_ticker": cost_by_ticker,
+            }
+
+    def get_cost_by_agent(self, year: int, month: int) -> Dict[str, float]:
+        """Aggregate costs by agent for a specific month.
+
+        Args:
+            year: Year (e.g., 2026)
+            month: Month (1-12)
+
+        Returns:
+            Dictionary mapping agent_name to total cost USD.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            start_date = f"{year:04d}-{month:02d}-01"
+            if month == 12:
+                end_date = f"{year + 1:04d}-01-01"
+            else:
+                end_date = f"{year:04d}-{month + 1:02d}-01"
+
+            cursor = conn.execute(
+                """
+                SELECT agent_name, SUM(cost_usd) as cost
+                FROM cost_log
+                WHERE timestamp >= ? AND timestamp < ?
+                GROUP BY agent_name
+                ORDER BY cost DESC
+                """,
+                (start_date, end_date),
+            )
+
+            return {row["agent_name"]: row["cost"] for row in cursor.fetchall()}

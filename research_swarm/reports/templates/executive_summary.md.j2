@@ -32,3 +32,20 @@ Analyzed **{{ report.total_stocks }}** stocks for fiscal year {{ report.fiscal_y
 {% if not loop.last %}---{% endif %}
 
 {% endfor %}
+
+### Cost Summary
+
+| Metric | Value |
+|--------|-------|
+| Total Cost | ${{ "%.2f"|format(report.total_cost_usd) }} |
+| Cost per Stock | ${{ "%.3f"|format(report.total_cost_usd / report.total_stocks) if report.total_stocks > 0 else "0.000" }} |
+| Budget Utilization | {{ "%.1f"|format(report.total_cost_usd / 200.0 * 100) }}% |
+
+{% if report.cost_by_ticker %}
+#### Cost by Stock
+| Ticker | Cost |
+|--------|------|
+{% for ticker, cost in report.cost_by_ticker.items() %}
+| {{ ticker }} | ${{ "%.3f"|format(cost) }} |
+{% endfor %}
+{% endif %}
