@@ -1,0 +1,23 @@
+# Environment
+.env
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Data & Cache
+data/cache/
+data/state/
+data/logs/
+
+# Reports (optionally commit examples later)
+reports/*.pdf
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
