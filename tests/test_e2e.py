@@ -37,10 +37,10 @@ def mock_manager_output():
             fundamentalist_output={},
             news_hound_output={},
             quant_output={},
-            synthesis_narrative="Test synthesis for " + ticker,
+            synthesis_narrative=f"Comprehensive test synthesis for {ticker} covering all key aspects of the investment analysis including fundamental, technical, and market sentiment factors.",
             key_insights=["Insight 1", "Insight 2", "Insight 3"],
             risk_factors=["Risk 1", "Risk 2", "Risk 3"],
-            investment_thesis="Test investment thesis for " + ticker,
+            investment_thesis=f"Test investment thesis for {ticker} with sufficient detail to meet validation requirements.",
             moat_score=moat_score,
             moat_breakdown=MoatScoreBreakdown(
                 financial_health=moat_score,
