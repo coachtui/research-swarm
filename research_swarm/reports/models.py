@@ -97,7 +97,11 @@ class ReportData(BaseModel):
         default_factory=datetime.now, description="Report generation timestamp"
     )
     analysis_date: str = Field(..., description="Date of analysis (YYYY-MM-DD)")
-    fiscal_year: int = Field(..., description="Fiscal year analyzed")
+    analysis_period: str = Field(..., description="Analysis period (e.g., 'TTM Q4 2024 - Q3 2025')")
+    quarters: List[str] = Field(default_factory=list, description="Quarters analyzed (for TTM mode)")
+
+    # Backward compatibility
+    fiscal_year: Optional[int] = Field(None, description="[Deprecated] Fiscal year for annual analysis")
     stocks: List[StockReportData] = Field(
         default_factory=list, description="All analyzed stocks"
     )

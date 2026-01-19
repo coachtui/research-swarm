@@ -59,7 +59,8 @@ class SwarmRun(BaseModel):
     run_id: str = Field(default_factory=lambda: str(uuid4()))
     run_name: Optional[str] = None
     tickers: List[str]
-    fiscal_year: int = 2024
+    analysis_period: str = Field(..., description="Analysis period (e.g., 'TTM Q4 2024 - Q3 2025')")
+    quarters: List[str] = Field(default_factory=list, description="Quarters for TTM analysis")
     news_days_back: int = 30
     max_retries: int = 3
     status: RunStatus
@@ -72,6 +73,9 @@ class SwarmRun(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     elapsed_seconds: float = 0.0
+
+    # Backward compatibility
+    fiscal_year: Optional[int] = Field(None, description="[Deprecated] Fiscal year for annual analysis")
 
     @property
     def success_rate(self) -> float:

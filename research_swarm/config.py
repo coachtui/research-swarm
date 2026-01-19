@@ -30,6 +30,21 @@ class Settings(BaseSettings):
     max_tokens: int = 4000
     temperature: float = 0.1
 
+    # Phase 9: Automation & Scheduling
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+
+    sendgrid_api_key: str = ""
+
+    notification_recipients: str = ""  # Comma-separated emails
+    notification_from_email: str = "research-swarm@localhost"
+
+    monthly_budget_usd: float = 200.0
+    budget_alert_threshold_usd: float = 180.0
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Ensure directories exist

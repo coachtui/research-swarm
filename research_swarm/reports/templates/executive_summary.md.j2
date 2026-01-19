@@ -1,6 +1,6 @@
 ## Executive Summary
 
-Analyzed **{{ report.total_stocks }}** stocks for fiscal year {{ report.fiscal_year }}. Average Moat Score: **{{ "%.1f"|format(report.average_moat_score) }}/10**
+Analyzed **{{ report.total_stocks }}** stocks for {{ report.analysis_period }}. Average Moat Score: **{{ "%.1f"|format(report.average_moat_score) }}/10**
 
 {% if report.watchlist_candidates|length > 0 %}
 **{{ report.watchlist_candidates|length }} Watchlist Candidate(s)** identified (moat score ≥ 8.0)

@@ -1,0 +1,29 @@
+# Research Swarm Watchlist
+# Add stock tickers one per line
+# Lines starting with # are comments
+
+# Tech Giants
+NVDA
+MSFT
+AAPL
+GOOG
+AMZN
+CLS
+RAIL
+COHR
+
+# Financials
+JPM
+V
+MA
+
+# Healthcare
+UNH
+JNJ
+LLY
+
+# Consumer
+COST
+WMT
+TGT
+BABA

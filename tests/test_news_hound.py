@@ -131,7 +131,7 @@ def test_confidence_calculation():
         CatalystEvent(
             event_type=CatalystType.MA,
             impact=CatalystImpact.POSITIVE,
-            description="Event",
+            description="Test catalyst event description",
             confidence=0.8,
             source_articles=[]
         )
@@ -240,6 +240,7 @@ def test_pydantic_validation_news_hound_output():
 # Integration Tests
 # ============================================================================
 
+@pytest.mark.integration
 def test_analyze_nvda_news():
     """
     Integration test: Full workflow for NVDA.
@@ -290,6 +291,7 @@ def test_analyze_nvda_news():
         pytest.fail(f"Integration test failed: {e}")
 
 
+@pytest.mark.integration
 def test_analyze_amd_news():
     """Integration test: Analyze AMD news."""
     try:
@@ -307,6 +309,7 @@ def test_analyze_amd_news():
         pytest.fail(f"AMD integration test failed: {e}")
 
 
+@pytest.mark.integration
 def test_analyze_tsmc_news():
     """Integration test: Analyze TSMC news."""
     try:
@@ -324,6 +327,7 @@ def test_analyze_tsmc_news():
         pytest.fail(f"TSMC integration test failed: {e}")
 
 
+@pytest.mark.integration
 def test_no_articles_graceful_handling():
     """Test graceful handling when no articles are found."""
     # Use a very obscure ticker that likely has no news

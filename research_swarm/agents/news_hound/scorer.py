@@ -8,6 +8,7 @@ from typing import Tuple, List
 from langchain_anthropic import ChatAnthropic
 from research_swarm.logger import logger
 from research_swarm.config import settings
+from research_swarm.utils import extract_token_usage
 from research_swarm.agents.news_hound.prompts import SENTIMENT_SCORING_PROMPT
 from research_swarm.agents.news_hound.models import (
     NewsArticle,
@@ -20,14 +21,14 @@ class SentimentScorer:
     """Scores news sentiment across multiple dimensions."""
 
     def __init__(self):
-        """Initialize scorer with Sonnet model."""
-        # Use Sonnet for nuanced scoring
-        self.sonnet = ChatAnthropic(
-            model="claude-3-sonnet-20240229",
+        """Initialize scorer with Haiku model."""
+        # Use Haiku for efficient scoring
+        self.haiku = ChatAnthropic(
+            model="claude-3-5-haiku-20241022",
             api_key=settings.anthropic_api_key,
             temperature=0.3,
         )
-        logger.info("SentimentScorer initialized with Sonnet")
+        logger.info("SentimentScorer initialized with Haiku")
 
     def score_sentiment(
         self,
@@ -36,7 +37,7 @@ class SentimentScorer:
         article_count: int,
         sentiment_analysis: str,
         catalyst_events: List[CatalystEvent]
-    ) -> Tuple[float, SentimentBreakdown, float]:
+    ) -> Tuple[float, SentimentBreakdown, float, int]:
         """
         Score news sentiment across 4 dimensions.
 
@@ -48,7 +49,7 @@ class SentimentScorer:
             catalyst_events: Detected catalyst events
 
         Returns:
-            Tuple of (sentiment_score, breakdown, confidence)
+            Tuple of (sentiment_score, breakdown, confidence, tokens_used)
         """
         logger.info(f"Scoring sentiment for {ticker} ({article_count} articles, {len(catalyst_events)} catalysts)")
 
@@ -68,8 +69,9 @@ class SentimentScorer:
         )
 
         try:
-            response = self.sonnet.invoke(prompt)
+            response = self.haiku.invoke(prompt)
             response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
 
             # Extract JSON from response
             json_text = self._extract_json(response_text)
@@ -93,10 +95,10 @@ class SentimentScorer:
                 f"✓ Scored {ticker} sentiment: {sentiment_score:.2f}/10 "
                 f"(Tone:{breakdown.overall_tone:.1f} Cat:{breakdown.catalyst_impact:.1f} "
                 f"Mkt:{breakdown.market_perception:.1f} Fwd:{breakdown.forward_looking:.1f}) "
-                f"Conf:{confidence:.2f}"
+                f"Conf:{confidence:.2f} ({tokens_used} tokens)"
             )
 
-            return sentiment_score, breakdown, confidence
+            return sentiment_score, breakdown, confidence, tokens_used
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse scoring JSON: {e}")
@@ -192,14 +194,14 @@ class SentimentScorer:
 
         return "\n".join(formatted)
 
-    def _default_scores(self) -> Tuple[float, SentimentBreakdown, float]:
+    def _default_scores(self) -> Tuple[float, SentimentBreakdown, float, int]:
         """
         Return default scores when scoring fails.
 
         Returns neutral sentiment (5.0) across all dimensions.
 
         Returns:
-            Tuple of (default_score, default_breakdown, low_confidence)
+            Tuple of (default_score, default_breakdown, low_confidence, zero_tokens)
         """
         breakdown = SentimentBreakdown(
             overall_tone=5.0,
@@ -207,7 +209,7 @@ class SentimentScorer:
             market_perception=5.0,
             forward_looking=5.0
         )
-        return 5.0, breakdown, 0.3
+        return 5.0, breakdown, 0.3, 0
 
     def _extract_json(self, text: str) -> str:
         """

@@ -8,6 +8,7 @@ import json
 from typing import Dict, Any, List, Tuple
 from langchain_anthropic import ChatAnthropic
 from loguru import logger
+from research_swarm.utils import extract_token_usage
 
 from .prompts import (
     SYNTHESIS_PROMPT,
@@ -37,7 +38,7 @@ class ManagerAnalyzer:
 
         # Sonnet for synthesis and thesis generation
         self.sonnet = ChatAnthropic(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             api_key=ANTHROPIC_API_KEY,
             temperature=0.3,
         )
@@ -48,7 +49,7 @@ class ManagerAnalyzer:
         self,
         ticker: str,
         analysis_date: str,
-        fiscal_year: int,
+        analysis_period: str,
         fundamentalist_output: Dict[str, Any],
         news_hound_output: Dict[str, Any],
         quant_output: Dict[str, Any],
@@ -59,7 +60,7 @@ class ManagerAnalyzer:
         Args:
             ticker: Stock ticker
             analysis_date: Analysis date
-            fiscal_year: Fiscal year
+            analysis_period: Analysis period (e.g., "TTM Q4 2024 - Q3 2025")
             fundamentalist_output: Output from Fundamentalist agent
             news_hound_output: Output from News Hound agent
             quant_output: Output from Quant agent
@@ -89,7 +90,7 @@ class ManagerAnalyzer:
         prompt = SYNTHESIS_PROMPT.format(
             ticker=ticker,
             analysis_date=analysis_date,
-            fiscal_year=fiscal_year,
+            analysis_period=analysis_period,
             financial_health_score=financial_health_score,
             fundamentalist_summary=fundamentalist_summary,
             fundamentalist_narrative=fundamentalist_narrative,
@@ -105,7 +106,7 @@ class ManagerAnalyzer:
         try:
             response = self.sonnet.invoke(prompt)
             response_text = response.content.strip()
-            tokens_used = response.response_metadata.get("usage", {}).get("total_tokens", 0)
+            tokens_used = extract_token_usage(response.response_metadata)
 
             # Extract JSON from response
             json_text = self._extract_json(response_text)
@@ -191,7 +192,7 @@ class ManagerAnalyzer:
         try:
             response = self.sonnet.invoke(prompt)
             response_text = response.content.strip()
-            tokens_used = response.response_metadata.get("usage", {}).get("total_tokens", 0)
+            tokens_used = extract_token_usage(response.response_metadata)
 
             # Extract JSON from response
             json_text = self._extract_json(response_text)
@@ -220,19 +221,29 @@ class ManagerAnalyzer:
     # ========================================================================
 
     def _extract_json(self, text: str) -> str:
-        """Extract JSON from LLM response that might have markdown formatting."""
+        """Extract JSON from LLM response that might have markdown formatting or preamble text."""
         text = text.strip()
 
-        # Remove markdown code blocks if present
-        if text.startswith("```json"):
-            text = text[7:]
-        elif text.startswith("```"):
-            text = text[3:]
+        # Try markdown code blocks first
+        if "```json" in text:
+            start = text.find("```json") + 7
+            end = text.find("```", start)
+            if end > start:
+                return text[start:end].strip()
+        elif "```" in text:
+            start = text.find("```") + 3
+            end = text.find("```", start)
+            if end > start:
+                return text[start:end].strip()
 
-        if text.endswith("```"):
-            text = text[:-3]
+        # Fallback: find JSON object boundaries (handles preamble text before JSON)
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+        if first_brace != -1 and last_brace > first_brace:
+            return text[first_brace:last_brace + 1]
 
-        return text.strip()
+        # Last resort: return as-is and let json.loads fail with useful error
+        return text
 
     def _format_fundamentalist_summary(self, output: Dict[str, Any]) -> str:
         """Format fundamentalist output for prompt."""

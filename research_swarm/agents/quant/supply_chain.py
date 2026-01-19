@@ -2,13 +2,14 @@
 Supply chain graph builder for the Quant agent.
 
 Builds NetworkX graphs from supply chain data, identifies hidden dependencies,
-and maps tier-2/3 suppliers.
+and maps tier-2/3 suppliers. Enhanced with curated knowledge base for bottleneck identification.
 """
 from typing import List, Optional, Dict, Set, Tuple
 import networkx as nx
 from loguru import logger
 
 from research_swarm.agents.fundamentalist.models import SupplyChainOutput
+from research_swarm.data.supply_chain_knowledge import supply_chain_kb
 from .models import (
     SupplyChainNode,
     SupplyChainEdge,
@@ -34,10 +35,7 @@ TICKER_MAPPINGS = {
     "Synopsys": "SNPS",
     "Cadence": "CDNS",
 
-    # Tier-2 Suppliers (suppliers to TSMC, ASML, etc.)
-    "Nittobo Glass": None,  # Private company
-    "Zeiss": None,  # Private (Carl Zeiss AG)
-    "Trumpf": None,  # Private
+    # Tier-2 Suppliers
     "Shin-Etsu Chemical": "4063.T",
     "Tokyo Electron": "8035.T",
     "Advantest": "6857.T",
@@ -49,7 +47,6 @@ TICKER_MAPPINGS = {
     "NVIDIA": "NVDA",
     "Nvidia": "NVDA",
     "AMD": "AMD",
-    "Advanced Micro Devices": "AMD",
     "Qualcomm": "QCOM",
     "Apple": "AAPL",
     "Broadcom": "AVGO",
@@ -57,15 +54,11 @@ TICKER_MAPPINGS = {
 
 
 class SupplyChainGraphBuilder:
-    """
-    Builds supply chain graphs from fundamentalist data.
-
-    Supports multi-tier analysis and hidden dependency detection.
-    """
+    """Builds supply chain graphs from multiple data sources."""
 
     def __init__(self):
-        """Initialize the graph builder."""
-        self.ticker_cache: Dict[str, Optional[str]] = {}
+        """Initialize graph builder."""
+        logger.info("SupplyChainGraphBuilder initialized with knowledge base integration")
 
     def build_from_fundamentalist_data(
         self,
@@ -74,324 +67,194 @@ class SupplyChainGraphBuilder:
         max_depth: int = 2
     ) -> SupplyChainGraph:
         """
-        Build supply chain graph from Fundamentalist agent output.
+        Build supply chain graph from fundamentalist data + knowledge base.
 
         Args:
-            root_ticker: The root company ticker
-            supply_chain_data: SupplyChainOutput from Fundamentalist
-            max_depth: Maximum tier depth to explore (1=tier-1, 2=tier-2, etc.)
+            root_ticker: Root company ticker
+            supply_chain_data: Supply chain data from fundamentalist agent
+            max_depth: Maximum graph depth
 
         Returns:
-            SupplyChainGraph with nodes, edges, and analysis
+            SupplyChainGraph with nodes and edges
         """
-        logger.info(f"Building supply chain graph for {root_ticker} (max_depth={max_depth})")
+        logger.info(f"Building supply chain graph for {root_ticker}")
 
-        nodes: List[SupplyChainNode] = []
-        edges: List[SupplyChainEdge] = []
+        # Initialize graph
+        G = nx.DiGraph()
+        nodes = []
+        edges = []
 
-        # Create root node
+        # Add root node
         root_node = SupplyChainNode(
             id=root_ticker,
             name=root_ticker,
-            node_type=NodeType.ROOT,
             ticker=root_ticker,
-            description="Root company being analyzed",
+            node_type=NodeType.ROOT,
+            description="Root company being analyzed"
         )
         nodes.append(root_node)
+        G.add_node(root_ticker, **root_node.model_dump())
 
-        # Add customers (tier-1)
-        for customer in supply_chain_data.major_customers:
-            customer_ticker = self._resolve_ticker(customer)
-            customer_id = customer_ticker if customer_ticker else f"customer_{customer.replace(' ', '_')}"
-
-            customer_node = SupplyChainNode(
-                id=customer_id,
-                name=customer,
-                node_type=NodeType.CUSTOMER,
-                ticker=customer_ticker,
-                description=f"Major customer of {root_ticker}",
-            )
-            nodes.append(customer_node)
-
-            # Edge: root supplies to customer
-            edge = SupplyChainEdge(
-                source=root_ticker,
-                target=customer_id,
-                relation_type=RelationType.SUPPLIES_TO,
-                weight=0.8,  # Customers are important but not critical path
-                description=f"{root_ticker} supplies products/services to {customer}",
-            )
-            edges.append(edge)
-
-        # Add suppliers (tier-1)
-        tier1_suppliers = []
-        for supplier in supply_chain_data.major_suppliers:
-            supplier_ticker = self._resolve_ticker(supplier)
-            supplier_id = supplier_ticker if supplier_ticker else f"supplier_{supplier.replace(' ', '_')}"
+        # 1. Add suppliers from 10-K extraction
+        for supplier_name in supply_chain_data.major_suppliers or []:
+            supplier_id = self._normalize_name(supplier_name)
+            ticker = self._get_ticker(supplier_name)
 
             supplier_node = SupplyChainNode(
                 id=supplier_id,
-                name=supplier,
+                name=supplier_name,
+                ticker=ticker,
                 node_type=NodeType.SUPPLIER,
-                ticker=supplier_ticker,
-                description=f"Major supplier to {root_ticker}",
+                description=f"Supplier identified from 10-K filing"
             )
             nodes.append(supplier_node)
-            tier1_suppliers.append((supplier_id, supplier))
+            G.add_node(supplier_id, **supplier_node.model_dump())
 
-            # Edge: supplier supplies to root
+            # Add edge
             edge = SupplyChainEdge(
                 source=supplier_id,
                 target=root_ticker,
                 relation_type=RelationType.SUPPLIES_TO,
-                weight=1.0,  # Suppliers are critical path
-                description=f"{supplier} supplies components/materials to {root_ticker}",
+                description="Supply relationship"
             )
             edges.append(edge)
+            G.add_edge(supplier_id, root_ticker)
 
-        # Extend to tier-2 if max_depth >= 2
+        # 2. Enrich with knowledge base data
+        kb_suppliers = supply_chain_kb.get_suppliers(root_ticker)
+        for kb_supplier in kb_suppliers:
+            supplier_id = kb_supplier.ticker or self._normalize_name(kb_supplier.name)
+
+            # Check if already added from 10-K
+            if supplier_id not in G.nodes:
+                supplier_node = SupplyChainNode(
+                    id=supplier_id,
+                    name=kb_supplier.name,
+                    ticker=kb_supplier.ticker,
+                    node_type=NodeType.SUPPLIER,
+                    description=f"{kb_supplier.description} [KB: {kb_supplier.criticality}, Bottleneck: {kb_supplier.bottleneck_risk}]"
+                )
+                nodes.append(supplier_node)
+                G.add_node(supplier_id, **supplier_node.model_dump())
+
+                edge = SupplyChainEdge(
+                    source=supplier_id,
+                    target=root_ticker,
+                    relation_type=RelationType.SUPPLIES_TO,
+                    description=f"Critical dependency: {kb_supplier.dependency_level}"
+                )
+                edges.append(edge)
+                G.add_edge(supplier_id, root_ticker)
+
+            # Add metadata about bottleneck risk
+            G.nodes[supplier_id]['bottleneck_risk'] = kb_supplier.bottleneck_risk
+            G.nodes[supplier_id]['criticality'] = kb_supplier.criticality
+            G.nodes[supplier_id]['dependency_level'] = kb_supplier.dependency_level
+
+        # 3. Add customers from knowledge base
+        kb_customers = supply_chain_kb.get_customers(root_ticker)
+        for kb_customer in kb_customers:
+            customer_id = kb_customer.ticker or self._normalize_name(kb_customer.name)
+
+            customer_node = SupplyChainNode(
+                id=customer_id,
+                name=kb_customer.name,
+                ticker=kb_customer.ticker,
+                node_type=NodeType.CUSTOMER,
+                description=f"{kb_customer.description} [Revenue exposure: {kb_customer.revenue_exposure}]"
+            )
+            nodes.append(customer_node)
+            G.add_node(customer_id, **customer_node.model_dump())
+
+            edge = SupplyChainEdge(
+                source=root_ticker,
+                target=customer_id,
+                relation_type=RelationType.SUPPLIES_TO,
+                description=f"Customer relationship: {kb_customer.criticality}"
+            )
+            edges.append(edge)
+            G.add_edge(root_ticker, customer_id)
+
+        # 4. Add tier-2 suppliers (suppliers of suppliers) if depth allows
         if max_depth >= 2:
-            tier2_nodes, tier2_edges = self._extend_graph_tier2(tier1_suppliers, nodes)
-            nodes.extend(tier2_nodes)
-            edges.extend(tier2_edges)
+            for supplier in kb_suppliers:
+                if supplier.ticker:
+                    tier2_suppliers = supply_chain_kb.get_suppliers(supplier.ticker)
+                    for tier2_supplier in tier2_suppliers[:3]:  # Limit to top 3
+                        tier2_id = tier2_supplier.ticker or self._normalize_name(tier2_supplier.name)
 
-        # Build NetworkX graph for analysis
-        G = self._to_networkx(nodes, edges)
+                        if tier2_id not in G.nodes:
+                            tier2_node = SupplyChainNode(
+                                id=tier2_id,
+                                name=tier2_supplier.name,
+                                ticker=tier2_supplier.ticker,
+                                node_type=NodeType.SUPPLIER_T2,
+                                description=f"Tier-2 supplier: {tier2_supplier.description}"
+                            )
+                            nodes.append(tier2_node)
+                            G.add_node(tier2_id, **tier2_node.model_dump())
 
-        # Find critical paths
-        critical_paths = self._find_critical_paths(G, root_ticker)
+                            # Add edge from tier-2 to tier-1
+                            edge = SupplyChainEdge(
+                                source=tier2_id,
+                                target=supplier.ticker,
+                                relation_type=RelationType.SUPPLIES_TO,
+                                description=f"Tier-2 supply relationship"
+                            )
+                            edges.append(edge)
+                            G.add_edge(tier2_id, supplier.ticker)
 
-        # Identify hidden dependencies
-        hidden_dependencies = self._identify_hidden_dependencies(G, root_ticker, nodes, edges)
+                            # Add metadata
+                            G.nodes[tier2_id]['bottleneck_risk'] = tier2_supplier.bottleneck_risk
+                            G.nodes[tier2_id]['criticality'] = tier2_supplier.criticality
 
-        return SupplyChainGraph(
+        # 5. Identify critical paths (paths through bottleneck suppliers)
+        critical_paths = self._identify_critical_paths(G, root_ticker)
+
+        # Build final graph object
+        supply_chain_graph = SupplyChainGraph(
             root_ticker=root_ticker,
             nodes=nodes,
             edges=edges,
             max_depth=max_depth,
-            hidden_dependencies=hidden_dependencies,
-            critical_paths=critical_paths,
+            hidden_dependencies=[],
+            critical_paths=critical_paths
         )
 
-    def _extend_graph_tier2(
-        self,
-        tier1_suppliers: List[Tuple[str, str]],
-        existing_nodes: List[SupplyChainNode]
-    ) -> Tuple[List[SupplyChainNode], List[SupplyChainEdge]]:
-        """
-        Extend graph with tier-2 suppliers (suppliers of suppliers).
+        logger.success(
+            f"✓ Built enriched supply chain graph: {len(nodes)} nodes, "
+            f"{len(edges)} edges, {len(critical_paths)} critical paths"
+        )
 
-        Args:
-            tier1_suppliers: List of (supplier_id, supplier_name) tuples
-            existing_nodes: Existing nodes in the graph
+        return supply_chain_graph
 
-        Returns:
-            Tuple of (new_nodes, new_edges)
-        """
-        logger.info(f"Extending graph with tier-2 suppliers")
-
-        tier2_nodes: List[SupplyChainNode] = []
-        tier2_edges: List[SupplyChainEdge] = []
-
-        # Hardcoded tier-2 relationships (based on semiconductor industry knowledge)
-        tier2_relationships = {
-            "TSM": ["ASML", "Tokyo Electron", "Applied Materials", "Shin-Etsu Chemical"],
-            "ASML": ["Zeiss", "Trumpf", "Nittobo Glass"],
-            "INTC": ["ASML", "Applied Materials", "Lam Research"],
-            "AMAT": ["Applied Materials"],  # AMAT supplies to itself (different divisions)
-            "LRCX": ["Lam Research"],
-        }
-
-        existing_ids = {node.id for node in existing_nodes}
-
-        for supplier_id, supplier_name in tier1_suppliers:
-            # Check if we have known tier-2 suppliers for this tier-1 supplier
-            if supplier_id in tier2_relationships:
-                for tier2_name in tier2_relationships[supplier_id]:
-                    tier2_ticker = self._resolve_ticker(tier2_name)
-                    tier2_id = tier2_ticker if tier2_ticker else f"supplier_t2_{tier2_name.replace(' ', '_')}"
-
-                    # Skip if node already exists
-                    if tier2_id in existing_ids or any(n.id == tier2_id for n in tier2_nodes):
-                        # Add edge to existing node
-                        edge = SupplyChainEdge(
-                            source=tier2_id,
-                            target=supplier_id,
-                            relation_type=RelationType.SUPPLIES_TO,
-                            weight=0.9,
-                            description=f"{tier2_name} supplies to {supplier_name}",
-                        )
-                        tier2_edges.append(edge)
-                        continue
-
-                    # Create tier-2 node
-                    tier2_node = SupplyChainNode(
-                        id=tier2_id,
-                        name=tier2_name,
-                        node_type=NodeType.SUPPLIER_T2,
-                        ticker=tier2_ticker,
-                        description=f"Tier-2 supplier to {supplier_name}",
-                    )
-                    tier2_nodes.append(tier2_node)
-                    existing_ids.add(tier2_id)
-
-                    # Create edge
-                    edge = SupplyChainEdge(
-                        source=tier2_id,
-                        target=supplier_id,
-                        relation_type=RelationType.SUPPLIES_TO,
-                        weight=0.9,
-                        description=f"{tier2_name} supplies to {supplier_name}",
-                    )
-                    tier2_edges.append(edge)
-
-        logger.info(f"Added {len(tier2_nodes)} tier-2 nodes and {len(tier2_edges)} tier-2 edges")
-        return tier2_nodes, tier2_edges
-
-    def _to_networkx(
-        self,
-        nodes: List[SupplyChainNode],
-        edges: List[SupplyChainEdge]
-    ) -> nx.DiGraph:
-        """
-        Convert to NetworkX directed graph.
-
-        Args:
-            nodes: List of supply chain nodes
-            edges: List of supply chain edges
-
-        Returns:
-            NetworkX DiGraph
-        """
-        G = nx.DiGraph()
-
-        # Add nodes with attributes
-        for node in nodes:
-            G.add_node(
-                node.id,
-                name=node.name,
-                node_type=node.node_type.value,
-                ticker=node.ticker,
-                description=node.description,
-            )
-
-        # Add edges with attributes
-        for edge in edges:
-            G.add_edge(
-                edge.source,
-                edge.target,
-                relation_type=edge.relation_type.value,
-                weight=edge.weight,
-                description=edge.description,
-            )
-
-        return G
-
-    def _find_critical_paths(
-        self,
-        G: nx.DiGraph,
-        root_ticker: str
-    ) -> List[List[str]]:
-        """
-        Find critical paths in the supply chain.
-
-        Critical paths are the longest paths from tier-2/3 suppliers to the root.
-
-        Args:
-            G: NetworkX directed graph
-            root_ticker: Root company ticker
-
-        Returns:
-            List of critical paths (each path is a list of node IDs)
-        """
+    def _identify_critical_paths(self, G: nx.DiGraph, root: str) -> List[List[str]]:
+        """Identify critical paths through bottleneck suppliers."""
         critical_paths = []
 
-        # Find all nodes with no incoming edges (tier-2/3 suppliers or leaf nodes)
-        leaf_nodes = [node for node in G.nodes() if G.in_degree(node) == 0]
+        # Find all paths from suppliers to root
+        for node in G.nodes:
+            if node != root and G.nodes[node].get('bottleneck_risk') in ['extreme', 'high']:
+                try:
+                    # Find all simple paths from bottleneck to root
+                    paths = list(nx.all_simple_paths(G, source=node, target=root, cutoff=3))
+                    critical_paths.extend(paths[:2])  # Take top 2 paths per bottleneck
+                except nx.NetworkXNoPath:
+                    continue
 
-        # Find all simple paths from leaf nodes to root
-        for leaf in leaf_nodes:
-            try:
-                paths = list(nx.all_simple_paths(G, leaf, root_ticker))
-                critical_paths.extend(paths)
-            except nx.NetworkXNoPath:
-                continue
+        # Deduplicate
+        critical_paths = [list(x) for x in set(tuple(x) for x in critical_paths)]
 
-        # Sort by path length (longest first) and take top 5
-        critical_paths.sort(key=len, reverse=True)
-        return critical_paths[:5]
+        return critical_paths[:10]  # Return top 10 critical paths
 
-    def _identify_hidden_dependencies(
-        self,
-        G: nx.DiGraph,
-        root_ticker: str,
-        nodes: List[SupplyChainNode],
-        edges: List[SupplyChainEdge]
-    ) -> List[str]:
-        """
-        Identify hidden dependencies (tier-2/3 suppliers shared by multiple tier-1 suppliers).
+    def _normalize_name(self, name: str) -> str:
+        """Normalize supplier/customer name for node ID."""
+        return name.replace(" ", "_").replace("(", "").replace(")", "").upper()
 
-        These are critical bottlenecks in the supply chain.
+    def _get_ticker(self, name: str) -> Optional[str]:
+        """Get ticker symbol from company name if known."""
+        return TICKER_MAPPINGS.get(name)
 
-        Args:
-            G: NetworkX directed graph
-            root_ticker: Root company ticker
-            nodes: List of all nodes
-            edges: List of all edges
 
-        Returns:
-            List of hidden dependency node names
-        """
-        hidden_deps: Set[str] = set()
-
-        # Find tier-2 and tier-3 suppliers
-        tier2_plus_nodes = [
-            node for node in nodes
-            if node.node_type in [NodeType.SUPPLIER_T2, NodeType.SUPPLIER_T3]
-        ]
-
-        # For each tier-2+ supplier, check if it supplies to multiple tier-1 suppliers
-        for tier2_node in tier2_plus_nodes:
-            # Get all direct successors (nodes this supplies to)
-            successors = list(G.successors(tier2_node.id))
-
-            # Count how many are tier-1 suppliers or root
-            tier1_customers = []
-            for successor in successors:
-                successor_node = next((n for n in nodes if n.id == successor), None)
-                if successor_node and successor_node.node_type in [NodeType.SUPPLIER, NodeType.ROOT]:
-                    tier1_customers.append(successor)
-
-            # If supplies to multiple tier-1 suppliers, it's a hidden dependency
-            if len(tier1_customers) >= 2:
-                hidden_deps.add(tier2_node.name)
-                logger.info(
-                    f"Hidden dependency identified: {tier2_node.name} "
-                    f"supplies to {len(tier1_customers)} tier-1 suppliers"
-                )
-
-        return sorted(list(hidden_deps))
-
-    def _resolve_ticker(self, company_name: str) -> Optional[str]:
-        """
-        Resolve company name to stock ticker.
-
-        Args:
-            company_name: Company name
-
-        Returns:
-            Stock ticker or None if not found/not public
-        """
-        # Check cache
-        if company_name in self.ticker_cache:
-            return self.ticker_cache[company_name]
-
-        # Check known mappings
-        for key, ticker in TICKER_MAPPINGS.items():
-            if key.lower() in company_name.lower() or company_name.lower() in key.lower():
-                self.ticker_cache[company_name] = ticker
-                return ticker
-
-        # Not found
-        self.ticker_cache[company_name] = None
-        return None
+# Global instance
+graph_builder = SupplyChainGraphBuilder()

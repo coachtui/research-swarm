@@ -13,10 +13,10 @@ class MoatScoreBreakdown(BaseModel):
     Breakdown of the moat score components.
 
     Moat score formula (from master-plan.md):
-    - Financial Health (Fundamentalist): 30%
+    - Financial Health (Fundamentalist): 35%
     - Sentiment/Catalysts (News Hound): 20%
-    - Technical Strength (Quant): 20%
-    - Supply Chain Position (Quant): 30%
+    - Technical Strength (Quant): 25%
+    - Supply Chain Position (Quant): 20%
     """
 
     financial_health: float = Field(
@@ -49,10 +49,10 @@ class MoatScoreBreakdown(BaseModel):
         Calculate weighted average moat score.
 
         Weights:
-        - Financial Health: 30%
+        - Financial Health: 35%
         - Sentiment/Catalysts: 20%
-        - Technical Strength: 20%
-        - Supply Chain Position: 30%
+        - Technical Strength: 25%
+        - Supply Chain Position: 20%
 
         Returns:
             float: Moat score (0-10)
@@ -71,8 +71,12 @@ class ManagerOutput(BaseModel):
     # Input identifiers
     ticker: str = Field(..., description="Stock ticker symbol")
     analysis_date: str = Field(..., description="Date of analysis (YYYY-MM-DD)")
-    fiscal_year: int = Field(..., description="Fiscal year analyzed")
+    analysis_period: str = Field(..., description="Analysis period (e.g., 'TTM Q4 2024 - Q3 2025')")
+    quarters: List[str] = Field(default_factory=list, description="Quarters analyzed (for TTM mode)")
     news_days_back: int = Field(..., description="News lookback period in days")
+
+    # Backward compatibility
+    fiscal_year: Optional[int] = Field(None, description="[Deprecated] Fiscal year for annual analysis")
 
     # Individual agent outputs (stored as dicts for serialization)
     fundamentalist_output: Dict[str, Any] = Field(

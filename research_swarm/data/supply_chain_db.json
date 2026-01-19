@@ -1,0 +1,443 @@
+{
+  "relationships": {
+    "AAPL": {
+      "suppliers": [
+        {
+          "name": "Taiwan Semiconductor Manufacturing Company",
+          "ticker": "TSM",
+          "category": "semiconductors",
+          "criticality": "critical",
+          "description": "Exclusive manufacturer of Apple's custom chips (A-series, M-series)",
+          "dependency_level": "sole_source",
+          "revenue_exposure": "~25% of TSMC revenue from Apple",
+          "bottleneck_risk": "high",
+          "source": "Industry reports, TSMC disclosures"
+        },
+        {
+          "name": "Foxconn (Hon Hai Precision)",
+          "ticker": "2317.TW",
+          "category": "contract_manufacturing",
+          "criticality": "critical",
+          "description": "Primary iPhone assembly partner",
+          "dependency_level": "major",
+          "revenue_exposure": "~50% of Foxconn revenue from Apple",
+          "bottleneck_risk": "high",
+          "source": "Foxconn annual reports"
+        },
+        {
+          "name": "Samsung Electronics",
+          "ticker": "005930.KS",
+          "category": "displays_memory",
+          "criticality": "major",
+          "description": "OLED displays, NAND flash memory",
+          "dependency_level": "major",
+          "revenue_exposure": "~10-15% of component division",
+          "bottleneck_risk": "medium",
+          "source": "Industry analysis"
+        },
+        {
+          "name": "Sony",
+          "ticker": "SONY",
+          "category": "camera_sensors",
+          "criticality": "major",
+          "description": "Primary camera sensor supplier for iPhones",
+          "dependency_level": "major",
+          "revenue_exposure": "Unknown",
+          "bottleneck_risk": "medium",
+          "source": "Industry reports"
+        },
+        {
+          "name": "LG Display",
+          "ticker": "034220.KS",
+          "category": "displays",
+          "criticality": "moderate",
+          "description": "OLED displays for iPhones",
+          "dependency_level": "secondary",
+          "revenue_exposure": "~20% of revenue from Apple",
+          "bottleneck_risk": "low",
+          "source": "LG Display disclosures"
+        },
+        {
+          "name": "Broadcom",
+          "ticker": "AVGO",
+          "category": "rf_wireless",
+          "criticality": "major",
+          "description": "RF chips, wireless components",
+          "dependency_level": "major",
+          "revenue_exposure": "~20% of revenue from Apple",
+          "bottleneck_risk": "medium",
+          "source": "Broadcom disclosures"
+        },
+        {
+          "name": "Qualcomm",
+          "ticker": "QCOM",
+          "category": "modems",
+          "criticality": "major",
+          "description": "5G modem chips",
+          "dependency_level": "major",
+          "revenue_exposure": "~20% of QCT revenue",
+          "bottleneck_risk": "medium",
+          "source": "Qualcomm disclosures"
+        }
+      ],
+      "customers": [
+        {
+          "name": "Consumers (Direct)",
+          "category": "retail",
+          "concentration": "low",
+          "description": "Highly diversified consumer base"
+        }
+      ]
+    },
+    "TSM": {
+      "customers": [
+        {
+          "name": "Apple",
+          "ticker": "AAPL",
+          "category": "technology",
+          "criticality": "critical",
+          "revenue_exposure": "~25% of total revenue",
+          "description": "Major customer for advanced nodes (3nm, 5nm)",
+          "source": "TSMC annual report"
+        },
+        {
+          "name": "NVIDIA",
+          "ticker": "NVDA",
+          "category": "technology",
+          "criticality": "critical",
+          "revenue_exposure": "~10-15% of total revenue",
+          "description": "AI/GPU chip manufacturing",
+          "source": "Industry analysis"
+        },
+        {
+          "name": "AMD",
+          "ticker": "AMD",
+          "category": "technology",
+          "criticality": "major",
+          "revenue_exposure": "~5-10% of total revenue",
+          "description": "CPU and GPU manufacturing",
+          "source": "Industry analysis"
+        },
+        {
+          "name": "Qualcomm",
+          "ticker": "QCOM",
+          "category": "technology",
+          "criticality": "major",
+          "revenue_exposure": "~5-8% of total revenue",
+          "description": "Mobile SoC manufacturing",
+          "source": "Industry analysis"
+        },
+        {
+          "name": "MediaTek",
+          "ticker": "2454.TW",
+          "category": "technology",
+          "criticality": "major",
+          "revenue_exposure": "~5% of total revenue",
+          "description": "Mobile chipsets",
+          "source": "Industry analysis"
+        }
+      ],
+      "suppliers": [
+        {
+          "name": "ASML",
+          "ticker": "ASML",
+          "category": "lithography_equipment",
+          "criticality": "critical",
+          "description": "SOLE provider of EUV lithography machines for 7nm and below",
+          "dependency_level": "sole_source",
+          "bottleneck_risk": "extreme",
+          "source": "Public knowledge"
+        },
+        {
+          "name": "Applied Materials",
+          "ticker": "AMAT",
+          "category": "semiconductor_equipment",
+          "criticality": "critical",
+          "description": "Deposition and etching equipment",
+          "dependency_level": "major",
+          "bottleneck_risk": "high",
+          "source": "Industry reports"
+        },
+        {
+          "name": "Lam Research",
+          "ticker": "LRCX",
+          "category": "semiconductor_equipment",
+          "criticality": "critical",
+          "description": "Etching and deposition equipment",
+          "dependency_level": "major",
+          "bottleneck_risk": "high",
+          "source": "Industry reports"
+        }
+      ]
+    },
+    "ASML": {
+      "customers": [
+        {
+          "name": "TSMC",
+          "ticker": "TSM",
+          "category": "foundry",
+          "criticality": "critical",
+          "revenue_exposure": "~30-35% of EUV revenue",
+          "description": "Largest customer for EUV systems",
+          "source": "ASML disclosures"
+        },
+        {
+          "name": "Samsung",
+          "ticker": "005930.KS",
+          "category": "foundry",
+          "criticality": "major",
+          "revenue_exposure": "~20% of EUV revenue",
+          "description": "Advanced node manufacturing",
+          "source": "Industry analysis"
+        },
+        {
+          "name": "Intel",
+          "ticker": "INTC",
+          "category": "idm",
+          "criticality": "major",
+          "revenue_exposure": "~15-20% of EUV revenue",
+          "description": "Advanced node manufacturing",
+          "source": "Industry analysis"
+        }
+      ],
+      "suppliers": [
+        {
+          "name": "Zeiss (Private)",
+          "category": "optics",
+          "criticality": "critical",
+          "description": "SOLE provider of EUV optics",
+          "dependency_level": "sole_source",
+          "bottleneck_risk": "extreme",
+          "source": "Public knowledge"
+        },
+        {
+          "name": "Cymer (ASML subsidiary)",
+          "category": "light_source",
+          "criticality": "critical",
+          "description": "EUV light source technology",
+          "dependency_level": "internal",
+          "bottleneck_risk": "high",
+          "source": "ASML structure"
+        }
+      ]
+    },
+    "NVDA": {
+      "suppliers": [
+        {
+          "name": "TSMC",
+          "ticker": "TSM",
+          "category": "semiconductors",
+          "criticality": "critical",
+          "description": "Exclusive manufacturer of NVIDIA GPUs (4nm, 5nm nodes)",
+          "dependency_level": "sole_source",
+          "bottleneck_risk": "extreme",
+          "source": "Industry reports"
+        },
+        {
+          "name": "SK Hynix",
+          "ticker": "000660.KS",
+          "category": "memory",
+          "criticality": "critical",
+          "description": "HBM3 memory for H100/H200 GPUs",
+          "dependency_level": "major",
+          "bottleneck_risk": "high",
+          "source": "SK Hynix disclosures"
+        },
+        {
+          "name": "Samsung",
+          "ticker": "005930.KS",
+          "category": "memory",
+          "criticality": "major",
+          "description": "HBM memory, alternative to SK Hynix",
+          "dependency_level": "secondary",
+          "bottleneck_risk": "medium",
+          "source": "Industry analysis"
+        }
+      ]
+    },
+    "MSFT": {
+      "suppliers": [
+        {
+          "name": "TSMC",
+          "ticker": "TSM",
+          "category": "semiconductors",
+          "criticality": "major",
+          "description": "Custom AI chip manufacturing (Azure Maia, Cobalt)",
+          "dependency_level": "major",
+          "bottleneck_risk": "high",
+          "source": "Industry reports"
+        },
+        {
+          "name": "NVIDIA",
+          "ticker": "NVDA",
+          "category": "ai_chips",
+          "criticality": "critical",
+          "description": "Primary GPU supplier for Azure AI infrastructure",
+          "dependency_level": "major",
+          "bottleneck_risk": "high",
+          "source": "Microsoft disclosures, earnings calls"
+        }
+      ]
+    },
+    "GOOGL": {
+      "suppliers": [
+        {
+          "name": "TSMC",
+          "ticker": "TSM",
+          "category": "semiconductors",
+          "criticality": "critical",
+          "description": "TPU manufacturing",
+          "dependency_level": "major",
+          "bottleneck_risk": "high",
+          "source": "Industry reports"
+        },
+        {
+          "name": "Broadcom",
+          "ticker": "AVGO",
+          "category": "networking",
+          "criticality": "major",
+          "description": "Custom networking chips",
+          "dependency_level": "major",
+          "bottleneck_risk": "medium",
+          "source": "Industry analysis"
+        }
+      ]
+    },
+    "INTC": {
+      "suppliers": [
+        {
+          "name": "ASML",
+          "ticker": "ASML",
+          "category": "lithography_equipment",
+          "criticality": "critical",
+          "description": "EUV systems for advanced nodes (Intel 4, Intel 3)",
+          "dependency_level": "sole_source",
+          "bottleneck_risk": "extreme",
+          "source": "Public knowledge"
+        },
+        {
+          "name": "Applied Materials",
+          "ticker": "AMAT",
+          "category": "semiconductor_equipment",
+          "criticality": "critical",
+          "description": "Process equipment",
+          "dependency_level": "major",
+          "bottleneck_risk": "high",
+          "source": "Industry reports"
+        }
+      ]
+    },
+    "AMAT": {
+      "customers": [
+        {
+          "name": "TSMC",
+          "ticker": "TSM",
+          "category": "foundry",
+          "criticality": "critical",
+          "revenue_exposure": "~25% of revenue",
+          "description": "Major equipment buyer",
+          "source": "Applied Materials disclosures"
+        },
+        {
+          "name": "Samsung",
+          "ticker": "005930.KS",
+          "category": "foundry",
+          "criticality": "major",
+          "revenue_exposure": "~15% of revenue",
+          "description": "Fab equipment",
+          "source": "Industry analysis"
+        },
+        {
+          "name": "Intel",
+          "ticker": "INTC",
+          "category": "idm",
+          "criticality": "major",
+          "revenue_exposure": "~10-15% of revenue",
+          "description": "Fab equipment",
+          "source": "Industry analysis"
+        }
+      ]
+    },
+    "LRCX": {
+      "customers": [
+        {
+          "name": "TSMC",
+          "ticker": "TSM",
+          "category": "foundry",
+          "criticality": "critical",
+          "revenue_exposure": "~25% of revenue",
+          "description": "Etching equipment",
+          "source": "Lam Research disclosures"
+        },
+        {
+          "name": "Samsung",
+          "ticker": "005930.KS",
+          "category": "foundry",
+          "criticality": "major",
+          "revenue_exposure": "~15% of revenue",
+          "description": "Process equipment",
+          "source": "Industry analysis"
+        }
+      ]
+    },
+    "SNPS": {
+      "customers": [
+        {
+          "name": "Semiconductor Industry (Broad)",
+          "category": "eda_software",
+          "criticality": "critical",
+          "description": "Essential design tools - EVERY chip designer needs EDA software",
+          "bottleneck_risk": "extreme",
+          "source": "Industry structure"
+        }
+      ]
+    },
+    "CDNS": {
+      "customers": [
+        {
+          "name": "Semiconductor Industry (Broad)",
+          "category": "eda_software",
+          "criticality": "critical",
+          "description": "Essential design tools - duopoly with Synopsys",
+          "bottleneck_risk": "extreme",
+          "source": "Industry structure"
+        }
+      ]
+    }
+  },
+  "bottleneck_tiers": {
+    "tier_0_absolute": {
+      "description": "Sole-source providers - NO alternatives exist",
+      "companies": ["ASML (EUV)", "Zeiss (EUV Optics)", "Synopsys/Cadence (EDA duopoly)"],
+      "characteristics": ["Monopoly or duopoly", "10+ year tech lead", "Switching cost = impossible"],
+      "investment_thesis": "Strongest moat, pricing power, but expensive valuation"
+    },
+    "tier_1_critical": {
+      "description": "Dominant suppliers with weak alternatives",
+      "companies": ["TSMC (advanced nodes)", "NVIDIA (AI GPUs)", "SK Hynix (HBM3)"],
+      "characteristics": ["70%+ market share", "2-5 year tech lead", "High switching costs"],
+      "investment_thesis": "Strong moat, pricing power during upcycles"
+    },
+    "tier_2_major": {
+      "description": "Important suppliers with viable alternatives",
+      "companies": ["Applied Materials", "Lam Research", "Broadcom"],
+      "characteristics": ["30-60% market share", "Alternatives exist but costly", "Moderate switching costs"],
+      "investment_thesis": "Good businesses but more competitive"
+    },
+    "tier_3_moderate": {
+      "description": "One of several important suppliers",
+      "companies": ["Samsung (displays)", "LG Display", "Sony (sensors)"],
+      "characteristics": ["10-30% market share", "Multiple alternatives", "Low switching costs"],
+      "investment_thesis": "Commodity risk, margin pressure"
+    }
+  },
+  "last_updated": "2026-01-18",
+  "data_sources": [
+    "Company 10-K filings",
+    "Supplier annual reports (backward mapping)",
+    "Industry research reports",
+    "Earnings call transcripts",
+    "News articles and press releases"
+  ],
+  "update_frequency": "quarterly"
+}

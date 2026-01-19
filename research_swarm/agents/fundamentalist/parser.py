@@ -4,7 +4,7 @@
 Extracts specific sections from SEC 10-K filings using regex patterns.
 """
 import re
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from research_swarm.logger import logger
 from research_swarm.data.cache import cache
 from research_swarm.agents.fundamentalist.prompts import SECTION_EXTRACTION_PROMPT
@@ -14,7 +14,7 @@ from research_swarm.config import settings
 
 # Section patterns for 10-K filings
 # These patterns match common section headers in 10-K documents
-SECTION_PATTERNS = {
+SECTION_PATTERNS_10K = {
     "Item 1": [
         r"(?i)item\s+1\.?\s*\n?\s*business",
         r"(?i)item\s+1\.?\s*$",
@@ -32,6 +32,21 @@ SECTION_PATTERNS = {
     "Item 8": [
         r"(?i)item\s+8\.?\s*\n?\s*financial\s+statements",
         r"(?i)item\s+8\.?",
+    ],
+}
+
+# Section patterns for 10-Q filings
+# 10-Q files have different structure - mainly Part I with Items 1-4
+SECTION_PATTERNS_10Q = {
+    "Item 7": [  # MD&A is in Part I, Item 2 for 10-Q
+        r"(?i)part\s+i[^a-z]*item\s+2\.?\s*\n?\s*management'?s\s+discussion",
+        r"(?i)item\s+2\.?\s*\n?\s*management'?s\s+discussion",
+        r"(?i)part\s+i[^a-z]*item\s+2",
+    ],
+    "Item 8": [  # Financial statements are in Part I, Item 1 for 10-Q
+        r"(?i)part\s+i[^a-z]*item\s+1\.?\s*\n?\s*financial\s+statements",
+        r"(?i)item\s+1\.?\s*\n?\s*financial\s+statements",
+        r"(?i)part\s+i[^a-z]*item\s+1",
     ],
 }
 
@@ -62,21 +77,27 @@ class FilingParser:
         ticker: str,
         fiscal_year: int,
         filing_text: str,
-        use_cache: bool = True
+        use_cache: bool = True,
+        filing_type: str = None
     ) -> Dict[str, str]:
         """
-        Parse 10-K filing and extract key sections.
+        Parse SEC filing (10-K or 10-Q) and extract key sections.
 
         Args:
             ticker: Stock ticker
             fiscal_year: Fiscal year
-            filing_text: Raw 10-K text
+            filing_text: Raw filing text
             use_cache: Whether to use cached results
+            filing_type: "10-K" or "10-Q" (auto-detected if None)
 
         Returns:
             Dict mapping section names to extracted content
         """
-        cache_key = f"{ticker}_{fiscal_year}_parsed"
+        # Auto-detect filing type if not specified
+        if filing_type is None:
+            filing_type = self._detect_filing_type(filing_text)
+
+        cache_key = f"{ticker}_{fiscal_year}_{filing_type}_parsed"
 
         # Check cache
         if use_cache:
@@ -85,12 +106,22 @@ class FilingParser:
                 logger.info(f"Using cached parsed sections for {ticker} {fiscal_year}")
                 return cached
 
-        logger.info(f"Parsing 10-K sections for {ticker} {fiscal_year}")
+        logger.info(f"Parsing {filing_type} sections for {ticker} {fiscal_year}")
+
+        # Select appropriate section patterns based on filing type
+        if filing_type == "10-Q":
+            # For 10-Q, only parse MD&A and financials (no business description or risk factors)
+            sections_to_parse = ["Item 7", "Item 8"]
+            section_patterns = SECTION_PATTERNS_10Q
+        else:
+            # For 10-K, parse all sections
+            sections_to_parse = ["Item 1", "Item 1A", "Item 7", "Item 8"]
+            section_patterns = SECTION_PATTERNS_10K
 
         # Extract each section
         parsed_sections = {}
-        for section_name in ["Item 1", "Item 1A", "Item 7", "Item 8"]:
-            section_text = self._extract_section(filing_text, section_name)
+        for section_name in sections_to_parse:
+            section_text = self._extract_section(filing_text, section_name, section_patterns)
 
             if section_text:
                 # Truncate if too long
@@ -104,33 +135,79 @@ class FilingParser:
                 logger.info(f"Extracted {section_name}: {len(section_text)} chars")
             else:
                 logger.warning(f"Could not extract {section_name} for {ticker} {fiscal_year}")
-                parsed_sections[section_name] = ""
+                # Don't store empty strings - just skip this section
 
-        # Cache the parsed sections
-        if use_cache and parsed_sections:
+        # Cache only if we have meaningful content (at least one section with 500+ chars)
+        has_meaningful_content = any(len(v) >= 500 for v in parsed_sections.values())
+        if use_cache and parsed_sections and has_meaningful_content:
             cache.set("sec_parsed", cache_key, parsed_sections, ttl_days=90)
+        elif not has_meaningful_content:
+            logger.warning(f"No meaningful section content extracted for {ticker} {fiscal_year}, not caching")
 
         return parsed_sections
 
-    def _extract_section(self, text: str, section_name: str) -> Optional[str]:
+    def _detect_filing_type(self, filing_text: str) -> str:
+        """
+        Detect whether a filing is a 10-K or 10-Q.
+
+        Args:
+            filing_text: Raw filing text
+
+        Returns:
+            "10-K" or "10-Q"
+        """
+        # Look for filing type in the first 5000 chars (typically in header)
+        header = filing_text[:5000].upper()
+
+        # Check for explicit "10-Q" or "10-K" declarations
+        if "10-Q" in header and "10-K" not in header:
+            return "10-Q"
+        elif "FORM 10-Q" in header:
+            return "10-Q"
+        elif "FORM 10-K" in header or "10-K" in header:
+            return "10-K"
+
+        # Default to 10-K if unclear (safer assumption for annual data)
+        return "10-K"
+
+    def _extract_section(
+        self,
+        text: str,
+        section_name: str,
+        section_patterns: Dict[str, List[str]] = None
+    ) -> Optional[str]:
         """
         Extract a specific section from the filing text.
 
         Args:
             text: Full filing text
             section_name: Section to extract (e.g., "Item 1")
+            section_patterns: Patterns to use (defaults to 10-K patterns)
 
         Returns:
             Section text or None if not found
         """
-        patterns = SECTION_PATTERNS.get(section_name, [])
+        if section_patterns is None:
+            section_patterns = SECTION_PATTERNS_10K
 
-        # Find section start
+        patterns = section_patterns.get(section_name, [])
+
+        # Skip past Table of Contents (typically in first 50K chars)
+        # This ensures we find the actual section content, not TOC entries
+        toc_skip = min(50000, len(text) // 4)
+
+        # Find section start - look for all matches and take the one after TOC
         start_pos = None
         for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                start_pos = match.start()
+            for match in re.finditer(pattern, text):
+                # Prefer matches after the TOC area
+                if match.start() > toc_skip:
+                    start_pos = match.start()
+                    break
+                # Fallback to first match if no match after TOC
+                elif start_pos is None:
+                    start_pos = match.start()
+            if start_pos and start_pos > toc_skip:
                 break
 
         if start_pos is None:

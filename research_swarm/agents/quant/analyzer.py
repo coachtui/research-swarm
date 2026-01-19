@@ -7,6 +7,7 @@ import json
 from typing import Dict, Any, List
 from langchain_anthropic import ChatAnthropic
 from loguru import logger
+from research_swarm.utils import extract_token_usage
 
 from .models import TechnicalIndicators, SupplyChainGraph, NodeType
 from .prompts import (
@@ -37,7 +38,7 @@ class QuantAnalyzer:
 
         # Sonnet for deeper qualitative analysis
         self.sonnet = ChatAnthropic(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-20250514",
             api_key=ANTHROPIC_API_KEY,
             temperature=0.3,
         )
@@ -75,7 +76,7 @@ class QuantAnalyzer:
         try:
             response = self.haiku.invoke(prompt)
             response_text = response.content.strip()
-            tokens_used = response.response_metadata.get("usage", {}).get("total_tokens", 0)
+            tokens_used = extract_token_usage(response.response_metadata)
 
             # Extract JSON from response
             json_text = self._extract_json(response_text)
@@ -87,10 +88,12 @@ class QuantAnalyzer:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse hidden dependencies JSON: {e}")
             logger.debug(f"Response: {response_text[:500]}")
-            return {"hidden_dependencies": [], "overall_risk_level": "medium", "summary": "Error parsing analysis"}, 0
+            # Return default data but track tokens used (API was called)
+            return {"hidden_dependencies": [], "overall_risk_level": "medium", "summary": "Error parsing analysis"}, tokens_used
 
         except Exception as e:
             logger.error(f"Error analyzing hidden dependencies: {e}")
+            # Return 0 tokens for general errors (API call may not have completed)
             return {"hidden_dependencies": [], "overall_risk_level": "medium", "summary": "Error in analysis"}, 0
 
     def generate_technical_analysis(
@@ -151,7 +154,7 @@ class QuantAnalyzer:
         try:
             response = self.sonnet.invoke(prompt)
             response_text = response.content.strip()
-            tokens_used = response.response_metadata.get("usage", {}).get("total_tokens", 0)
+            tokens_used = extract_token_usage(response.response_metadata)
 
             logger.success(f"✓ Generated technical analysis for {ticker}")
             return response_text, tokens_used
@@ -217,7 +220,7 @@ class QuantAnalyzer:
         try:
             response = self.sonnet.invoke(prompt)
             response_text = response.content.strip()
-            tokens_used = response.response_metadata.get("usage", {}).get("total_tokens", 0)
+            tokens_used = extract_token_usage(response.response_metadata)
 
             logger.success(f"✓ Generated supply chain analysis for {ticker}")
             return response_text, tokens_used
@@ -264,7 +267,7 @@ class QuantAnalyzer:
 
     def _extract_json(self, text: str) -> str:
         """
-        Extract JSON from LLM response (handles markdown code blocks).
+        Extract JSON from LLM response (handles markdown code blocks or preamble text).
 
         Args:
             text: Response text
@@ -272,14 +275,25 @@ class QuantAnalyzer:
         Returns:
             Clean JSON string
         """
-        # Remove markdown code blocks if present
+        text = text.strip()
+
+        # Try markdown code blocks first
         if "```json" in text:
             start = text.find("```json") + 7
             end = text.find("```", start)
-            text = text[start:end].strip()
+            if end > start:
+                return text[start:end].strip()
         elif "```" in text:
             start = text.find("```") + 3
             end = text.find("```", start)
-            text = text[start:end].strip()
+            if end > start:
+                return text[start:end].strip()
 
+        # Fallback: find JSON object boundaries (handles preamble text before JSON)
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+        if first_brace != -1 and last_brace > first_brace:
+            return text[first_brace:last_brace + 1]
+
+        # Last resort: return as-is and let json.loads fail with useful error
         return text

@@ -77,6 +77,64 @@ class SupplyChainOutput(BaseModel):
     )
 
 
+class QuarterlyMetrics(BaseModel):
+    """Financial metrics for a single quarter."""
+    quarter: str = Field(..., description="Quarter label (e.g., 'Q3_2025')")
+    period_end_date: Optional[str] = Field(None, description="Fiscal period end date")
+
+    # Core metrics (in millions USD)
+    revenue: Optional[float] = Field(None, description="Quarterly revenue")
+    gross_profit: Optional[float] = Field(None, description="Quarterly gross profit")
+    operating_income: Optional[float] = Field(None, description="Quarterly operating income")
+    net_income: Optional[float] = Field(None, description="Quarterly net income")
+
+    # Cash flow
+    operating_cash_flow: Optional[float] = Field(None, description="Operating cash flow")
+    free_cash_flow: Optional[float] = Field(None, description="Free cash flow")
+
+
+class TTMMetrics(BaseModel):
+    """Trailing Twelve Month aggregated metrics."""
+    quarters_included: List[str] = Field(..., description="Quarters in TTM calculation")
+
+    # Aggregated TTM figures (in millions USD)
+    ttm_revenue: Optional[float] = Field(None, description="TTM total revenue")
+    ttm_gross_profit: Optional[float] = Field(None, description="TTM gross profit")
+    ttm_operating_income: Optional[float] = Field(None, description="TTM operating income")
+    ttm_net_income: Optional[float] = Field(None, description="TTM net income")
+    ttm_free_cash_flow: Optional[float] = Field(None, description="TTM free cash flow")
+
+    # Calculated margins (percentages)
+    gross_margin: Optional[float] = Field(None, description="Gross margin %")
+    operating_margin: Optional[float] = Field(None, description="Operating margin %")
+    net_margin: Optional[float] = Field(None, description="Net margin %")
+
+    # Growth (vs prior TTM if calculable)
+    revenue_growth_yoy: Optional[float] = Field(None, description="YoY revenue growth %")
+
+
+class QuarterlyTrends(BaseModel):
+    """Quarter-over-quarter trend analysis."""
+    # Revenue trend (chronological order, oldest to newest)
+    revenue_trend: List[Optional[float]] = Field(default_factory=list)
+    margin_trend: List[Optional[float]] = Field(default_factory=list)
+
+    # Calculated trends
+    trend_direction: str = Field("stable", description="'improving', 'stable', or 'declining'")
+    sequential_growth_rates: List[Optional[float]] = Field(default_factory=list, description="QoQ growth rates")
+
+    # Momentum indicator
+    momentum_score: float = Field(5.0, ge=0, le=10, description="Trend momentum 0-10")
+
+
+class TTMAnalysisOutput(BaseModel):
+    """Extended output for TTM analysis mode."""
+    quarterly_metrics: List[QuarterlyMetrics] = Field(default_factory=list)
+    ttm_metrics: TTMMetrics
+    quarterly_trends: QuarterlyTrends
+    data_quality: Dict[str, str] = Field(default_factory=dict)
+
+
 class ScoreBreakdown(BaseModel):
     """Breakdown of the financial health score."""
 
@@ -107,10 +165,26 @@ class FundamentalistOutput(BaseModel):
 
     # Input identifiers
     ticker: str = Field(..., description="Stock ticker symbol")
-    fiscal_year: int = Field(..., description="Fiscal year analyzed")
-    filing_date: Optional[str] = Field(None, description="SEC filing date")
 
-    # Extracted data
+    # Analysis period - supports both TTM and annual modes
+    analysis_period: str = Field(..., description="Analysis period (e.g., 'TTM Q4 2024 - Q3 2025' or 'FY 2024')")
+    quarters_analyzed: List[str] = Field(default_factory=list, description="Quarters analyzed (empty for annual mode)")
+    analysis_mode: str = Field("ttm", description="'ttm' or 'annual'")
+
+    # Filing dates
+    filing_date: Optional[str] = Field(None, description="Most recent filing date")
+    filing_dates: Dict[str, str] = Field(default_factory=dict, description="Filing dates by quarter")
+
+    # Backward compatibility - deprecated
+    fiscal_year: Optional[int] = Field(None, description="[Deprecated] Fiscal year analyzed (for annual mode)")
+
+    # TTM-specific data
+    quarterly_metrics: List[QuarterlyMetrics] = Field(default_factory=list)
+    ttm_metrics: Optional[TTMMetrics] = None
+    quarterly_trends: Optional[QuarterlyTrends] = None
+    data_quality: Dict[str, str] = Field(default_factory=dict, description="Quarter -> '10-Q' | '10-K' | 'missing'")
+
+    # Extracted data - preserved for backward compatibility
     financial_metrics: FinancialMetricsOutput = Field(..., description="Extracted financial metrics")
     supply_chain_data: SupplyChainOutput = Field(..., description="Supply chain analysis")
 

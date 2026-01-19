@@ -6,7 +6,7 @@ a unified investment analysis with moat scoring.
 """
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from langgraph.graph import StateGraph
 from loguru import logger
 
@@ -46,10 +46,11 @@ def call_fundamentalist_node(state: ManagerState) -> ManagerState:
     state["node_timestamps"] = {**state.get("node_timestamps", {}), "call_fundamentalist": time.time()}
 
     try:
-        # Call Fundamentalist agent
+        # Call Fundamentalist agent with TTM parameters
         fundamentalist_output = analyze_company(
             ticker=state["ticker"],
-            fiscal_year=state["fiscal_year"]
+            quarters=state.get("quarters"),
+            fiscal_year=state.get("fiscal_year")  # Backward compatibility
         )
 
         # Store output as dict
@@ -88,12 +89,12 @@ def call_news_hound_node(state: ManagerState) -> ManagerState:
     """
     logger.info(f"[Node 2] Calling News Hound agent for {state['ticker']}")
 
-    state["status"] = "calling_news_hound"
-    state["node_timestamps"] = {**state.get("node_timestamps", {}), "call_news_hound": time.time()}
-
-    # Skip if fundamentalist failed
+    # Skip if fundamentalist failed (check BEFORE updating status)
     if state.get("status") == "error":
         return state
+
+    state["status"] = "calling_news_hound"
+    state["node_timestamps"] = {**state.get("node_timestamps", {}), "call_news_hound": time.time()}
 
     try:
         # Call News Hound agent
@@ -138,12 +139,12 @@ def call_quant_node(state: ManagerState) -> ManagerState:
     """
     logger.info(f"[Node 3] Calling Quant agent for {state['ticker']}")
 
-    state["status"] = "calling_quant"
-    state["node_timestamps"] = {**state.get("node_timestamps", {}), "call_quant": time.time()}
-
-    # Skip if previous agents failed
+    # Skip if previous agents failed (check BEFORE updating status)
     if state.get("status") == "error":
         return state
+
+    state["status"] = "calling_quant"
+    state["node_timestamps"] = {**state.get("node_timestamps", {}), "call_quant": time.time()}
 
     try:
         # Get supply chain data from Fundamentalist output
@@ -201,19 +202,26 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
     """
     logger.info(f"[Node 4] Synthesizing findings for {state['ticker']}")
 
-    state["status"] = "synthesizing"
-    state["node_timestamps"] = {**state.get("node_timestamps", {}), "synthesize_findings": time.time()}
-
-    # Skip if previous agents failed
+    # Skip if previous agents failed (check BEFORE updating status)
     if state.get("status") == "error":
         return state
+
+    # Check that all agent outputs exist
+    if not state.get("fundamentalist_output") or not state.get("news_hound_output") or not state.get("quant_output"):
+        state["status"] = "error"
+        state["error"] = "Missing agent outputs - one or more agents failed"
+        logger.error(state["error"])
+        return state
+
+    state["status"] = "synthesizing"
+    state["node_timestamps"] = {**state.get("node_timestamps", {}), "synthesize_findings": time.time()}
 
     try:
         # Synthesize findings
         synthesis, tokens = manager_analyzer.synthesize_findings(
             ticker=state["ticker"],
             analysis_date=state["analysis_date"],
-            fiscal_year=state["fiscal_year"],
+            analysis_period=state["analysis_period"],
             fundamentalist_output=state["fundamentalist_output"],
             news_hound_output=state["news_hound_output"],
             quant_output=state["quant_output"],
@@ -247,12 +255,19 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
     """
     logger.info(f"[Node 5] Calculating moat score for {state['ticker']}")
 
-    state["status"] = "scoring"
-    state["node_timestamps"] = {**state.get("node_timestamps", {}), "calculate_moat_score": time.time()}
-
-    # Skip if previous step failed
+    # Skip if previous step failed (check BEFORE updating status)
     if state.get("status") == "error":
         return state
+
+    # Verify required outputs exist
+    if not state.get("fundamentalist_output") or not state.get("news_hound_output") or not state.get("quant_output"):
+        state["status"] = "error"
+        state["error"] = "Missing agent outputs for moat scoring"
+        logger.error(state["error"])
+        return state
+
+    state["status"] = "scoring"
+    state["node_timestamps"] = {**state.get("node_timestamps", {}), "calculate_moat_score": time.time()}
 
     try:
         # Get component scores
@@ -311,12 +326,19 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
     """
     logger.info(f"[Node 6] Generating investment thesis for {state['ticker']}")
 
-    state["status"] = "generating_thesis"
-    state["node_timestamps"] = {**state.get("node_timestamps", {}), "generate_thesis": time.time()}
-
-    # Skip if previous step failed
+    # Skip if previous step failed (check BEFORE updating status)
     if state.get("status") == "error":
         return state
+
+    # Verify required data exists
+    if state.get("key_insights") is None or state.get("risk_factors") is None:
+        state["status"] = "error"
+        state["error"] = "Missing synthesis data for thesis generation"
+        logger.error(state["error"])
+        return state
+
+    state["status"] = "generating_thesis"
+    state["node_timestamps"] = {**state.get("node_timestamps", {}), "generate_thesis": time.time()}
 
     try:
         # Generate investment thesis
@@ -330,9 +352,9 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
             technical_score=state["technical_score"],
             supply_chain_score=state["supply_chain_score"],
             is_watchlist=state["is_watchlist_candidate"],
-            synthesis_narrative=state["synthesis_narrative"],
-            key_insights=state["key_insights"],
-            risk_factors=state["risk_factors"],
+            synthesis_narrative=state["synthesis_narrative"] or "",
+            key_insights=state["key_insights"] or [],
+            risk_factors=state["risk_factors"] or [],
         )
 
         # Update state
@@ -398,7 +420,8 @@ def build_manager_graph() -> StateGraph:
 
 def analyze_swarm(
     ticker: str,
-    fiscal_year: int = 2024,
+    quarters: List[str] = None,
+    fiscal_year: int = None,  # Deprecated - for backward compatibility
     news_days_back: int = 30,
 ) -> ManagerOutput:
     """
@@ -409,7 +432,8 @@ def analyze_swarm(
 
     Args:
         ticker: Stock ticker (e.g., "NVDA")
-        fiscal_year: Fiscal year for fundamentalist analysis (default 2024)
+        quarters: Quarters for TTM analysis (e.g., ["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"])
+        fiscal_year: [Deprecated] Fiscal year for annual analysis (default None)
         news_days_back: Days to look back for news analysis (default 30)
 
     Returns:
@@ -423,10 +447,24 @@ def analyze_swarm(
     start_time = time.time()
     analysis_date = datetime.now().strftime("%Y-%m-%d")
 
+    # Determine analysis period
+    if quarters:
+        analysis_period = f"TTM {quarters[0].replace('_', ' ')} - {quarters[-1].replace('_', ' ')}"
+    elif fiscal_year:
+        analysis_period = f"FY {fiscal_year}"
+        logger.warning("Using deprecated fiscal_year parameter. Consider using quarters for TTM analysis.")
+    else:
+        # Default to current year if neither is provided
+        current_year = datetime.now().year
+        analysis_period = f"FY {current_year}"
+        logger.warning(f"No quarters or fiscal_year provided, defaulting to FY {current_year}")
+
     # Initialize state
     initial_state: ManagerState = {
         "ticker": ticker,
-        "fiscal_year": fiscal_year,
+        "quarters": quarters or [],
+        "analysis_period": analysis_period,
+        "fiscal_year": fiscal_year,  # Keep for backward compatibility
         "news_days_back": news_days_back,
         "analysis_date": analysis_date,
         "status": "initialized",
@@ -524,7 +562,9 @@ def analyze_swarm(
     output = ManagerOutput(
         ticker=final_state["ticker"],
         analysis_date=final_state["analysis_date"],
-        fiscal_year=final_state["fiscal_year"],
+        analysis_period=final_state["analysis_period"],
+        quarters=final_state.get("quarters", []),
+        fiscal_year=final_state.get("fiscal_year"),  # Backward compatibility
         news_days_back=final_state["news_days_back"],
         fundamentalist_output=final_state["fundamentalist_output"],
         news_hound_output=final_state["news_hound_output"],

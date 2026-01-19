@@ -16,9 +16,13 @@ class ManagerState(TypedDict, total=False):
 
     # Input fields
     ticker: str  # Stock ticker (e.g., "NVDA")
-    fiscal_year: int  # Fiscal year for fundamentalist analysis
+    quarters: List[str]  # Quarters for TTM analysis (e.g., ["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"])
+    analysis_period: str  # Analysis period description (e.g., "TTM Q4 2024 - Q3 2025")
     news_days_back: int  # Number of days to look back for news analysis (default 30)
     analysis_date: str  # Date of analysis (YYYY-MM-DD)
+
+    # Backward compatibility
+    fiscal_year: Optional[int]  # Deprecated - for backward compatibility only
 
     # Status tracking
     status: str  # Current workflow status: "initialized", "calling_fundamentalist", "calling_news_hound", "calling_quant", "synthesizing", "scoring", "generating_thesis", "completed", "error"

@@ -119,11 +119,12 @@ def extract_catalysts_node(state: NewsHoundState) -> NewsHoundState:
     articles = [NewsArticle(**art) for art in articles_filtered]
 
     # Extract catalysts
-    catalysts = analyzer.extract_catalysts(articles, state["ticker"], state["days_back"])
+    catalysts, tokens = analyzer.extract_catalysts(articles, state["ticker"], state["days_back"])
 
     # Store catalysts
     state["catalyst_events"] = [catalyst.model_dump() for catalyst in catalysts]
     state["catalyst_count"] = len(catalysts)
+    state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
     logger.success(f"✓ Extracted {len(catalysts)} catalysts")
 
@@ -154,10 +155,11 @@ def extract_regulatory_node(state: NewsHoundState) -> NewsHoundState:
     articles = [NewsArticle(**art) for art in articles_filtered]
 
     # Extract regulatory events
-    reg_events = analyzer.extract_regulatory_events(articles, state["ticker"])
+    reg_events, tokens = analyzer.extract_regulatory_events(articles, state["ticker"])
 
     # Store regulatory events (these will be merged with catalyst_events in final output)
     state["regulatory_events"] = [event.model_dump() for event in reg_events]
+    state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
     # Merge regulatory events into catalyst_events
     catalyst_events = state.get("catalyst_events", [])
@@ -204,7 +206,7 @@ def analyze_sentiment_node(state: NewsHoundState) -> NewsHoundState:
     catalysts = [CatalystEvent(**cat) for cat in catalyst_events]
 
     # Perform sentiment analysis
-    sentiment_text = analyzer.analyze_sentiment(
+    sentiment_text, tokens = analyzer.analyze_sentiment(
         articles,
         catalysts,
         state["ticker"],
@@ -212,6 +214,7 @@ def analyze_sentiment_node(state: NewsHoundState) -> NewsHoundState:
     )
 
     state["sentiment_analysis"] = sentiment_text
+    state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
     logger.success(f"✓ Generated sentiment analysis ({len(sentiment_text)} chars)")
 
@@ -261,7 +264,7 @@ def score_sentiment_node(state: NewsHoundState) -> NewsHoundState:
     catalysts = [CatalystEvent(**cat) for cat in catalyst_events]
 
     # Score sentiment
-    sentiment_score, breakdown, confidence = scorer.score_sentiment(
+    sentiment_score, breakdown, confidence, tokens = scorer.score_sentiment(
         state["ticker"],
         state["days_back"],
         article_count,
@@ -272,9 +275,10 @@ def score_sentiment_node(state: NewsHoundState) -> NewsHoundState:
     state["sentiment_score"] = sentiment_score
     state["sentiment_breakdown"] = breakdown.model_dump()
     state["confidence"] = confidence
+    state["tokens_used"] = state.get("tokens_used", 0) + tokens
     state["status"] = "completed"
 
-    logger.success(f"✓ Sentiment scored: {sentiment_score:.2f}/10 (confidence: {confidence:.2f})")
+    logger.success(f"✓ Sentiment scored: {sentiment_score:.2f}/10 (confidence: {confidence:.2f}, total tokens: {state['tokens_used']})")
 
     return state
 

@@ -13,9 +13,16 @@ from .models import (
     ReportType,
     StockReportData,
 )
-from .pdf_generator import PDFGenerator
 from .renderer import TemplateRenderer
 from .visualizations import ChartGenerator
+
+# PDF generator is optional (requires system dependencies)
+try:
+    from .pdf_generator import PDFGenerator
+except (ImportError, OSError) as e:
+    import warnings
+    warnings.warn(f"PDF generation unavailable: {e}", ImportWarning)
+    PDFGenerator = None
 
 __all__ = [
     # Models

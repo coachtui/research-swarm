@@ -30,6 +30,9 @@ jinja2>=3.0
 weasyprint>=60.0
 markdown>=3.5
 
+# Phase 9: Automation & Scheduling
+sendgrid>=6.9.0
+
 # Testing (will expand in Phase 10)
 pytest==7.4.3
 pytest-cov==4.1.0

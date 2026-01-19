@@ -4,18 +4,24 @@ Financial Analysis Module.
 Extracts financial metrics, supply chain data, and performs qualitative analysis.
 """
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Tuple, List
 from langchain_anthropic import ChatAnthropic
 from research_swarm.logger import logger
 from research_swarm.config import settings
+from research_swarm.utils import extract_token_usage
 from research_swarm.agents.fundamentalist.prompts import (
     FINANCIAL_METRICS_PROMPT,
     SUPPLY_CHAIN_PROMPT,
-    QUALITATIVE_ANALYSIS_PROMPT
+    QUALITATIVE_ANALYSIS_PROMPT,
+    FINANCIAL_METRICS_PROMPT_TTM,
+    QUALITATIVE_ANALYSIS_PROMPT_TTM
 )
 from research_swarm.agents.fundamentalist.models import (
     FinancialMetricsOutput,
-    SupplyChainOutput
+    SupplyChainOutput,
+    QuarterlyMetrics,
+    TTMMetrics,
+    QuarterlyTrends
 )
 
 
@@ -33,7 +39,7 @@ class FinancialAnalyzer:
 
         # Sonnet for deeper qualitative analysis
         self.sonnet = ChatAnthropic(
-            model="claude-3-sonnet-20240229",
+            model="claude-sonnet-4-20250514",
             api_key=settings.anthropic_api_key,
             temperature=0.3,
         )
@@ -45,7 +51,7 @@ class FinancialAnalyzer:
         ticker: str,
         fiscal_year: int,
         parsed_sections: Dict[str, str]
-    ) -> FinancialMetricsOutput:
+    ) -> Tuple[FinancialMetricsOutput, int]:
         """
         Extract financial metrics from parsed 10-K sections.
 
@@ -55,7 +61,7 @@ class FinancialAnalyzer:
             parsed_sections: Parsed 10-K sections
 
         Returns:
-            FinancialMetricsOutput with extracted metrics
+            Tuple of (FinancialMetricsOutput, tokens_used)
         """
         logger.info(f"Extracting financial metrics for {ticker} {fiscal_year}")
 
@@ -64,6 +70,12 @@ class FinancialAnalyzer:
             parsed_sections,
             sections=["Item 7", "Item 8"]
         )
+
+        # Validate sections have meaningful content
+        if len(sections_text) < 500:
+            logger.warning(f"Insufficient section content for {ticker} ({len(sections_text)} chars)")
+            logger.debug(f"Sections text: {sections_text[:200]}")
+            return FinancialMetricsOutput(), 0
 
         prompt = FINANCIAL_METRICS_PROMPT.format(
             ticker=ticker,
@@ -74,6 +86,7 @@ class FinancialAnalyzer:
         try:
             response = self.haiku.invoke(prompt)
             response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
 
             # Extract JSON from response (handle markdown code blocks)
             json_text = self._extract_json(response_text)
@@ -81,25 +94,26 @@ class FinancialAnalyzer:
 
             # Validate with Pydantic
             metrics = FinancialMetricsOutput(**metrics_data)
-            logger.success(f"✓ Extracted financial metrics for {ticker}")
-            return metrics
+            logger.success(f"✓ Extracted financial metrics for {ticker} ({tokens_used} tokens)")
+            return metrics, tokens_used
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse metrics JSON: {e}")
             logger.debug(f"Response: {response_text[:500]}")
-            # Return empty metrics on error
-            return FinancialMetricsOutput()
+            # Return empty metrics but track tokens used (API was called)
+            return FinancialMetricsOutput(), tokens_used
 
         except Exception as e:
             logger.error(f"Error extracting metrics: {e}")
-            return FinancialMetricsOutput()
+            # Return 0 tokens for general errors (API call may not have completed)
+            return FinancialMetricsOutput(), 0
 
     def extract_supply_chain(
         self,
         ticker: str,
         fiscal_year: int,
         parsed_sections: Dict[str, str]
-    ) -> SupplyChainOutput:
+    ) -> Tuple[SupplyChainOutput, int]:
         """
         Extract supply chain data from parsed 10-K sections.
 
@@ -109,7 +123,7 @@ class FinancialAnalyzer:
             parsed_sections: Parsed 10-K sections
 
         Returns:
-            SupplyChainOutput with extracted supply chain data
+            Tuple of (SupplyChainOutput, tokens_used)
         """
         logger.info(f"Extracting supply chain data for {ticker} {fiscal_year}")
 
@@ -118,6 +132,11 @@ class FinancialAnalyzer:
             parsed_sections,
             sections=["Item 1", "Item 1A", "Item 7"]
         )
+
+        # Validate sections have meaningful content
+        if len(sections_text) < 500:
+            logger.warning(f"Insufficient section content for supply chain {ticker} ({len(sections_text)} chars)")
+            return SupplyChainOutput(), 0
 
         prompt = SUPPLY_CHAIN_PROMPT.format(
             ticker=ticker,
@@ -128,6 +147,7 @@ class FinancialAnalyzer:
         try:
             response = self.haiku.invoke(prompt)
             response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
 
             # Extract JSON from response
             json_text = self._extract_json(response_text)
@@ -135,17 +155,19 @@ class FinancialAnalyzer:
 
             # Validate with Pydantic
             supply_chain = SupplyChainOutput(**supply_chain_data)
-            logger.success(f"✓ Extracted supply chain data for {ticker}")
-            return supply_chain
+            logger.success(f"✓ Extracted supply chain data for {ticker} ({tokens_used} tokens)")
+            return supply_chain, tokens_used
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse supply chain JSON: {e}")
             logger.debug(f"Response: {response_text[:500]}")
-            return SupplyChainOutput()
+            # Return empty data but track tokens used (API was called)
+            return SupplyChainOutput(), tokens_used
 
         except Exception as e:
             logger.error(f"Error extracting supply chain: {e}")
-            return SupplyChainOutput()
+            # Return 0 tokens for general errors (API call may not have completed)
+            return SupplyChainOutput(), 0
 
     def analyze_qualitative(
         self,
@@ -154,7 +176,7 @@ class FinancialAnalyzer:
         parsed_sections: Dict[str, str],
         financial_metrics: FinancialMetricsOutput,
         supply_chain_data: SupplyChainOutput
-    ) -> str:
+    ) -> Tuple[str, int]:
         """
         Perform qualitative analysis of company's financial health.
 
@@ -166,7 +188,7 @@ class FinancialAnalyzer:
             supply_chain_data: Extracted supply chain data
 
         Returns:
-            Qualitative analysis text
+            Tuple of (qualitative_analysis_text, tokens_used)
         """
         logger.info(f"Performing qualitative analysis for {ticker} {fiscal_year}")
 
@@ -191,12 +213,13 @@ class FinancialAnalyzer:
         try:
             response = self.sonnet.invoke(prompt)
             analysis = response.content.strip()
-            logger.success(f"✓ Generated qualitative analysis for {ticker} ({len(analysis)} chars)")
-            return analysis
+            tokens_used = extract_token_usage(response.response_metadata)
+            logger.success(f"✓ Generated qualitative analysis for {ticker} ({len(analysis)} chars, {tokens_used} tokens)")
+            return analysis, tokens_used
 
         except Exception as e:
             logger.error(f"Error in qualitative analysis: {e}")
-            return f"Error performing analysis: {str(e)}"
+            return f"Error performing analysis: {str(e)}", 0
 
     def _format_sections_for_prompt(
         self,
@@ -240,7 +263,7 @@ class FinancialAnalyzer:
 
     def _extract_json(self, text: str) -> str:
         """
-        Extract JSON from text that may contain markdown code blocks.
+        Extract JSON from text that may contain markdown code blocks or preamble text.
 
         Args:
             text: Response text potentially containing JSON
@@ -248,17 +271,172 @@ class FinancialAnalyzer:
         Returns:
             Extracted JSON string
         """
-        # Remove markdown code blocks if present
+        text = text.strip()
+
+        # Try markdown code blocks first
         if "```json" in text:
             start = text.find("```json") + 7
             end = text.find("```", start)
-            text = text[start:end]
+            if end > start:
+                return text[start:end].strip()
         elif "```" in text:
             start = text.find("```") + 3
             end = text.find("```", start)
-            text = text[start:end]
+            if end > start:
+                return text[start:end].strip()
 
-        return text.strip()
+        # Fallback: find JSON object boundaries (handles preamble text before JSON)
+        first_brace = text.find("{")
+        last_brace = text.rfind("}")
+        if first_brace != -1 and last_brace > first_brace:
+            return text[first_brace:last_brace + 1]
+
+        # Last resort: return as-is and let json.loads fail with useful error
+        return text
+
+    # ============================================================================
+    # TTM-SPECIFIC METHODS
+    # ============================================================================
+
+    def extract_metrics_quarterly(
+        self,
+        ticker: str,
+        analysis_period: str,
+        quarters: List[str],
+        parsed_sections_by_quarter: Dict[str, Dict[str, str]]
+    ) -> Tuple[List[QuarterlyMetrics], TTMMetrics, QuarterlyTrends, int]:
+        """
+        Extract metrics from multiple quarters and calculate TTM.
+
+        Args:
+            ticker: Stock ticker
+            analysis_period: Period string (e.g., "TTM Q4 2024 - Q3 2025")
+            quarters: List of quarter labels in chronological order
+            parsed_sections_by_quarter: Parsed sections keyed by quarter
+
+        Returns:
+            Tuple of (quarterly_metrics_list, ttm_metrics, trends, tokens_used)
+        """
+        logger.info(f"Extracting quarterly metrics for {ticker} {analysis_period}")
+
+        # Format quarterly sections for prompt
+        quarterly_sections = self._format_quarterly_sections(parsed_sections_by_quarter)
+
+        prompt = FINANCIAL_METRICS_PROMPT_TTM.format(
+            ticker=ticker,
+            analysis_period=analysis_period,
+            quarters=", ".join(quarters),
+            quarterly_sections=quarterly_sections
+        )
+
+        try:
+            response = self.haiku.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            json_text = self._extract_json(response_text)
+
+            # Check if JSON extraction succeeded
+            if not json_text or json_text.strip() == "":
+                logger.warning(f"Empty JSON extracted from response for {ticker}")
+                logger.debug(f"Response text: {response_text[:500]}")
+                return [], TTMMetrics(quarters_included=quarters), QuarterlyTrends(), tokens_used
+
+            data = json.loads(json_text)
+
+            # Parse quarterly metrics
+            quarterly_metrics = []
+            for q_data in data.get("quarterly", []):
+                quarterly_metrics.append(QuarterlyMetrics(**q_data))
+
+            # Parse TTM metrics with safe defaults
+            ttm_data = data.get("ttm", {})
+            ttm_metrics = TTMMetrics(
+                quarters_included=quarters,
+                **ttm_data
+            )
+
+            # Parse trends with safe defaults - ensure trend_direction is never None
+            trends_data = data.get("trends", {})
+            # Remove None values to allow Pydantic defaults to apply
+            trends_data = {k: v for k, v in trends_data.items() if v is not None}
+            quarterly_trends = QuarterlyTrends(**trends_data)
+
+            logger.success(f"✓ Extracted quarterly metrics for {ticker} ({tokens_used} tokens)")
+            return quarterly_metrics, ttm_metrics, quarterly_trends, tokens_used
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse quarterly metrics JSON: {e}")
+            logger.debug(f"Response: {response_text[:500] if 'response_text' in locals() else 'N/A'}")
+            # Return empty defaults but track tokens used (API was called)
+            return [], TTMMetrics(quarters_included=quarters), QuarterlyTrends(), tokens_used if 'tokens_used' in locals() else 0
+
+        except Exception as e:
+            logger.error(f"Error extracting quarterly metrics: {e}")
+            # Return empty defaults
+            return [], TTMMetrics(quarters_included=quarters), QuarterlyTrends(), 0
+
+    def analyze_qualitative_ttm(
+        self,
+        ticker: str,
+        analysis_period: str,
+        quarters: List[str],
+        parsed_sections_by_quarter: Dict[str, Dict[str, str]],
+        ttm_metrics: TTMMetrics,
+        quarterly_trends: QuarterlyTrends,
+        supply_chain_data: SupplyChainOutput
+    ) -> Tuple[str, int]:
+        """
+        Perform qualitative analysis on TTM data with trend context.
+
+        Returns:
+            Tuple of (analysis_text, tokens_used)
+        """
+        logger.info(f"Performing TTM qualitative analysis for {ticker}")
+
+        # Use most recent quarter's sections for detailed analysis
+        most_recent_quarter = quarters[-1]
+        parsed_sections = parsed_sections_by_quarter.get(most_recent_quarter, {})
+
+        sections_text = self._format_sections_for_prompt(
+            parsed_sections,
+            sections=["Item 1", "Item 1A", "Item 7"],
+            max_length=15000
+        )
+
+        prompt = QUALITATIVE_ANALYSIS_PROMPT_TTM.format(
+            ticker=ticker,
+            analysis_period=analysis_period,
+            quarters=", ".join(quarters),
+            ttm_metrics=json.dumps(ttm_metrics.model_dump(), indent=2),
+            quarterly_trends=json.dumps(quarterly_trends.model_dump(), indent=2),
+            supply_chain_data=json.dumps(supply_chain_data.model_dump(), indent=2),
+            parsed_sections=sections_text
+        )
+
+        try:
+            response = self.sonnet.invoke(prompt)
+            analysis = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+            logger.success(f"✓ Generated TTM qualitative analysis ({len(analysis)} chars, {tokens_used} tokens)")
+            return analysis, tokens_used
+        except Exception as e:
+            logger.error(f"Error in TTM qualitative analysis: {e}")
+            return f"Error performing analysis: {str(e)}", 0
+
+    def _format_quarterly_sections(
+        self,
+        parsed_sections_by_quarter: Dict[str, Dict[str, str]],
+        max_per_quarter: int = 8000
+    ) -> str:
+        """Format quarterly sections for prompt."""
+        output = []
+        for quarter, sections in parsed_sections_by_quarter.items():
+            output.append(f"\n## {quarter}\n")
+            for section_name, content in sections.items():
+                truncated = content[:max_per_quarter] if len(content) > max_per_quarter else content
+                output.append(f"### {section_name}\n{truncated}\n")
+        return "\n".join(output)
 
 
 # Global analyzer instance

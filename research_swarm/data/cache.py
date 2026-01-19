@@ -110,15 +110,18 @@ class Cache:
             ))
             logger.debug(f"Cached: {namespace}:{key} (TTL: {ttl_days} days)")
 
-    def clear_expired(self):
-        """Remove all expired entries."""
+    def clear_expired(self) -> int:
+        """Remove expired cache entries.
+
+        Returns:
+            Number of entries deleted.
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
                 "DELETE FROM cache WHERE expires_at < ?",
                 (datetime.now().isoformat(),)
             )
-            deleted = cursor.rowcount
-            logger.info(f"Cleared {deleted} expired cache entries")
+            return cursor.rowcount
 
     def stats(self) -> dict:
         """Get cache statistics."""

@@ -8,9 +8,14 @@ from ..logger import logger
 from ..orchestration import PersistenceManager
 from .data_extractor import DataExtractor
 from .models import ReportConfig, ReportOutput, ReportType
-from .pdf_generator import PDFGenerator
 from .renderer import TemplateRenderer
 from .visualizations import ChartGenerator
+
+# PDF generator is optional (requires system dependencies)
+try:
+    from .pdf_generator import PDFGenerator
+except (ImportError, OSError):
+    PDFGenerator = None
 
 
 class ReportGenerator:
@@ -122,17 +127,21 @@ class ReportGenerator:
             # Step 5: Generate PDF if requested
             pdf_path = None
             if config.report_type in [ReportType.PDF, ReportType.BOTH]:
-                logger.debug("Generating PDF...")
-                pdf_gen = PDFGenerator()
-                pdf_path = config.output_dir / f"report_{config.run_id[:8]}.pdf"
+                if PDFGenerator is None:
+                    logger.warning("PDF generation unavailable (missing system dependencies). Skipping PDF generation.")
+                    logger.info("To enable PDF generation, install system dependencies: https://doc.courtbouillon.org/weasyprint/stable/first_steps.html#installation")
+                else:
+                    logger.debug("Generating PDF...")
+                    pdf_gen = PDFGenerator()
+                    pdf_path = config.output_dir / f"report_{config.run_id[:8]}.pdf"
 
-                try:
-                    pdf_gen.generate(md_path, pdf_path)
-                    logger.info(f"Saved PDF report: {pdf_path}")
-                except Exception as e:
-                    logger.error(f"PDF generation failed: {e}")
-                    # Continue even if PDF fails - we still have markdown
-                    pdf_path = None
+                    try:
+                        pdf_gen.generate(md_path, pdf_path)
+                        logger.info(f"Saved PDF report: {pdf_path}")
+                    except Exception as e:
+                        logger.error(f"PDF generation failed: {e}")
+                        # Continue even if PDF fails - we still have markdown
+                        pdf_path = None
 
             generation_time = time.time() - start_time
 

@@ -13,7 +13,7 @@ SYNTHESIS_PROMPT = """You are an investment analyst synthesizing research from m
 
 **Company**: {ticker}
 **Analysis Date**: {analysis_date}
-**Fiscal Year**: {fiscal_year}
+**Analysis Period**: {analysis_period}
 
 You have received reports from three specialized research teams:
 

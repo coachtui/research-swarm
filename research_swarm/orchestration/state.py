@@ -16,9 +16,13 @@ class SwarmOrchestrationState(TypedDict):
     run_id: str
     run_name: Optional[str]
     tickers: List[str]
-    fiscal_year: int
+    analysis_period: str
+    quarters: List[str]
     news_days_back: int
     max_retries: int
+
+    # Backward compatibility
+    fiscal_year: Optional[int]
 
     # Run status
     status: RunStatus

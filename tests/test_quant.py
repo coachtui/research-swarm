@@ -64,7 +64,7 @@ def test_supply_chain_score_breakdown_weighted_average():
     )
 
     assert abs(breakdown.weighted_average() - expected) < 0.01
-    assert abs(breakdown.weighted_average() - 7.65) < 0.01
+    assert abs(breakdown.weighted_average() - 7.55) < 0.01
 
 
 def test_score_breakdown_validation():
@@ -234,8 +234,8 @@ def test_calculate_sma():
     expected_5th = (100 + 102 + 104 + 103 + 105) / 5
     assert sma_5.iloc[4] == pytest.approx(expected_5th, abs=0.01)
 
-    # Check last value
-    expected_last = (105 + 107 + 106 + 108 + 110) / 5
+    # Check last value (last 5 values: 107, 106, 108, 110, 109)
+    expected_last = (107 + 106 + 108 + 110 + 109) / 5
     assert sma_5.iloc[-1] == pytest.approx(expected_last, abs=0.01)
 
 

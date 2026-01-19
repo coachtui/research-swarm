@@ -10,6 +10,7 @@ from langgraph.graph import StateGraph, END
 from loguru import logger
 
 from research_swarm.data import market_data_client
+from research_swarm.data.supply_chain_knowledge import supply_chain_kb
 from research_swarm.agents.fundamentalist.models import SupplyChainOutput as FundamentalistSupplyChain
 from .state import QuantState
 from .technical import TechnicalAnalyzer

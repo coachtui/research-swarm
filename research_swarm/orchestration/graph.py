@@ -6,7 +6,7 @@ from typing import List, Literal, Optional
 
 from langgraph.graph import END, StateGraph
 
-from ..agents.manager.graph import analyze_swarm
+# Import analyze_swarm inside functions to avoid circular dependency
 from ..logger import logger
 from .cost_tracker import CostTracker
 from .error_handler import RetryConfig, RetryError, RetryHandler, is_retryable_error
@@ -41,7 +41,9 @@ def initialize_run(state: SwarmOrchestrationState) -> SwarmOrchestrationState:
         run_id=state["run_id"],
         run_name=state.get("run_name"),
         tickers=state["tickers"],
-        fiscal_year=state["fiscal_year"],
+        analysis_period=state["analysis_period"],
+        quarters=state.get("quarters", []),
+        fiscal_year=state.get("fiscal_year"),  # Backward compatibility
         news_days_back=state["news_days_back"],
         max_retries=state["max_retries"],
         status=RunStatus.INITIALIZED,
@@ -124,9 +126,11 @@ def analyze_stock(state: SwarmOrchestrationState) -> SwarmOrchestrationState:
 
         def analyze_with_retry():
             """Wrapper for retry logic."""
+            from ..agents.manager.graph import analyze_swarm
             return analyze_swarm(
                 ticker=ticker,
-                fiscal_year=state["fiscal_year"],
+                quarters=state.get("quarters"),
+                fiscal_year=state.get("fiscal_year"),  # Backward compatibility
                 news_days_back=state["news_days_back"],
             )
 
@@ -155,11 +159,8 @@ def analyze_stock(state: SwarmOrchestrationState) -> SwarmOrchestrationState:
         result.processing_time_seconds = processing_time
         result.error_message = None
 
-        # Calculate cost (assuming haiku model)
-        # Rough estimate: 30% input, 70% output
-        tokens_input = int(manager_output.tokens_used * 0.3)
-        tokens_output = int(manager_output.tokens_used * 0.7)
-        cost = cost_tracker.calculate_cost(tokens_input, tokens_output, "haiku")
+        # Use pre-calculated costs from ManagerOutput (accounts for mixed Haiku/Sonnet models)
+        cost = sum(manager_output.cost_by_agent.values())
         result.cost_usd = cost
 
         # Update cost summary
@@ -348,7 +349,8 @@ def build_orchestration_graph() -> StateGraph:
 
 def run_batch(
     tickers: List[str],
-    fiscal_year: int = 2024,
+    quarters: List[str] = None,
+    fiscal_year: int = None,  # Deprecated - for backward compatibility
     news_days_back: int = 30,
     max_retries: int = 3,
     run_name: Optional[str] = None,
@@ -357,7 +359,8 @@ def run_batch(
 
     Args:
         tickers: List of stock tickers to analyze
-        fiscal_year: Fiscal year for fundamentalist analysis
+        quarters: Quarters for TTM analysis (e.g., ["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"])
+        fiscal_year: [Deprecated] Fiscal year for annual analysis
         news_days_back: Days to look back for news analysis
         max_retries: Maximum retry attempts per stock
         run_name: Optional name for the run
@@ -366,18 +369,33 @@ def run_batch(
         SwarmRun with complete results
     """
     from uuid import uuid4
+    from datetime import datetime as dt
 
     logger.info(f"Starting batch run with {len(tickers)} stocks")
 
     # Generate run ID
     run_id = str(uuid4())
 
+    # Determine analysis period
+    if quarters:
+        analysis_period = f"TTM {quarters[0].replace('_', ' ')} - {quarters[-1].replace('_', ' ')}"
+    elif fiscal_year:
+        analysis_period = f"FY {fiscal_year}"
+        logger.warning("Using deprecated fiscal_year parameter. Consider using quarters for TTM analysis.")
+    else:
+        # Default to current year
+        current_year = dt.now().year
+        analysis_period = f"FY {current_year}"
+        logger.warning(f"No quarters or fiscal_year provided, defaulting to FY {current_year}")
+
     # Initialize state
     initial_state: SwarmOrchestrationState = {
         "run_id": run_id,
         "run_name": run_name,
         "tickers": tickers,
-        "fiscal_year": fiscal_year,
+        "analysis_period": analysis_period,
+        "quarters": quarters or [],
+        "fiscal_year": fiscal_year,  # Backward compatibility
         "news_days_back": news_days_back,
         "max_retries": max_retries,
         "status": RunStatus.INITIALIZED,
@@ -429,7 +447,9 @@ def resume_batch(run_id: str) -> SwarmRun:
         "run_id": swarm_run.run_id,
         "run_name": swarm_run.run_name,
         "tickers": swarm_run.tickers,
-        "fiscal_year": swarm_run.fiscal_year,
+        "analysis_period": swarm_run.analysis_period,
+        "quarters": swarm_run.quarters,
+        "fiscal_year": swarm_run.fiscal_year,  # Backward compatibility
         "news_days_back": swarm_run.news_days_back,
         "max_retries": swarm_run.max_retries,
         "status": RunStatus.RUNNING,

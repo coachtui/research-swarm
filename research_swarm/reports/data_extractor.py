@@ -75,7 +75,9 @@ class DataExtractor:
             run_id=run.run_id,
             run_name=run.run_name,
             analysis_date=analysis_date,
-            fiscal_year=run.fiscal_year,
+            analysis_period=run.analysis_period,
+            quarters=run.quarters,
+            fiscal_year=run.fiscal_year,  # Backward compatibility
             stocks=stocks,
             top_picks=top_picks,
             watchlist_candidates=watchlist,

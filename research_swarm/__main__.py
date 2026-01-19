@@ -26,6 +26,18 @@ from research_swarm.automation import (
 )
 
 
+def check_python_version():
+    """Ensure Python 3.10+ is being used."""
+    if sys.version_info < (3, 10):
+        logger.error(
+            f"Python 3.10+ required, but using {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        )
+        logger.error("Solution: Use pyenv to switch to Python 3.11.9:")
+        logger.error('  eval "$(pyenv init -)"')
+        logger.error("  python --version  # Should show 3.11.9")
+        sys.exit(1)
+
+
 def cmd_run(args):
     """Run a batch analysis on multiple stocks."""
     # Load tickers from file or command line
@@ -50,7 +62,8 @@ def cmd_run(args):
     try:
         swarm_run = run_batch(
             tickers=tickers,
-            fiscal_year=args.fiscal_year,
+            quarters=args.quarters if hasattr(args, 'quarters') and args.quarters else None,
+            fiscal_year=args.fiscal_year if args.fiscal_year else None,
             news_days_back=args.news_days_back,
             max_retries=args.max_retries,
             run_name=args.name,
@@ -535,6 +548,9 @@ def cmd_notify_test(args):
 
 def main():
     """Main CLI entry point."""
+    # Check Python version first
+    check_python_version()
+
     # Clean up expired cache entries on startup
     try:
         from research_swarm.data.cache import cache
@@ -564,7 +580,15 @@ def main():
     )
     parser_run.add_argument("--name", help="Name for this run")
     parser_run.add_argument(
-        "--fiscal-year", type=int, default=2024, help="Fiscal year (default: 2024)"
+        "--quarters",
+        nargs=4,
+        metavar="QUARTER",
+        help="Quarters for TTM analysis (e.g., Q4_2024 Q1_2025 Q2_2025 Q3_2025)",
+    )
+    parser_run.add_argument(
+        "--fiscal-year",
+        type=int,
+        help="[Deprecated] Fiscal year for annual analysis",
     )
     parser_run.add_argument(
         "--news-days-back",

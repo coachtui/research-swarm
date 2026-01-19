@@ -82,8 +82,8 @@ TECHNICAL_ANALYSIS_PROMPT = """You are a quantitative analyst writing a technica
 - Volume Trend: {volume_trend}
 
 **Relative Strength**:
-- 1-Month Return: {ticker_return_1m:+.1f}% (vs Sector: {vs_sector_1m:+.1f}pp, vs Market: {vs_market_1m:+.1f}pp)
-- 3-Month Return: {ticker_return_3m:+.1f}% (vs Sector: {vs_sector_3m:+.1f}pp, vs Market: {vs_market_3m:+.1f}pp)
+- 1-Month Return: {ticker_return_1m}% (vs Sector: {vs_sector_1m}pp, vs Market: {vs_market_1m}pp)
+- 3-Month Return: {ticker_return_3m}% (vs Sector: {vs_sector_3m}pp, vs Market: {vs_market_3m}pp)
 
 ---
 

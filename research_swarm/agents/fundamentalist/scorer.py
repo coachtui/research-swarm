@@ -4,15 +4,21 @@ Financial Health Scoring Module.
 Scores companies across 5 dimensions and calculates overall health score.
 """
 import json
-from typing import Tuple
+from typing import Tuple, Dict
 from langchain_anthropic import ChatAnthropic
 from research_swarm.logger import logger
 from research_swarm.config import settings
-from research_swarm.agents.fundamentalist.prompts import HEALTH_SCORE_PROMPT
+from research_swarm.utils import extract_token_usage
+from research_swarm.agents.fundamentalist.prompts import (
+    HEALTH_SCORE_PROMPT,
+    HEALTH_SCORE_PROMPT_TTM
+)
 from research_swarm.agents.fundamentalist.models import (
     FinancialMetricsOutput,
     SupplyChainOutput,
-    ScoreBreakdown
+    ScoreBreakdown,
+    TTMMetrics,
+    QuarterlyTrends
 )
 
 
@@ -20,14 +26,14 @@ class HealthScorer:
     """Scores financial health across multiple dimensions."""
 
     def __init__(self):
-        """Initialize scorer with Sonnet model."""
-        # Use Sonnet for nuanced scoring
-        self.sonnet = ChatAnthropic(
-            model="claude-3-sonnet-20240229",
+        """Initialize scorer with Haiku model."""
+        # Use Haiku for efficient scoring
+        self.haiku = ChatAnthropic(
+            model="claude-3-5-haiku-20241022",
             api_key=settings.anthropic_api_key,
             temperature=0.3,
         )
-        logger.info("HealthScorer initialized with Sonnet")
+        logger.info("HealthScorer initialized with Haiku")
 
     def score_health(
         self,
@@ -36,7 +42,7 @@ class HealthScorer:
         financial_metrics: FinancialMetricsOutput,
         supply_chain_data: SupplyChainOutput,
         financial_analysis: str
-    ) -> Tuple[float, ScoreBreakdown, float]:
+    ) -> Tuple[float, ScoreBreakdown, float, int]:
         """
         Score the company's financial health.
 
@@ -48,7 +54,7 @@ class HealthScorer:
             financial_analysis: Qualitative analysis text
 
         Returns:
-            Tuple of (overall_score, breakdown, confidence)
+            Tuple of (overall_score, breakdown, confidence, tokens_used)
         """
         logger.info(f"Scoring financial health for {ticker} {fiscal_year}")
 
@@ -69,8 +75,9 @@ class HealthScorer:
         )
 
         try:
-            response = self.sonnet.invoke(prompt)
+            response = self.haiku.invoke(prompt)
             response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
 
             # Extract JSON from response
             json_text = self._extract_json(response_text)
@@ -95,10 +102,10 @@ class HealthScorer:
                 f"✓ Scored {ticker}: {overall_score:.2f} "
                 f"(P:{breakdown.profitability:.1f} G:{breakdown.growth:.1f} "
                 f"B:{breakdown.balance_sheet:.1f} C:{breakdown.cash_flow:.1f} "
-                f"S:{breakdown.supply_chain:.1f})"
+                f"S:{breakdown.supply_chain:.1f}) ({tokens_used} tokens)"
             )
 
-            return overall_score, breakdown, confidence
+            return overall_score, breakdown, confidence, tokens_used
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse scoring JSON: {e}")
@@ -110,12 +117,102 @@ class HealthScorer:
             logger.error(f"Error scoring health: {e}")
             return self._default_scores()
 
-    def _default_scores(self) -> Tuple[float, ScoreBreakdown, float]:
+    def score_health_ttm(
+        self,
+        ticker: str,
+        analysis_period: str,
+        ttm_metrics: TTMMetrics,
+        quarterly_trends: QuarterlyTrends,
+        supply_chain_data: SupplyChainOutput,
+        financial_analysis: str,
+        data_quality: Dict[str, str]
+    ) -> Tuple[float, ScoreBreakdown, float, int]:
+        """
+        Score the company's financial health with TTM data and trend adjustments.
+
+        Args:
+            ticker: Stock ticker
+            analysis_period: Analysis period (e.g., "TTM Q4 2024 - Q3 2025")
+            ttm_metrics: TTM aggregated metrics
+            quarterly_trends: Quarter-over-quarter trends
+            supply_chain_data: Supply chain data
+            financial_analysis: Qualitative analysis text
+            data_quality: Data quality by quarter
+
+        Returns:
+            Tuple of (overall_score, breakdown, confidence, tokens_used)
+        """
+        logger.info(f"Scoring TTM financial health for {ticker} {analysis_period}")
+
+        # Format inputs for prompt
+        ttm_metrics_text = json.dumps(ttm_metrics.model_dump(), indent=2)
+        quarterly_trends_text = json.dumps(quarterly_trends.model_dump(), indent=2)
+        supply_chain_text = json.dumps(supply_chain_data.model_dump(), indent=2)
+        data_quality_text = json.dumps(data_quality, indent=2)
+
+        # Truncate analysis if too long
+        if len(financial_analysis) > 3000:
+            financial_analysis = financial_analysis[:3000] + "..."
+
+        prompt = HEALTH_SCORE_PROMPT_TTM.format(
+            ticker=ticker,
+            analysis_period=analysis_period,
+            ttm_metrics=ttm_metrics_text,
+            quarterly_trends=quarterly_trends_text,
+            supply_chain_data=supply_chain_text,
+            financial_analysis=financial_analysis,
+            data_quality=data_quality_text
+        )
+
+        try:
+            response = self.haiku.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            score_data = json.loads(json_text)
+
+            # Extract component scores
+            breakdown = ScoreBreakdown(
+                profitability=score_data["profitability"],
+                growth=score_data["growth"],
+                balance_sheet=score_data["balance_sheet"],
+                cash_flow=score_data["cash_flow"],
+                supply_chain=score_data["supply_chain"]
+            )
+
+            # Calculate weighted average
+            overall_score = breakdown.weighted_average()
+
+            # Extract confidence
+            confidence = score_data.get("confidence", 0.8)
+
+            logger.success(
+                f"✓ Scored {ticker} TTM: {overall_score:.2f} "
+                f"(P:{breakdown.profitability:.1f} G:{breakdown.growth:.1f} "
+                f"B:{breakdown.balance_sheet:.1f} C:{breakdown.cash_flow:.1f} "
+                f"S:{breakdown.supply_chain:.1f}) ({tokens_used} tokens)"
+            )
+
+            return overall_score, breakdown, confidence, tokens_used
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse TTM scoring JSON: {e}")
+            logger.debug(f"Response: {response_text[:500]}")
+            # Return default scores on error
+            return self._default_scores()
+
+        except Exception as e:
+            logger.error(f"Error scoring TTM health: {e}")
+            return self._default_scores()
+
+    def _default_scores(self) -> Tuple[float, ScoreBreakdown, float, int]:
         """
         Return default scores when scoring fails.
 
         Returns:
-            Tuple of (default_score, default_breakdown, low_confidence)
+            Tuple of (default_score, default_breakdown, low_confidence, zero_tokens)
         """
         breakdown = ScoreBreakdown(
             profitability=5.0,
@@ -124,7 +221,7 @@ class HealthScorer:
             cash_flow=5.0,
             supply_chain=5.0
         )
-        return 5.0, breakdown, 0.3
+        return 5.0, breakdown, 0.3, 0
 
     def _extract_json(self, text: str) -> str:
         """

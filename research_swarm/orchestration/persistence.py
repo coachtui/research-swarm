@@ -33,6 +33,8 @@ class PersistenceManager:
                     run_id TEXT PRIMARY KEY,
                     run_name TEXT,
                     tickers TEXT NOT NULL,
+                    analysis_period TEXT,
+                    quarters TEXT,
                     fiscal_year INTEGER,
                     news_days_back INTEGER,
                     max_retries INTEGER DEFAULT 3,
@@ -48,6 +50,17 @@ class PersistenceManager:
                 )
                 """
             )
+
+            # Migration: Add new columns if they don't exist
+            try:
+                conn.execute("ALTER TABLE swarm_runs ADD COLUMN analysis_period TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+            try:
+                conn.execute("ALTER TABLE swarm_runs ADD COLUMN quarters TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
             conn.execute(
                 """
@@ -97,17 +110,19 @@ class PersistenceManager:
             conn.execute(
                 """
                 INSERT INTO swarm_runs (
-                    run_id, run_name, tickers, fiscal_year, news_days_back,
-                    max_retries, status, total_stocks, completed_count,
-                    failed_count, cost_summary, created_at, started_at,
-                    completed_at, elapsed_seconds
+                    run_id, run_name, tickers, analysis_period, quarters,
+                    fiscal_year, news_days_back, max_retries, status,
+                    total_stocks, completed_count, failed_count, cost_summary,
+                    created_at, started_at, completed_at, elapsed_seconds
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     swarm_run.run_id,
                     swarm_run.run_name,
                     json.dumps(swarm_run.tickers),
+                    swarm_run.analysis_period,
+                    json.dumps(swarm_run.quarters),
                     swarm_run.fiscal_year,
                     swarm_run.news_days_back,
                     swarm_run.max_retries,
@@ -210,11 +225,16 @@ class PersistenceManager:
             # Parse cost summary
             cost_summary = CostSummary(**json.loads(row["cost_summary"]))
 
+            # Convert Row to dict for .get() method support
+            row_dict = dict(row)
+
             return SwarmRun(
                 run_id=row["run_id"],
                 run_name=row["run_name"],
                 tickers=json.loads(row["tickers"]),
-                fiscal_year=row["fiscal_year"],
+                analysis_period=row_dict.get("analysis_period", ""),
+                quarters=json.loads(row_dict.get("quarters") or "[]"),
+                fiscal_year=row_dict.get("fiscal_year"),
                 news_days_back=row["news_days_back"],
                 max_retries=row["max_retries"],
                 status=RunStatus(row["status"]),
