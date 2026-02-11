@@ -27,18 +27,6 @@
       "destination": "/api/index.py"
     }
   ],
-  "env": {
-    "CORS_ORIGINS": "@cors-origins",
-    "DATABASE_URL": "@database-url",
-    "CLERK_SECRET_KEY": "@clerk-secret-key",
-    "INNGEST_SIGNING_KEY": "@inngest-signing-key",
-    "INNGEST_EVENT_KEY": "@inngest-event-key",
-    "R2_ACCOUNT_ID": "@r2-account-id",
-    "R2_ACCESS_KEY_ID": "@r2-access-key-id",
-    "R2_SECRET_ACCESS_KEY": "@r2-secret-access-key",
-    "R2_BUCKET_NAME": "@r2-bucket-name",
-    "ANTHROPIC_API_KEY": "@anthropic-api-key"
-  },
   "regions": ["iad1"],
   "headers": [
     {
