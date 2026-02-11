@@ -2,7 +2,7 @@
   "version": 2,
   "name": "research-swarm-api",
   "framework": null,
-  "buildCommand": "pip install --break-system-packages -r requirements-vercel.txt && python -m prisma generate",
+  "buildCommand": "pip install --break-system-packages --no-cache-dir -r requirements-vercel.txt && python -m prisma generate",
   "outputDirectory": null,
   "build": {
     "env": {
