@@ -2,7 +2,7 @@
 set -e
 
 echo "Installing Python dependencies..."
-pip install --no-cache-dir -r requirements-vercel.txt
+pip install --break-system-packages --no-cache-dir -r requirements-vercel.txt
 
 echo "Verifying Prisma installation..."
 python3 -c "import prisma; print(f'Prisma installed: {prisma.__version__}')"
