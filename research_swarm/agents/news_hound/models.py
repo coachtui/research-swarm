@@ -4,7 +4,7 @@ Pydantic models for News Hound agent outputs.
 These models ensure type safety and validation for all news analysis data.
 """
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Dict, Any
 from datetime import datetime
 from enum import Enum
 
@@ -142,6 +142,377 @@ class SentimentBreakdown(BaseModel):
             return "Very Bearish"
 
 
+class EarningsEstimateRevision(BaseModel):
+    """Earnings estimate revision data (PRIMARY SIGNAL per Zacks model)."""
+
+    # Current consensus estimates
+    current_quarter_eps: Optional[float] = Field(None, description="Current quarter EPS estimate")
+    current_fy_eps: Optional[float] = Field(None, description="Current fiscal year EPS estimate")
+    next_fy_eps: Optional[float] = Field(None, description="Next fiscal year EPS estimate")
+
+    # Revisions (90 days)
+    upward_revisions: Optional[int] = Field(default=0, description="Number of upward revisions (90 days)")
+    downward_revisions: Optional[int] = Field(default=0, description="Number of downward revisions (90 days)")
+    net_revision_direction: str = Field(default="neutral", description="Strongly Positive/Positive/Neutral/Negative/Strongly Negative")
+    consensus_change_pct: Optional[float] = Field(default=None, description="% change in consensus estimate (90 days)")
+
+    # Estimate quality
+    analyst_coverage: Optional[int] = Field(default=0, description="Number of analysts covering")
+    estimate_dispersion: str = Field(default="medium", description="Low/Medium/High")
+    estimate_agreement: Optional[float] = Field(default=0.5, ge=0, le=1, description="% of estimates within tight range")
+
+    @model_validator(mode='before')
+    @classmethod
+    def replace_none_with_defaults(cls, data):
+        """Replace None values with defaults for LLM-generated nulls."""
+        if isinstance(data, dict):
+            # Integer/Float fields
+            if data.get('upward_revisions') is None:
+                data['upward_revisions'] = 0
+            if data.get('downward_revisions') is None:
+                data['downward_revisions'] = 0
+            if data.get('analyst_coverage') is None:
+                data['analyst_coverage'] = 0
+            if data.get('estimate_agreement') is None:
+                data['estimate_agreement'] = 0.5
+
+            # String fields
+            if data.get('net_revision_direction') is None:
+                data['net_revision_direction'] = "neutral"
+            if data.get('estimate_dispersion') is None:
+                data['estimate_dispersion'] = "medium"
+            if data.get('beat_pattern') is None:
+                data['beat_pattern'] = ""
+            if data.get('momentum') is None:
+                data['momentum'] = "stable"
+        return data
+
+    # EPS surprise history (last 4 quarters)
+    q1_surprise_pct: Optional[float] = Field(None, description="Q-1 EPS surprise %")
+    q2_surprise_pct: Optional[float] = Field(None, description="Q-2 EPS surprise %")
+    q3_surprise_pct: Optional[float] = Field(None, description="Q-3 EPS surprise %")
+    q4_surprise_pct: Optional[float] = Field(None, description="Q-4 EPS surprise %")
+    avg_surprise_pct: Optional[float] = Field(None, description="Average surprise %")
+    beat_pattern: str = Field("", description="e.g., 'Beat 4/4', 'Beat 3/4', etc.")
+
+    # Growth trajectory
+    current_year_growth_pct: Optional[float] = Field(None, description="Current year EPS growth %")
+    next_year_growth_pct: Optional[float] = Field(None, description="Next year EPS growth %")
+    momentum: str = Field("stable", description="Accelerating/Stable/Decelerating")
+    two_year_cagr: Optional[float] = Field(None, description="Two-year EPS CAGR %")
+
+
+class AnalystConsensus(BaseModel):
+    """Analyst ratings and price target consensus."""
+
+    # Current ratings distribution
+    strong_buy: int = Field(0, description="Number of Strong Buy ratings")
+    buy: int = Field(0, description="Number of Buy ratings")
+    hold: int = Field(0, description="Number of Hold ratings")
+    sell: int = Field(0, description="Number of Sell ratings")
+    strong_sell: int = Field(0, description="Number of Strong Sell ratings")
+    consensus_rating: str = Field("hold", description="Overall consensus (Strong Buy/Buy/Hold/Sell/Strong Sell)")
+
+    # Price targets
+    avg_price_target: Optional[float] = Field(None, description="Average analyst price target")
+    high_price_target: Optional[float] = Field(None, description="Highest price target")
+    low_price_target: Optional[float] = Field(None, description="Lowest price target")
+    target_upside_pct: Optional[float] = Field(None, description="% upside to avg target from current price")
+
+    # Recent changes (90 days)
+    upgrades: Optional[int] = Field(default=0, description="Number of upgrades")
+    downgrades: Optional[int] = Field(default=0, description="Number of downgrades")
+    new_coverage: Optional[int] = Field(default=0, description="Number of new coverage initiations")
+    rating_momentum: str = Field(default="stable", description="Improving/Stable/Deteriorating")
+    target_trend: str = Field(default="stable", description="Rising/Stable/Falling")
+
+    # Confidence
+    consensus_confidence: str = Field(default="medium", description="High/Medium/Low")
+
+    @model_validator(mode='before')
+    @classmethod
+    def replace_none_with_defaults(cls, data):
+        """Replace None values with defaults for LLM-generated nulls."""
+        if isinstance(data, dict):
+            # Integer fields
+            if data.get('upgrades') is None:
+                data['upgrades'] = 0
+            if data.get('downgrades') is None:
+                data['downgrades'] = 0
+            if data.get('new_coverage') is None:
+                data['new_coverage'] = 0
+
+            # String fields
+            if data.get('consensus_rating') is None:
+                data['consensus_rating'] = "hold"
+            if data.get('rating_momentum') is None:
+                data['rating_momentum'] = "stable"
+            if data.get('target_trend') is None:
+                data['target_trend'] = "stable"
+            if data.get('consensus_confidence') is None:
+                data['consensus_confidence'] = "medium"
+        return data
+
+
+class InstitutionalActivity(BaseModel):
+    """Institutional ownership and 13F tracking (Smart Money)."""
+
+    # Current ownership
+    institutional_ownership_pct: Optional[float] = Field(default=None, description="% of shares held by institutions")
+    qoq_change_pct: Optional[float] = Field(default=None, description="Quarter-over-quarter change in ownership %")
+    num_holders: Optional[int] = Field(default=0, description="Number of institutional holders")
+    trend: str = Field(default="stable", description="Accumulation/Distribution/Stable")
+
+    @model_validator(mode='before')
+    @classmethod
+    def replace_none_with_defaults(cls, data):
+        """Replace None values with defaults for LLM-generated nulls."""
+        if isinstance(data, dict):
+            # Integer fields
+            if data.get('num_holders') is None:
+                data['num_holders'] = 0
+
+            # String fields
+            if data.get('trend') is None:
+                data['trend'] = "stable"
+            if data.get('institutional_sentiment') is None:
+                data['institutional_sentiment'] = "neutral"
+        return data
+
+    # Top 5 holders
+    top_holders: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Top 5 institutional holders with % ownership and recent changes"
+    )
+
+    # Notable 13F activity
+    notable_activity: List[str] = Field(
+        default_factory=list,
+        description="Notable smart money moves (e.g., 'Berkshire added 15%')"
+    )
+
+    # Sentiment
+    institutional_sentiment: str = Field("neutral", description="Strongly Bullish/Bullish/Neutral/Bearish")
+
+
+class InsiderActivity(BaseModel):
+    """Insider trading activity (6 months)."""
+
+    # Transaction summary
+    buy_transactions: int = Field(default=0, description="Number of buy transactions")
+    buy_shares: int = Field(default=0, description="Total shares bought")
+    buy_value_usd: float = Field(default=0.0, description="Total value of buys in USD")
+
+    sell_transactions: int = Field(default=0, description="Number of sell transactions")
+    sell_shares: int = Field(default=0, description="Total shares sold")
+    sell_value_usd: float = Field(default=0.0, description="Total value of sells in USD")
+
+    net_shares: int = Field(default=0, description="Net shares (buys - sells)")
+    net_value_usd: float = Field(default=0.0, description="Net value in USD")
+
+    # Notable transactions
+    notable_transactions: List[str] = Field(
+        default_factory=list,
+        description="Notable insider transactions (e.g., 'CEO bought $2M at $50 on 2024-12-15')"
+    )
+
+    # Ownership
+    insider_ownership_pct: Optional[float] = Field(None, description="Total insider ownership %")
+    ceo_ownership_pct: Optional[float] = Field(None, description="CEO ownership %")
+    ownership_trend: str = Field("stable", description="Increasing/Stable/Decreasing")
+
+    # Sentiment
+    insider_sentiment: str = Field("neutral", description="Bullish/Neutral/Bearish")
+    confidence: str = Field("medium", description="High/Medium/Low - based on transaction patterns")
+
+    @model_validator(mode='before')
+    @classmethod
+    def replace_none_with_defaults(cls, data):
+        """Replace None values with defaults for LLM-generated nulls."""
+        if isinstance(data, dict):
+            # Integer/Float fields
+            if data.get('buy_transactions') is None:
+                data['buy_transactions'] = 0
+            if data.get('buy_shares') is None:
+                data['buy_shares'] = 0
+            if data.get('buy_value_usd') is None:
+                data['buy_value_usd'] = 0.0
+            if data.get('sell_transactions') is None:
+                data['sell_transactions'] = 0
+            if data.get('sell_shares') is None:
+                data['sell_shares'] = 0
+            if data.get('sell_value_usd') is None:
+                data['sell_value_usd'] = 0.0
+            if data.get('net_shares') is None:
+                data['net_shares'] = 0
+            if data.get('net_value_usd') is None:
+                data['net_value_usd'] = 0.0
+
+            # String fields
+            if data.get('ownership_trend') is None:
+                data['ownership_trend'] = "stable"
+            if data.get('insider_sentiment') is None:
+                data['insider_sentiment'] = "neutral"
+            if data.get('confidence') is None:
+                data['confidence'] = "medium"
+        return data
+
+
+class ManagementCommentary(BaseModel):
+    """Management commentary and tone analysis from earnings calls and guidance."""
+
+    # Guidance track record
+    guidance_last_quarter: Optional[str] = Field(None, description="Last quarter guidance vs reality (Beat/Met/Missed)")
+    guidance_reliability: str = Field("medium", description="High (consistently accurate) / Medium / Low (frequently wrong)")
+    current_guidance: Optional[str] = Field(None, description="Current quarter/year guidance if provided")
+    guidance_change: Optional[str] = Field(None, description="Raised/Maintained/Lowered/Withdrawn")
+
+    # Tone assessment from earnings calls
+    tone_assessment: str = Field("neutral", description="Confident/Cautious/Defensive/Evasive")
+    tone_evidence: List[str] = Field(
+        default_factory=list,
+        description="Specific quotes or behaviors indicating tone"
+    )
+
+    # Red flags
+    red_flag_language: List[str] = Field(
+        default_factory=list,
+        description="Concerning phrases like 'challenging environment', 'macro headwinds', 'one-time charges'"
+    )
+    has_red_flags: bool = Field(False, description="True if significant red flags detected")
+
+    # Capital allocation quality
+    capital_allocation_quality: str = Field("medium", description="High (shareholder-friendly) / Medium / Low (value-destructive)")
+    capex_discipline: Optional[str] = Field(None, description="Disciplined/Moderate/Aggressive")
+    shareholder_returns: Optional[str] = Field(None, description="Buybacks, dividends, or other returns to shareholders")
+
+    # Innovation and competitive positioning
+    innovation_mentions: int = Field(0, description="Count of innovation/R&D/new product mentions")
+    competitive_position: str = Field("neutral", description="Strengthening/Stable/Weakening")
+
+    # Overall management quality signal
+    management_quality_score: float = Field(5.0, ge=0, le=10, description="Overall management quality (0-10)")
+    confidence: str = Field("medium", description="High/Medium/Low")
+
+    @model_validator(mode='before')
+    @classmethod
+    def replace_none_with_defaults(cls, data):
+        """Replace None values with defaults for LLM-generated nulls."""
+        if isinstance(data, dict):
+            # Integer fields
+            if data.get('innovation_mentions') is None:
+                data['innovation_mentions'] = 0
+
+            # Float fields
+            if data.get('management_quality_score') is None:
+                data['management_quality_score'] = 5.0
+
+            # Boolean fields
+            if data.get('has_red_flags') is None:
+                data['has_red_flags'] = False
+
+            # String fields
+            if data.get('guidance_reliability') is None:
+                data['guidance_reliability'] = "medium"
+            if data.get('tone_assessment') is None:
+                data['tone_assessment'] = "neutral"
+            if data.get('capital_allocation_quality') is None:
+                data['capital_allocation_quality'] = "medium"
+            if data.get('competitive_position') is None:
+                data['competitive_position'] = "neutral"
+            if data.get('confidence') is None:
+                data['confidence'] = "medium"
+        return data
+
+
+class ShortInterest(BaseModel):
+    """Short interest tracking and squeeze risk assessment."""
+
+    # Current short metrics
+    short_interest_pct: Optional[float] = Field(None, description="Short interest as % of float")
+    short_interest_shares: Optional[int] = Field(None, description="Total shares sold short")
+    days_to_cover: Optional[float] = Field(None, description="Days to cover (short interest / avg daily volume)")
+
+    # Trend
+    short_interest_trend: str = Field("stable", description="Increasing/Stable/Decreasing")
+    mom_change_pct: Optional[float] = Field(None, description="Month-over-month change in short interest %")
+
+    # Squeeze risk assessment
+    squeeze_risk: str = Field("low", description="High/Medium/Low - based on short % and days to cover")
+    squeeze_triggers: List[str] = Field(
+        default_factory=list,
+        description="Potential squeeze triggers (e.g., 'Upcoming earnings', 'High short %, low float')"
+    )
+
+    # Notable short activity
+    notable_short_activity: List[str] = Field(
+        default_factory=list,
+        description="Notable short seller reports or activism"
+    )
+
+    # Sentiment
+    short_sentiment: str = Field("neutral", description="Bullish (decreasing shorts) / Neutral / Bearish (increasing shorts)")
+
+    @model_validator(mode='before')
+    @classmethod
+    def replace_none_with_defaults(cls, data):
+        """Replace None values with defaults for LLM-generated nulls."""
+        if isinstance(data, dict):
+            # String fields
+            if data.get('short_interest_trend') is None:
+                data['short_interest_trend'] = "stable"
+            if data.get('squeeze_risk') is None:
+                data['squeeze_risk'] = "low"
+            if data.get('short_sentiment') is None:
+                data['short_sentiment'] = "neutral"
+        return data
+
+
+class UpcomingCatalyst(BaseModel):
+    """Upcoming catalyst event."""
+
+    event_type: str = Field(..., description="Type of catalyst (earnings, FDA decision, product launch, etc.)")
+    event_date: Optional[str] = Field(None, description="Expected date (YYYY-MM-DD) or timeframe")
+    description: str = Field(..., min_length=10, description="Description of the catalyst")
+    potential_impact: str = Field("medium", description="High/Medium/Low")
+    impact_direction: str = Field("neutral", description="Positive/Negative/Neutral")
+    confidence: float = Field(0.5, ge=0, le=1, description="Confidence in date/occurrence (0-1)")
+
+
+class UpcomingCatalysts(BaseModel):
+    """Upcoming catalyst calendar (next 6 months)."""
+
+    # Next earnings date
+    next_earnings_date: Optional[str] = Field(None, description="Next earnings announcement date (YYYY-MM-DD)")
+    earnings_confirmed: bool = Field(False, description="True if date is confirmed, False if estimated")
+
+    # Other upcoming catalysts
+    catalysts: List[UpcomingCatalyst] = Field(
+        default_factory=list,
+        description="Upcoming catalyst events (earnings, FDA, product launches, etc.)"
+    )
+
+    # Catalyst density
+    catalyst_density: str = Field("medium", description="High (many upcoming events) / Medium / Low (few events)")
+    outlook: str = Field("neutral", description="Positive (bullish catalysts) / Neutral / Negative (bearish)")
+
+    @model_validator(mode='before')
+    @classmethod
+    def replace_none_with_defaults(cls, data):
+        """Replace None values with defaults for LLM-generated nulls."""
+        if isinstance(data, dict):
+            # Boolean fields
+            if data.get('earnings_confirmed') is None:
+                data['earnings_confirmed'] = False
+
+            # String fields
+            if data.get('catalyst_density') is None:
+                data['catalyst_density'] = "medium"
+            if data.get('outlook') is None:
+                data['outlook'] = "neutral"
+        return data
+
+
 class NewsHoundOutput(BaseModel):
     """Final validated output from the News Hound agent."""
 
@@ -186,6 +557,17 @@ class NewsHoundOutput(BaseModel):
         description="Confidence in analysis based on article count and quality"
     )
 
+    # NEW: Earnings & Analyst Data (PRIMARY SIGNALS)
+    earnings_estimates: Optional[EarningsEstimateRevision] = Field(None, description="Earnings estimate revisions (PRIMARY SIGNAL)")
+    analyst_consensus: Optional[AnalystConsensus] = Field(None, description="Analyst ratings and price targets")
+    institutional_activity: Optional[InstitutionalActivity] = Field(None, description="Smart money / 13F activity")
+    insider_activity: Optional[InsiderActivity] = Field(None, description="Insider trading activity (6 months)")
+
+    # NEW: Management Quality & Market Dynamics
+    management_commentary: Optional[ManagementCommentary] = Field(None, description="Management tone and guidance quality")
+    short_interest: Optional[ShortInterest] = Field(None, description="Short interest tracking and squeeze risk")
+    upcoming_catalysts: Optional[UpcomingCatalysts] = Field(None, description="Upcoming catalyst calendar (6 months)")
+
     # Metadata
     tokens_used: int = Field(..., ge=0, description="Total tokens used in API calls")
     processing_time: float = Field(..., ge=0, description="Total processing time in seconds")
@@ -193,14 +575,26 @@ class NewsHoundOutput(BaseModel):
 
     @model_validator(mode='after')
     def validate_score_matches_breakdown(self):
-        """Ensure the sentiment score matches the weighted average of components."""
+        """
+        Ensure the sentiment score matches the weighted average of components.
+        Auto-correct score mismatches instead of raising ValidationError.
+        """
         expected = self.sentiment_breakdown.weighted_average()
-        # Allow small floating point differences
-        if abs(self.sentiment_score - expected) > 0.1:
-            raise ValueError(
-                f"Sentiment score {self.sentiment_score} does not match "
-                f"breakdown weighted average {expected:.2f}"
+        diff = abs(self.sentiment_score - expected)
+
+        if diff > 0.5:  # Significant mismatch - auto-correct
+            logger.warning(
+                f"Sentiment score {self.sentiment_score} significantly differs from "
+                f"breakdown weighted average {expected:.2f}. Auto-correcting to breakdown value."
             )
+            # SELF-HEAL: Set to expected value
+            self.sentiment_score = round(expected, 2)
+        elif diff > 0.1:  # Minor floating-point difference - accept
+            logger.debug(
+                f"Sentiment score {self.sentiment_score} has minor difference from "
+                f"breakdown {expected:.2f} (likely floating point). Accepting."
+            )
+
         return self
 
     @model_validator(mode='after')

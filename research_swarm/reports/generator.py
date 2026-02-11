@@ -79,6 +79,32 @@ class ReportGenerator:
                             f"Failed to generate moat chart for {stock.ticker}: {e}"
                         )
 
+                    # Signal comparison chart (if signal breakdown available)
+                    if stock.signal_breakdown:
+                        try:
+                            from ..visualization.signal_comparison import create_signal_comparison_chart
+                            from ..agents.news_hound.models import NewsHoundOutput
+
+                            # Get news_hound_output from persistence
+                            run = self.persistence.get_run(config.run_id)
+                            stock_result = run.stock_results.get(stock.ticker)
+                            if stock_result and stock_result.full_output:
+                                news_hound_data = stock_result.full_output.get("news_hound_output")
+                                if news_hound_data:
+                                    news_output = NewsHoundOutput(**news_hound_data)
+                                    chart_path = create_signal_comparison_chart(
+                                        news_output,
+                                        save_path=config.output_dir / f"charts/signals_{stock.ticker}_comparison.png",
+                                        show=False
+                                    )
+                                    if chart_path:
+                                        charts_generated.append(str(chart_path))
+                                        logger.debug(f"Generated signal comparison chart for {stock.ticker}")
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to generate signal comparison chart for {stock.ticker}: {e}"
+                            )
+
                     # Supply chain graph (if data available)
                     if stock.supply_chain_nodes:
                         try:

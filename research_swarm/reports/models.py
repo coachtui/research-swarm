@@ -3,7 +3,7 @@
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -86,6 +86,49 @@ class StockReportData(BaseModel):
         ..., ge=0, description="Processing time in seconds"
     )
     cost_usd: float = Field(..., ge=0, description="Cost in USD")
+    signal_breakdown: Optional[Dict[str, Any]] = Field(
+        None, description="Multi-signal analysis breakdown with divergence detection"
+    )
+
+    # Fundamentalist enhancements
+    vgm_scores: Optional[Dict[str, Any]] = Field(
+        None, description="VGM (Value/Growth/Momentum) scoring breakdown"
+    )
+    enhanced_moat: Optional[Dict[str, Any]] = Field(
+        None, description="Detailed 8-category moat analysis"
+    )
+    valuation_metrics: Optional[Dict[str, Any]] = Field(
+        None, description="Valuation metrics and multiples"
+    )
+    price_targets: Optional[Dict[str, Any]] = Field(
+        None, description="Bull/Base/Bear price target scenarios"
+    )
+    peer_comparison: Optional[Dict[str, Any]] = Field(
+        None, description="Peer comparison and competitive positioning"
+    )
+
+    # News Hound enhancements
+    earnings_estimates: Optional[Dict[str, Any]] = Field(
+        None, description="Earnings estimate revisions and consensus"
+    )
+    analyst_consensus: Optional[Dict[str, Any]] = Field(
+        None, description="Analyst ratings and price targets"
+    )
+    institutional_activity: Optional[Dict[str, Any]] = Field(
+        None, description="Institutional ownership and 13F activity"
+    )
+    insider_activity: Optional[Dict[str, Any]] = Field(
+        None, description="Insider trading activity"
+    )
+    management_commentary: Optional[Dict[str, Any]] = Field(
+        None, description="Management quality and guidance analysis"
+    )
+    short_interest: Optional[Dict[str, Any]] = Field(
+        None, description="Short interest and squeeze risk"
+    )
+    upcoming_catalysts: Optional[Dict[str, Any]] = Field(
+        None, description="Upcoming catalyst calendar"
+    )
 
 
 class ReportData(BaseModel):

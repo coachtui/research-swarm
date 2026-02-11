@@ -7,6 +7,131 @@ from ..orchestration.models import StockResult, StockStatus
 from .models import ReportData, StockReportData
 
 
+def extract_signal_breakdown(news_hound_output: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract and score multi-signal breakdown from News Hound output.
+
+    Args:
+        news_hound_output: News Hound output dictionary
+
+    Returns:
+        Dict with signal scores, interpretations, and divergence analysis
+    """
+    # Import scoring functions from visualization module
+    try:
+        from ..visualization.signal_comparison import (
+            revision_direction_to_score,
+            sentiment_to_score,
+        )
+    except ImportError:
+        # Fallback if visualization module not available
+        return None
+
+    # Extract scores
+    news_score = news_hound_output.get("sentiment_score", 5.0)
+
+    earnings_score = 5.0
+    if news_hound_output.get("earnings_estimates"):
+        direction = news_hound_output["earnings_estimates"].get("net_revision_direction", "neutral")
+        earnings_score = revision_direction_to_score(direction)
+
+    analyst_score = 5.0
+    if news_hound_output.get("analyst_consensus"):
+        rating = news_hound_output["analyst_consensus"].get("consensus_rating", "hold")
+        analyst_score = sentiment_to_score(rating)
+
+    institutional_score = 5.0
+    if news_hound_output.get("institutional_activity"):
+        sentiment = news_hound_output["institutional_activity"].get("institutional_sentiment", "neutral")
+        institutional_score = sentiment_to_score(sentiment)
+
+    insider_score = 5.0
+    if news_hound_output.get("insider_activity"):
+        sentiment = news_hound_output["insider_activity"].get("insider_sentiment", "neutral")
+        insider_score = sentiment_to_score(sentiment)
+
+    # Calculate weighted average
+    confidence = news_hound_output.get("confidence", 0.8)
+    weights = [confidence, 0.8, 0.9, 0.7, 0.6]
+    scores = [news_score, earnings_score, analyst_score, institutional_score, insider_score]
+
+    overall_score = sum(s * w for s, w in zip(scores, weights)) / sum(weights)
+
+    # Calculate signal alignment (standard deviation)
+    mean = sum(scores) / len(scores)
+    variance = sum((s - mean) ** 2 for s in scores) / len(scores)
+    std_dev = variance ** 0.5
+
+    # Determine alignment status
+    if std_dev < 1.0:
+        alignment_status = "STRONG ALIGNMENT ✅"
+        has_divergence = False
+    elif std_dev < 2.0:
+        alignment_status = "MODERATE ALIGNMENT ⚠️"
+        has_divergence = False
+    else:
+        alignment_status = "DIVERGENT SIGNALS ❌"
+        has_divergence = True
+
+    # Generate interpretations
+    def interpret_score(score):
+        if score >= 7.0:
+            return "🟢 Bullish"
+        elif score >= 5.5:
+            return "🟡 Slightly Bullish"
+        elif score >= 4.5:
+            return "⚪ Neutral"
+        elif score >= 3.0:
+            return "🟡 Slightly Bearish"
+        else:
+            return "🔴 Bearish"
+
+    # Divergence analysis
+    divergence_explanation = ""
+    divergence_recommendation = ""
+
+    if has_divergence:
+        if news_score >= 6.0 and (institutional_score < 4.0 or insider_score < 4.0):
+            divergence_explanation = "News sentiment is bullish but smart money (institutions/insiders) is bearish or neutral."
+            divergence_recommendation = "CAUTION: Smart money may know something the market doesn't. Wait for institutional accumulation before entry."
+        elif news_score < 5.0 and (institutional_score >= 6.0 or analyst_score >= 6.0):
+            divergence_explanation = "News sentiment is bearish but analysts/institutions remain optimistic."
+            divergence_recommendation = "OPPORTUNITY: Potential contrarian buy if fundamentals are strong. Smart money may be accumulating during negative sentiment."
+        else:
+            divergence_explanation = "Signals are pointing in different directions with no clear consensus."
+            divergence_recommendation = "Consider waiting for clearer trend alignment before taking a position."
+
+    # Determine consensus direction
+    bullish_signals = sum(1 for s in scores if s >= 6.0)
+    bearish_signals = sum(1 for s in scores if s < 5.0)
+
+    if bullish_signals >= 3:
+        direction_consensus = "bullish with high confidence"
+    elif bearish_signals >= 3:
+        direction_consensus = "bearish - exercise caution"
+    else:
+        direction_consensus = "neutral - no strong directional bias"
+
+    return {
+        "overall_score": round(overall_score, 2),
+        "news_score": round(news_score, 2),
+        "earnings_score": round(earnings_score, 2),
+        "analyst_score": round(analyst_score, 2),
+        "institutional_score": round(institutional_score, 2),
+        "insider_score": round(insider_score, 2),
+        "news_interpretation": interpret_score(news_score),
+        "earnings_interpretation": interpret_score(earnings_score),
+        "analyst_interpretation": interpret_score(analyst_score),
+        "institutional_interpretation": interpret_score(institutional_score),
+        "insider_interpretation": interpret_score(insider_score),
+        "alignment_status": alignment_status,
+        "has_divergence": has_divergence,
+        "divergence_explanation": divergence_explanation,
+        "divergence_recommendation": divergence_recommendation,
+        "direction_consensus": direction_consensus,
+    }
+
+
 class DataExtractor:
     """Extracts data from persistence layer and transforms it for reports."""
 
@@ -122,6 +247,32 @@ class DataExtractor:
         quant = output.get("quant_output", {})
         sc_graph = quant.get("supply_chain_graph", {})
 
+        # Extract signal breakdown from news_hound_output
+        signal_breakdown = None
+        if output.get("news_hound_output"):
+            try:
+                signal_breakdown = extract_signal_breakdown(output["news_hound_output"])
+            except Exception as e:
+                print(f"Warning: Failed to extract signal breakdown for {result.ticker}: {e}")
+
+        # Extract Fundamentalist enhancements
+        fundamentalist = output.get("fundamentalist_output", {})
+        vgm_scores = fundamentalist.get("vgm_scores")
+        enhanced_moat = fundamentalist.get("enhanced_moat")
+        valuation_metrics = fundamentalist.get("valuation_metrics")
+        price_targets = fundamentalist.get("price_targets")
+        peer_comparison = fundamentalist.get("peer_comparison")
+
+        # Extract News Hound enhancements
+        news_hound = output.get("news_hound_output", {})
+        earnings_estimates = news_hound.get("earnings_estimates")
+        analyst_consensus = news_hound.get("analyst_consensus")
+        institutional_activity = news_hound.get("institutional_activity")
+        insider_activity = news_hound.get("insider_activity")
+        management_commentary = news_hound.get("management_commentary")
+        short_interest = news_hound.get("short_interest")
+        upcoming_catalysts = news_hound.get("upcoming_catalysts")
+
         return StockReportData(
             ticker=result.ticker,
             moat_score=result.moat_score or 0.0,
@@ -136,4 +287,19 @@ class DataExtractor:
             hidden_dependencies=sc_graph.get("hidden_dependencies", []),
             processing_time=result.processing_time_seconds or 0.0,
             cost_usd=result.cost_usd,
+            signal_breakdown=signal_breakdown,
+            # Fundamentalist enhancements
+            vgm_scores=vgm_scores,
+            enhanced_moat=enhanced_moat,
+            valuation_metrics=valuation_metrics,
+            price_targets=price_targets,
+            peer_comparison=peer_comparison,
+            # News Hound enhancements
+            earnings_estimates=earnings_estimates,
+            analyst_consensus=analyst_consensus,
+            institutional_activity=institutional_activity,
+            insider_activity=insider_activity,
+            management_commentary=management_commentary,
+            short_interest=short_interest,
+            upcoming_catalysts=upcoming_catalysts,
         )

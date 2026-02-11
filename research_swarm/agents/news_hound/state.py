@@ -36,6 +36,17 @@ class NewsHoundState(TypedDict, total=False):
     sentiment_score: Optional[float]  # Final weighted sentiment score (0-10)
     confidence: Optional[float]  # Confidence level based on article count and quality (0-1)
 
+    # Advanced analytics (Critical Analyst + Smart Money)
+    earnings_estimates: Optional[Dict[str, Any]]  # Earnings estimate revision analysis
+    analyst_consensus: Optional[Dict[str, Any]]  # Analyst ratings and price targets
+    institutional_activity: Optional[Dict[str, Any]]  # Smart money / 13F tracking
+    insider_activity: Optional[Dict[str, Any]]  # Insider trading activity
+
+    # Management quality & market dynamics
+    management_commentary: Optional[Dict[str, Any]]  # Management tone and guidance quality
+    short_interest: Optional[Dict[str, Any]]  # Short interest tracking and squeeze risk
+    upcoming_catalysts: Optional[Dict[str, Any]]  # Upcoming catalyst calendar (6 months)
+
     # Metadata
     article_count: int  # Total number of articles analyzed
     catalyst_count: int  # Total number of catalysts detected

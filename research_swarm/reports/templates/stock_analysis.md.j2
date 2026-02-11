@@ -7,36 +7,409 @@
 
 **Processing Time:** {{ "%.1f"|format(stock.processing_time) }}s | **Cost:** ${{ "%.4f"|format(stock.cost_usd) }}
 
-#### Moat Score Breakdown
+---
+
+#### 📊 Moat Score Breakdown
 
 | Component | Score | Weight |
 |-----------|-------|--------|
-| Financial Health | {{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10 | 30% |
-| Sentiment & Catalysts | {{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10 | 20% |
-| Technical Strength | {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 | 20% |
-| Supply Chain Position | {{ "%.1f"|format(stock.moat_breakdown.supply_chain_position) }}/10 | 30% |
+| Financial Health | {{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10 | 25% |
+| Business Model Moat | {{ "%.1f"|format(stock.moat_breakdown.get('business_model_moat', 0)) }}/10 | 25% |
+| Sentiment & Catalysts | {{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10 | 15% |
+| Technical Strength | {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 | 15% |
+| Supply Chain Position | {{ "%.1f"|format(stock.moat_breakdown.supply_chain_position) }}/10 | 20% |
 | **Overall Moat Score** | **{{ "%.1f"|format(stock.moat_score) }}/10** | **100%** |
 
 {% if include_charts %}
 ![{{ stock.ticker }} Moat Breakdown](./charts/moat_{{ stock.ticker }}.png)
 {% endif %}
 
-#### Synthesis Narrative
+---
 
-{{ stock.synthesis_narrative }}
+{% if stock.vgm_scores %}
+#### 📈 VGM Investment Style Analysis
 
-#### Key Insights
+**VGM Composite Score:** {{ "%.1f"|format(stock.vgm_scores.vgm_composite) }}/10 (Grade: {{ stock.vgm_scores.vgm_grade }})
+
+**Best Fit Investment Style:** {{ stock.vgm_scores.best_fit_style }}
+
+| Factor | Score | Grade | Rationale |
+|--------|-------|-------|-----------|
+| **Value** | {{ "%.1f"|format(stock.vgm_scores.value_score) }}/10 | {{ stock.vgm_scores.value_grade }} | {{ stock.vgm_scores.value_rationale }} |
+| **Growth** | {{ "%.1f"|format(stock.vgm_scores.growth_score) }}/10 | {{ stock.vgm_scores.growth_grade }} | {{ stock.vgm_scores.growth_rationale }} |
+| **Momentum** | {{ "%.1f"|format(stock.vgm_scores.momentum_score) }}/10 | {{ stock.vgm_scores.momentum_grade }} | {{ stock.vgm_scores.momentum_rationale }} |
+
+---
+{% endif %}
+
+{% if stock.enhanced_moat %}
+#### 🏰 Enhanced Moat Analysis (8 Categories)
+
+**Moat Width:** {{ stock.enhanced_moat.moat_width }} | **Durability:** {{ stock.enhanced_moat.moat_durability }}
+
+**Composite Moat Score:** {{ "%.1f"|format(stock.enhanced_moat.composite_score) }}/10
+
+| Moat Category | Score | Assessment |
+|--------------|-------|------------|
+| 🌐 Network Effects | {{ "%.1f"|format(stock.enhanced_moat.network_effects) }}/10 | {% if stock.enhanced_moat.network_effects >= 7 %}Strong{% elif stock.enhanced_moat.network_effects >= 4 %}Moderate{% else %}Weak{% endif %} |
+| 🔒 Switching Costs | {{ "%.1f"|format(stock.enhanced_moat.switching_costs) }}/10 | {% if stock.enhanced_moat.switching_costs >= 7 %}High{% elif stock.enhanced_moat.switching_costs >= 4 %}Moderate{% else %}Low{% endif %} |
+| 🏷️ Brand Power | {{ "%.1f"|format(stock.enhanced_moat.brand_power) }}/10 | {% if stock.enhanced_moat.brand_power >= 7 %}Premium{% elif stock.enhanced_moat.brand_power >= 4 %}Recognized{% else %}Generic{% endif %} |
+| 💰 Cost Advantages | {{ "%.1f"|format(stock.enhanced_moat.cost_advantages) }}/10 | {% if stock.enhanced_moat.cost_advantages >= 7 %}Significant{% elif stock.enhanced_moat.cost_advantages >= 4 %}Moderate{% else %}Minimal{% endif %} |
+| 📏 Scale Economies | {{ "%.1f"|format(stock.enhanced_moat.scale_economies) }}/10 | {% if stock.enhanced_moat.scale_economies >= 7 %}Leader{% elif stock.enhanced_moat.scale_economies >= 4 %}Competitive{% else %}Disadvantaged{% endif %} |
+| 🔬 Intangible Assets | {{ "%.1f"|format(stock.enhanced_moat.intangible_assets) }}/10 | {% if stock.enhanced_moat.intangible_assets >= 7 %}Strong IP{% elif stock.enhanced_moat.intangible_assets >= 4 %}Some IP{% else %}Limited IP{% endif %} |
+| 📜 Regulatory Barriers | {{ "%.1f"|format(stock.enhanced_moat.regulatory_barriers) }}/10 | {% if stock.enhanced_moat.regulatory_barriers >= 7 %}Protected{% elif stock.enhanced_moat.regulatory_barriers >= 4 %}Some barriers{% else %}Open{% endif %} |
+| 🚚 Distribution | {{ "%.1f"|format(stock.enhanced_moat.distribution_advantages) }}/10 | {% if stock.enhanced_moat.distribution_advantages >= 7 %}Dominant{% elif stock.enhanced_moat.distribution_advantages >= 4 %}Established{% else %}Limited{% endif %} |
+
+---
+{% endif %}
+
+{% if stock.valuation_metrics %}
+#### 💵 Valuation Analysis
+
+**Valuation Category:** {{ stock.valuation_metrics.valuation_category }}
+
+{% if stock.valuation_metrics.current_price %}**Current Price:** ${{ "%.2f"|format(stock.valuation_metrics.current_price) }}{% endif %}
+{% if stock.valuation_metrics.market_cap_millions %}**Market Cap:** ${{ "%.1f"|format(stock.valuation_metrics.market_cap_millions) }}M{% endif %}
+
+**Multiples:**
+
+| Multiple | Value | Sector Avg | Premium/Discount |
+|----------|-------|------------|------------------|
+{% if stock.valuation_metrics.pe_ratio %}| P/E Ratio (TTM) | {{ "%.1f"|format(stock.valuation_metrics.pe_ratio) }}x | {% if stock.valuation_metrics.sector_avg_pe %}{{ "%.1f"|format(stock.valuation_metrics.sector_avg_pe) }}x{% else %}N/A{% endif %} | {% if stock.valuation_metrics.pe_premium_discount %}{{ "%.1f"|format(stock.valuation_metrics.pe_premium_discount) }}%{% else %}N/A{% endif %} |
+{% endif %}
+{% if stock.valuation_metrics.forward_pe %}| Forward P/E | {{ "%.1f"|format(stock.valuation_metrics.forward_pe) }}x | - | - |
+{% endif %}
+{% if stock.valuation_metrics.peg_ratio %}| PEG Ratio | {{ "%.2f"|format(stock.valuation_metrics.peg_ratio) }} | - | - |
+{% endif %}
+{% if stock.valuation_metrics.pb_ratio %}| P/B Ratio | {{ "%.2f"|format(stock.valuation_metrics.pb_ratio) }}x | - | - |
+{% endif %}
+{% if stock.valuation_metrics.ps_ratio %}| P/S Ratio | {{ "%.2f"|format(stock.valuation_metrics.ps_ratio) }}x | - | - |
+{% endif %}
+{% if stock.valuation_metrics.ev_ebitda %}| EV/EBITDA | {{ "%.1f"|format(stock.valuation_metrics.ev_ebitda) }}x | {% if stock.valuation_metrics.sector_avg_ev_ebitda %}{{ "%.1f"|format(stock.valuation_metrics.sector_avg_ev_ebitda) }}x{% else %}N/A{% endif %} | - |
+{% endif %}
+
+{% if stock.valuation_metrics.dividend_yield %}
+**Dividend:** Yield {{ "%.2f"|format(stock.valuation_metrics.dividend_yield) }}% | Payout Ratio {{ "%.1f"|format(stock.valuation_metrics.payout_ratio) }}%
+{% endif %}
+
+---
+{% endif %}
+
+{% if stock.price_targets %}
+#### 🎯 Price Target Scenarios (12-Month)
+
+**Methodology:** {{ stock.price_targets.methodology }}
+
+| Scenario | Price Target | Probability | Key Assumptions |
+|----------|--------------|-------------|-----------------|
+| 🐂 **Bull Case** | ${{ "%.2f"|format(stock.price_targets.bull_target) }} | {{ "%.0f"|format(stock.price_targets.bull_probability * 100) }}% | {{ stock.price_targets.bull_assumptions }} |
+| 📊 **Base Case** | ${{ "%.2f"|format(stock.price_targets.base_target) }} | {{ "%.0f"|format(stock.price_targets.base_probability * 100) }}% | {{ stock.price_targets.base_assumptions }} |
+| 🐻 **Bear Case** | ${{ "%.2f"|format(stock.price_targets.bear_target) }} | {{ "%.0f"|format(stock.price_targets.bear_probability * 100) }}% | {{ stock.price_targets.bear_assumptions }} |
+
+**Expected Value (Probability-Weighted):** ${{ "%.2f"|format(stock.price_targets.expected_value) }}
+
+{% if stock.valuation_metrics and stock.valuation_metrics.current_price %}
+**Upside to Expected Value:** {{ "%.1f"|format((stock.price_targets.expected_value / stock.valuation_metrics.current_price - 1) * 100) }}%
+{% endif %}
+
+---
+{% endif %}
+
+{% if stock.peer_comparison %}
+#### 🏆 Peer Comparison & Competitive Position
+
+**Sector:** {{ stock.peer_comparison.sector }} | **Industry:** {{ stock.peer_comparison.industry }}
+
+**Competitive Position:** {{ stock.peer_comparison.competitive_position }}
+{% if stock.peer_comparison.market_share_estimate %}**Market Share:** {{ "%.1f"|format(stock.peer_comparison.market_share_estimate) }}%{% endif %}
+
+{% if stock.peer_comparison.peers %}
+**Peer Companies:** {{ stock.peer_comparison.peers|join(', ') }}
+{% endif %}
+
+**Competitive Rankings:**
+
+| Metric | Rank | Note |
+|--------|------|------|
+{% if stock.peer_comparison.revenue_growth_rank %}| Revenue Growth | #{{ stock.peer_comparison.revenue_growth_rank }} | 1 = fastest growing |
+{% endif %}
+{% if stock.peer_comparison.profit_margin_rank %}| Profit Margins | #{{ stock.peer_comparison.profit_margin_rank }} | 1 = highest margins |
+{% endif %}
+{% if stock.peer_comparison.roic_rank %}| ROIC | #{{ stock.peer_comparison.roic_rank }} | 1 = best capital efficiency |
+{% endif %}
+{% if stock.peer_comparison.valuation_rank %}| Valuation | #{{ stock.peer_comparison.valuation_rank }} | 1 = cheapest |
+{% endif %}
+
+---
+{% endif %}
+
+#### 📡 Signal Breakdown & Divergence Analysis
+
+{% if stock.signal_breakdown %}
+**Overall Sentiment Score:** {{ "%.2f"|format(stock.signal_breakdown.overall_score) }}/10
+
+**Component Signals:**
+
+| Signal | Score | Interpretation |
+|--------|-------|---------------|
+| 📰 News Sentiment | {{ "%.2f"|format(stock.signal_breakdown.news_score) }}/10 | {{ stock.signal_breakdown.news_interpretation }} |
+| 📊 Earnings Revisions | {{ "%.2f"|format(stock.signal_breakdown.earnings_score) }}/10 | {{ stock.signal_breakdown.earnings_interpretation }} |
+| 👔 Analyst Ratings | {{ "%.2f"|format(stock.signal_breakdown.analyst_score) }}/10 | {{ stock.signal_breakdown.analyst_interpretation }} |
+| 🏦 Institutional Activity | {{ "%.2f"|format(stock.signal_breakdown.institutional_score) }}/10 | {{ stock.signal_breakdown.institutional_interpretation }} |
+| 👤 Insider Activity | {{ "%.2f"|format(stock.signal_breakdown.insider_score) }}/10 | {{ stock.signal_breakdown.insider_interpretation }} |
+
+**Signal Alignment:** {{ stock.signal_breakdown.alignment_status }}
+
+{% if stock.signal_breakdown.has_divergence %}
+⚠️  **SIGNAL DIVERGENCE DETECTED:**
+{{ stock.signal_breakdown.divergence_explanation }}
+
+**Interpretation:** {{ stock.signal_breakdown.divergence_recommendation }}
+{% else %}
+✅ **Signal Alignment:** All signals pointing in the same direction - {{ stock.signal_breakdown.direction_consensus }}
+{% endif %}
+
+{% if include_charts %}
+![{{ stock.ticker }} Signal Comparison](./charts/signals_{{ stock.ticker }}_comparison.png)
+{% endif %}
+{% else %}
+*Signal breakdown data not available*
+{% endif %}
+
+---
+
+{% if stock.earnings_estimates %}
+#### 📈 Earnings Estimate Revisions (PRIMARY SIGNAL)
+
+**Net Revision Direction:** {{ stock.earnings_estimates.net_revision_direction }}
+
+**Revision Activity (90 days):**
+- Upward Revisions: {{ stock.earnings_estimates.upward_revisions }}
+- Downward Revisions: {{ stock.earnings_estimates.downward_revisions }}
+{% if stock.earnings_estimates.consensus_change_pct %}- Consensus Change: {{ "%.1f"|format(stock.earnings_estimates.consensus_change_pct) }}%{% endif %}
+
+{% if stock.earnings_estimates.current_fy_eps %}**Current FY EPS Estimate:** ${{ "%.2f"|format(stock.earnings_estimates.current_fy_eps) }}{% endif %}
+{% if stock.earnings_estimates.next_fy_eps %}**Next FY EPS Estimate:** ${{ "%.2f"|format(stock.earnings_estimates.next_fy_eps) }}{% endif %}
+
+**EPS Surprise History (Last 4 Quarters):**
+{% if stock.earnings_estimates.beat_pattern %}{{ stock.earnings_estimates.beat_pattern }}{% if stock.earnings_estimates.avg_surprise_pct %} | Avg Surprise: {{ "%.1f"|format(stock.earnings_estimates.avg_surprise_pct) }}%{% endif %}{% endif %}
+
+{% if stock.earnings_estimates.current_year_growth_pct or stock.earnings_estimates.next_year_growth_pct %}
+**Growth Trajectory:**
+{% if stock.earnings_estimates.current_year_growth_pct %}- Current Year Growth: {{ "%.1f"|format(stock.earnings_estimates.current_year_growth_pct) }}%{% endif %}
+{% if stock.earnings_estimates.next_year_growth_pct %}- Next Year Growth: {{ "%.1f"|format(stock.earnings_estimates.next_year_growth_pct) }}%{% endif %}
+{% if stock.earnings_estimates.momentum %}- Momentum: {{ stock.earnings_estimates.momentum }}{% endif %}
+{% endif %}
+
+**Estimate Quality:**
+- Analyst Coverage: {{ stock.earnings_estimates.analyst_coverage }} analysts
+- Estimate Dispersion: {{ stock.earnings_estimates.estimate_dispersion }}
+- Agreement Level: {{ "%.0f"|format(stock.earnings_estimates.estimate_agreement * 100) }}%
+
+---
+{% endif %}
+
+{% if stock.analyst_consensus %}
+#### 👔 Analyst Consensus & Price Targets
+
+**Consensus Rating:** {{ stock.analyst_consensus.consensus_rating }}
+
+**Ratings Distribution:**
+- Strong Buy: {{ stock.analyst_consensus.strong_buy }}
+- Buy: {{ stock.analyst_consensus.buy }}
+- Hold: {{ stock.analyst_consensus.hold }}
+- Sell: {{ stock.analyst_consensus.sell }}
+- Strong Sell: {{ stock.analyst_consensus.strong_sell }}
+
+{% if stock.analyst_consensus.avg_price_target %}
+**Price Targets:**
+- Average Target: ${{ "%.2f"|format(stock.analyst_consensus.avg_price_target) }}{% if stock.analyst_consensus.target_upside_pct %} ({{ "%.1f"|format(stock.analyst_consensus.target_upside_pct) }}% upside){% endif %}
+{% if stock.analyst_consensus.high_price_target %}- High Target: ${{ "%.2f"|format(stock.analyst_consensus.high_price_target) }}{% endif %}
+{% if stock.analyst_consensus.low_price_target %}- Low Target: ${{ "%.2f"|format(stock.analyst_consensus.low_price_target) }}{% endif %}
+{% endif %}
+
+**Recent Activity (90 days):**
+- Upgrades: {{ stock.analyst_consensus.upgrades }}
+- Downgrades: {{ stock.analyst_consensus.downgrades }}
+- New Coverage: {{ stock.analyst_consensus.new_coverage }}
+- Rating Momentum: {{ stock.analyst_consensus.rating_momentum }}
+- Target Trend: {{ stock.analyst_consensus.target_trend }}
+
+**Consensus Confidence:** {{ stock.analyst_consensus.consensus_confidence }}
+
+---
+{% endif %}
+
+{% if stock.institutional_activity %}
+#### 🏦 Institutional Activity (Smart Money)
+
+**Institutional Sentiment:** {{ stock.institutional_activity.institutional_sentiment }}
+
+{% if stock.institutional_activity.institutional_ownership_pct %}**Institutional Ownership:** {{ "%.1f"|format(stock.institutional_activity.institutional_ownership_pct) }}%{% endif %}
+{% if stock.institutional_activity.qoq_change_pct %}**QoQ Change:** {{ "%.1f"|format(stock.institutional_activity.qoq_change_pct) }}%{% endif %}
+**Number of Holders:** {{ stock.institutional_activity.num_holders }}
+**Trend:** {{ stock.institutional_activity.trend }}
+
+{% if stock.institutional_activity.top_holders %}
+**Top 5 Institutional Holders:**
+{% for holder in stock.institutional_activity.top_holders[:5] %}
+{{ loop.index }}. {{ holder.name }} - {{ holder.ownership_pct }}%{% if holder.change %} ({{ holder.change }}){% endif %}
+{% endfor %}
+{% endif %}
+
+{% if stock.institutional_activity.notable_activity %}
+**Notable Smart Money Activity:**
+{% for activity in stock.institutional_activity.notable_activity %}
+- {{ activity }}
+{% endfor %}
+{% endif %}
+
+---
+{% endif %}
+
+{% if stock.insider_activity %}
+#### 👤 Insider Trading Activity (6 Months)
+
+**Insider Sentiment:** {{ stock.insider_activity.insider_sentiment }} | **Confidence:** {{ stock.insider_activity.confidence }}
+
+**Transaction Summary:**
+- Buy Transactions: {{ stock.insider_activity.buy_transactions }} ({{ stock.insider_activity.buy_shares|int }} shares, ${{ "%.1f"|format(stock.insider_activity.buy_value_usd / 1000) }}K)
+- Sell Transactions: {{ stock.insider_activity.sell_transactions }} ({{ stock.insider_activity.sell_shares|int }} shares, ${{ "%.1f"|format(stock.insider_activity.sell_value_usd / 1000) }}K)
+- **Net Position:** {{ stock.insider_activity.net_shares|int }} shares (${{ "%.1f"|format(stock.insider_activity.net_value_usd / 1000) }}K)
+
+{% if stock.insider_activity.insider_ownership_pct or stock.insider_activity.ceo_ownership_pct %}
+**Ownership:**
+{% if stock.insider_activity.insider_ownership_pct %}- Total Insider Ownership: {{ "%.2f"|format(stock.insider_activity.insider_ownership_pct) }}%{% endif %}
+{% if stock.insider_activity.ceo_ownership_pct %}- CEO Ownership: {{ "%.2f"|format(stock.insider_activity.ceo_ownership_pct) }}%{% endif %}
+- Ownership Trend: {{ stock.insider_activity.ownership_trend }}
+{% endif %}
+
+{% if stock.insider_activity.notable_transactions %}
+**Notable Transactions:**
+{% for txn in stock.insider_activity.notable_transactions %}
+- {{ txn }}
+{% endfor %}
+{% endif %}
+
+---
+{% endif %}
+
+{% if stock.management_commentary %}
+#### 🎤 Management Quality & Commentary
+
+**Management Quality Score:** {{ "%.1f"|format(stock.management_commentary.management_quality_score) }}/10 | **Confidence:** {{ stock.management_commentary.confidence }}
+
+**Tone Assessment:** {{ stock.management_commentary.tone_assessment }}
+
+{% if stock.management_commentary.tone_evidence %}
+**Evidence of Tone:**
+{% for evidence in stock.management_commentary.tone_evidence %}
+- {{ evidence }}
+{% endfor %}
+{% endif %}
+
+**Guidance Track Record:**
+- Guidance Reliability: {{ stock.management_commentary.guidance_reliability }}
+{% if stock.management_commentary.guidance_last_quarter %}- Last Quarter: {{ stock.management_commentary.guidance_last_quarter }}{% endif %}
+{% if stock.management_commentary.current_guidance %}- Current Guidance: {{ stock.management_commentary.current_guidance }}{% endif %}
+{% if stock.management_commentary.guidance_change %}- Guidance Change: {{ stock.management_commentary.guidance_change }}{% endif %}
+
+**Capital Allocation:**
+- Capital Allocation Quality: {{ stock.management_commentary.capital_allocation_quality }}
+{% if stock.management_commentary.capex_discipline %}- CapEx Discipline: {{ stock.management_commentary.capex_discipline }}{% endif %}
+{% if stock.management_commentary.shareholder_returns %}- Shareholder Returns: {{ stock.management_commentary.shareholder_returns }}{% endif %}
+
+**Innovation & Competitive Position:**
+- Innovation Mentions: {{ stock.management_commentary.innovation_mentions }}
+- Competitive Position: {{ stock.management_commentary.competitive_position }}
+
+{% if stock.management_commentary.has_red_flags and stock.management_commentary.red_flag_language %}
+⚠️  **RED FLAGS DETECTED:**
+{% for flag in stock.management_commentary.red_flag_language %}
+- {{ flag }}
+{% endfor %}
+{% endif %}
+
+---
+{% endif %}
+
+{% if stock.short_interest %}
+#### 📉 Short Interest & Squeeze Risk
+
+**Short Interest:** {% if stock.short_interest.short_interest_pct %}{{ "%.1f"|format(stock.short_interest.short_interest_pct) }}% of float{% endif %}
+{% if stock.short_interest.short_interest_shares %}**Shares Shorted:** {{ stock.short_interest.short_interest_shares|int }}{% endif %}
+{% if stock.short_interest.days_to_cover %}**Days to Cover:** {{ "%.1f"|format(stock.short_interest.days_to_cover) }}{% endif %}
+
+**Trend:** {{ stock.short_interest.short_interest_trend }}
+{% if stock.short_interest.mom_change_pct %}**MoM Change:** {{ "%.1f"|format(stock.short_interest.mom_change_pct) }}%{% endif %}
+
+**Squeeze Risk:** {{ stock.short_interest.squeeze_risk }}
+**Short Sentiment:** {{ stock.short_interest.short_sentiment }}
+
+{% if stock.short_interest.squeeze_triggers %}
+**Potential Squeeze Triggers:**
+{% for trigger in stock.short_interest.squeeze_triggers %}
+- {{ trigger }}
+{% endfor %}
+{% endif %}
+
+{% if stock.short_interest.notable_short_activity %}
+**Notable Short Activity:**
+{% for activity in stock.short_interest.notable_short_activity %}
+- {{ activity }}
+{% endfor %}
+{% endif %}
+
+---
+{% endif %}
+
+{% if stock.upcoming_catalysts %}
+#### 📅 Upcoming Catalysts & Events (6 Months)
+
+**Catalyst Density:** {{ stock.upcoming_catalysts.catalyst_density }} | **Outlook:** {{ stock.upcoming_catalysts.outlook }}
+
+{% if stock.upcoming_catalysts.next_earnings_date %}
+**Next Earnings:** {{ stock.upcoming_catalysts.next_earnings_date }}{% if stock.upcoming_catalysts.earnings_confirmed %} (Confirmed){% else %} (Estimated){% endif %}
+{% endif %}
+
+{% if stock.upcoming_catalysts.catalysts %}
+**Upcoming Catalyst Calendar:**
+
+| Date | Event Type | Description | Impact | Direction |
+|------|-----------|-------------|--------|-----------|
+{% for catalyst in stock.upcoming_catalysts.catalysts %}
+| {% if catalyst.event_date %}{{ catalyst.event_date }}{% else %}TBD{% endif %} | {{ catalyst.event_type }} | {{ catalyst.description[:50] }}{% if catalyst.description|length > 50 %}...{% endif %} | {{ catalyst.potential_impact }} | {{ catalyst.impact_direction }} |
+{% endfor %}
+{% endif %}
+
+---
+{% endif %}
+
+#### 💡 Key Insights
 
 {% for insight in stock.key_insights %}
 {{ loop.index }}. {{ insight }}
 {% endfor %}
 
-#### Risk Factors
+---
+
+#### ⚠️ Risk Factors
 
 {% for risk in stock.risk_factors %}
 {{ loop.index }}. {{ risk }}
 {% endfor %}
 
-{% if not loop.last %}---{% endif %}
+---
+
+#### 📝 Comprehensive Synthesis
+
+{{ stock.synthesis_narrative }}
+
+{% if not loop.last %}
+
+---
+---
+
+{% endif %}
 
 {% endfor %}

@@ -4,7 +4,7 @@ Pydantic models for Fundamentalist agent outputs.
 These models ensure type safety and validation for all extracted data.
 """
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
 
 class FinancialMetricsOutput(BaseModel):
@@ -66,15 +66,95 @@ class SupplyChainOutput(BaseModel):
         description="Description of critical supplier dependencies"
     )
 
+    # Multi-tier supplier tracking
+    tier1_suppliers: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Tier-1 suppliers with details (name, role, risk_level)"
+    )
+    tier2_suppliers: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Tier-2 suppliers (suppliers to suppliers)"
+    )
+    tier3_suppliers: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Tier-3 suppliers identified"
+    )
+
+    # M&A targets
+    potential_acquisition_targets: List[Dict[str, str]] = Field(
+        default_factory=list,
+        description="Potential M&A targets with name, rationale, type, and strategic_value"
+    )
+
     # Geographic exposure
-    geographic_revenue: Dict[str, float] = Field(
+    geographic_revenue: Dict[str, Optional[float]] = Field(
         default_factory=dict,
-        description="Revenue by geographic region (in millions USD or %)"
+        description="Revenue by geographic region (in millions USD or %). None if not specified."
     )
     geographic_risks: List[str] = Field(
         default_factory=list,
         description="Geographic/geopolitical risks mentioned"
     )
+
+    @field_validator("geographic_revenue", mode="before")
+    @classmethod
+    def clean_geographic_revenue(cls, v):
+        """Clean geographic revenue dict - remove non-numeric values."""
+        if not isinstance(v, dict):
+            return {}
+
+        cleaned = {}
+        for key, value in v.items():
+            if value is None:
+                cleaned[key] = None
+            elif isinstance(value, (int, float)):
+                cleaned[key] = float(value) if value >= 0 else None
+            # Skip string values - LLM sometimes returns descriptions instead of numbers
+        return cleaned
+
+
+class BusinessModelOutput(BaseModel):
+    """Business model and revenue stream analysis extracted from 10-K."""
+
+    # Revenue streams
+    revenue_streams: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="List of revenue streams with name, percentage, and description"
+    )
+
+    # Business segments
+    business_segments: Dict[str, Optional[float]] = Field(
+        default_factory=dict,
+        description="Revenue by business segment (% or millions USD). None if not specified."
+    )
+
+    # Revenue concentration
+    revenue_concentration: Optional[str] = Field(
+        None,
+        description="Assessment of revenue concentration risk across products/services"
+    )
+
+    # Competitive moats
+    moat_characteristics: List[str] = Field(
+        default_factory=list,
+        description="List of competitive moats (network effects, switching costs, brand, scale, IP, etc.)"
+    )
+
+    @field_validator("business_segments", mode="before")
+    @classmethod
+    def clean_business_segments(cls, v):
+        """Clean business segments dict - remove non-numeric values."""
+        if not isinstance(v, dict):
+            return {}
+
+        cleaned = {}
+        for key, value in v.items():
+            if value is None:
+                cleaned[key] = None
+            elif isinstance(value, (int, float)):
+                cleaned[key] = float(value) if value >= 0 else None
+            # Skip string values - LLM sometimes returns descriptions instead of numbers
+        return cleaned
 
 
 class QuarterlyMetrics(BaseModel):
@@ -160,6 +240,166 @@ class ScoreBreakdown(BaseModel):
         )
 
 
+class BusinessModelScoreBreakdown(BaseModel):
+    """Breakdown of the business model moat score."""
+
+    revenue_diversification: float = Field(..., ge=0, le=10, description="Revenue stream diversification score (0-10)")
+    competitive_moat: float = Field(..., ge=0, le=10, description="Competitive advantages and moat strength score (0-10)")
+
+    def weighted_average(self) -> float:
+        """
+        Calculate weighted average score.
+
+        Weights: revenue_diversification (50%), competitive_moat (50%)
+        """
+        return (
+            self.revenue_diversification * 0.50 +
+            self.competitive_moat * 0.50
+        )
+
+
+class EnhancedMoatBreakdown(BaseModel):
+    """Detailed breakdown of competitive moats across 8 categories."""
+
+    network_effects: float = Field(0.0, ge=0, le=10, description="Network effects strength (0-10)")
+    switching_costs: float = Field(0.0, ge=0, le=10, description="Customer switching costs (0-10)")
+    brand_power: float = Field(0.0, ge=0, le=10, description="Brand strength and pricing power (0-10)")
+    cost_advantages: float = Field(0.0, ge=0, le=10, description="Structural cost advantages (0-10)")
+    scale_economies: float = Field(0.0, ge=0, le=10, description="Economies of scale (0-10)")
+    intangible_assets: float = Field(0.0, ge=0, le=10, description="Patents, IP, data assets (0-10)")
+    regulatory_barriers: float = Field(0.0, ge=0, le=10, description="Regulatory or licensing moats (0-10)")
+    distribution_advantages: float = Field(0.0, ge=0, le=10, description="Distribution network or channel control (0-10)")
+
+    # Overall assessment
+    moat_width: str = Field("narrow", description="Wide/Moderate/Narrow/None")
+    moat_durability: str = Field("medium", description="High/Medium/Low")
+
+    def composite_score(self) -> float:
+        """Calculate weighted composite moat score."""
+        scores = [
+            self.network_effects, self.switching_costs, self.brand_power,
+            self.cost_advantages, self.scale_economies, self.intangible_assets,
+            self.regulatory_barriers, self.distribution_advantages
+        ]
+        # Average of non-zero scores (some moats may not apply)
+        active_scores = [s for s in scores if s > 0]
+        return sum(active_scores) / len(active_scores) if active_scores else 0.0
+
+
+class ValuationMetrics(BaseModel):
+    """Valuation metrics and multiples."""
+
+    # Current market data
+    current_price: Optional[float] = Field(None, description="Current stock price")
+    market_cap_millions: Optional[float] = Field(None, description="Market capitalization in millions USD")
+    enterprise_value_millions: Optional[float] = Field(None, description="Enterprise value in millions USD")
+
+    # Core multiples
+    pe_ratio: Optional[float] = Field(None, description="Price-to-Earnings ratio (TTM)")
+    forward_pe: Optional[float] = Field(None, description="Forward P/E ratio")
+    peg_ratio: Optional[float] = Field(None, description="Price/Earnings-to-Growth ratio")
+    pb_ratio: Optional[float] = Field(None, description="Price-to-Book ratio")
+    ps_ratio: Optional[float] = Field(None, description="Price-to-Sales ratio")
+    ev_ebitda: Optional[float] = Field(None, description="EV/EBITDA multiple")
+
+    # Peer comparison
+    sector_avg_pe: Optional[float] = Field(None, description="Sector average P/E")
+    sector_avg_ev_ebitda: Optional[float] = Field(None, description="Sector average EV/EBITDA")
+    pe_premium_discount: Optional[float] = Field(None, description="% premium/discount to sector P/E")
+
+    # Dividend (if applicable)
+    dividend_yield: Optional[float] = Field(None, description="Dividend yield %")
+    payout_ratio: Optional[float] = Field(None, description="Dividend payout ratio %")
+
+    # Assessment
+    valuation_category: str = Field("fair", description="Deep Discount/Discount/Fair/Premium/Extreme Premium")
+
+
+class PeerComparison(BaseModel):
+    """Peer comparison metrics."""
+
+    sector: str = Field(..., description="Sector classification")
+    industry: str = Field(..., description="Industry classification")
+
+    # Peer companies
+    peers: List[str] = Field(default_factory=list, description="List of peer tickers")
+
+    # Comparative metrics (company vs peer average)
+    revenue_growth_rank: Optional[int] = Field(None, description="Rank among peers (1=best)")
+    profit_margin_rank: Optional[int] = Field(None, description="Rank among peers")
+    roic_rank: Optional[int] = Field(None, description="Rank among peers")
+    valuation_rank: Optional[int] = Field(None, description="Rank among peers (1=cheapest)")
+
+    # Relative strength
+    competitive_position: str = Field("challenger", description="Market Leader/Strong #2/Challenger/Laggard")
+    market_share_estimate: Optional[float] = Field(None, description="Estimated market share %")
+
+
+class VGMScoreBreakdown(BaseModel):
+    """VGM (Value/Growth/Momentum) composite scoring."""
+
+    # Value Score (0-10)
+    value_score: float = Field(..., ge=0, le=10, description="Value score based on multiples")
+    value_grade: str = Field(..., description="A/B/C/D/F grade")
+    value_rationale: str = Field(..., description="Why this value score")
+
+    # Growth Score (0-10)
+    growth_score: float = Field(..., ge=0, le=10, description="Growth score based on trajectory")
+    growth_grade: str = Field(..., description="A/B/C/D/F grade")
+    growth_rationale: str = Field(..., description="Why this growth score")
+
+    # Momentum Score (0-10)
+    momentum_score: float = Field(..., ge=0, le=10, description="Momentum score based on trends")
+    momentum_grade: str = Field(..., description="A/B/C/D/F grade")
+    momentum_rationale: str = Field(..., description="Why this momentum score")
+
+    # Composite VGM Score
+    vgm_composite: float = Field(..., ge=0, le=10, description="Weighted VGM composite score")
+    vgm_grade: str = Field(..., description="Overall A/B/C/D/F grade")
+
+    # Investment style
+    best_fit_style: str = Field(..., description="Value/Growth/Momentum/Quality/Blend/Income")
+
+    def calculate_composite(self, value_weight=0.33, growth_weight=0.33, momentum_weight=0.34) -> float:
+        """Calculate weighted VGM composite."""
+        return (
+            self.value_score * value_weight +
+            self.growth_score * growth_weight +
+            self.momentum_score * momentum_weight
+        )
+
+
+class PriceTargetScenarios(BaseModel):
+    """Price target scenarios with bull/base/bear cases."""
+
+    # Base case (most likely)
+    base_target: float = Field(..., description="Base case 12-month price target")
+    base_assumptions: str = Field(..., description="Key assumptions for base case")
+    base_probability: float = Field(0.5, ge=0, le=1, description="Probability of base case")
+
+    # Bull case (optimistic)
+    bull_target: float = Field(..., description="Bull case 12-month price target")
+    bull_assumptions: str = Field(..., description="Key assumptions for bull case")
+    bull_probability: float = Field(0.25, ge=0, le=1, description="Probability of bull case")
+
+    # Bear case (pessimistic)
+    bear_target: float = Field(..., description="Bear case 12-month price target")
+    bear_assumptions: str = Field(..., description="Key assumptions for bear case")
+    bear_probability: float = Field(0.25, ge=0, le=1, description="Probability of bear case")
+
+    # Valuation methodology
+    methodology: str = Field(..., description="DCF/P/E Multiple/Sum-of-parts/Comparable")
+
+    # Expected value
+    def expected_value(self) -> float:
+        """Calculate probability-weighted expected value."""
+        return (
+            self.base_target * self.base_probability +
+            self.bull_target * self.bull_probability +
+            self.bear_target * self.bear_probability
+        )
+
+
 class FundamentalistOutput(BaseModel):
     """Final validated output from the Fundamentalist agent."""
 
@@ -187,6 +427,7 @@ class FundamentalistOutput(BaseModel):
     # Extracted data - preserved for backward compatibility
     financial_metrics: FinancialMetricsOutput = Field(..., description="Extracted financial metrics")
     supply_chain_data: SupplyChainOutput = Field(..., description="Supply chain analysis")
+    business_model_data: BusinessModelOutput = Field(..., description="Business model and revenue stream analysis")
 
     # Analysis
     financial_analysis: str = Field(..., description="Qualitative financial analysis")
@@ -194,7 +435,16 @@ class FundamentalistOutput(BaseModel):
     # Scoring
     financial_health_score: float = Field(..., ge=0, le=10, description="Overall financial health score (0-10)")
     score_breakdown: ScoreBreakdown = Field(..., description="Score breakdown by component")
+    business_model_moat_score: float = Field(..., ge=0, le=10, description="Business model and revenue moat score (0-10)")
+    business_model_score_breakdown: BusinessModelScoreBreakdown = Field(..., description="Business model score breakdown")
     confidence: float = Field(..., ge=0, le=1, description="Confidence level in the analysis (0-1)")
+
+    # NEW: VGM and Valuation Analysis
+    vgm_scores: Optional[VGMScoreBreakdown] = Field(None, description="VGM (Value/Growth/Momentum) scores")
+    valuation_metrics: Optional[ValuationMetrics] = Field(None, description="Valuation metrics and multiples")
+    peer_comparison: Optional[PeerComparison] = Field(None, description="Peer comparison analysis")
+    enhanced_moat: Optional[EnhancedMoatBreakdown] = Field(None, description="Detailed moat category breakdown")
+    price_targets: Optional[PriceTargetScenarios] = Field(None, description="Price target scenarios")
 
     # Metadata
     tokens_used: int = Field(..., description="Total tokens used in API calls")
@@ -202,12 +452,38 @@ class FundamentalistOutput(BaseModel):
 
     @model_validator(mode='after')
     def validate_score_matches_breakdown(self):
-        """Ensure the overall score matches the weighted average of components."""
-        expected = self.score_breakdown.weighted_average()
-        # Allow small floating point differences
-        if abs(self.financial_health_score - expected) > 0.1:
-            raise ValueError(
-                f"Health score {self.financial_health_score} does not match "
-                f"breakdown weighted average {expected:.2f}"
+        """
+        Ensure the overall scores match the weighted average of components.
+        Auto-correct score mismatches instead of raising ValidationError.
+        """
+        # Validate financial health score
+        expected_health = self.score_breakdown.weighted_average()
+        diff_health = abs(self.financial_health_score - expected_health)
+
+        if diff_health > 0.5:  # Significant mismatch - auto-correct
+            logger.warning(
+                f"Financial health score {self.financial_health_score} significantly differs from "
+                f"breakdown weighted average {expected_health:.2f}. Auto-correcting."
             )
+            self.financial_health_score = round(expected_health, 2)
+        elif diff_health > 0.1:  # Minor floating-point difference - accept
+            logger.debug(
+                f"Financial health score has minor difference from breakdown (likely floating point). Accepting."
+            )
+
+        # Validate business model moat score
+        expected_moat = self.business_model_score_breakdown.weighted_average()
+        diff_moat = abs(self.business_model_moat_score - expected_moat)
+
+        if diff_moat > 0.5:  # Significant mismatch - auto-correct
+            logger.warning(
+                f"Business model moat score {self.business_model_moat_score} significantly differs from "
+                f"breakdown weighted average {expected_moat:.2f}. Auto-correcting."
+            )
+            self.business_model_moat_score = round(expected_moat, 2)
+        elif diff_moat > 0.1:  # Minor floating-point difference - accept
+            logger.debug(
+                f"Business model moat score has minor difference from breakdown (likely floating point). Accepting."
+            )
+
         return self
