@@ -405,8 +405,8 @@ class SupplyChainGraph(BaseModel):
     )
     max_depth: int = Field(
         ...,
-        ge=1,
-        description="Maximum tier depth explored"
+        ge=0,
+        description="Maximum tier depth explored (0 = supply chain disabled)"
     )
     hidden_dependencies: List[str] = Field(
         default_factory=list,
@@ -417,18 +417,21 @@ class SupplyChainGraph(BaseModel):
         description="List of critical paths in the supply chain (list of node IDs)"
     )
 
-    @field_validator("nodes", mode="after")
-    @classmethod
-    def validate_root_exists(cls, nodes: List[SupplyChainNode]) -> List[SupplyChainNode]:
-        """Ensure at least one root node exists."""
-        if not nodes:
+    @model_validator(mode="after")
+    def validate_root_exists(self) -> "SupplyChainGraph":
+        """Ensure at least one root node exists (unless supply chain is disabled)."""
+        # Allow empty graph when supply chain is disabled (max_depth=0)
+        if self.max_depth == 0:
+            return self
+
+        if not self.nodes:
             raise ValueError("Supply chain graph must have at least one node")
-        root_nodes = [n for n in nodes if n.node_type == NodeType.ROOT]
+        root_nodes = [n for n in self.nodes if n.node_type == NodeType.ROOT]
         if not root_nodes:
             raise ValueError("Supply chain graph must have exactly one root node")
         if len(root_nodes) > 1:
             raise ValueError("Supply chain graph must have only one root node")
-        return nodes
+        return self
 
 
 class TechnicalScoreBreakdown(BaseModel):

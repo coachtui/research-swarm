@@ -257,7 +257,7 @@ class ManagerAnalyzer:
                 earnings_signal = trend.upper()
 
             consensus = news_hound_output.get("analyst_consensus", {})
-            if consensus and not avg_price_target or avg_price_target == "N/A":
+            if consensus and (not avg_price_target or avg_price_target == "N/A"):
                 targets = consensus.get("price_targets", {})
                 avg = targets.get("average", 0)
                 upside = targets.get("upside_to_average", 0)

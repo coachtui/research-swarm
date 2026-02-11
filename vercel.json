@@ -6,7 +6,7 @@
       "PYTHON_VERSION": "3.11"
     }
   },
-  "buildCommand": "pip install -r requirements-api.txt",
+  "buildCommand": "pip install -r requirements-vercel.txt && prisma generate",
   "functions": {
     "api/**/*.py": {
       "runtime": "python3.11",
@@ -14,14 +14,14 @@
       "memory": 1024
     }
   },
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/index.py"
+      "source": "/api/:path*",
+      "destination": "/api/index.py"
     },
     {
-      "src": "/(.*)",
-      "dest": "/api/index.py"
+      "source": "/:path*",
+      "destination": "/api/index.py"
     }
   ],
   "env": {

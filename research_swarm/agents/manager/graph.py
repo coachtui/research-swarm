@@ -158,17 +158,18 @@ def call_quant_node(state: ManagerState) -> ManagerState:
                 fund_output = FundamentalistOutput(**fund_output_dict)
                 fundamentalist_supply_chain = fund_output.supply_chain
 
-        # Call Quant agent
+        # Call Quant agent (supply chain disabled per user request)
         quant_output = analyze_quant(
             ticker=state["ticker"],
-            supply_chain_depth=2,
-            fundamentalist_supply_chain=fundamentalist_supply_chain
+            supply_chain_depth=0,  # Disable supply chain analysis
+            fundamentalist_supply_chain=None  # Don't pass supply chain data
         )
 
         # Store output as dict
         state["quant_output"] = quant_output.model_dump()
         state["technical_score"] = quant_output.technical_score
-        state["supply_chain_score"] = quant_output.supply_chain_score
+        # Supply chain disabled per user request
+        state["supply_chain_score"] = 0.0  # Always 0 since supply chain is disabled
 
         # Track tokens and time
         state["tokens_used"] = state.get("tokens_used", 0) + quant_output.tokens_used
@@ -179,7 +180,7 @@ def call_quant_node(state: ManagerState) -> ManagerState:
 
         logger.success(
             f"✓ Quant complete: {state['ticker']} "
-            f"(Tech: {quant_output.technical_score:.2f}, SC: {quant_output.supply_chain_score:.2f})"
+            f"(Technical Score: {quant_output.technical_score:.2f})"
         )
 
     except Exception as e:

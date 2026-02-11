@@ -8,6 +8,7 @@ for interacting with the Neon Postgres database.
 from prisma import Prisma
 from typing import Optional
 from contextlib import asynccontextmanager
+import json
 
 # Global Prisma client instance
 _db_client: Optional[Prisma] = None
@@ -115,6 +116,10 @@ async def save_analysis_result(
     """
     db = await get_db()
 
+    # Ensure connection is active (may have timed out during analysis)
+    if not db.is_connected():
+        await db.connect()
+
     # Create or get run
     if run_id is None:
         run = await db.run.create(
@@ -134,6 +139,11 @@ async def save_analysis_result(
         run_id = run.id
 
     # Create stock result (excluding supply chain per user request)
+    # Serialize full_output to JSON if it exists
+    full_output = result.get('full_output')
+    if full_output and isinstance(full_output, dict):
+        full_output = json.dumps(full_output)
+
     stock_result = await db.stockresult.create(
         data={
             "runId": run_id,
@@ -147,7 +157,7 @@ async def save_analysis_result(
             # supplyChainScore excluded - not used
             "isWatchlistCandidate": result.get('watchlist_candidate', False),
             "investmentThesis": result.get('investment_thesis'),
-            "fullOutput": result.get('full_output'),
+            "fullOutput": full_output,
             "tokensUsed": result.get('tokens_used', 0),
             "costUsd": result.get('cost_usd', 0.0),
             "processingTimeSeconds": result.get('processing_time_seconds'),
@@ -183,17 +193,22 @@ async def get_user_monthly_cost(user_id: str) -> float:
 
     db = await get_db()
 
+    # Ensure connection is active
+    if not db.is_connected():
+        await db.connect()
+
     # Get start of current month
     now = datetime.utcnow()
     month_start = datetime(now.year, now.month, 1)
 
-    # Sum costs for this month
-    result = await db.costlog.aggregate(
+    # Get all cost logs for this month
+    costs = await db.costlog.find_many(
         where={
             "userId": user_id,
             "timestamp": {"gte": month_start}
-        },
-        _sum={"costUsd": True}
+        }
     )
 
-    return result._sum.get('costUsd', 0.0) or 0.0
+    # Sum the costs
+    total = sum(cost.costUsd for cost in costs) if costs else 0.0
+    return total

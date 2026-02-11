@@ -26,6 +26,7 @@ class AnalyzeResponse(BaseModel):
     estimated_time_minutes: int = Field(..., description="Estimated completion time in minutes")
     created_at: datetime = Field(..., description="Job creation timestamp")
     websocket_url: Optional[str] = Field(None, description="WebSocket URL for real-time updates (Phase 2)")
+    result: Optional[Dict[str, Any]] = Field(None, description="Full analysis results (when completed)")
 
     class Config:
         json_schema_extra = {
@@ -52,28 +53,29 @@ class StockResultSummary(BaseModel):
     processing_time_seconds: Optional[float] = None
     error_message: Optional[str] = None
 
+class RunSummary(BaseModel):
+    """
+    Summary of a run for list view.
+    """
+    id: str
+    ticker: str
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    total_cost_usd: Optional[float] = None
+    stock_count: int = 0
+
 class RunResponse(BaseModel):
     """
     Detailed response for a single run.
     """
-    run_id: str
-    run_name: Optional[str] = None
-    status: JobStatus
+    id: str
+    status: str
     tickers: List[str]
-    total_stocks: int
-    completed_count: int
-    failed_count: int
-    progress_percent: float = Field(..., ge=0, le=100)
-    current_ticker: Optional[str] = None
-
-    stock_results: List[StockResultSummary] = []
-
-    total_cost_usd: float
-    estimated_completion: Optional[datetime] = None
-
+    total_cost_usd: Optional[float] = None
     created_at: datetime
-    started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    results: List[Dict[str, Any]] = []
 
     class Config:
         json_schema_extra = {
@@ -108,7 +110,7 @@ class RunListResponse(BaseModel):
     total: int = Field(..., description="Total number of runs")
     limit: int = Field(..., description="Number of runs in this response")
     offset: int = Field(..., description="Pagination offset")
-    runs: List[RunResponse] = Field(..., description="List of runs")
+    runs: List[RunSummary] = Field(..., description="List of runs")
 
     class Config:
         json_schema_extra = {

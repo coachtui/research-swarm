@@ -108,7 +108,7 @@ async def test_full_flow():
         print(f"\n6️⃣  Verifying cost tracking...")
         costs = await db.costlog.find_many(
             where={"userId": user['id']},
-            order_by={"timestamp": "desc"},
+            order={"timestamp": "desc"},
             take=5
         )
         print(f"   ✅ Cost logs found: {len(costs)}")

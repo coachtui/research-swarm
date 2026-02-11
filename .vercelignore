@@ -1,0 +1,60 @@
+# Python
+venv/
+venv.old/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env.local
+.env.development
+.env.test
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.coverage
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Development
+*.log
+.DS_Store
+node_modules/
+
+# Reports (generated locally, not needed for deployment)
+reports/outputs/
+reports/pdfs/
+reports/charts/*.png
+
+# Database (local only)
+*.db
+*.sqlite
+*.sqlite3
+
+# Documentation
+docs/
+README.md
+
+# Git
+.git/
+.gitignore
+
+# Testing scripts
+test_*.py
+tests/
+
+# Old/backup files
+*.old
+backup/

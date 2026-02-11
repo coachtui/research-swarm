@@ -54,8 +54,38 @@ async def get_current_user(
     # return User(**user.dict())
 
     # Mock user for MVP testing
+    # Ensure user exists in database
+    from api.lib.db import get_db
+
+    user_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    try:
+        db = await get_db()
+
+        # Ensure connection is active
+        if not db.is_connected():
+            await db.connect()
+
+        # Check if user exists, create if not
+        existing_user = await db.user.find_unique(where={"id": user_id})
+
+        if not existing_user:
+            await db.user.create(
+                data={
+                    "id": user_id,
+                    "clerkId": "user_mock_123",
+                    "email": "test@example.com",
+                    "fullName": "Test User",
+                    "tier": "free",
+                    "monthlyBudgetUsd": 200.0,
+                    "isActive": True
+                }
+            )
+    except Exception as e:
+        print(f"Warning: Could not ensure user exists: {e}")
+
     return User(
-        id="550e8400-e29b-41d4-a716-446655440000",
+        id=user_id,
         clerk_id="user_mock_123",
         email="test@example.com",
         full_name="Test User",

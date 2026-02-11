@@ -121,6 +121,19 @@ def build_supply_chain_node(state: QuantState) -> QuantState:
     # Get supply chain depth
     max_depth = state.get("supply_chain_depth", 2)
 
+    # Skip supply chain analysis if depth is 0 (disabled per user request)
+    if max_depth == 0:
+        logger.info("Supply chain analysis disabled (depth=0)")
+        # Create minimal empty graph
+        supply_chain_graph = SupplyChainGraph(
+            nodes=[],
+            edges=[],
+            max_depth=0,
+            root_ticker=state["ticker"]
+        )
+        state["supply_chain_graph"] = supply_chain_graph.model_dump()
+        return state
+
     # Check if fundamentalist data is available
     if state.get("fundamentalist_supply_chain"):
         # Reconstruct FundamentalistSupplyChain from dict

@@ -162,13 +162,13 @@ class ManagerOutput(BaseModel):
     key_insights: List[str] = Field(
         ...,
         min_length=3,
-        max_length=5,
-        description="Top 3-5 investment insights"
+        max_length=10,
+        description="Top 3-10 investment insights"
     )
     risk_factors: List[str] = Field(
         ...,
         min_length=3,
-        max_length=5,
+        max_length=10,
         description="Top 3-5 risk factors"
     )
     investment_thesis: str = Field(

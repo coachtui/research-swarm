@@ -66,8 +66,8 @@ async def run_stock_analysis(
             "watchlist_candidate": result.is_watchlist_candidate,
 
             # Metadata
-            "tokens_used": result.total_tokens,
-            "cost_usd": result.total_cost_usd,
+            "tokens_used": result.tokens_used,
+            "cost_usd": sum(result.cost_by_agent.values()),
             "processing_time_seconds": processing_time,
 
             # Full output for database storage (convert Pydantic to dict)

@@ -3,9 +3,10 @@ Run management endpoints for checking status and retrieving results.
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from api.models.responses import RunResponse, RunListResponse
+from api.models.responses import RunResponse, RunListResponse, RunSummary
 from api.dependencies import get_current_user
 from api.models.auth import User
+from api.lib.db import get_db
 from typing import Optional
 
 router = APIRouter()
@@ -26,19 +27,43 @@ async def list_runs(
     - `status`: Filter by status (queued, running, completed, failed)
     """
 
-    # TODO: Query database for user's runs
-    # runs = await db.run.find_many(
-    #     where={"userId": user.id, "status": status},
-    #     skip=offset,
-    #     take=min(limit, 100),
-    #     order_by={"createdAt": "desc"}
-    # )
+    db = await get_db()
+
+    # Build query filters
+    where_clause = {"userId": user.id}
+    if status:
+        where_clause["status"] = status
+
+    # Query database for user's runs
+    runs = await db.run.find_many(
+        where=where_clause,
+        skip=offset,
+        take=min(limit, 100),
+        order={"createdAt": "desc"},
+        include={"stockResults": True}
+    )
+
+    # Get total count
+    total = await db.run.count(where=where_clause)
+
+    # Convert to response format
+    run_list = []
+    for run in runs:
+        run_list.append({
+            "id": run.id,
+            "ticker": run.tickers[0] if run.tickers else "",
+            "status": run.status,
+            "created_at": run.createdAt,
+            "completed_at": run.completedAt,
+            "total_cost_usd": run.totalCostUsd,
+            "stock_count": len(run.stockResults) if run.stockResults else 0,
+        })
 
     return RunListResponse(
-        total=0,
+        total=total,
         limit=limit,
         offset=offset,
-        runs=[]
+        runs=run_list
     )
 
 @router.get("/runs/{run_id}", response_model=RunResponse)
@@ -55,18 +80,50 @@ async def get_run(
     - Error information (if failed)
     """
 
-    # TODO: Query database for run
-    # run = await db.run.find_unique(
-    #     where={"id": run_id, "userId": user.id},
-    #     include={"stockResults": True}
-    # )
+    db = await get_db()
 
-    # if not run:
-    #     raise HTTPException(status_code=404, detail="Run not found")
+    # Query database for run with results
+    run = await db.run.find_unique(
+        where={"id": run_id},
+        include={"stockResults": True}
+    )
 
-    raise HTTPException(
-        status_code=404,
-        detail="Run not found. Database integration pending."
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Verify user owns this run
+    if run.userId != user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Format response
+    results = []
+    if run.stockResults:
+        for result in run.stockResults:
+            results.append({
+                "ticker": result.ticker,
+                "status": result.status,
+                "moat_score": result.moatScore,
+                "financial_health_score": result.financialHealthScore,
+                "business_model_moat_score": result.businessModelMoatScore,
+                "sentiment_score": result.sentimentScore,
+                "technical_score": result.technicalScore,
+                "watchlist_candidate": result.isWatchlistCandidate,
+                "investment_thesis": result.investmentThesis,
+                "cost_usd": result.costUsd,
+                "tokens_used": result.tokensUsed,
+                "processing_time_seconds": result.processingTimeSeconds,
+                "error_message": result.errorMessage,
+                "created_at": result.createdAt
+            })
+
+    return RunResponse(
+        id=run.id,
+        status=run.status,
+        tickers=run.tickers,
+        total_cost_usd=run.totalCostUsd,
+        created_at=run.createdAt,
+        completed_at=run.completedAt,
+        results=results
     )
 
 @router.delete("/runs/{run_id}")
