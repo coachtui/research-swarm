@@ -130,6 +130,60 @@ class StockReportData(BaseModel):
         None, description="Upcoming catalyst calendar"
     )
 
+    # Template alignment enhancements (v2.0)
+    rating: Optional[str] = Field(
+        None, description="5-tier rating: STRONG BUY/BUY/HOLD/SELL/STRONG SELL"
+    )
+    rating_score: Optional[float] = Field(
+        None, ge=0, le=10, description="Numeric rating score (0-10)"
+    )
+    risk_level: Optional[str] = Field(
+        None, description="Risk classification: Low/Medium/High"
+    )
+    competitive_moat_enhanced: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Enhanced competitive analysis with market share, competitor comparison, moat direction",
+    )
+    structured_risks: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Risks with severity, likelihood, impact, mitigation",
+    )
+    upgrade_triggers: Optional[List[Dict[str, str]]] = Field(
+        None, description="Specific metrics → action for upgrades"
+    )
+    downgrade_triggers: Optional[List[Dict[str, str]]] = Field(
+        None, description="Specific metrics → action for downgrades"
+    )
+    recommended_strategy: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Entry/exit strategy, position sizing, risk/reward analysis",
+    )
+    valuation_sensitivity: Optional[Dict[str, Any]] = Field(
+        None, description="Sensitivity analysis for EPS and P/E changes"
+    )
+    track_record: Optional[Dict[str, Any]] = Field(
+        None, description="Previous report comparison and target achievement"
+    )
+    conviction_statement: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Conviction level, bottom line summary, best suited for",
+    )
+    expected_value_price_target: Optional[float] = Field(
+        None, description="Probability-weighted expected value from scenarios"
+    )
+
+    # Enhanced report metadata
+    coverage_universe: Optional[str] = Field(None, description="Sector/industry coverage")
+    peer_comparison_group: Optional[List[str]] = Field(
+        None, description="List of peer tickers for comparison"
+    )
+    next_review_date: Optional[str] = Field(
+        None, description="Next scheduled review date"
+    )
+    earnings_date: Optional[str] = Field(
+        None, description="Upcoming earnings date"
+    )
+
 
 class ReportData(BaseModel):
     """Complete data for report generation."""
@@ -142,6 +196,9 @@ class ReportData(BaseModel):
     analysis_date: str = Field(..., description="Date of analysis (YYYY-MM-DD)")
     analysis_period: str = Field(..., description="Analysis period (e.g., 'TTM Q4 2024 - Q3 2025')")
     quarters: List[str] = Field(default_factory=list, description="Quarters analyzed (for TTM mode)")
+    report_version: str = Field(
+        default="2.0", description="Report schema version for tracking compatibility"
+    )
 
     # Backward compatibility
     fiscal_year: Optional[int] = Field(None, description="[Deprecated] Fiscal year for annual analysis")

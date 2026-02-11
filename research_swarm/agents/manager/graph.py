@@ -231,9 +231,15 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
         state["synthesis_narrative"] = synthesis.get("synthesis_narrative", "")
         state["key_insights"] = synthesis.get("key_insights", [])
         state["risk_factors"] = synthesis.get("risk_factors", [])
+
+        # NEW v2.0: Extract structured risks and triggers
+        state["structured_risks"] = synthesis.get("structured_risks", [])
+        state["upgrade_triggers"] = synthesis.get("upgrade_triggers", [])
+        state["downgrade_triggers"] = synthesis.get("downgrade_triggers", [])
+
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
-        logger.success(f"✓ Synthesis complete ({tokens} tokens)")
+        logger.success(f"✓ Synthesis complete ({tokens} tokens, {len(state.get('structured_risks', []))} structured risks)")
 
     except Exception as e:
         logger.error(f"Synthesis failed: {e}")
@@ -281,25 +287,82 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
         news_hound_confidence = state["news_hound_output"].get("confidence", 1.0)
         quant_confidence = state["quant_output"].get("confidence", 1.0)
 
-        # Calculate moat score
-        moat_score, breakdown, confidence = manager_scorer.calculate_moat_score(
-            financial_health_score=financial_health_score,
-            sentiment_score=sentiment_score,
-            technical_score=technical_score,
-            supply_chain_score=supply_chain_score,
-            fundamentalist_confidence=fundamentalist_confidence,
-            news_hound_confidence=news_hound_confidence,
-            quant_confidence=quant_confidence,
+        # Check if fundamentalist has v2.0 scores (earnings momentum, valuation)
+        fundamentalist_output = state["fundamentalist_output"]
+        earnings_momentum_score = fundamentalist_output.get("earnings_momentum_score")
+        valuation_score = fundamentalist_output.get("valuation_score")
+        business_model_moat_score = fundamentalist_output.get("business_model_moat_score")
+
+        # Create breakdown - MoatScoreBreakdown auto-detects v1.0 vs v2.0
+        if earnings_momentum_score is not None and valuation_score is not None:
+            # Use v2.0 formula
+            logger.info(f"Using v2.0 moat formula with earnings momentum and valuation")
+            breakdown = MoatScoreBreakdown(
+                earnings_momentum=earnings_momentum_score,
+                financial_health=financial_health_score,
+                valuation=valuation_score,
+                technical_strength=technical_score,
+                sentiment_catalysts=sentiment_score,
+            )
+        else:
+            # Fall back to v1.0 formula
+            logger.info(f"Using v1.0 moat formula (legacy)")
+            breakdown = MoatScoreBreakdown(
+                financial_health=financial_health_score,
+                business_model_moat=business_model_moat_score if business_model_moat_score is not None else 0.0,
+                sentiment_catalysts=sentiment_score,
+                technical_strength=technical_score,
+                supply_chain_position=supply_chain_score,
+            )
+
+        # Calculate moat score using breakdown
+        moat_score = breakdown.weighted_average()
+
+        # Calculate confidence
+        component_scores = [financial_health_score, sentiment_score, technical_score]
+        if earnings_momentum_score is not None and valuation_score is not None:
+            component_scores.extend([earnings_momentum_score, valuation_score])
+        else:
+            component_scores.extend([business_model_moat_score if business_model_moat_score else 0.0, supply_chain_score])
+
+        confidence = manager_scorer.assess_confidence(
+            component_scores=component_scores,
+            agent_confidences={
+                "fundamentalist": fundamentalist_confidence,
+                "news_hound": news_hound_confidence,
+                "quant": quant_confidence,
+            },
         )
 
         # Determine watchlist eligibility
         is_watchlist = manager_scorer.determine_watchlist(moat_score)
+
+        # NEW v2.0: Determine 5-tier rating
+        rating, rating_score = manager_scorer.determine_rating(moat_score)
+
+        # NEW v2.0: Determine risk level
+        import statistics
+        variance = statistics.variance(component_scores) if len(component_scores) > 1 else 0.0
+        component_scores_dict = {
+            "financial_health": financial_health_score,
+            "sentiment": sentiment_score,
+            "technical": technical_score,
+        }
+        if earnings_momentum_score is not None:
+            component_scores_dict["earnings_momentum"] = earnings_momentum_score
+        if valuation_score is not None:
+            component_scores_dict["valuation"] = valuation_score
+
+        risk_level = manager_scorer.determine_risk_level(component_scores_dict, variance)
 
         # Update state
         state["moat_score"] = moat_score
         state["moat_breakdown"] = breakdown.model_dump()
         state["confidence"] = confidence
         state["is_watchlist_candidate"] = is_watchlist
+        state["rating"] = rating
+        state["rating_score"] = rating_score
+        state["risk_level"] = risk_level
 
         logger.success(
             f"✓ Moat score calculated: {state['ticker']} "
@@ -355,6 +418,10 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
             synthesis_narrative=state["synthesis_narrative"] or "",
             key_insights=state["key_insights"] or [],
             risk_factors=state["risk_factors"] or [],
+            # Enhanced context
+            fundamentalist_output=state.get("fundamentalist_output"),
+            news_hound_output=state.get("news_hound_output"),
+            quant_output=state.get("quant_output"),
         )
 
         # Update state

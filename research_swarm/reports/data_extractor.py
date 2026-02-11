@@ -273,6 +273,49 @@ class DataExtractor:
         short_interest = news_hound.get("short_interest")
         upcoming_catalysts = news_hound.get("upcoming_catalysts")
 
+        # NEW v2.0: Extract rating and risk fields
+        rating = output.get("rating")
+        rating_score = output.get("rating_score")
+        risk_level = output.get("risk_level")
+        structured_risks = output.get("structured_risks", [])
+        upgrade_triggers = output.get("upgrade_triggers", [])
+        downgrade_triggers = output.get("downgrade_triggers", [])
+
+        # Calculate expected value from price targets
+        expected_value = None
+        if price_targets:
+            expected_value = price_targets.get("expected_value")
+
+        # Enhanced competitive moat (if peer comparison has new fields)
+        competitive_moat_enhanced = None
+        if peer_comparison:
+            competitive_moat_enhanced = {
+                "market_share_rank": peer_comparison.get("market_share_rank"),
+                "top_competitor": peer_comparison.get("top_competitor"),
+                "vs_top_competitor": peer_comparison.get("vs_top_competitor"),
+                "competitive_intensity": peer_comparison.get("competitive_intensity"),
+                "pricing_power_evidence": peer_comparison.get("pricing_power_evidence"),
+                "moat_direction": peer_comparison.get("moat_direction"),
+                "key_threats": peer_comparison.get("key_threats"),
+            }
+
+        # Report metadata
+        coverage_universe = None
+        if peer_comparison:
+            coverage_universe = f"{peer_comparison.get('sector', 'N/A')} / {peer_comparison.get('industry', 'N/A')}"
+
+        peer_comparison_group = None
+        if peer_comparison:
+            peer_comparison_group = peer_comparison.get("peers", [])
+
+        earnings_date = None
+        if upcoming_catalysts:
+            catalysts_list = upcoming_catalysts.get("catalysts", [])
+            for catalyst in catalysts_list:
+                if catalyst.get("type") == "earnings":
+                    earnings_date = catalyst.get("date")
+                    break
+
         return StockReportData(
             ticker=result.ticker,
             moat_score=result.moat_score or 0.0,
@@ -302,4 +345,16 @@ class DataExtractor:
             management_commentary=management_commentary,
             short_interest=short_interest,
             upcoming_catalysts=upcoming_catalysts,
+            # NEW v2.0: Template alignment enhancements
+            rating=rating,
+            rating_score=rating_score,
+            risk_level=risk_level,
+            structured_risks=structured_risks,
+            upgrade_triggers=upgrade_triggers,
+            downgrade_triggers=downgrade_triggers,
+            expected_value_price_target=expected_value,
+            competitive_moat_enhanced=competitive_moat_enhanced,
+            coverage_universe=coverage_universe,
+            peer_comparison_group=peer_comparison_group,
+            earnings_date=earnings_date,
         )

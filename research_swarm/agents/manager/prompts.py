@@ -9,13 +9,13 @@ Each prompt is designed for specific LLM models and tasks.
 # Purpose: Combine findings from all agents into unified analysis
 # ============================================================================
 
-SYNTHESIS_PROMPT = """You are an investment analyst synthesizing research from multiple specialized teams.
+SYNTHESIS_PROMPT = """You are a senior investment analyst synthesizing comprehensive research from multiple specialized teams.
 
 **Company**: {ticker}
 **Analysis Date**: {analysis_date}
 **Analysis Period**: {analysis_period}
 
-You have received reports from three specialized research teams:
+You have received detailed reports from three specialized research teams with ENHANCED data coverage:
 
 ---
 
@@ -23,80 +23,178 @@ You have received reports from three specialized research teams:
 
 **Financial Health Score**: {financial_health_score:.1f}/10
 
-**Key Metrics**:
+**Investment Style Profile**:
+{vgm_summary}
+
+**Competitive Moat Analysis** (8 dimensions):
+{moat_breakdown}
+
+**Valuation Metrics**:
+{valuation_summary}
+
+**Price Target Scenarios**:
+{price_targets}
+
+**Key Financial Metrics**:
 {fundamentalist_summary}
 
-**Analysis**: {fundamentalist_narrative}
+**Peer Competitive Position**:
+{peer_comparison}
+
+**Full Analysis**: {fundamentalist_narrative}
 
 ---
 
-## 2. NEWS & SENTIMENT ANALYSIS
+## 2. NEWS & SENTIMENT ANALYSIS (Multi-Signal Approach)
 
-**Sentiment Score**: {sentiment_score:.1f}/10
+**Overall Sentiment Score**: {sentiment_score:.1f}/10
 
-**Recent Catalysts**:
+**Signal Breakdown** (7 independent signals):
+{signal_breakdown}
+
+**Primary Signal - Earnings Estimate Revisions**:
+{earnings_revisions}
+
+**Analyst Consensus**:
+{analyst_consensus}
+
+**Institutional Money Flow**:
+{institutional_activity}
+
+**Insider Trading Activity**:
+{insider_activity}
+
+**Management Quality Assessment**:
+{management_quality}
+
+**Short Interest & Squeeze Risk**:
+{short_interest}
+
+**Upcoming Catalysts** (6-month calendar):
+{catalyst_calendar}
+
+**Recent News Catalysts**:
 {news_catalysts}
 
-**Analysis**: {news_narrative}
+**Full Analysis**: {news_narrative}
 
 ---
 
-## 3. QUANTITATIVE ANALYSIS
+## 3. QUANTITATIVE ANALYSIS (Advanced Technical + Supply Chain)
 
 **Technical Score**: {technical_score:.1f}/10
 **Supply Chain Score**: {supply_chain_score:.1f}/10
 
-**Technical Indicators**: {technical_summary}
+**Advanced Technical Indicators**:
+- Trend: {trend_indicators}
+- Momentum (RSI/MACD/Stochastic): {momentum_indicators}
+- Volatility (Bollinger Bands): {volatility_indicators}
+- Volume Profile & Key Levels: {volume_profile}
+- Relative Strength: {relative_strength}
 
-**Supply Chain Resilience**: {supply_chain_summary}
+**Entry/Exit Signal**: {entry_exit_signal}
+
+**Supply Chain Resilience**:
+{supply_chain_summary}
+
+**Full Analysis**: {quant_narrative}
 
 ---
 
 ## YOUR TASK
 
-Synthesize these three perspectives into a unified investment analysis. Generate:
+Synthesize these three comprehensive perspectives into a unified investment analysis that leverages ALL the enhanced data. Generate:
 
-1. **Synthesis Narrative** (400-600 words):
-   - Integrate findings across all three dimensions (fundamental, sentiment, technical/supply chain)
-   - Identify themes that appear across multiple analyses (e.g., "strong fundamentals confirmed by positive sentiment")
-   - Note any contradictions or divergences between the analyses
-   - Assess the overall investment opportunity holistically
+1. **Synthesis Narrative** (600-800 words):
+   - **Multi-Signal Convergence**: Do the 7 news signals align or diverge? Does earnings estimate momentum confirm or contradict price action?
+   - **Fundamental-Technical Alignment**: Do VGM scores, moat strength, and valuation align with technical setup and entry/exit signals?
+   - **Catalyst Timing**: How do upcoming catalysts interact with current technical levels (e.g., earnings in 2 weeks + price at support)?
+   - **Smart Money Confirmation**: Do institutional flows and insider activity confirm or contradict the fundamental/technical picture?
+   - **Valuation Context**: Are price targets achievable given technical resistance levels and supply chain risks?
+   - **Moat Sustainability**: Does the 8-category moat analysis support the competitive position suggested by peers and supply chain strength?
+   - **Management Factor**: How does management quality and tone affect confidence in the thesis?
+   - **Risk Integration**: Synthesize short interest, supply chain vulnerabilities, and negative catalysts into cohesive risk assessment
 
-2. **Key Insights** (3-5 bullet points):
-   - The most important takeaways for an investor
-   - Each insight should synthesize information from multiple sources
-   - Focus on actionable insights (e.g., "Strong moat from supply chain dominance + positive AI tailwinds")
+2. **Key Insights** (5-7 bullet points):
+   - The most important cross-signal insights for an investor
+   - Each insight must synthesize data from MULTIPLE sources across agents
+   - Highlight where signals converge powerfully (e.g., "Bullish earnings revisions + institutional accumulation + technical breakout + upcoming product launch")
+   - Note critical divergences (e.g., "Strong fundamentals but bearish insider selling signals caution")
+   - Reference specific data points (scores, percentages, price levels)
 
-3. **Risk Factors** (3-5 bullet points):
-   - The most significant risks to this investment
-   - Consider fundamental, technical, and market/sentiment risks
-   - Be specific and balanced (not overly pessimistic or optimistic)
+3. **Risk Factors** (5-7 bullet points):
+   - The most significant multi-dimensional risks
+   - Consider: fundamental deterioration, catalyst disappointment, technical breakdowns, supply chain shocks, valuation compression, sentiment reversal
+   - Be specific with numbers and scenarios
+   - Prioritize by impact and probability
+
+4. **Structured Investment Risks** (3-7 risks with detail):
+   - For each risk, provide: severity (HIGH/MEDIUM/LOW), likelihood (High/Medium/Low), specific impact, and mitigation factors
+   - Prioritize by severity and likelihood combination
+   - Be quantitative where possible
+
+5. **Upgrade/Downgrade Triggers**:
+   - Specific metrics or events that would trigger a rating upgrade
+   - Specific metrics or events that would trigger a rating downgrade
+   - Be precise with thresholds (e.g., "EPS growth > 20% for 2 quarters → Upgrade to STRONG BUY")
 
 **Guidelines**:
-- Be objective and balanced - acknowledge both strengths and weaknesses
-- Look for confirmation or divergence across analyses
-- Consider how different factors interact (e.g., strong fundamentals but negative sentiment might indicate opportunity)
-- Use professional investment analysis language
-- Do NOT make explicit buy/sell recommendations yet (that comes in the thesis)
-- Focus on synthesis, not just summarization
+- This is an ENHANCED synthesis - leverage all the new data points (VGM, moat categories, signals, technical indicators)
+- Look for powerful convergences across multiple signals (highest conviction)
+- Flag divergences that create uncertainty (e.g., "bullish technicals but weak earnings revisions")
+- Consider timing: near-term technical signals vs long-term fundamental moat
+- Weight primary signals (earnings revisions) heavily in sentiment assessment
+- Use institutional/insider activity as confirmation or warning signal
+- Reference specific price levels from volume profile and Bollinger Bands
+- Consider management quality when assessing execution risk
+- Be quantitative: cite specific scores, percentages, price targets
+- Focus on actionable insights with clear evidence chains
+- Do NOT make buy/sell recommendations yet (that comes in thesis)
 
 Return your response as a JSON object:
 
 {{
-  "synthesis_narrative": "<400-600 word unified analysis>",
+  "synthesis_narrative": "<600-800 word unified analysis leveraging all enhanced data>",
   "key_insights": [
-    "<insight 1>",
-    "<insight 2>",
-    "<insight 3>",
-    "<insight 4 (optional)>",
-    "<insight 5 (optional)>"
+    "<insight 1 with cross-agent data>",
+    "<insight 2 with cross-agent data>",
+    "<insight 3 with cross-agent data>",
+    "<insight 4 with cross-agent data>",
+    "<insight 5 with cross-agent data>",
+    "<insight 6 (optional)>",
+    "<insight 7 (optional)>"
   ],
   "risk_factors": [
-    "<risk 1>",
-    "<risk 2>",
-    "<risk 3>",
-    "<risk 4 (optional)>",
-    "<risk 5 (optional)>"
+    "<specific risk 1 with data>",
+    "<specific risk 2 with data>",
+    "<specific risk 3 with data>",
+    "<specific risk 4 with data>",
+    "<specific risk 5 with data>",
+    "<risk 6 (optional)>",
+    "<risk 7 (optional)>"
+  ],
+  "structured_risks": [
+    {{
+      "risk": "<concise risk description>",
+      "severity": "HIGH|MEDIUM|LOW",
+      "likelihood": "High|Medium|Low",
+      "impact": "<specific quantitative impact if it occurs>",
+      "mitigation": "<factors that could mitigate this risk>"
+    }}
+  ],
+  "upgrade_triggers": [
+    {{
+      "metric": "<specific metric or event>",
+      "threshold": "<precise threshold value>",
+      "action": "Upgrade to BUY|STRONG BUY"
+    }}
+  ],
+  "downgrade_triggers": [
+    {{
+      "metric": "<specific metric or event>",
+      "threshold": "<precise threshold value>",
+      "action": "Downgrade to HOLD|SELL|STRONG SELL"
+    }}
   ]
 }}
 
@@ -108,56 +206,82 @@ Return ONLY valid JSON, no other text.
 # Purpose: Generate final investment thesis with recommendation
 # ============================================================================
 
-INVESTMENT_THESIS_PROMPT = """You are an investment analyst writing a final investment thesis.
+INVESTMENT_THESIS_PROMPT = """You are a senior investment analyst writing a final investment thesis with full access to enhanced multi-signal analysis.
 
 **Company**: {ticker}
 **Analysis Date**: {analysis_date}
 
-**Moat Score**: {moat_score:.1f}/10 (Watchlist: {is_watchlist})
-**Confidence**: {confidence:.0%}
+**Overall Moat Score**: {moat_score:.1f}/10 (Watchlist Candidate: {is_watchlist})
+**Analysis Confidence**: {confidence:.0%}
 
-**Component Scores**:
-- Financial Health: {financial_health_score:.1f}/10 (30% weight)
-- Sentiment/Catalysts: {sentiment_score:.1f}/10 (20% weight)
-- Technical Strength: {technical_score:.1f}/10 (20% weight)
-- Supply Chain Position: {supply_chain_score:.1f}/10 (30% weight)
+**Component Scores** (weighted):
+- Financial Health & Moat: {financial_health_score:.1f}/10 (30% weight)
+- Multi-Signal Sentiment/Catalysts: {sentiment_score:.1f}/10 (20% weight)
+- Advanced Technical Strength: {technical_score:.1f}/10 (20% weight)
+- Supply Chain Resilience: {supply_chain_score:.1f}/10 (30% weight)
+
+**Enhanced Context**:
+- VGM Investment Style: {vgm_profile}
+- Primary Sentiment Signal (Earnings Revisions): {earnings_signal}
+- Technical Entry/Exit Signal: {technical_signal}
+- Analyst Average Price Target: {avg_price_target}
+- Smart Money Activity: {institutional_insider_summary}
+- Next Major Catalyst: {next_catalyst}
 
 **Synthesis Summary**:
 {synthesis_narrative}
 
-**Key Insights**:
+**Key Cross-Signal Insights**:
 {key_insights}
 
-**Risk Factors**:
+**Multi-Dimensional Risk Factors**:
 {risk_factors}
 
 ---
 
 ## YOUR TASK
 
-Write a concise investment thesis (150-250 words) that:
+Write a concise, data-driven investment thesis (200-300 words) that:
 
 1. **Opens with a clear recommendation**: BUY, HOLD, or AVOID
-2. **Justifies the recommendation**: Reference the moat score and key supporting factors
-3. **Acknowledges the main risks**: Don't oversell - be balanced
-4. **Provides context**: How does this fit in a portfolio? What type of investor is this for?
+2. **Justifies with SPECIFIC data**: Reference moat score, key signals (earnings revisions, institutional flow, technical setup), and price targets
+3. **Addresses multi-signal convergence/divergence**: Are all 7 news signals + technicals + fundamentals aligned?
+4. **Acknowledges key risks with specificity**: Cite actual risk factors with data
+5. **Provides tactical guidance**: Entry levels, catalysts to watch, position sizing considerations
+6. **Defines investor fit**: Value/Growth/Momentum profile, time horizon, risk tolerance
 
-**Guidelines for Recommendation**:
-- **BUY (moat_score >= 8.0)**: Strong fundamentals, positive catalysts, technical strength, and/or supply chain advantages. Watchlist candidate.
-- **HOLD (6.0 <= moat_score < 8.0)**: Decent opportunity but not compelling. Missing one or more key factors.
-- **AVOID (moat_score < 6.0)**: Weak fundamentals, negative catalysts, technical weakness, and/or supply chain vulnerabilities.
+**Enhanced Guidelines for Recommendation**:
+- **BUY (moat_score >= 8.0)**:
+  - Strong moat + positive earnings revisions + bullish technical setup
+  - Institutional accumulation and/or positive insider activity
+  - Clear catalysts ahead with achievable upside to price targets
+  - Watchlist candidate for high conviction
 
-**Tone**:
-- Professional and balanced
-- Specific (reference actual scores and factors)
-- Actionable (clear on what an investor should do)
-- Honest about risks and limitations
+- **HOLD (6.0 <= moat_score < 8.0)**:
+  - Mixed signals across agents (e.g., good fundamentals but weak technicals)
+  - Earnings revisions neutral or institutional activity mixed
+  - Upside exists but not compelling risk/reward
+  - Wait for better entry point or catalyst confirmation
+
+- **AVOID (moat_score < 6.0)**:
+  - Weak moat + negative earnings revisions + bearish technical setup
+  - Institutional distribution and/or negative insider selling
+  - Price targets below current levels or high supply chain risk
+  - Better opportunities elsewhere
+
+**Tone & Style**:
+- Professional, balanced, and evidence-based
+- QUANTITATIVE: Cite specific scores, targets, percentages, price levels
+- MULTI-DIMENSIONAL: Reference alignment/divergence across all signals
+- ACTIONABLE: Clear on what to do and when (entry levels, catalysts to watch)
+- HONEST: Don't oversell - acknowledge where confidence is lower
+- TACTICAL: Consider both near-term technical and long-term fundamental view
 
 Return your response as a JSON object:
 
 {{
   "recommendation": "<BUY|HOLD|AVOID>",
-  "investment_thesis": "<150-250 word thesis>"
+  "investment_thesis": "<200-300 word data-driven thesis leveraging enhanced signals>"
 }}
 
 Return ONLY valid JSON, no other text.

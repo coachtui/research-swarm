@@ -12,25 +12,41 @@ class MoatScoreBreakdown(BaseModel):
     """
     Breakdown of the moat score components.
 
-    Moat score formula:
-    - Financial Health (Fundamentalist): 25%
-    - Business Model Moat (Fundamentalist): 25%
-    - Sentiment/Catalysts (News Hound): 15%
-    - Technical Strength (Quant): 15%
-    - Supply Chain Position (Quant): 20%
+    NEW Moat score formula (v2.0):
+    - Earnings Momentum: 25%
+    - Financial Health: 25%
+    - Valuation: 20%
+    - Technical/Momentum: 15%
+    - Sentiment: 15%
+
+    LEGACY Moat score formula (v1.0 - deprecated):
+    - Financial Health: 25%
+    - Business Model Moat: 25%
+    - Sentiment/Catalysts: 15%
+    - Technical Strength: 15%
+    - Supply Chain Position: 20%
     """
 
+    # New v2.0 components (Optional for backward compatibility)
+    earnings_momentum: Optional[float] = Field(
+        None,
+        ge=0,
+        le=10,
+        description="Earnings momentum score from Fundamentalist (0-10)"
+    )
+    valuation: Optional[float] = Field(
+        None,
+        ge=0,
+        le=10,
+        description="Valuation score from Fundamentalist (0-10)"
+    )
+
+    # Shared components (present in both v1.0 and v2.0)
     financial_health: float = Field(
         ...,
         ge=0,
         le=10,
         description="Financial health score from Fundamentalist (0-10)"
-    )
-    business_model_moat: float = Field(
-        ...,
-        ge=0,
-        le=10,
-        description="Business model and revenue moat score from Fundamentalist (0-10)"
     )
     sentiment_catalysts: float = Field(
         ...,
@@ -42,20 +58,37 @@ class MoatScoreBreakdown(BaseModel):
         ...,
         ge=0,
         le=10,
-        description="Technical score from Quant (0-10)"
+        description="Technical/momentum score from Quant (0-10)"
     )
-    supply_chain_position: float = Field(
-        ...,
+
+    # Legacy v1.0 components (Optional for backward compatibility)
+    business_model_moat: Optional[float] = Field(
+        None,
         ge=0,
         le=10,
-        description="Supply chain score from Quant (0-10)"
+        description="[v1.0 Legacy] Business model and revenue moat score from Fundamentalist (0-10)"
+    )
+    supply_chain_position: Optional[float] = Field(
+        None,
+        ge=0,
+        le=10,
+        description="[v1.0 Legacy] Supply chain score from Quant (0-10)"
     )
 
     def weighted_average(self) -> float:
         """
         Calculate weighted average moat score.
 
-        Weights:
+        Uses v2.0 formula if new components present, else falls back to v1.0 formula.
+
+        v2.0 Weights:
+        - Earnings Momentum: 25%
+        - Financial Health: 25%
+        - Valuation: 20%
+        - Technical/Momentum: 15%
+        - Sentiment: 15%
+
+        v1.0 Weights (legacy):
         - Financial Health: 25%
         - Business Model Moat: 25%
         - Sentiment/Catalysts: 15%
@@ -65,12 +98,31 @@ class MoatScoreBreakdown(BaseModel):
         Returns:
             float: Moat score (0-10)
         """
-        return (
-            self.financial_health * 0.25 +
-            self.business_model_moat * 0.25 +
-            self.sentiment_catalysts * 0.15 +
-            self.technical_strength * 0.15 +
-            self.supply_chain_position * 0.20
+        # Use v2.0 formula if new components are present
+        if self.earnings_momentum is not None and self.valuation is not None:
+            return (
+                self.earnings_momentum * 0.25 +
+                self.financial_health * 0.25 +
+                self.valuation * 0.20 +
+                self.technical_strength * 0.15 +
+                self.sentiment_catalysts * 0.15
+            )
+
+        # Fall back to v1.0 formula for backward compatibility
+        if self.business_model_moat is not None and self.supply_chain_position is not None:
+            return (
+                self.financial_health * 0.25 +
+                self.business_model_moat * 0.25 +
+                self.sentiment_catalysts * 0.15 +
+                self.technical_strength * 0.15 +
+                self.supply_chain_position * 0.20
+            )
+
+        # If neither v1.0 nor v2.0 components complete, raise error
+        raise ValueError(
+            "MoatScoreBreakdown requires either v2.0 components "
+            "(earnings_momentum, valuation) or v1.0 components "
+            "(business_model_moat, supply_chain_position)"
         )
 
 

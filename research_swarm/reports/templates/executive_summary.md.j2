@@ -11,9 +11,11 @@ Analyzed **{{ report.total_stocks }}** stocks for {{ report.analysis_period }}. 
 ### Top {{ top_picks|length }} Picks
 
 {% for stock in top_picks %}
-#### {{ loop.index }}. {{ stock.ticker }} - {{ "%.1f"|format(stock.moat_score) }}/10{% if stock.is_watchlist_candidate %} ⭐ *Watchlist*{% endif %}
+#### {{ loop.index }}. {{ stock.ticker }} - {% if stock.rating %}{{ stock.rating }}{% else %}{{ "%.1f"|format(stock.moat_score) }}/10{% endif %}{% if stock.is_watchlist_candidate %} ⭐ *Watchlist*{% endif %}
 
-{{ stock.investment_thesis }}
+{% if stock.rating %}**Rating:** {{ stock.rating }} ({{ "%.1f"|format(stock.rating_score if stock.rating_score else stock.moat_score) }}/10){% if stock.risk_level %} | **Risk Level:** {{ stock.risk_level }}{% endif %}
+
+{% endif %}{{ stock.investment_thesis }}
 
 **Key Insights:**
 {% for insight in stock.key_insights %}

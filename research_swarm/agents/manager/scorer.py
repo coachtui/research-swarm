@@ -169,3 +169,73 @@ class ManagerScorer:
             return "Weak - Caution"
         else:
             return "Very Weak - Avoid"
+
+    @classmethod
+    def determine_rating(cls, moat_score: float) -> Tuple[str, float]:
+        """
+        Convert moat score to 5-tier rating system.
+
+        Rating Methodology (v2.0):
+        - STRONG BUY (8.5-10.0): High conviction, all signals align
+        - BUY (7.0-8.4): Positive outlook, minor concerns
+        - HOLD (5.0-6.9): Mixed signals, wait for clarity
+        - SELL (3.0-4.9): Deteriorating fundamentals or overvalued
+        - STRONG SELL (0-2.9): Broken thesis, exit immediately
+
+        Args:
+            moat_score: The calculated moat score (0-10)
+
+        Returns:
+            Tuple of (rating_name, numeric_score)
+        """
+        if moat_score >= 8.5:
+            return "STRONG BUY", moat_score
+        elif moat_score >= 7.0:
+            return "BUY", moat_score
+        elif moat_score >= 5.0:
+            return "HOLD", moat_score
+        elif moat_score >= 3.0:
+            return "SELL", moat_score
+        else:
+            return "STRONG SELL", moat_score
+
+    @classmethod
+    def determine_risk_level(
+        cls,
+        component_scores: Dict[str, float],
+        variance: float
+    ) -> str:
+        """
+        Determine risk level based on score variance and component scores.
+
+        Classification:
+        - Low Risk: Low variance (<5.0) + high average score (>=7.0)
+          Signals are aligned and strong
+        - High Risk: High variance (>20.0) OR low average score (<4.0)
+          Signals divergent or fundamentals weak
+        - Medium Risk: Everything else
+          Moderate variance or moderate scores
+
+        Args:
+            component_scores: Dict of component scores (e.g., financial_health, sentiment, etc.)
+            variance: Variance of component scores
+
+        Returns:
+            str: "Low" | "Medium" | "High"
+        """
+        # Calculate average score across components
+        if not component_scores:
+            return "Medium"  # Default if no scores provided
+
+        avg_score = statistics.mean(component_scores.values())
+
+        # Low variance + high scores = Low risk
+        if variance < 5.0 and avg_score >= 7.0:
+            return "Low"
+
+        # High variance OR low scores = High risk
+        if variance > 20.0 or avg_score < 4.0:
+            return "High"
+
+        # Everything else = Medium risk
+        return "Medium"

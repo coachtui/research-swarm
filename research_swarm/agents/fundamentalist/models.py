@@ -7,6 +7,13 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Dict, Any
 
 
+# Stub for backward compatibility with Quant agent
+# Supply chain analysis was removed from Fundamentalist agent
+class SupplyChainOutput(BaseModel):
+    """Stub model for backward compatibility. Supply chain analysis removed from Fundamentalist."""
+    pass
+
+
 class FinancialMetricsOutput(BaseModel):
     """Financial metrics extracted from 10-K."""
 
@@ -41,76 +48,6 @@ class FinancialMetricsOutput(BaseModel):
         if v is not None and v < 0:
             return None
         return v
-
-
-class SupplyChainOutput(BaseModel):
-    """Supply chain data extracted from 10-K."""
-
-    # Major customers
-    major_customers: List[str] = Field(
-        default_factory=list,
-        description="List of major customers mentioned in the 10-K"
-    )
-    customer_concentration: Optional[str] = Field(
-        None,
-        description="Description of customer concentration risk"
-    )
-
-    # Major suppliers
-    major_suppliers: List[str] = Field(
-        default_factory=list,
-        description="List of major suppliers/partners mentioned"
-    )
-    supplier_dependencies: Optional[str] = Field(
-        None,
-        description="Description of critical supplier dependencies"
-    )
-
-    # Multi-tier supplier tracking
-    tier1_suppliers: List[Dict[str, str]] = Field(
-        default_factory=list,
-        description="Tier-1 suppliers with details (name, role, risk_level)"
-    )
-    tier2_suppliers: List[Dict[str, str]] = Field(
-        default_factory=list,
-        description="Tier-2 suppliers (suppliers to suppliers)"
-    )
-    tier3_suppliers: List[Dict[str, str]] = Field(
-        default_factory=list,
-        description="Tier-3 suppliers identified"
-    )
-
-    # M&A targets
-    potential_acquisition_targets: List[Dict[str, str]] = Field(
-        default_factory=list,
-        description="Potential M&A targets with name, rationale, type, and strategic_value"
-    )
-
-    # Geographic exposure
-    geographic_revenue: Dict[str, Optional[float]] = Field(
-        default_factory=dict,
-        description="Revenue by geographic region (in millions USD or %). None if not specified."
-    )
-    geographic_risks: List[str] = Field(
-        default_factory=list,
-        description="Geographic/geopolitical risks mentioned"
-    )
-
-    @field_validator("geographic_revenue", mode="before")
-    @classmethod
-    def clean_geographic_revenue(cls, v):
-        """Clean geographic revenue dict - remove non-numeric values."""
-        if not isinstance(v, dict):
-            return {}
-
-        cleaned = {}
-        for key, value in v.items():
-            if value is None:
-                cleaned[key] = None
-            elif isinstance(value, (int, float)):
-                cleaned[key] = float(value) if value >= 0 else None
-            # Skip string values - LLM sometimes returns descriptions instead of numbers
-        return cleaned
 
 
 class BusinessModelOutput(BaseModel):
@@ -222,21 +159,18 @@ class ScoreBreakdown(BaseModel):
     growth: float = Field(..., ge=0, le=10, description="Growth score (0-10)")
     balance_sheet: float = Field(..., ge=0, le=10, description="Balance sheet strength score (0-10)")
     cash_flow: float = Field(..., ge=0, le=10, description="Cash flow score (0-10)")
-    supply_chain: float = Field(..., ge=0, le=10, description="Supply chain resilience score (0-10)")
 
     def weighted_average(self) -> float:
         """
         Calculate weighted average score.
 
-        Weights: profitability (25%), growth (20%), balance_sheet (20%),
-                 cash_flow (15%), supply_chain (20%)
+        Weights: profitability (30%), growth (25%), balance_sheet (25%), cash_flow (20%)
         """
         return (
-            self.profitability * 0.25 +
-            self.growth * 0.20 +
-            self.balance_sheet * 0.20 +
-            self.cash_flow * 0.15 +
-            self.supply_chain * 0.20
+            self.profitability * 0.30 +
+            self.growth * 0.25 +
+            self.balance_sheet * 0.25 +
+            self.cash_flow * 0.20
         )
 
 
@@ -334,6 +268,30 @@ class PeerComparison(BaseModel):
     competitive_position: str = Field("challenger", description="Market Leader/Strong #2/Challenger/Laggard")
     market_share_estimate: Optional[float] = Field(None, description="Estimated market share %")
 
+    # NEW v2.0: Enhanced competitive analysis
+    market_share_rank: Optional[int] = Field(None, description="Market share rank (1=leader)")
+    top_competitor: Optional[str] = Field(None, description="Main competitor ticker symbol")
+    vs_top_competitor: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Comparison metrics vs top competitor (revenue, margins, growth, etc.)"
+    )
+    competitive_intensity: str = Field(
+        "Moderate",
+        description="Competitive intensity: Low/Moderate/High/Extreme"
+    )
+    pricing_power_evidence: Optional[List[str]] = Field(
+        None,
+        description="Evidence of pricing power (e.g., margin expansion, price increases)"
+    )
+    moat_direction: str = Field(
+        "Stable",
+        description="Moat direction: Widening/Stable/Narrowing"
+    )
+    key_threats: Optional[List[str]] = Field(
+        None,
+        description="Top 3 competitive threats"
+    )
+
 
 class VGMScoreBreakdown(BaseModel):
     """VGM (Value/Growth/Momentum) composite scoring."""
@@ -426,7 +384,6 @@ class FundamentalistOutput(BaseModel):
 
     # Extracted data - preserved for backward compatibility
     financial_metrics: FinancialMetricsOutput = Field(..., description="Extracted financial metrics")
-    supply_chain_data: SupplyChainOutput = Field(..., description="Supply chain analysis")
     business_model_data: BusinessModelOutput = Field(..., description="Business model and revenue stream analysis")
 
     # Analysis
@@ -445,6 +402,28 @@ class FundamentalistOutput(BaseModel):
     peer_comparison: Optional[PeerComparison] = Field(None, description="Peer comparison analysis")
     enhanced_moat: Optional[EnhancedMoatBreakdown] = Field(None, description="Detailed moat category breakdown")
     price_targets: Optional[PriceTargetScenarios] = Field(None, description="Price target scenarios")
+
+    # Earnings momentum data (from NewsHound models, reused)
+    earnings_estimates: Optional[Any] = Field(None, description="Earnings estimate revisions (EarningsEstimateRevision)")
+    analyst_consensus: Optional[Any] = Field(None, description="Analyst ratings and price targets (AnalystConsensus)")
+
+    # NEW v2.0: Earnings momentum scoring
+    earnings_momentum_score: float = Field(
+        0.0,
+        ge=0,
+        le=10,
+        description="Earnings momentum score from EarningsCalculator (0-10)"
+    )
+    earnings_momentum_breakdown: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Breakdown of earnings momentum components (revisions, surprises, sentiment)"
+    )
+    valuation_score: float = Field(
+        5.0,
+        ge=0,
+        le=10,
+        description="Valuation score based on multiples vs sector (0-10)"
+    )
 
     # Metadata
     tokens_used: int = Field(..., description="Total tokens used in API calls")

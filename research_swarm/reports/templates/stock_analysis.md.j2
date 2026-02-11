@@ -1,7 +1,9 @@
 ## Detailed Stock Analysis
 
 {% for stock in stocks %}
-### {{ stock.ticker }} - {{ "%.1f"|format(stock.moat_score) }}/10{% if stock.is_watchlist_candidate %} ⭐{% endif %}
+### {{ stock.ticker }} - {% if stock.rating %}{{ stock.rating }}{% else %}{{ "%.1f"|format(stock.moat_score) }}/10{% endif %}{% if stock.is_watchlist_candidate %} ⭐{% endif %}
+
+{% if stock.rating %}**Rating:** {{ stock.rating }} ({{ "%.1f"|format(stock.rating_score if stock.rating_score else stock.moat_score) }}/10){% if stock.risk_level %} | **Risk Level:** {{ stock.risk_level }}{% endif %} | {% endif %}**Moat Score:** {{ "%.1f"|format(stock.moat_score) }}/10
 
 **Investment Thesis:** {{ stock.investment_thesis }}
 
@@ -13,11 +15,19 @@
 
 | Component | Score | Weight |
 |-----------|-------|--------|
+{% if stock.moat_breakdown.get('earnings_momentum') is not none and stock.moat_breakdown.get('valuation') is not none %}
+| Earnings Momentum | {{ "%.1f"|format(stock.moat_breakdown.earnings_momentum) }}/10 | 25% |
+| Financial Health | {{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10 | 25% |
+| Valuation | {{ "%.1f"|format(stock.moat_breakdown.valuation) }}/10 | 20% |
+| Technical/Momentum | {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 | 15% |
+| Sentiment | {{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10 | 15% |
+{% else %}
 | Financial Health | {{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10 | 25% |
 | Business Model Moat | {{ "%.1f"|format(stock.moat_breakdown.get('business_model_moat', 0)) }}/10 | 25% |
 | Sentiment & Catalysts | {{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10 | 15% |
 | Technical Strength | {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 | 15% |
-| Supply Chain Position | {{ "%.1f"|format(stock.moat_breakdown.supply_chain_position) }}/10 | 20% |
+| Supply Chain Position | {{ "%.1f"|format(stock.moat_breakdown.get('supply_chain_position', 0)) }}/10 | 20% |
+{% endif %}
 | **Overall Moat Score** | **{{ "%.1f"|format(stock.moat_score) }}/10** | **100%** |
 
 {% if include_charts %}
@@ -400,6 +410,138 @@
 {% endfor %}
 
 ---
+
+{% if stock.structured_risks %}
+#### 🚨 Structured Investment Risks
+
+| Risk | Severity | Likelihood | Impact | Mitigation |
+|------|----------|------------|--------|------------|
+{% for risk in stock.structured_risks %}
+| {{ risk.risk }} | {{ risk.severity }} | {{ risk.likelihood }} | {{ risk.impact }} | {{ risk.mitigation }} |
+{% endfor %}
+
+**Upgrade Triggers:**
+{% if stock.upgrade_triggers %}
+{% for trigger in stock.upgrade_triggers %}
+- {{ trigger.metric }}: {{ trigger.threshold }} → {{ trigger.action }}
+{% endfor %}
+{% else %}
+- To be determined based on performance
+{% endif %}
+
+**Downgrade Triggers:**
+{% if stock.downgrade_triggers %}
+{% for trigger in stock.downgrade_triggers %}
+- {{ trigger.metric }}: {{ trigger.threshold }} → {{ trigger.action }}
+{% endfor %}
+{% else %}
+- To be determined based on performance
+{% endif %}
+
+---
+{% endif %}
+
+{% if stock.valuation_sensitivity %}
+#### 📈 Valuation Sensitivity Analysis
+
+**Base Inputs:**
+- Base EPS: ${{ "%.2f"|format(stock.valuation_sensitivity.base_inputs.base_eps) }}
+- Base P/E: {{ "%.1f"|format(stock.valuation_sensitivity.base_inputs.base_pe) }}x
+- Current Price: ${{ "%.2f"|format(stock.valuation_sensitivity.base_inputs.current_price) }}
+
+**EPS Sensitivity (±10%):**
+
+| EPS Change | EPS | Target Price | Upside |
+|------------|-----|--------------|--------|
+{% for label, data in stock.valuation_sensitivity.eps_sensitivity.items() %}
+| {{ label }} | ${{ "%.2f"|format(data.eps) }} | ${{ "%.2f"|format(data.price) }} | {{ "%+.1f"|format(data.upside_pct) }}% |
+{% endfor %}
+
+**P/E Multiple Sensitivity:**
+
+| P/E Change | P/E | Target Price | Upside |
+|------------|-----|--------------|--------|
+{% for label, data in stock.valuation_sensitivity.pe_sensitivity.items() %}
+| {{ label }} | {{ "%.1f"|format(data.pe) }}x | ${{ "%.2f"|format(data.price) }} | {{ "%+.1f"|format(data.upside_pct) }}% |
+{% endfor %}
+
+**Most Likely Outcome:** ${{ "%.2f"|format(stock.valuation_sensitivity.most_likely_outcome.price) }} ({{ "%+.1f"|format(stock.valuation_sensitivity.most_likely_outcome.upside_pct) }}% upside)
+
+**Confidence Level:** {{ stock.valuation_sensitivity.confidence_level }}
+
+---
+{% endif %}
+
+{% if stock.recommended_strategy %}
+#### 🎯 Recommended Strategy
+
+**Entry Strategy:**
+- Ideal Entry Zone: ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.low) }} - ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.high) }}
+- Current Price: ${{ "%.2f"|format(stock.recommended_strategy.entry.current_price) }}
+- Recommendation: {{ stock.recommended_strategy.entry.recommendation }}
+
+**Tranched Buying Plan:**
+
+| Phase | Allocation | Target Price |
+|-------|-----------|--------------|
+| Initial | {{ stock.recommended_strategy.entry.tranched_buying.initial_percent }}% | ${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.initial_price) }} |
+| Add-On | {{ stock.recommended_strategy.entry.tranched_buying.add_percent }}% | ${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.add_price) }} |
+| Final | {{ stock.recommended_strategy.entry.tranched_buying.final_percent }}% | ${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.final_price) }} |
+
+**Position Sizing:**
+- Recommended: {{ "%.1f"|format(stock.recommended_strategy.position_sizing.recommended_pct) }}% of portfolio
+- Maximum: {{ "%.1f"|format(stock.recommended_strategy.position_sizing.max_pct) }}% of portfolio
+- Rationale: {{ stock.recommended_strategy.position_sizing.rationale }}
+
+**Exit Plan:**
+- Target 1: ${{ "%.2f"|format(stock.recommended_strategy.exit.target_1.price) }} (Sell {{ stock.recommended_strategy.exit.target_1.percent }}%)
+- Target 2: ${{ "%.2f"|format(stock.recommended_strategy.exit.target_2.price) }} (Sell {{ stock.recommended_strategy.exit.target_2.percent }}%)
+- Stop Loss: ${{ "%.2f"|format(stock.recommended_strategy.exit.stop_loss) }}
+- Trailing Stop: {{ stock.recommended_strategy.exit.trailing_stop }}
+
+**Risk/Reward:** {{ "%.1f"|format(stock.recommended_strategy.exit.risk_reward_ratio) }}:1
+
+**Expected Holding Period:** {{ stock.recommended_strategy.holding_period }}
+
+**Expected Returns:** {{ "%.1f"|format(stock.recommended_strategy.expected_return_total) }}% total ({{ "%.1f"|format(stock.recommended_strategy.expected_return_annualized) }}% annualized)
+
+---
+{% endif %}
+
+{% if stock.track_record %}
+#### 📊 Track Record
+
+**Previous Report:** {{ stock.track_record.previous_report_date }} ({{ stock.track_record.previous_rating }})
+
+**Performance Since:**
+- Stock: {{ "%+.1f"|format(stock.track_record.stock_performance_pct) }}%
+- S&P 500: {{ "%+.1f"|format(stock.track_record.sp500_performance_pct) }}%
+- Relative: {{ "%+.1f"|format(stock.track_record.relative_performance_pct) }}%
+
+**Target Achievement:** {{ "%.0f"|format(stock.track_record.target_achievement_pct) }}%
+
+**Rating Change:** {{ stock.track_record.rating_change }}
+
+**Rationale:** {{ stock.track_record.rating_change_rationale }}
+
+---
+{% endif %}
+
+{% if stock.conviction_statement %}
+#### ✨ Final Conviction
+
+**Conviction Level:** {{ stock.conviction_statement.conviction_level }}
+
+**The Bottom Line:**
+{{ stock.conviction_statement.bottom_line }}
+
+**Best Suited For:**
+- Investor Type: {{ stock.conviction_statement.best_suited_for.investor_type }}
+- Risk Tolerance: {{ stock.conviction_statement.best_suited_for.risk_tolerance }}
+- Time Horizon: {{ stock.conviction_statement.best_suited_for.time_horizon }}
+
+---
+{% endif %}
 
 #### 📝 Comprehensive Synthesis
 
