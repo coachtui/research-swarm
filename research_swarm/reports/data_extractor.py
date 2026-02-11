@@ -5,6 +5,7 @@ from typing import Dict, Any
 from ..orchestration import PersistenceManager
 from ..orchestration.models import StockResult, StockStatus
 from .models import ReportData, StockReportData
+from .track_record_calculator import track_record_calculator
 
 
 def extract_signal_breakdown(news_hound_output: Dict[str, Any]) -> Dict[str, Any]:
@@ -281,10 +282,46 @@ class DataExtractor:
         upgrade_triggers = output.get("upgrade_triggers", [])
         downgrade_triggers = output.get("downgrade_triggers", [])
 
+        # Calculate recommended strategy if we have required data
+        recommended_strategy = None
+        if price_targets and valuation_metrics:
+            try:
+                from ..agents.manager.strategy_calculator import strategy_calculator
+
+                current_price = valuation_metrics.get("current_price", 0)
+                if current_price and current_price > 0:
+                    recommended_strategy = strategy_calculator.calculate_full_strategy(
+                        current_price=current_price,
+                        valuation_targets=price_targets,
+                        risk_level=risk_level or "Medium",
+                        conviction=output.get("confidence", 0.7),
+                        moat_score=result.moat_score or 5.0,
+                        rating=rating or "HOLD",
+                        technical_levels=None  # Could extract from quant output if available
+                    )
+            except Exception as e:
+                logger.warning(f"Strategy calculation failed for {result.ticker}: {e}")
+                recommended_strategy = None
+
         # Calculate expected value from price targets
         expected_value = None
         if price_targets:
-            expected_value = price_targets.get("expected_value")
+            # Calculate probability-weighted expected value
+            try:
+                base_target = price_targets.get("base_target", 0)
+                bull_target = price_targets.get("bull_target", 0)
+                bear_target = price_targets.get("bear_target", 0)
+                base_prob = price_targets.get("base_probability", 0.5)
+                bull_prob = price_targets.get("bull_probability", 0.25)
+                bear_prob = price_targets.get("bear_probability", 0.25)
+
+                expected_value = (
+                    base_target * base_prob +
+                    bull_target * bull_prob +
+                    bear_target * bear_prob
+                )
+            except (TypeError, KeyError):
+                expected_value = price_targets.get("expected_value")
 
         # Enhanced competitive moat (if peer comparison has new fields)
         competitive_moat_enhanced = None
@@ -315,6 +352,33 @@ class DataExtractor:
                 if catalyst.get("type") == "earnings":
                     earnings_date = catalyst.get("date")
                     break
+
+        # Calculate track record if previous report exists
+        track_record = None
+        try:
+            previous_report = self.persistence.get_previous_report(result.ticker, lookback_days=90)
+            if previous_report:
+                # Get current price from valuation metrics
+                current_price = valuation_metrics.get("current_price", 0) if valuation_metrics else 0
+
+                if current_price and current_price > 0:
+                    # Build current analysis dict for track record calculator
+                    current_analysis = {
+                        "rating": rating or "HOLD",
+                        "moat_score": result.moat_score or 5.0,
+                        "price_target": price_targets.get("base_target", 0) if price_targets else 0,
+                    }
+
+                    track_record = track_record_calculator.calculate_track_record(
+                        ticker=result.ticker,
+                        current_price=current_price,
+                        current_analysis=current_analysis,
+                        previous_report=previous_report,
+                        market_return=None  # Will estimate if not provided
+                    )
+        except Exception as e:
+            print(f"Warning: Track record calculation failed for {result.ticker}: {e}")
+            track_record = None
 
         return StockReportData(
             ticker=result.ticker,
@@ -352,9 +416,11 @@ class DataExtractor:
             structured_risks=structured_risks,
             upgrade_triggers=upgrade_triggers,
             downgrade_triggers=downgrade_triggers,
+            recommended_strategy=recommended_strategy,
             expected_value_price_target=expected_value,
             competitive_moat_enhanced=competitive_moat_enhanced,
             coverage_universe=coverage_universe,
             peer_comparison_group=peer_comparison_group,
             earnings_date=earnings_date,
+            track_record=track_record,
         )

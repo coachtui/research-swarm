@@ -30,6 +30,38 @@ class VolumeTrend(str, Enum):
     STABLE = "stable"
 
 
+class MACDSignal(str, Enum):
+    """Enum for MACD signals."""
+    BULLISH = "bullish"      # MACD above signal line (bullish momentum)
+    BEARISH = "bearish"      # MACD below signal line (bearish momentum)
+    NEUTRAL = "neutral"      # No clear signal
+
+
+class BollingerPosition(str, Enum):
+    """Enum for price position relative to Bollinger Bands."""
+    ABOVE_UPPER = "above_upper"      # Price above upper band (overbought)
+    NEAR_UPPER = "near_upper"        # Price near upper band
+    MIDDLE = "middle"                # Price in middle range
+    NEAR_LOWER = "near_lower"        # Price near lower band
+    BELOW_LOWER = "below_lower"      # Price below lower band (oversold)
+
+
+class StochasticSignal(str, Enum):
+    """Enum for Stochastic signals."""
+    OVERSOLD = "oversold"      # %K < 20
+    OVERBOUGHT = "overbought"  # %K > 80
+    NEUTRAL = "neutral"        # 20 <= %K <= 80
+
+
+class TradingSignal(str, Enum):
+    """Enum for aggregated trading signals."""
+    STRONG_BUY = "strong_buy"
+    BUY = "buy"
+    NEUTRAL = "neutral"
+    SELL = "sell"
+    STRONG_SELL = "strong_sell"
+
+
 class NodeType(str, Enum):
     """Enum for supply chain node types."""
     ROOT = "root"              # The company being analyzed
@@ -164,6 +196,161 @@ class RelativeStrength(BaseModel):
     )
 
 
+class MACDData(BaseModel):
+    """MACD (Moving Average Convergence Divergence) analysis output."""
+
+    macd_line: Optional[float] = Field(
+        None,
+        description="MACD line value (12-EMA - 26-EMA)"
+    )
+    signal_line: Optional[float] = Field(
+        None,
+        description="Signal line value (9-EMA of MACD)"
+    )
+    histogram: Optional[float] = Field(
+        None,
+        description="MACD histogram (MACD - Signal)"
+    )
+    macd_signal: MACDSignal = Field(
+        MACDSignal.NEUTRAL,
+        description="MACD signal (bullish/bearish/neutral)"
+    )
+    interpretation: str = Field(
+        ...,
+        description="Human-readable interpretation of MACD"
+    )
+
+
+class BollingerBands(BaseModel):
+    """Bollinger Bands analysis output."""
+
+    upper_band: Optional[float] = Field(
+        None,
+        description="Upper Bollinger Band (SMA20 + 2*std)"
+    )
+    middle_band: Optional[float] = Field(
+        None,
+        description="Middle band (20-day SMA)"
+    )
+    lower_band: Optional[float] = Field(
+        None,
+        description="Lower Bollinger Band (SMA20 - 2*std)"
+    )
+    current_price: Optional[float] = Field(
+        None,
+        description="Current price"
+    )
+    position: BollingerPosition = Field(
+        BollingerPosition.MIDDLE,
+        description="Price position relative to bands"
+    )
+    bandwidth: Optional[float] = Field(
+        None,
+        description="Bandwidth (upper - lower) / middle, indicates volatility"
+    )
+    interpretation: str = Field(
+        ...,
+        description="Human-readable interpretation of Bollinger Bands"
+    )
+
+
+class StochasticData(BaseModel):
+    """Stochastic Oscillator analysis output."""
+
+    k_value: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="%K value (0-100)"
+    )
+    d_value: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="%D value (3-period SMA of %K)"
+    )
+    stochastic_signal: StochasticSignal = Field(
+        StochasticSignal.NEUTRAL,
+        description="Stochastic signal (oversold/overbought/neutral)"
+    )
+    interpretation: str = Field(
+        ...,
+        description="Human-readable interpretation of Stochastic"
+    )
+
+
+class VolumePriceLevel(BaseModel):
+    """Price level with significant volume concentration."""
+
+    price_level: float = Field(..., description="Price level")
+    volume_concentration: float = Field(
+        ...,
+        ge=0,
+        le=1,
+        description="Volume concentration at this level (0-1)"
+    )
+    support_resistance: str = Field(
+        ...,
+        description="'support' or 'resistance' based on current price"
+    )
+
+
+class VolumeProfile(BaseModel):
+    """Volume Profile analysis output."""
+
+    key_levels: List[VolumePriceLevel] = Field(
+        default_factory=list,
+        description="Top 3-5 price levels with highest volume"
+    )
+    poc: Optional[float] = Field(
+        None,
+        description="Point of Control (price level with most volume)"
+    )
+    value_area_high: Optional[float] = Field(
+        None,
+        description="Value Area High (70% volume upper bound)"
+    )
+    value_area_low: Optional[float] = Field(
+        None,
+        description="Value Area Low (70% volume lower bound)"
+    )
+    interpretation: str = Field(
+        ...,
+        description="Human-readable interpretation of volume profile"
+    )
+
+
+class EntryExitSignals(BaseModel):
+    """Aggregated entry/exit trading signals from all indicators."""
+
+    overall_signal: TradingSignal = Field(
+        ...,
+        description="Aggregated trading signal (strong_buy/buy/neutral/sell/strong_sell)"
+    )
+    confidence: float = Field(
+        ...,
+        ge=0,
+        le=1,
+        description="Confidence in the signal (0-1)"
+    )
+    bullish_factors: List[str] = Field(
+        default_factory=list,
+        description="List of bullish indicators/factors"
+    )
+    bearish_factors: List[str] = Field(
+        default_factory=list,
+        description="List of bearish indicators/factors"
+    )
+    key_levels: Dict[str, Optional[float]] = Field(
+        default_factory=dict,
+        description="Key price levels: entry, stop_loss, take_profit"
+    )
+    interpretation: str = Field(
+        ...,
+        description="Comprehensive signal interpretation with actionable insights"
+    )
+
+
 class TechnicalIndicators(BaseModel):
     """Combined technical indicators output."""
 
@@ -172,6 +359,11 @@ class TechnicalIndicators(BaseModel):
     rsi: RSIData = Field(..., description="RSI analysis")
     volume: VolumeAnalysis = Field(..., description="Volume analysis")
     relative_strength: RelativeStrength = Field(..., description="Relative strength analysis")
+    macd: MACDData = Field(..., description="MACD analysis")
+    bollinger_bands: BollingerBands = Field(..., description="Bollinger Bands analysis")
+    stochastic: StochasticData = Field(..., description="Stochastic Oscillator analysis")
+    volume_profile: VolumeProfile = Field(..., description="Volume Profile analysis")
+    entry_exit_signals: EntryExitSignals = Field(..., description="Entry/exit trading signals")
 
 
 class SupplyChainNode(BaseModel):
@@ -252,13 +444,13 @@ class TechnicalScoreBreakdown(BaseModel):
         ...,
         ge=0,
         le=10,
-        description="Momentum score from RSI (0-10)"
+        description="Momentum score from RSI + MACD + Stochastic (0-10)"
     )
     volume_score: float = Field(
         ...,
         ge=0,
         le=10,
-        description="Volume score (0-10)"
+        description="Volume score including volume profile (0-10)"
     )
     relative_strength_score: float = Field(
         ...,
@@ -266,18 +458,25 @@ class TechnicalScoreBreakdown(BaseModel):
         le=10,
         description="Relative strength score (0-10)"
     )
+    volatility_score: float = Field(
+        ...,
+        ge=0,
+        le=10,
+        description="Volatility score from Bollinger Bands (0-10)"
+    )
 
     def weighted_average(self) -> float:
         """
         Calculate weighted average technical score.
 
-        Weights: trend (35%), momentum (25%), volume (15%), relative_strength (25%)
+        Weights: trend (30%), momentum (25%), volume (15%), relative_strength (20%), volatility (10%)
         """
         return (
-            self.trend_score * 0.35 +
+            self.trend_score * 0.30 +
             self.momentum_score * 0.25 +
             self.volume_score * 0.15 +
-            self.relative_strength_score * 0.25
+            self.relative_strength_score * 0.20 +
+            self.volatility_score * 0.10
         )
 
 

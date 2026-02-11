@@ -16,6 +16,136 @@ from research_swarm.agents.fundamentalist.models import FundamentalistOutput
 
 
 # ============================================================================
+# Helper Functions
+# ============================================================================
+
+def _fetch_earnings_data(ticker: str) -> Dict[str, Any]:
+    """
+    Fetch all earnings data from yfinance via MarketDataClient.
+
+    Args:
+        ticker: Stock ticker
+
+    Returns:
+        Dict with keys: recommendations, earnings_history, price_target, earnings_dates
+    """
+    from research_swarm.data.market_data_client import market_data_client
+
+    try:
+        data = {
+            "recommendations": market_data_client.get_analyst_recommendations(ticker),
+            "earnings_history": market_data_client.get_earnings_history(ticker),
+            "price_target": market_data_client.get_analyst_price_target(ticker),
+            "earnings_dates": market_data_client.get_earnings_dates(ticker)
+        }
+        return data
+    except Exception as e:
+        logger.warning(f"Could not fetch earnings data for {ticker}: {e}")
+        return {}
+
+
+def _parse_earnings_estimates(earnings_raw: Dict) -> Any:
+    """
+    Parse yfinance earnings history into EarningsEstimateRevision model.
+
+    Args:
+        earnings_raw: Dict with earnings_history DataFrame
+
+    Returns:
+        EarningsEstimateRevision instance or None
+    """
+    from research_swarm.agents.news_hound.models import EarningsEstimateRevision
+    import pandas as pd
+
+    earnings_history = earnings_raw.get("earnings_history")
+    if earnings_history is None or (isinstance(earnings_history, pd.DataFrame) and earnings_history.empty):
+        return None
+
+    try:
+        # Get last 4 quarters
+        recent = earnings_history.head(4) if isinstance(earnings_history, pd.DataFrame) else pd.DataFrame()
+
+        if recent.empty:
+            return None
+
+        # Calculate beat pattern and average surprise
+        beats = 0
+        surprise_pcts = []
+
+        for _, row in recent.iterrows():
+            eps_est = row.get("epsEstimate") or row.get("Estimate")
+            eps_actual = row.get("epsActual") or row.get("Actual")
+
+            if eps_est is not None and eps_actual is not None:
+                if eps_est != 0:
+                    surprise_pct = ((eps_actual - eps_est) / abs(eps_est)) * 100
+                    surprise_pcts.append(surprise_pct)
+
+                    if eps_actual > eps_est:
+                        beats += 1
+
+        beat_pattern = f"Beat {beats}/{len(surprise_pcts)}" if surprise_pcts else ""
+        avg_surprise = sum(surprise_pcts) / len(surprise_pcts) if surprise_pcts else None
+
+        return EarningsEstimateRevision(
+            beat_pattern=beat_pattern,
+            avg_surprise_pct=avg_surprise,
+            analyst_coverage=0  # yfinance doesn't provide this directly
+        )
+
+    except Exception as e:
+        logger.error(f"Error parsing earnings estimates: {e}")
+        return None
+
+
+def _parse_analyst_consensus(earnings_raw: Dict) -> Any:
+    """
+    Parse yfinance price target and recommendations into AnalystConsensus model.
+
+    Args:
+        earnings_raw: Dict with price_target data
+
+    Returns:
+        AnalystConsensus instance or None
+    """
+    from research_swarm.agents.news_hound.models import AnalystConsensus
+
+    price_target = earnings_raw.get("price_target")
+    if not price_target:
+        return None
+
+    try:
+        current_price = price_target.get("current_price")
+        target_mean = price_target.get("target_mean")
+        recommendation = price_target.get("recommendation")
+
+        # Calculate upside
+        upside = None
+        if current_price and target_mean and current_price > 0:
+            upside = ((target_mean - current_price) / current_price) * 100
+
+        # Map recommendation to consensus rating
+        rec_map = {
+            "strong_buy": "strong buy", "buy": "buy", "outperform": "buy",
+            "hold": "hold", "neutral": "hold",
+            "underperform": "sell", "sell": "sell", "strong_sell": "strong sell"
+        }
+        consensus_rating = rec_map.get(recommendation, "hold") if recommendation else "hold"
+
+        return AnalystConsensus(
+            consensus_rating=consensus_rating,
+            avg_price_target=target_mean,
+            high_price_target=price_target.get("target_high"),
+            low_price_target=price_target.get("target_low"),
+            target_upside_pct=upside
+        )
+
+    except Exception as e:
+        logger.error(f"Error parsing analyst consensus: {e}")
+        return None
+
+
+# ============================================================================
 # Node Functions
 # ============================================================================
 
@@ -119,43 +249,6 @@ def extract_metrics_node(state: FundamentalistState) -> FundamentalistState:
     return state
 
 
-def extract_supply_chain_node(state: FundamentalistState) -> FundamentalistState:
-    """
-    Node 4: Extract supply chain data.
-
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with supply_chain_data
-    """
-    logger.info(f"[Node 4] Extracting supply chain data for {state['ticker']}")
-
-    # Skip if previous node failed
-    if state.get("status") == "error":
-        return state
-
-    try:
-        supply_chain, tokens = analyzer.extract_supply_chain(
-            state["ticker"],
-            state["fiscal_year"],
-            state["parsed_sections"]
-        )
-
-        if not supply_chain:
-            raise ValueError("extract_supply_chain returned None")
-
-        state["supply_chain_data"] = supply_chain.model_dump()
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-    except Exception as e:
-        logger.error(f"Failed to extract supply chain: {e}")
-        state["status"] = "error"
-        state["error"] = f"Failed to extract supply chain: {str(e)}"
-
-    return state
-
-
 def analyze_qualitative_node(state: FundamentalistState) -> FundamentalistState:
     """
     Node 5: Perform qualitative analysis.
@@ -175,22 +268,19 @@ def analyze_qualitative_node(state: FundamentalistState) -> FundamentalistState:
     try:
         # Reconstruct Pydantic models from state dicts
         from research_swarm.agents.fundamentalist.models import (
-            FinancialMetricsOutput,
-            SupplyChainOutput
+            FinancialMetricsOutput
         )
 
-        if not state.get("financial_metrics") or not state.get("supply_chain_data"):
-            raise ValueError("Missing financial_metrics or supply_chain_data")
+        if not state.get("financial_metrics"):
+            raise ValueError("Missing financial_metrics")
 
         metrics = FinancialMetricsOutput(**state["financial_metrics"])
-        supply_chain = SupplyChainOutput(**state["supply_chain_data"])
 
         analysis, tokens = analyzer.analyze_qualitative(
             state["ticker"],
             state["fiscal_year"],
             state["parsed_sections"],
-            metrics,
-            supply_chain
+            metrics
         )
 
         if not analysis:
@@ -228,22 +318,19 @@ def score_health_node(state: FundamentalistState) -> FundamentalistState:
     try:
         # Reconstruct Pydantic models
         from research_swarm.agents.fundamentalist.models import (
-            FinancialMetricsOutput,
-            SupplyChainOutput
+            FinancialMetricsOutput
         )
 
-        if not state.get("financial_metrics") or not state.get("supply_chain_data"):
-            raise ValueError("Missing financial_metrics or supply_chain_data")
+        if not state.get("financial_metrics"):
+            raise ValueError("Missing financial_metrics")
 
         metrics = FinancialMetricsOutput(**state["financial_metrics"])
-        supply_chain = SupplyChainOutput(**state["supply_chain_data"])
 
         # Score
         overall_score, breakdown, confidence, tokens = scorer.score_health(
             state["ticker"],
             state["fiscal_year"],
             metrics,
-            supply_chain,
             state["financial_analysis"]
         )
 
@@ -318,6 +405,29 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
         return state
 
     logger.success(f"✓ Fetched {available}/4 quarterly filings")
+
+    # NEW: Fetch earnings data (parallel operation)
+    earnings_data = _fetch_earnings_data(state["ticker"])
+    state["earnings_raw_data"] = earnings_data
+
+    # Check if we have any meaningful earnings data (handle DataFrames properly)
+    has_data = False
+    if earnings_data:
+        for v in earnings_data.values():
+            if v is not None:
+                if hasattr(v, 'empty'):  # DataFrame
+                    if not v.empty:
+                        has_data = True
+                        break
+                else:  # Dict or other
+                    has_data = True
+                    break
+
+    if has_data:
+        logger.info(f"✓ Fetched earnings data for {state['ticker']}")
+    else:
+        logger.warning("No earnings data available (continuing with neutral momentum)")
+
     return state
 
 
@@ -413,62 +523,6 @@ def extract_metrics_ttm_node(state: FundamentalistState) -> FundamentalistState:
     return state
 
 
-def extract_supply_chain_ttm_node(state: FundamentalistState) -> FundamentalistState:
-    """
-    Node 4 (TTM): Extract supply chain data from most recent quarter.
-
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with supply_chain_data
-    """
-    logger.info(f"[Node 4-TTM] Extracting supply chain data for {state['ticker']}")
-
-    # Skip if previous node failed
-    if state.get("status") == "error":
-        return state
-
-    try:
-        # Supply chain data comes from 10-K only (has Item 1 and Item 1A)
-        # Find the most recent 10-K filing from the quarters
-        ten_k_quarter = None
-        ten_k_parsed = {}
-
-        for quarter_label in reversed(state["quarters"]):
-            filing = state["filings_raw"].get(quarter_label)
-            if filing and filing.get("filing_type") == "10-K":
-                ten_k_quarter = quarter_label
-                ten_k_parsed = state["parsed_sections_by_quarter"].get(quarter_label, {})
-                break
-
-        if not ten_k_quarter:
-            logger.warning("No 10-K filing found for supply chain extraction")
-            # Create empty supply chain data
-            from research_swarm.agents.fundamentalist.models import SupplyChainOutput
-            supply_chain = SupplyChainOutput()
-            tokens = 0
-        else:
-            supply_chain, tokens = analyzer.extract_supply_chain(
-                state["ticker"],
-                0,  # fiscal_year not needed for supply chain
-                ten_k_parsed
-            )
-
-        if not supply_chain:
-            raise ValueError("extract_supply_chain returned None")
-
-        state["supply_chain_data"] = supply_chain.model_dump()
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-    except Exception as e:
-        logger.error(f"Failed to extract supply chain: {e}")
-        state["status"] = "error"
-        state["error"] = f"Failed to extract supply chain: {str(e)}"
-
-    return state
-
-
 def analyze_qualitative_ttm_node(state: FundamentalistState) -> FundamentalistState:
     """
     Node 5 (TTM): Perform qualitative analysis with TTM context.
@@ -489,16 +543,14 @@ def analyze_qualitative_ttm_node(state: FundamentalistState) -> FundamentalistSt
         # Reconstruct Pydantic models from state dicts
         from research_swarm.agents.fundamentalist.models import (
             TTMMetrics,
-            QuarterlyTrends,
-            SupplyChainOutput
+            QuarterlyTrends
         )
 
-        if not state.get("ttm_metrics") or not state.get("supply_chain_data"):
-            raise ValueError("Missing ttm_metrics or supply_chain_data")
+        if not state.get("ttm_metrics"):
+            raise ValueError("Missing ttm_metrics")
 
         ttm_metrics = TTMMetrics(**state["ttm_metrics"])
         quarterly_trends = QuarterlyTrends(**state["quarterly_trends"])
-        supply_chain = SupplyChainOutput(**state["supply_chain_data"])
 
         analysis, tokens = analyzer.analyze_qualitative_ttm(
             state["ticker"],
@@ -506,8 +558,7 @@ def analyze_qualitative_ttm_node(state: FundamentalistState) -> FundamentalistSt
             state["quarters"],
             state["parsed_sections_by_quarter"],
             ttm_metrics,
-            quarterly_trends,
-            supply_chain
+            quarterly_trends
         )
 
         if not analysis:
@@ -524,9 +575,130 @@ def analyze_qualitative_ttm_node(state: FundamentalistState) -> FundamentalistSt
     return state
 
 
+def extract_business_model_ttm_node(state: FundamentalistState) -> FundamentalistState:
+    """
+    Node 6 (TTM): Extract business model and moat data.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with business_model_data
+    """
+    logger.info(f"[Node 6-TTM] Extracting business model data for {state['ticker']}")
+
+    # Skip if previous node failed
+    if state.get("status") == "error":
+        return state
+
+    try:
+        business_model, tokens = analyzer.extract_business_model_ttm(
+            state["ticker"],
+            state["analysis_period"],
+            state["parsed_sections_by_quarter"]
+        )
+
+        if not business_model:
+            raise ValueError("extract_business_model_ttm returned None")
+
+        state["business_model_data"] = business_model.model_dump()
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+    except Exception as e:
+        logger.error(f"Failed to extract business model: {e}")
+        state["status"] = "error"
+        state["error"] = f"Failed to extract business model: {str(e)}"
+
+    return state
+
+
+def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistState:
+    """
+    Node 7 (TTM): Score business model and competitive moat.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with business_model_moat_score and breakdown
+    """
+    logger.info(f"[Node 7-TTM] Scoring business model for {state['ticker']}")
+
+    # Skip if previous node failed
+    if state.get("status") == "error":
+        return state
+
+    try:
+        # Reconstruct Pydantic models
+        from research_swarm.agents.fundamentalist.models import BusinessModelOutput
+
+        if not state.get("business_model_data"):
+            raise ValueError("Missing business_model_data")
+
+        business_model = BusinessModelOutput(**state["business_model_data"])
+
+        # Score business model
+        overall_moat_score, moat_breakdown, enhanced_moat, moat_confidence, tokens = scorer.score_business_model_ttm(
+            state["ticker"],
+            state["analysis_period"],
+            business_model,
+            state["financial_analysis"]
+        )
+
+        if overall_moat_score is None or moat_breakdown is None:
+            raise ValueError("score_business_model_ttm returned None values")
+
+        state["business_model_moat_score"] = overall_moat_score
+        state["business_model_score_breakdown"] = moat_breakdown.model_dump()
+        state["enhanced_moat"] = enhanced_moat.model_dump()
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        # Update confidence with moat confidence (average with existing)
+        if state.get("confidence"):
+            state["confidence"] = (state["confidence"] + moat_confidence) / 2
+
+        # NEW: Calculate earnings momentum
+        if state.get("earnings_raw_data"):
+            from research_swarm.agents.fundamentalist.earnings_calculator import earnings_calculator
+
+            momentum_score, breakdown = earnings_calculator.calculate_momentum_score(
+                state["earnings_raw_data"]
+            )
+            state["earnings_momentum_score"] = momentum_score
+            logger.info(f"✓ Momentum: {momentum_score:.1f}/10 ({breakdown['classification']})")
+        else:
+            state["earnings_momentum_score"] = 5.0  # Neutral default
+            logger.warning("No earnings data - using neutral momentum (5.0)")
+
+        # NEW: Calculate VGM composite
+        from research_swarm.agents.fundamentalist.models import TTMMetrics, QuarterlyTrends
+
+        ttm_metrics = TTMMetrics(**state["ttm_metrics"])
+        quarterly_trends = QuarterlyTrends(**state["quarterly_trends"])
+
+        vgm_scores, vgm_tokens = scorer.calculate_vgm_scores(
+            state["ticker"],
+            ttm_metrics,
+            quarterly_trends,
+            state["earnings_momentum_score"]
+        )
+
+        state["vgm_scores"] = vgm_scores.model_dump()
+        state["tokens_used"] = state.get("tokens_used", 0) + vgm_tokens
+
+        logger.info(f"✓ VGM: {vgm_scores.vgm_composite:.1f}/10 (V:{vgm_scores.value_score:.1f} G:{vgm_scores.growth_score:.1f} M:{vgm_scores.momentum_score:.1f}) - Style: {vgm_scores.best_fit_style}")
+
+    except Exception as e:
+        logger.error(f"Failed to score business model: {e}")
+        state["status"] = "error"
+        state["error"] = f"Failed to score business model: {str(e)}"
+
+    return state
+
+
 def score_health_ttm_node(state: FundamentalistState) -> FundamentalistState:
     """
-    Node 6 (TTM): Score financial health with trend adjustments.
+    Node 8 (TTM): Score financial health with trend adjustments.
 
     Args:
         state: Current workflow state
@@ -534,7 +706,7 @@ def score_health_ttm_node(state: FundamentalistState) -> FundamentalistState:
     Returns:
         Updated state with health score and breakdown
     """
-    logger.info(f"[Node 6-TTM] Scoring TTM financial health for {state['ticker']}")
+    logger.info(f"[Node 8-TTM] Scoring TTM financial health for {state['ticker']}")
 
     # Skip if previous node failed
     if state.get("status") == "error":
@@ -546,24 +718,21 @@ def score_health_ttm_node(state: FundamentalistState) -> FundamentalistState:
         # Reconstruct Pydantic models
         from research_swarm.agents.fundamentalist.models import (
             TTMMetrics,
-            QuarterlyTrends,
-            SupplyChainOutput
+            QuarterlyTrends
         )
 
-        if not state.get("ttm_metrics") or not state.get("supply_chain_data"):
-            raise ValueError("Missing ttm_metrics or supply_chain_data")
+        if not state.get("ttm_metrics"):
+            raise ValueError("Missing ttm_metrics")
 
         ttm_metrics = TTMMetrics(**state["ttm_metrics"])
         quarterly_trends = QuarterlyTrends(**state["quarterly_trends"])
-        supply_chain = SupplyChainOutput(**state["supply_chain_data"])
 
-        # Score using TTM-aware scorer method (will be implemented in Phase 6)
+        # Score using TTM-aware scorer method
         overall_score, breakdown, confidence, tokens = scorer.score_health_ttm(
             state["ticker"],
             state["analysis_period"],
             ttm_metrics,
             quarterly_trends,
-            supply_chain,
             state["financial_analysis"],
             state["data_quality"]
         )
@@ -604,7 +773,6 @@ def build_fundamentalist_graph() -> StateGraph:
     workflow.add_node("fetch_filing", fetch_filing_node)
     workflow.add_node("parse_sections", parse_sections_node)
     workflow.add_node("extract_metrics", extract_metrics_node)
-    workflow.add_node("extract_supply_chain", extract_supply_chain_node)
     workflow.add_node("analyze_qualitative", analyze_qualitative_node)
     workflow.add_node("score_health", score_health_node)
 
@@ -614,8 +782,7 @@ def build_fundamentalist_graph() -> StateGraph:
     # Add edges - sequential flow
     workflow.add_edge("fetch_filing", "parse_sections")
     workflow.add_edge("parse_sections", "extract_metrics")
-    workflow.add_edge("extract_metrics", "extract_supply_chain")
-    workflow.add_edge("extract_supply_chain", "analyze_qualitative")
+    workflow.add_edge("extract_metrics", "analyze_qualitative")
     workflow.add_edge("analyze_qualitative", "score_health")
 
     # Score health is the final node
@@ -637,8 +804,9 @@ def build_fundamentalist_graph_ttm() -> StateGraph:
     workflow.add_node("fetch_quarterly_filings", fetch_quarterly_filings_node)
     workflow.add_node("parse_quarterly_sections", parse_quarterly_sections_node)
     workflow.add_node("extract_metrics_ttm", extract_metrics_ttm_node)
-    workflow.add_node("extract_supply_chain_ttm", extract_supply_chain_ttm_node)
     workflow.add_node("analyze_qualitative_ttm", analyze_qualitative_ttm_node)
+    workflow.add_node("extract_business_model_ttm", extract_business_model_ttm_node)
+    workflow.add_node("score_business_model_ttm", score_business_model_ttm_node)
     workflow.add_node("score_health_ttm", score_health_ttm_node)
 
     # Set entry point
@@ -647,9 +815,10 @@ def build_fundamentalist_graph_ttm() -> StateGraph:
     # Add edges - sequential flow
     workflow.add_edge("fetch_quarterly_filings", "parse_quarterly_sections")
     workflow.add_edge("parse_quarterly_sections", "extract_metrics_ttm")
-    workflow.add_edge("extract_metrics_ttm", "extract_supply_chain_ttm")
-    workflow.add_edge("extract_supply_chain_ttm", "analyze_qualitative_ttm")
-    workflow.add_edge("analyze_qualitative_ttm", "score_health_ttm")
+    workflow.add_edge("extract_metrics_ttm", "analyze_qualitative_ttm")
+    workflow.add_edge("analyze_qualitative_ttm", "extract_business_model_ttm")
+    workflow.add_edge("extract_business_model_ttm", "score_business_model_ttm")
+    workflow.add_edge("score_business_model_ttm", "score_health_ttm")
 
     # Score health is the final node
     workflow.set_finish_point("score_health_ttm")
@@ -720,7 +889,10 @@ def _analyze_company_ttm(ticker: str, quarters: list = None) -> FundamentalistOu
         "quarterly_metrics": None,
         "ttm_metrics": None,
         "quarterly_trends": None,
-        "supply_chain_data": None,
+        "business_model_data": None,
+        "business_model_moat_score": None,
+        "business_model_score_breakdown": None,
+        "enhanced_moat": None,
         "financial_analysis": None,
         "financial_health_score": None,
         "score_breakdown": None,
@@ -748,12 +920,24 @@ def _analyze_company_ttm(ticker: str, quarters: list = None) -> FundamentalistOu
     # Build output
     from research_swarm.agents.fundamentalist.models import (
         FinancialMetricsOutput,
-        SupplyChainOutput,
+        BusinessModelOutput,
         ScoreBreakdown,
+        BusinessModelScoreBreakdown,
+        EnhancedMoatBreakdown,
         QuarterlyMetrics,
         TTMMetrics,
-        QuarterlyTrends
+        QuarterlyTrends,
+        VGMScoreBreakdown
     )
+
+    # Parse earnings data into models
+    earnings_estimates = None
+    analyst_consensus = None
+
+    if final_state.get("earnings_raw_data"):
+        earnings_raw = final_state["earnings_raw_data"]
+        earnings_estimates = _parse_earnings_estimates(earnings_raw)
+        analyst_consensus = _parse_analyst_consensus(earnings_raw)
 
     # Get filing dates
     filing_dates = {}
@@ -773,10 +957,16 @@ def _analyze_company_ttm(ticker: str, quarters: list = None) -> FundamentalistOu
         quarterly_trends=QuarterlyTrends(**final_state["quarterly_trends"]) if final_state.get("quarterly_trends") else None,
         data_quality=final_state.get("data_quality", {}),
         financial_metrics=FinancialMetricsOutput(**final_state["financial_metrics"]),
-        supply_chain_data=SupplyChainOutput(**final_state["supply_chain_data"]),
+        business_model_data=BusinessModelOutput(**final_state["business_model_data"]),
         financial_analysis=final_state["financial_analysis"],
         financial_health_score=final_state["financial_health_score"],
         score_breakdown=ScoreBreakdown(**final_state["score_breakdown"]),
+        business_model_moat_score=final_state["business_model_moat_score"],
+        business_model_score_breakdown=BusinessModelScoreBreakdown(**final_state["business_model_score_breakdown"]),
+        enhanced_moat=EnhancedMoatBreakdown(**final_state.get("enhanced_moat", {})) if final_state.get("enhanced_moat") else None,
+        vgm_scores=VGMScoreBreakdown(**final_state["vgm_scores"]) if final_state.get("vgm_scores") else None,
+        earnings_estimates=earnings_estimates,
+        analyst_consensus=analyst_consensus,
         confidence=final_state["confidence"],
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time
@@ -816,7 +1006,6 @@ def _analyze_company_annual(ticker: str, fiscal_year: int) -> FundamentalistOutp
         "filing_raw": None,
         "parsed_sections": None,
         "financial_metrics": None,
-        "supply_chain_data": None,
         "financial_analysis": None,
         "financial_health_score": None,
         "score_breakdown": None,
@@ -842,7 +1031,9 @@ def _analyze_company_annual(ticker: str, fiscal_year: int) -> FundamentalistOutp
     from research_swarm.agents.fundamentalist.models import (
         FinancialMetricsOutput,
         SupplyChainOutput,
-        ScoreBreakdown
+        BusinessModelOutput,
+        ScoreBreakdown,
+        BusinessModelScoreBreakdown
     )
 
     output = FundamentalistOutput(
@@ -852,10 +1043,15 @@ def _analyze_company_annual(ticker: str, fiscal_year: int) -> FundamentalistOutp
         analysis_mode="annual",
         filing_date=final_state["filing_raw"].get("filing_date"),
         financial_metrics=FinancialMetricsOutput(**final_state["financial_metrics"]),
-        supply_chain_data=SupplyChainOutput(**final_state["supply_chain_data"]),
+        business_model_data=BusinessModelOutput(**final_state.get("business_model_data", {})),
         financial_analysis=final_state["financial_analysis"],
         financial_health_score=final_state["financial_health_score"],
         score_breakdown=ScoreBreakdown(**final_state["score_breakdown"]),
+        business_model_moat_score=final_state.get("business_model_moat_score", 5.0),
+        business_model_score_breakdown=BusinessModelScoreBreakdown(**final_state.get("business_model_score_breakdown", {
+            "revenue_diversification": 5.0,
+            "competitive_moat": 5.0
+        })),
         confidence=final_state["confidence"],
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time

@@ -74,74 +74,6 @@ Return your response as a JSON object with these fields:
 """
 
 # ============================================================================
-# SUPPLY CHAIN PROMPT (Haiku)
-# Purpose: Extract supply chain and business relationship data
-# ============================================================================
-
-SUPPLY_CHAIN_PROMPT = """You are extracting supply chain information from a 10-K filing.
-
-**Company**: {ticker}
-**Fiscal Year**: {fiscal_year}
-
-**Relevant Sections**:
-{parsed_sections}
-
----
-
-**Task**: Extract supply chain and business relationship information. Look for BOTH explicit names AND indirect clues.
-
-Return your response as a JSON object with these fields:
-
-{{
-  "major_customers": [<list of customer names or descriptions>],
-  "customer_concentration": "<description of customer concentration risk with percentages if mentioned>",
-  "major_suppliers": [<list of supplier/partner names or descriptions>],
-  "supplier_dependencies": "<description of critical dependencies, even if names not disclosed>",
-  "geographic_revenue": {{"<region>": <revenue in millions or percentage>}},
-  "geographic_risks": [<list of geographic/geopolitical risks>]
-}}
-
-**Instructions - Be Thorough**:
-
-1. **Look for EXPLICIT names**: "We rely on TSMC for chip manufacturing"
-2. **Look for INDIRECT clues**:
-   - "third-party foundries in Taiwan" → likely TSMC
-   - "contract manufacturers primarily located in China" → likely Foxconn
-   - "leading display manufacturers in South Korea" → likely Samsung/LG
-   - "semiconductor equipment suppliers" → Applied Materials, Lam Research, ASML
-   - "single-source or limited-source suppliers" → DOCUMENT THIS EVEN WITHOUT NAMES
-
-3. **Customer Concentration**:
-   - Extract ANY percentages: "largest customer 20% of revenue"
-   - Note if customers are unnamed: "single customer represents significant revenue"
-   - Look for phrases like "customer concentration", "major customer", "significant customer"
-
-4. **Geographic Dependencies**:
-   - Asia manufacturing → note the specific countries mentioned
-   - Taiwan chips → DOCUMENT THIS (implies TSMC dependency)
-   - China assembly → DOCUMENT THIS (implies Foxconn-type contractors)
-   - South Korea displays/memory → DOCUMENT THIS
-
-5. **Supply Chain Risks**:
-   - Single-source suppliers (even if unnamed)
-   - Geographic concentration risks
-   - Geopolitical tensions mentioned
-   - Natural disaster risks
-   - Pandemic-related vulnerabilities
-
-6. **What to include in lists**:
-   - Explicit company names if mentioned
-   - Descriptive entries if names not given: "sole-source chip manufacturer in Taiwan"
-   - Industry categories: "contract manufacturers", "semiconductor foundries"
-
-**Examples of good extraction**:
-- major_suppliers: ["TSMC", "contract manufacturers in China (likely Foxconn)", "display suppliers in South Korea"]
-- supplier_dependencies: "Heavily dependent on single-source semiconductor foundry in Taiwan for advanced chips. Contract manufacturing concentrated in China with limited alternatives. Critical components sourced from limited suppliers."
-
-**Return ONLY valid JSON, no other text**
-"""
-
-# ============================================================================
 # QUALITATIVE ANALYSIS PROMPT (Sonnet)
 # Purpose: Deep qualitative analysis of business health
 # ============================================================================
@@ -153,9 +85,6 @@ QUALITATIVE_ANALYSIS_PROMPT = """You are a seasoned financial analyst conducting
 
 **Financial Metrics**:
 {financial_metrics}
-
-**Supply Chain Data**:
-{supply_chain_data}
 
 **Key Sections from 10-K**:
 {parsed_sections}
@@ -178,9 +107,8 @@ Your analysis should cover:
 
 3. **Risk Assessment**
    - Key business risks and challenges
-   - Supply chain vulnerabilities
    - Market, regulatory, or technological risks
-   - Customer/supplier concentration risks
+   - Operational risks and challenges
 
 4. **Growth & Innovation**
    - R&D investment and innovation pipeline
@@ -208,52 +136,42 @@ HEALTH_SCORE_PROMPT = """You are a financial analyst scoring a company's financi
 **Financial Metrics**:
 {financial_metrics}
 
-**Supply Chain Data**:
-{supply_chain_data}
-
 **Qualitative Analysis**:
 {financial_analysis}
 
 ---
 
-**Task**: Score the company's financial health across 5 dimensions on a 0-10 scale.
+**Task**: Score the company's financial health across 4 dimensions on a 0-10 scale.
 
 **Scoring Dimensions**:
 
-1. **Profitability (0-10)**
+1. **Profitability (0-10)** - Weight: 30%
    - Gross, operating, and net margins
    - Margin trends and sustainability
    - Return on capital
    - 10 = exceptional margins, highly profitable
    - 0 = unprofitable or negative margins
 
-2. **Growth (0-10)**
+2. **Growth (0-10)** - Weight: 25%
    - Revenue growth trajectory
    - Market expansion
    - Innovation and R&D investment
    - 10 = strong, sustainable growth with innovation
    - 0 = declining revenue, no growth drivers
 
-3. **Balance Sheet (0-10)**
+3. **Balance Sheet (0-10)** - Weight: 25%
    - Debt levels and leverage
    - Current ratio and liquidity
    - Asset quality
    - 10 = fortress balance sheet, minimal debt
    - 0 = overleveraged, liquidity concerns
 
-4. **Cash Flow (0-10)**
+4. **Cash Flow (0-10)** - Weight: 20%
    - Free cash flow generation
    - Cash conversion efficiency
    - Capital allocation
    - 10 = strong, consistent cash generation
    - 0 = negative cash flow, burning cash
-
-5. **Supply Chain (0-10)**
-   - Customer diversification
-   - Supplier resilience
-   - Geographic risk management
-   - 10 = diversified, resilient supply chain
-   - 0 = high concentration risk, vulnerable
 
 **Output Format**: Return a JSON object:
 
@@ -262,14 +180,12 @@ HEALTH_SCORE_PROMPT = """You are a financial analyst scoring a company's financi
   "growth": <float 0-10>,
   "balance_sheet": <float 0-10>,
   "cash_flow": <float 0-10>,
-  "supply_chain": <float 0-10>,
   "confidence": <float 0-1>,
   "rationale": {{
     "profitability": "<brief justification>",
     "growth": "<brief justification>",
     "balance_sheet": "<brief justification>",
-    "cash_flow": "<brief justification>",
-    "supply_chain": "<brief justification>"
+    "cash_flow": "<brief justification>"
   }}
 }}
 
@@ -363,9 +279,6 @@ QUALITATIVE_ANALYSIS_PROMPT_TTM = """You are a seasoned financial analyst conduc
 **Quarterly Trends**:
 {quarterly_trends}
 
-**Supply Chain Data**:
-{supply_chain_data}
-
 **Key Sections from Most Recent Filing**:
 {parsed_sections}
 
@@ -387,7 +300,7 @@ Your analysis should cover:
 
 3. **Risk Assessment**
    - Key business risks and challenges
-   - Supply chain vulnerabilities
+   - Operational challenges
    - Any deteriorating trends to watch
 
 4. **Growth & Innovation**
@@ -419,9 +332,6 @@ HEALTH_SCORE_PROMPT_TTM = """You are a financial analyst scoring a company's fin
 **Quarterly Trends**:
 {quarterly_trends}
 
-**Supply Chain Data**:
-{supply_chain_data}
-
 **Qualitative Analysis**:
 {financial_analysis}
 
@@ -430,7 +340,7 @@ HEALTH_SCORE_PROMPT_TTM = """You are a financial analyst scoring a company's fin
 
 ---
 
-**Task**: Score the company's financial health across 5 dimensions on a 0-10 scale.
+**Task**: Score the company's financial health across 4 dimensions on a 0-10 scale.
 
 **IMPORTANT**: Factor in quarterly trends when scoring:
 - **Improving trends** should boost scores by 0.5-1.0 points
@@ -439,26 +349,22 @@ HEALTH_SCORE_PROMPT_TTM = """You are a financial analyst scoring a company's fin
 
 **Scoring Dimensions**:
 
-1. **Profitability (0-10)** - Weight: 25%
+1. **Profitability (0-10)** - Weight: 30%
    - TTM margins and profitability
    - **Margin trend over 4 quarters**
 
-2. **Growth (0-10)** - Weight: 20%
+2. **Growth (0-10)** - Weight: 25%
    - TTM revenue level
    - **Sequential quarter growth trajectory**
    - Momentum direction
 
-3. **Balance Sheet (0-10)** - Weight: 20%
+3. **Balance Sheet (0-10)** - Weight: 25%
    - Debt levels and leverage
    - Liquidity position
 
-4. **Cash Flow (0-10)** - Weight: 15%
+4. **Cash Flow (0-10)** - Weight: 20%
    - TTM free cash flow
    - **Cash flow trend direction**
-
-5. **Supply Chain (0-10)** - Weight: 20%
-   - Customer/supplier diversification
-   - Geographic risk
 
 **Output Format**: Return a JSON object:
 
@@ -467,14 +373,12 @@ HEALTH_SCORE_PROMPT_TTM = """You are a financial analyst scoring a company's fin
   "growth": <float 0-10>,
   "balance_sheet": <float 0-10>,
   "cash_flow": <float 0-10>,
-  "supply_chain": <float 0-10>,
   "confidence": <float 0-1>,
   "rationale": {{
     "profitability": "<brief justification including trend>",
     "growth": "<brief justification including trend>",
     "balance_sheet": "<brief justification>",
-    "cash_flow": "<brief justification including trend>",
-    "supply_chain": "<brief justification>"
+    "cash_flow": "<brief justification including trend>"
   }}
 }}
 
@@ -485,4 +389,158 @@ HEALTH_SCORE_PROMPT_TTM = """You are a financial analyst scoring a company's fin
 - 1/4 quarters available: confidence 0.3-0.4
 
 Return ONLY valid JSON, no other text.
+"""
+
+# ============================================================================
+# BUSINESS MODEL PROMPT - TTM (Haiku)
+# Purpose: Extract business model and competitive moat analysis
+# ============================================================================
+
+BUSINESS_MODEL_PROMPT_TTM = """You are extracting business model and competitive moat information from SEC filings.
+
+**Company**: {ticker}
+**Analysis Period**: {analysis_period}
+
+**Key Sections from Most Recent Filing**:
+{parsed_sections}
+
+---
+
+**Task**: Extract business model structure and competitive advantages.
+
+Return your response as a JSON object with these fields:
+
+{{
+  "revenue_streams": [
+    {{"name": "<stream name>", "percentage": <% of revenue or null>, "description": "<brief description>"}},
+    // ... additional streams
+  ],
+  "business_segments": {{"<segment name>": <revenue % or millions USD or null>}},
+  "revenue_concentration": "<assessment of revenue concentration risk>",
+  "moat_characteristics": [
+    "<competitive moat 1>",
+    "<competitive moat 2>",
+    // ... e.g., "Strong brand recognition", "High switching costs", "Network effects"
+  ]
+}}
+
+**Instructions**:
+
+1. **Revenue Streams**: Identify how the company makes money
+   - Product sales, service revenue, subscriptions, licensing, etc.
+   - Include percentages if disclosed, otherwise null
+   - Brief description of each stream
+
+2. **Business Segments**: Extract segment breakdown if disclosed
+   - Geographic segments (Americas, EMEA, APAC, etc.)
+   - Product segments (iPhone, Mac, Services, etc.)
+   - Include revenue figures (as % or millions) if available
+
+3. **Revenue Concentration**: Assess concentration risk
+   - "Diversified across multiple products and regions"
+   - "Concentrated in single product line with 70%+ revenue"
+   - "Heavily dependent on few large customers"
+
+4. **Moat Characteristics**: Identify competitive advantages
+   - **Brand power**: Strong brand recognition, pricing power
+   - **Switching costs**: Customer lock-in, high cost to switch
+   - **Network effects**: Value increases with more users
+   - **Cost advantages**: Structural cost advantages over competitors
+   - **Scale economies**: Benefits from large scale operations
+   - **Intangible assets**: Patents, IP, proprietary data, trade secrets
+   - **Regulatory barriers**: Licenses, regulations that limit competition
+   - **Distribution advantages**: Unique distribution channels or partnerships
+
+**Return ONLY valid JSON, no other text**
+"""
+
+# ============================================================================
+# BUSINESS MODEL SCORE PROMPT - TTM (Haiku)
+# Purpose: Score business model moat strength across categories
+# ============================================================================
+
+BUSINESS_MODEL_SCORE_PROMPT_TTM = """You are scoring a company's business model and competitive moat strength.
+
+**Company**: {ticker}
+**Analysis Period**: {analysis_period}
+
+**Business Model Data**:
+{business_model_data}
+
+**Financial Analysis Context**:
+{financial_analysis_summary}
+
+---
+
+**Task**: Score the business model across 2 dimensions and provide enhanced moat breakdown.
+
+**Output Format**: Return a JSON object:
+
+{{
+  "revenue_diversification": <float 0-10>,
+  "competitive_moat": <float 0-10>,
+  "confidence": <float 0-1>,
+  "rationale": {{
+    "revenue_diversification": "<brief justification>",
+    "competitive_moat": "<brief justification>"
+  }},
+  "enhanced_moat": {{
+    "network_effects": <float 0-10>,
+    "switching_costs": <float 0-10>,
+    "brand_power": <float 0-10>,
+    "cost_advantages": <float 0-10>,
+    "scale_economies": <float 0-10>,
+    "intangible_assets": <float 0-10>,
+    "regulatory_barriers": <float 0-10>,
+    "distribution_advantages": <float 0-10>,
+    "moat_width": "<Wide|Moderate|Narrow|None>",
+    "moat_durability": "<High|Medium|Low>"
+  }}
+}}
+
+**Scoring Dimensions**:
+
+1. **Revenue Diversification (0-10)**
+   - Multiple revenue streams vs single product
+   - Geographic diversification
+   - Customer diversification
+   - 10 = highly diversified across products, regions, customers
+   - 0 = single product, single market, concentrated customers
+
+2. **Competitive Moat (0-10)**
+   - Strength and sustainability of competitive advantages
+   - Barriers to entry
+   - Defensibility against competition
+   - 10 = wide, durable moat with multiple strong advantages
+   - 0 = commoditized business with no defensible advantages
+
+**Enhanced Moat Categories** (0-10 each, use 0 if not applicable):
+
+- **Network Effects**: Platform value increases with users (e.g., social networks, marketplaces)
+- **Switching Costs**: Customer lock-in, high friction to change vendors (e.g., enterprise software)
+- **Brand Power**: Premium pricing from brand recognition and customer loyalty
+- **Cost Advantages**: Structural cost advantages (proprietary tech, unique assets, location)
+- **Scale Economies**: Unit costs decline with volume, large fixed cost leverage
+- **Intangible Assets**: Patents, proprietary technology, data moats, trade secrets
+- **Regulatory Barriers**: Licenses, certifications, compliance requirements limit entrants
+- **Distribution Advantages**: Exclusive channels, partnerships, installed base
+
+**Moat Width Assessment**:
+- **Wide**: Multiple strong moats (7-10 in 3+ categories), highly defensible, 5-10+ year durability
+- **Moderate**: Some moats (5-7 in 2-3 categories), decent defensibility, 3-5 year durability
+- **Narrow**: Weak moats (3-5 in 1-2 categories), limited defensibility, 1-3 year durability
+- **None**: No moats (0-3 in all categories), commoditized, no sustainable advantage
+
+**Moat Durability**:
+- **High**: Structural advantages that are hard to erode (network effects, regulation, brand)
+- **Medium**: Advantages that require ongoing investment to maintain (R&D, brand marketing)
+- **Low**: Advantages that can be quickly competed away (cost, distribution)
+
+**Instructions**:
+- Be objective and evidence-based
+- Use the full 0-10 range
+- Only score moat categories that are clearly present (use 0 for non-applicable)
+- Confidence should reflect data quality (0.6-0.95 typical)
+- Each rationale should be 1-2 sentences
+- Return ONLY valid JSON, no other text
 """

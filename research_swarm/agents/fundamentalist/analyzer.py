@@ -1,7 +1,7 @@
 """
 Financial Analysis Module.
 
-Extracts financial metrics, supply chain data, and performs qualitative analysis.
+Extracts financial metrics and performs qualitative analysis.
 """
 import json
 from typing import Dict, Any, Tuple, List
@@ -11,14 +11,14 @@ from research_swarm.config import settings
 from research_swarm.utils import extract_token_usage
 from research_swarm.agents.fundamentalist.prompts import (
     FINANCIAL_METRICS_PROMPT,
-    SUPPLY_CHAIN_PROMPT,
     QUALITATIVE_ANALYSIS_PROMPT,
     FINANCIAL_METRICS_PROMPT_TTM,
-    QUALITATIVE_ANALYSIS_PROMPT_TTM
+    QUALITATIVE_ANALYSIS_PROMPT_TTM,
+    BUSINESS_MODEL_PROMPT_TTM
 )
 from research_swarm.agents.fundamentalist.models import (
     FinancialMetricsOutput,
-    SupplyChainOutput,
+    BusinessModelOutput,
     QuarterlyMetrics,
     TTMMetrics,
     QuarterlyTrends
@@ -108,74 +108,12 @@ class FinancialAnalyzer:
             # Return 0 tokens for general errors (API call may not have completed)
             return FinancialMetricsOutput(), 0
 
-    def extract_supply_chain(
-        self,
-        ticker: str,
-        fiscal_year: int,
-        parsed_sections: Dict[str, str]
-    ) -> Tuple[SupplyChainOutput, int]:
-        """
-        Extract supply chain data from parsed 10-K sections.
-
-        Args:
-            ticker: Stock ticker
-            fiscal_year: Fiscal year
-            parsed_sections: Parsed 10-K sections
-
-        Returns:
-            Tuple of (SupplyChainOutput, tokens_used)
-        """
-        logger.info(f"Extracting supply chain data for {ticker} {fiscal_year}")
-
-        # Combine relevant sections
-        sections_text = self._format_sections_for_prompt(
-            parsed_sections,
-            sections=["Item 1", "Item 1A", "Item 7"]
-        )
-
-        # Validate sections have meaningful content
-        if len(sections_text) < 500:
-            logger.warning(f"Insufficient section content for supply chain {ticker} ({len(sections_text)} chars)")
-            return SupplyChainOutput(), 0
-
-        prompt = SUPPLY_CHAIN_PROMPT.format(
-            ticker=ticker,
-            fiscal_year=fiscal_year,
-            parsed_sections=sections_text
-        )
-
-        try:
-            response = self.haiku.invoke(prompt)
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            # Extract JSON from response
-            json_text = self._extract_json(response_text)
-            supply_chain_data = json.loads(json_text)
-
-            # Validate with Pydantic
-            supply_chain = SupplyChainOutput(**supply_chain_data)
-            logger.success(f"✓ Extracted supply chain data for {ticker} ({tokens_used} tokens)")
-            return supply_chain, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse supply chain JSON: {e}")
-            logger.debug(f"Response: {response_text[:500]}")
-            # Return empty data but track tokens used (API was called)
-            return SupplyChainOutput(), tokens_used
-
-        except Exception as e:
-            logger.error(f"Error extracting supply chain: {e}")
-            # Return 0 tokens for general errors (API call may not have completed)
-            return SupplyChainOutput(), 0
-
     def analyze_qualitative(
         self,
         ticker: str,
         fiscal_year: int,
         parsed_sections: Dict[str, str],
-        financial_metrics: FinancialMetricsOutput,
-        supply_chain_data: SupplyChainOutput
+        financial_metrics: FinancialMetricsOutput
     ) -> Tuple[str, int]:
         """
         Perform qualitative analysis of company's financial health.
@@ -185,7 +123,6 @@ class FinancialAnalyzer:
             fiscal_year: Fiscal year
             parsed_sections: Parsed 10-K sections
             financial_metrics: Extracted financial metrics
-            supply_chain_data: Extracted supply chain data
 
         Returns:
             Tuple of (qualitative_analysis_text, tokens_used)
@@ -200,13 +137,11 @@ class FinancialAnalyzer:
         )
 
         metrics_text = json.dumps(financial_metrics.model_dump(), indent=2)
-        supply_chain_text = json.dumps(supply_chain_data.model_dump(), indent=2)
 
         prompt = QUALITATIVE_ANALYSIS_PROMPT.format(
             ticker=ticker,
             fiscal_year=fiscal_year,
             financial_metrics=metrics_text,
-            supply_chain_data=supply_chain_text,
             parsed_sections=sections_text
         )
 
@@ -383,8 +318,7 @@ class FinancialAnalyzer:
         quarters: List[str],
         parsed_sections_by_quarter: Dict[str, Dict[str, str]],
         ttm_metrics: TTMMetrics,
-        quarterly_trends: QuarterlyTrends,
-        supply_chain_data: SupplyChainOutput
+        quarterly_trends: QuarterlyTrends
     ) -> Tuple[str, int]:
         """
         Perform qualitative analysis on TTM data with trend context.
@@ -410,7 +344,6 @@ class FinancialAnalyzer:
             quarters=", ".join(quarters),
             ttm_metrics=json.dumps(ttm_metrics.model_dump(), indent=2),
             quarterly_trends=json.dumps(quarterly_trends.model_dump(), indent=2),
-            supply_chain_data=json.dumps(supply_chain_data.model_dump(), indent=2),
             parsed_sections=sections_text
         )
 
@@ -437,6 +370,76 @@ class FinancialAnalyzer:
                 truncated = content[:max_per_quarter] if len(content) > max_per_quarter else content
                 output.append(f"### {section_name}\n{truncated}\n")
         return "\n".join(output)
+
+    def extract_business_model_ttm(
+        self,
+        ticker: str,
+        analysis_period: str,
+        parsed_sections_by_quarter: Dict[str, Dict[str, str]]
+    ) -> Tuple[BusinessModelOutput, int]:
+        """
+        Extract business model and moat data from most recent filing.
+
+        Args:
+            ticker: Stock ticker
+            analysis_period: Analysis period (e.g., "TTM Q4 2024 - Q3 2025")
+            parsed_sections_by_quarter: Parsed sections by quarter
+
+        Returns:
+            Tuple of (BusinessModelOutput, tokens_used)
+        """
+        logger.info(f"Extracting business model data for {ticker}")
+
+        # Use most recent quarter's sections
+        if not parsed_sections_by_quarter:
+            logger.warning("No parsed sections available for business model extraction")
+            return BusinessModelOutput(), 0
+
+        # Get most recent quarter (last in dict)
+        most_recent_quarter = list(parsed_sections_by_quarter.keys())[-1]
+        parsed_sections = parsed_sections_by_quarter[most_recent_quarter]
+
+        # Format sections for prompt
+        sections_text = self._format_sections_for_prompt(
+            parsed_sections,
+            sections=["Item 1", "Item 7"],
+            max_length=15000
+        )
+
+        if len(sections_text) < 500:
+            logger.warning(f"Insufficient section content for business model extraction ({len(sections_text)} chars)")
+            return BusinessModelOutput(), 0
+
+        prompt = BUSINESS_MODEL_PROMPT_TTM.format(
+            ticker=ticker,
+            analysis_period=analysis_period,
+            parsed_sections=sections_text
+        )
+
+        try:
+            response = self.haiku.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            business_model_data = json.loads(json_text)
+
+            # Validate with Pydantic
+            business_model = BusinessModelOutput(**business_model_data)
+            logger.success(f"✓ Extracted business model data for {ticker} ({tokens_used} tokens)")
+            return business_model, tokens_used
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse business model JSON: {e}")
+            logger.debug(f"Response: {response_text[:500]}")
+            # Return empty data but track tokens used (API was called)
+            return BusinessModelOutput(), tokens_used if 'tokens_used' in locals() else 0
+
+        except Exception as e:
+            logger.error(f"Error extracting business model: {e}")
+            # Return 0 tokens for general errors (API call may not have completed)
+            return BusinessModelOutput(), 0
 
 
 # Global analyzer instance

@@ -172,6 +172,193 @@ class MarketDataClient:
             logger.error(f"Error calculating return for {ticker}: {e}")
             return None
 
+    def get_analyst_recommendations(self, ticker: str) -> Optional[pd.DataFrame]:
+        """
+        Get analyst recommendations history.
+
+        Args:
+            ticker: Stock ticker
+
+        Returns:
+            DataFrame with analyst recommendations or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_recommendations"
+
+        # Cache for 1 day
+        cached = cache.get("market_recommendations", cache_key)
+        if cached:
+            logger.debug(f"Using cached recommendations for {ticker}")
+            return pd.DataFrame(cached) if cached else None
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+
+            stock = yf.Ticker(ticker)
+            df = stock.recommendations
+
+            if df is None or df.empty:
+                logger.warning(f"No analyst recommendations for {ticker}")
+                cache.set("market_recommendations", cache_key, None, ttl_days=1)
+                return None
+
+            # Cache as dict for JSON serialization
+            df_cache = df.reset_index()
+
+            # Convert all datetime/timestamp columns to strings for JSON serialization
+            for col in df_cache.columns:
+                if pd.api.types.is_datetime64_any_dtype(df_cache[col]):
+                    df_cache[col] = df_cache[col].astype(str)
+
+            cache.set("market_recommendations", cache_key, df_cache.to_dict(orient="list"), ttl_days=1)
+            logger.info(f"Fetched {len(df)} analyst recommendations for {ticker}")
+            return df
+
+        except Exception as e:
+            logger.error(f"Error fetching analyst recommendations for {ticker}: {e}")
+            return None
+
+    def get_earnings_history(self, ticker: str) -> Optional[pd.DataFrame]:
+        """
+        Get earnings history with surprises.
+
+        Args:
+            ticker: Stock ticker
+
+        Returns:
+            DataFrame with earnings history or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_earnings_history"
+
+        # Cache for 1 day
+        cached = cache.get("market_earnings", cache_key)
+        if cached:
+            logger.debug(f"Using cached earnings history for {ticker}")
+            return pd.DataFrame(cached) if cached else None
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+
+            stock = yf.Ticker(ticker)
+            df = stock.earnings_history
+
+            if df is None or df.empty:
+                logger.warning(f"No earnings history for {ticker}")
+                cache.set("market_earnings", cache_key, None, ttl_days=1)
+                return None
+
+            # Cache as dict for JSON serialization
+            df_cache = df.reset_index()
+
+            # Convert all datetime/timestamp columns to strings for JSON serialization
+            for col in df_cache.columns:
+                if pd.api.types.is_datetime64_any_dtype(df_cache[col]):
+                    df_cache[col] = df_cache[col].astype(str)
+
+            cache.set("market_earnings", cache_key, df_cache.to_dict(orient="list"), ttl_days=1)
+            logger.info(f"Fetched {len(df)} earnings reports for {ticker}")
+            return df
+
+        except Exception as e:
+            logger.error(f"Error fetching earnings history for {ticker}: {e}")
+            return None
+
+    def get_analyst_price_target(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Get analyst price target consensus.
+
+        Args:
+            ticker: Stock ticker
+
+        Returns:
+            Dict with price targets (current, mean, median, high, low) or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_price_target"
+
+        # Cache for 1 day
+        cached = cache.get("market_price_target", cache_key)
+        if cached:
+            logger.debug(f"Using cached price target for {ticker}")
+            return cached
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+
+            stock = yf.Ticker(ticker)
+            info = stock.info
+
+            # Extract price target data from info
+            result = {
+                "current_price": info.get("currentPrice") or info.get("regularMarketPrice"),
+                "target_mean": info.get("targetMeanPrice"),
+                "target_median": info.get("targetMedianPrice"),
+                "target_high": info.get("targetHighPrice"),
+                "target_low": info.get("targetLowPrice"),
+                "num_analysts": info.get("numberOfAnalystOpinions"),
+                "recommendation": info.get("recommendationKey"),  # e.g., "buy", "hold"
+            }
+
+            # Only cache and return if we have meaningful data
+            if result["target_mean"] or result["recommendation"]:
+                cache.set("market_price_target", cache_key, result, ttl_days=1)
+                logger.info(f"Fetched price target for {ticker}: ${result.get('target_mean', 'N/A')}")
+                return result
+            else:
+                logger.warning(f"No price target data for {ticker}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error fetching price target for {ticker}: {e}")
+            return None
+
+    def get_earnings_dates(self, ticker: str) -> Optional[pd.DataFrame]:
+        """
+        Get upcoming and historical earnings dates.
+
+        Args:
+            ticker: Stock ticker
+
+        Returns:
+            DataFrame with earnings dates or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_earnings_dates"
+
+        # Cache for 1 day
+        cached = cache.get("market_earnings_dates", cache_key)
+        if cached:
+            logger.debug(f"Using cached earnings dates for {ticker}")
+            return pd.DataFrame(cached) if cached else None
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+
+            stock = yf.Ticker(ticker)
+            df = stock.earnings_dates
+
+            if df is None or df.empty:
+                logger.warning(f"No earnings dates for {ticker}")
+                cache.set("market_earnings_dates", cache_key, None, ttl_days=1)
+                return None
+
+            # Cache as dict for JSON serialization
+            df_cache = df.reset_index()
+
+            # Convert all datetime/timestamp columns to strings for JSON serialization
+            for col in df_cache.columns:
+                if pd.api.types.is_datetime64_any_dtype(df_cache[col]):
+                    df_cache[col] = df_cache[col].astype(str)
+
+            cache.set("market_earnings_dates", cache_key, df_cache.to_dict(orient="list"), ttl_days=1)
+            logger.info(f"Fetched {len(df)} earnings dates for {ticker}")
+            return df
+
+        except Exception as e:
+            logger.error(f"Error fetching earnings dates for {ticker}: {e}")
+            return None
+
 
 # Global instance
 market_data_client = MarketDataClient()

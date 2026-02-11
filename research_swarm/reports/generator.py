@@ -144,6 +144,44 @@ class ReportGenerator:
                 report_data, config.sections, config.include_charts
             )
 
+            # Step 3.5: Store report snapshots for track record
+            logger.debug("Storing report snapshots for track record...")
+            for stock in report_data.stocks:
+                try:
+                    # Extract price and target from stock data
+                    price_at_analysis = 0.0
+                    price_target = 0.0
+
+                    if stock.valuation_metrics:
+                        price_at_analysis = stock.valuation_metrics.get("current_price", 0.0)
+
+                    if stock.price_targets:
+                        price_target = stock.price_targets.get("base_target", 0.0)
+
+                    # Only store if we have valid price data
+                    if price_at_analysis > 0:
+                        snapshot_data = {
+                            "moat_score": stock.moat_score,
+                            "rating": stock.rating,
+                            "investment_thesis": stock.investment_thesis,
+                            "key_insights": stock.key_insights,
+                            "risk_factors": stock.risk_factors,
+                        }
+
+                        self.persistence.store_report_snapshot(
+                            ticker=stock.ticker,
+                            run_id=config.run_id,
+                            analysis_date=report_data.analysis_date,
+                            rating=stock.rating,
+                            price_at_analysis=price_at_analysis,
+                            price_target=price_target,
+                            moat_score=stock.moat_score,
+                            snapshot_data=snapshot_data
+                        )
+                        logger.debug(f"Stored snapshot for {stock.ticker}")
+                except Exception as e:
+                    logger.warning(f"Failed to store snapshot for {stock.ticker}: {e}")
+
             # Step 4: Save Markdown file
             config.output_dir.mkdir(parents=True, exist_ok=True)
             md_path = config.output_dir / f"report_{config.run_id[:8]}.md"

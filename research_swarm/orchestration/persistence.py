@@ -2,9 +2,9 @@
 
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..config import settings
 from ..logger import logger
@@ -92,6 +92,25 @@ class PersistenceManager:
                     timestamp TEXT,
                     tokens_total INTEGER DEFAULT 0,
                     cost_usd REAL DEFAULT 0.0
+                )
+                """
+            )
+
+            # Track record snapshots table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS report_snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ticker TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    analysis_date TEXT NOT NULL,
+                    rating TEXT,
+                    price_at_analysis REAL,
+                    price_target REAL,
+                    moat_score REAL,
+                    snapshot_data TEXT,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(ticker, analysis_date)
                 )
                 """
             )
@@ -518,3 +537,113 @@ class PersistenceManager:
             )
 
             return {row["agent_name"]: row["cost"] for row in cursor.fetchall()}
+
+    def store_report_snapshot(
+        self,
+        ticker: str,
+        run_id: str,
+        analysis_date: str,
+        rating: Optional[str],
+        price_at_analysis: float,
+        price_target: float,
+        moat_score: float,
+        snapshot_data: Dict[str, Any]
+    ) -> str:
+        """Store a report snapshot for track record comparison.
+
+        Args:
+            ticker: Stock ticker
+            run_id: Run ID that generated this report
+            analysis_date: Date of analysis (YYYY-MM-DD)
+            rating: 5-tier rating (STRONG BUY/BUY/HOLD/SELL/STRONG SELL)
+            price_at_analysis: Stock price at time of analysis
+            price_target: Price target from analysis
+            moat_score: Overall moat score
+            snapshot_data: Full report data as dict
+
+        Returns:
+            Snapshot ID
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO report_snapshots (
+                    ticker, run_id, analysis_date, rating, price_at_analysis,
+                    price_target, moat_score, snapshot_data, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    ticker,
+                    run_id,
+                    analysis_date,
+                    rating,
+                    price_at_analysis,
+                    price_target,
+                    moat_score,
+                    json.dumps(snapshot_data),
+                    datetime.now().isoformat(),
+                ),
+            )
+            conn.commit()
+            logger.debug(f"Stored report snapshot for {ticker} on {analysis_date}")
+
+            # Return the ID
+            cursor = conn.execute(
+                "SELECT id FROM report_snapshots WHERE ticker = ? AND analysis_date = ?",
+                (ticker, analysis_date),
+            )
+            row = cursor.fetchone()
+            return str(row[0]) if row else ""
+
+    def get_previous_report(
+        self, ticker: str, lookback_days: int = 90
+    ) -> Optional[Dict[str, Any]]:
+        """Retrieve the most recent previous report for a ticker.
+
+        Args:
+            ticker: Stock ticker
+            lookback_days: Maximum days to look back for previous report
+
+        Returns:
+            Dict with previous report data or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Calculate cutoff date
+            cutoff_date = datetime.now() - timedelta(days=lookback_days)
+
+            cursor = conn.execute(
+                """
+                SELECT *
+                FROM report_snapshots
+                WHERE ticker = ?
+                AND created_at >= ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (ticker, cutoff_date.isoformat()),
+            )
+
+            row = cursor.fetchone()
+
+            if not row:
+                logger.debug(f"No previous report found for {ticker} within {lookback_days} days")
+                return None
+
+            # Parse snapshot data
+            snapshot_data = json.loads(row["snapshot_data"]) if row["snapshot_data"] else {}
+
+            return {
+                "id": row["id"],
+                "ticker": row["ticker"],
+                "run_id": row["run_id"],
+                "analysis_date": row["analysis_date"],
+                "rating": row["rating"],
+                "price_at_analysis": row["price_at_analysis"],
+                "price_target": row["price_target"],
+                "moat_score": row["moat_score"],
+                "snapshot_data": snapshot_data,
+                "created_at": row["created_at"],
+            }

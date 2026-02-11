@@ -1,0 +1,191 @@
+// Prisma schema for Neon Postgres
+// Database: Serverless PostgreSQL optimized for multi-tenant SaaS
+
+generator client {
+  provider = "prisma-client-py"
+  interface = "asyncio"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User accounts (synced from Clerk)
+model User {
+  id        String   @id @default(uuid())
+  clerkId   String   @unique @map("clerk_id")
+  email     String   @unique
+  fullName  String?  @map("full_name")
+
+  // Subscription tier
+  tier             String  @default("free")  // free, pro, enterprise
+  monthlyBudgetUsd Float   @default(200.0) @map("monthly_budget_usd")
+
+  // Account status
+  isActive  Boolean  @default(true) @map("is_active")
+  isAdmin   Boolean  @default(false) @map("is_admin")
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  runs      Run[]
+  costLogs  CostLog[]
+
+  @@index([email])
+  @@index([clerkId])
+  @@map("users")
+}
+
+// Analysis runs (batch or single stock)
+model Run {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Run metadata
+  runName         String?  @map("run_name")
+  tickers         String[] // Array of tickers
+  analysisPeriod  String?  @map("analysis_period")
+  quarters        String[] // For TTM mode
+  fiscalYear      Int?     @map("fiscal_year")
+  newsDaysBack    Int      @default(30) @map("news_days_back")
+  maxRetries      Int      @default(3) @map("max_retries")
+
+  // Status tracking
+  status          String   @default("queued")  // queued, running, completed, failed, cancelled
+  totalStocks     Int      @default(0) @map("total_stocks")
+  completedCount  Int      @default(0) @map("completed_count")
+  failedCount     Int      @default(0) @map("failed_count")
+  progressPercent Float    @default(0) @map("progress_percent")
+  currentTicker   String?  @map("current_ticker")
+
+  // Cost tracking
+  totalCostUsd    Float    @default(0) @map("total_cost_usd")
+  costSummary     Json?    @map("cost_summary")  // Detailed cost breakdown
+
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  elapsedSeconds  Float    @default(0) @map("elapsed_seconds")
+
+  // Relations
+  stockResults    StockResult[]
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@map("runs")
+}
+
+// Individual stock analysis results
+model StockResult {
+  id    String @id @default(uuid())
+  runId String @map("run_id")
+  run   Run    @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  ticker String
+
+  // Status
+  status      String @default("pending")  // pending, running, completed, failed
+  retryCount  Int    @default(0) @map("retry_count")
+
+  // Analysis results
+  moatScore              Float?   @map("moat_score")
+  financialHealthScore   Float?   @map("financial_health_score")
+  businessModelMoatScore Float?   @map("business_model_moat_score")
+  sentimentScore         Float?   @map("sentiment_score")
+  technicalScore         Float?   @map("technical_score")
+  supplyChainScore       Float?   @map("supply_chain_score")
+
+  isWatchlistCandidate   Boolean? @map("is_watchlist_candidate")
+  investmentThesis       String?  @map("investment_thesis") @db.Text
+
+  // Full output (JSON blob from manager agent)
+  fullOutput Json? @map("full_output")
+
+  // Chart URLs (stored in R2)
+  chartUrls  Json? @map("chart_urls")  // { moat: "url", supply_chain: "url" }
+
+  // Metrics
+  tokensUsed            Int?   @default(0) @map("tokens_used")
+  costUsd               Float? @default(0) @map("cost_usd")
+  processingTimeSeconds Float? @map("processing_time_seconds")
+
+  // Error tracking
+  errorMessage String? @map("error_message") @db.Text
+  errorStack   String? @map("error_stack") @db.Text
+
+  // Timestamps
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@unique([runId, ticker])
+  @@index([ticker])
+  @@index([moatScore(sort: Desc)])
+  @@map("stock_results")
+}
+
+// Cost tracking log (for budget monitoring)
+model CostLog {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  runId  String? @map("run_id")
+  ticker String
+  agent  String  // fundamentalist, news_hound, quant, manager
+
+  tokensTotal Int   @map("tokens_total")
+  tokensInput Int   @default(0) @map("tokens_input")
+  tokensOutput Int  @default(0) @map("tokens_output")
+
+  costUsd     Float @map("cost_usd")
+
+  timestamp DateTime @default(now())
+
+  @@index([userId, timestamp(sort: Desc)])
+  @@index([runId])
+  @@map("cost_logs")
+}
+
+// API keys for programmatic access (optional)
+model ApiKey {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+
+  keyHash  String   @unique @map("key_hash")  // SHA256 hash of the key
+  name     String   // User-friendly name
+
+  lastUsedAt DateTime? @map("last_used_at")
+  expiresAt  DateTime? @map("expires_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([keyHash])
+  @@map("api_keys")
+}
+
+// Audit log for security and compliance
+model AuditLog {
+  id String @id @default(uuid())
+
+  userId       String?  @map("user_id")
+  action       String   // run_created, report_generated, etc.
+  resourceType String   @map("resource_type")  // run, report, user
+  resourceId   String   @map("resource_id")
+
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent") @db.Text
+
+  metadata   Json?    // Additional context
+
+  timestamp DateTime @default(now())
+
+  @@index([userId, timestamp(sort: Desc)])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}

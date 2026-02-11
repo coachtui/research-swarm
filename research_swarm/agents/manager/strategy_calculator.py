@@ -1,0 +1,381 @@
+"""
+Strategy calculator for investment recommendations.
+
+Calculates entry/exit strategies, position sizing, and risk/reward analysis
+based on technical levels, valuation targets, and risk assessment.
+"""
+from typing import Dict, Any, Optional, Tuple
+from research_swarm.logger import logger
+
+
+class StrategyCalculator:
+    """Calculates investment strategy recommendations."""
+
+    def calculate_entry_strategy(
+        self,
+        current_price: float,
+        valuation_targets: Dict[str, Any],
+        technical_levels: Optional[Dict[str, Any]] = None,
+        risk_level: str = "Medium",
+        conviction: float = 0.7
+    ) -> Dict[str, Any]:
+        """
+        Calculate entry strategy based on current price vs targets.
+
+        Logic:
+        - If price < base_target: Buy now
+        - If price near base_target (±5%): Scale in
+        - If price > base_target: Wait for pullback
+
+        Args:
+            current_price: Current stock price
+            valuation_targets: Dict with base_target, bull_target, bear_target
+            technical_levels: Optional dict with support/resistance levels
+            risk_level: Low/Medium/High
+            conviction: Analysis confidence (0-1)
+
+        Returns:
+            Dict with entry strategy, ideal zones, and tranched buying plan
+        """
+        if not current_price or not valuation_targets:
+            return self._default_entry_strategy()
+
+        base_target = valuation_targets.get("base_target", current_price)
+        bear_target = valuation_targets.get("bear_target", current_price * 0.85)
+
+        # Calculate ideal entry zone (bear to slightly below base)
+        ideal_low = bear_target
+        ideal_high = base_target * 0.95  # 5% below base target
+
+        # Determine recommendation
+        discount_pct = ((base_target - current_price) / base_target) * 100
+
+        if discount_pct >= 15:
+            recommendation = "Buy now - significant discount"
+        elif discount_pct >= 5:
+            recommendation = "Buy now - moderate discount"
+        elif discount_pct >= -5:
+            recommendation = "Scale in - near fair value"
+        elif discount_pct >= -15:
+            recommendation = "Wait for pullback - slightly overvalued"
+        else:
+            recommendation = "Avoid - significantly overvalued"
+
+        # Calculate tranched buying plan
+        if discount_pct >= 0:  # At or below fair value
+            # Aggressive entry
+            initial_percent = 50
+            add_percent = 30
+            final_percent = 20
+
+            initial_price = current_price * 0.98  # 2% below current
+            add_price = current_price * 0.92  # 8% below current (if it dips)
+            final_price = current_price * 0.88  # 12% below current (deep dip)
+        else:  # Above fair value
+            # Conservative entry - wait for pullback
+            initial_percent = 30
+            add_percent = 40
+            final_percent = 30
+
+            initial_price = ideal_high  # Wait for pullback to ideal high
+            add_price = (ideal_high + ideal_low) / 2  # Mid-range
+            final_price = ideal_low  # Best price
+
+        return {
+            "ideal_zone": {
+                "low": round(ideal_low, 2),
+                "high": round(ideal_high, 2)
+            },
+            "current_price": round(current_price, 2),
+            "discount_to_target_pct": round(discount_pct, 1),
+            "recommendation": recommendation,
+            "tranched_buying": {
+                "initial_percent": initial_percent,
+                "initial_price": round(initial_price, 2),
+                "add_percent": add_percent,
+                "add_price": round(add_price, 2),
+                "final_percent": final_percent,
+                "final_price": round(final_price, 2),
+                "rationale": f"{'Aggressive' if discount_pct >= 0 else 'Conservative'} entry based on valuation"
+            }
+        }
+
+    def calculate_position_sizing(
+        self,
+        risk_level: str,
+        conviction: float,
+        moat_score: float,
+        rating: str = "HOLD"
+    ) -> Dict[str, Any]:
+        """
+        Calculate recommended position sizing.
+
+        Logic:
+        - Base size on risk level (Low=10%, Medium=5-7%, High=2-3%)
+        - Adjust for conviction (high conviction = larger position)
+        - Adjust for rating strength
+
+        Args:
+            risk_level: Low/Medium/High
+            conviction: Analysis confidence (0-1)
+            moat_score: Overall moat score (0-10)
+            rating: STRONG BUY/BUY/HOLD/SELL/STRONG SELL
+
+        Returns:
+            Dict with recommended and max position sizes with rationale
+        """
+        # Base sizing by risk level
+        if risk_level == "Low":
+            base_size = 8.0
+            max_size = 12.0
+        elif risk_level == "High":
+            base_size = 2.5
+            max_size = 4.0
+        else:  # Medium
+            base_size = 5.0
+            max_size = 7.5
+
+        # Adjust for conviction (±30%)
+        conviction_multiplier = 0.7 + (conviction * 0.6)  # Range: 0.7 to 1.3
+        recommended = base_size * conviction_multiplier
+
+        # Adjust for rating strength
+        if rating == "STRONG BUY":
+            recommended *= 1.2
+            max_size *= 1.2
+        elif rating == "SELL" or rating == "STRONG SELL":
+            recommended *= 0.5
+            max_size *= 0.5
+
+        # Cap at reasonable limits
+        recommended = min(recommended, 15.0)
+        max_size = min(max_size, 20.0)
+
+        # Generate rationale
+        rationale_parts = []
+
+        if risk_level == "Low":
+            rationale_parts.append("Low risk profile allows larger position")
+        elif risk_level == "High":
+            rationale_parts.append("High risk requires smaller position")
+        else:
+            rationale_parts.append("Moderate risk suggests balanced position")
+
+        if conviction > 0.8:
+            rationale_parts.append("high conviction in analysis")
+        elif conviction < 0.6:
+            rationale_parts.append("lower conviction suggests caution")
+
+        if moat_score >= 8.0:
+            rationale_parts.append("strong moat supports larger allocation")
+
+        rationale = "; ".join(rationale_parts)
+
+        return {
+            "recommended_pct": round(recommended, 1),
+            "max_pct": round(max_size, 1),
+            "rationale": rationale.capitalize()
+        }
+
+    def calculate_exit_plan(
+        self,
+        current_price: float,
+        price_targets: Dict[str, Any],
+        risk_level: str = "Medium",
+        technical_resistance: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Calculate exit strategy with targets and stop loss.
+
+        Logic:
+        - Target 1: Base case target (sell 50%)
+        - Target 2: Bull case target (sell remaining 50%)
+        - Stop loss: Based on risk level (Low=20%, Medium=15%, High=10%)
+        - Trailing stop: 15-20% from peak
+
+        Args:
+            current_price: Current stock price
+            price_targets: Dict with base_target, bull_target
+            risk_level: Low/Medium/High
+            technical_resistance: Optional resistance level
+
+        Returns:
+            Dict with exit targets, stop loss, trailing stop, risk/reward
+        """
+        if not current_price or not price_targets:
+            return self._default_exit_plan()
+
+        base_target = price_targets.get("base_target", current_price * 1.15)
+        bull_target = price_targets.get("bull_target", current_price * 1.30)
+
+        # Target 1: Base case (sell 50%)
+        target_1_price = base_target
+        target_1_percent = 50
+        target_1_rationale = "Base case achieved - take profits on half"
+
+        # Target 2: Bull case (sell remaining)
+        target_2_price = bull_target
+        target_2_percent = 50
+        target_2_rationale = "Bull case achieved - exit remaining position"
+
+        # Stop loss based on risk level
+        if risk_level == "Low":
+            stop_loss_pct = 20  # Can afford larger drawdown
+        elif risk_level == "High":
+            stop_loss_pct = 10  # Tight stop for high risk
+        else:
+            stop_loss_pct = 15  # Standard stop
+
+        stop_loss = current_price * (1 - stop_loss_pct / 100)
+
+        # Trailing stop
+        trailing_stop_pct = 15
+        trailing_stop = f"{trailing_stop_pct}% trailing stop from peak"
+
+        # Calculate risk/reward
+        avg_target = (target_1_price + target_2_price) / 2
+        potential_gain = avg_target - current_price
+        potential_loss = current_price - stop_loss
+
+        if potential_loss > 0:
+            risk_reward_ratio = potential_gain / potential_loss
+        else:
+            risk_reward_ratio = 0.0
+
+        # Expected holding period based on targets
+        upside_pct = ((base_target - current_price) / current_price) * 100
+
+        if upside_pct > 30:
+            holding_period = "12-18 months"
+        elif upside_pct > 15:
+            holding_period = "6-12 months"
+        elif upside_pct > 5:
+            holding_period = "3-6 months"
+        else:
+            holding_period = "Hold - reassess in 3 months"
+
+        # Calculate expected returns
+        expected_return_total = ((avg_target - current_price) / current_price) * 100
+
+        # Simple annualized return (assume 12-month holding period)
+        if holding_period.startswith("12-18"):
+            months = 15
+        elif holding_period.startswith("6-12"):
+            months = 9
+        elif holding_period.startswith("3-6"):
+            months = 4.5
+        else:
+            months = 12
+
+        expected_return_annualized = (expected_return_total / months) * 12
+
+        return {
+            "target_1": {
+                "price": round(target_1_price, 2),
+                "percent": target_1_percent,
+                "rationale": target_1_rationale
+            },
+            "target_2": {
+                "price": round(target_2_price, 2),
+                "percent": target_2_percent,
+                "rationale": target_2_rationale
+            },
+            "stop_loss": round(stop_loss, 2),
+            "stop_loss_pct": stop_loss_pct,
+            "trailing_stop": trailing_stop,
+            "risk_reward_ratio": round(risk_reward_ratio, 1),
+            "holding_period": holding_period,
+            "expected_return_total": round(expected_return_total, 1),
+            "expected_return_annualized": round(expected_return_annualized, 1)
+        }
+
+    def calculate_full_strategy(
+        self,
+        current_price: float,
+        valuation_targets: Dict[str, Any],
+        risk_level: str,
+        conviction: float,
+        moat_score: float,
+        rating: str,
+        technical_levels: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Calculate complete investment strategy.
+
+        Combines entry, position sizing, and exit strategies.
+
+        Args:
+            current_price: Current stock price
+            valuation_targets: Price target scenarios
+            risk_level: Low/Medium/High
+            conviction: Analysis confidence (0-1)
+            moat_score: Overall moat score (0-10)
+            rating: 5-tier rating
+            technical_levels: Optional technical support/resistance
+
+        Returns:
+            Complete strategy dict with entry, position_sizing, and exit
+        """
+        entry = self.calculate_entry_strategy(
+            current_price=current_price,
+            valuation_targets=valuation_targets,
+            technical_levels=technical_levels,
+            risk_level=risk_level,
+            conviction=conviction
+        )
+
+        position_sizing = self.calculate_position_sizing(
+            risk_level=risk_level,
+            conviction=conviction,
+            moat_score=moat_score,
+            rating=rating
+        )
+
+        exit = self.calculate_exit_plan(
+            current_price=current_price,
+            price_targets=valuation_targets,
+            risk_level=risk_level,
+            technical_resistance=technical_levels.get("resistance") if technical_levels else None
+        )
+
+        return {
+            "entry": entry,
+            "position_sizing": position_sizing,
+            "exit": exit
+        }
+
+    def _default_entry_strategy(self) -> Dict[str, Any]:
+        """Return default entry strategy when data insufficient."""
+        return {
+            "ideal_zone": {"low": 0.0, "high": 0.0},
+            "current_price": 0.0,
+            "discount_to_target_pct": 0.0,
+            "recommendation": "Insufficient data for entry strategy",
+            "tranched_buying": {
+                "initial_percent": 0,
+                "initial_price": 0.0,
+                "add_percent": 0,
+                "add_price": 0.0,
+                "final_percent": 0,
+                "final_price": 0.0,
+                "rationale": "No data"
+            }
+        }
+
+    def _default_exit_plan(self) -> Dict[str, Any]:
+        """Return default exit plan when data insufficient."""
+        return {
+            "target_1": {"price": 0.0, "percent": 50, "rationale": "No data"},
+            "target_2": {"price": 0.0, "percent": 50, "rationale": "No data"},
+            "stop_loss": 0.0,
+            "stop_loss_pct": 15,
+            "trailing_stop": "15% from peak",
+            "risk_reward_ratio": 0.0,
+            "holding_period": "Unknown",
+            "expected_return_total": 0.0,
+            "expected_return_annualized": 0.0
+        }
+
+
+# Global calculator instance
+strategy_calculator = StrategyCalculator()

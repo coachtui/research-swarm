@@ -118,8 +118,13 @@ class QuantAnalyzer:
         # Extract indicator values for prompt
         ma = indicators.moving_averages
         rsi = indicators.rsi
+        macd = indicators.macd
+        bb = indicators.bollinger_bands
+        stoch = indicators.stochastic
         vol = indicators.volume
+        vp = indicators.volume_profile
         rs = indicators.relative_strength
+        signals = indicators.entry_exit_signals
 
         # Format values, handling None
         def fmt_float(val, decimals=2):
@@ -131,24 +136,57 @@ class QuantAnalyzer:
         prompt = TECHNICAL_ANALYSIS_PROMPT.format(
             ticker=ticker,
             analysis_date=analysis_date,
+            # Moving Averages
             sma_50=ma.sma_50 or 0,
             sma_200=ma.sma_200 or 0,
             current_price=ma.current_price or 0,
             crossover_signal=ma.crossover_signal.value,
             days_since_crossover=ma.days_since_crossover or "N/A",
+            # RSI
             rsi_value=rsi.rsi_14 or 50,
             rsi_signal=rsi.rsi_signal.value,
             rsi_interpretation=rsi.interpretation,
+            # MACD
+            macd_line=macd.macd_line or 0,
+            signal_line=macd.signal_line or 0,
+            histogram=macd.histogram or 0,
+            macd_signal=macd.macd_signal.value,
+            macd_interpretation=macd.interpretation,
+            # Bollinger Bands
+            upper_band=bb.upper_band or 0,
+            middle_band=bb.middle_band or 0,
+            lower_band=bb.lower_band or 0,
+            bb_current_price=bb.current_price or 0,
+            bb_position=bb.position.value,
+            bandwidth=bb.bandwidth or 0,
+            bb_interpretation=bb.interpretation,
+            # Stochastic
+            k_value=stoch.k_value or 50,
+            d_value=stoch.d_value or 50,
+            stoch_signal=stoch.stochastic_signal.value,
+            stoch_interpretation=stoch.interpretation,
+            # Volume
             avg_volume=vol.avg_volume_20d or 0,
             current_volume=vol.current_volume or 0,
             volume_ratio=vol.volume_ratio or 1.0,
             volume_trend=vol.volume_trend.value,
+            # Volume Profile
+            poc=vp.poc or 0,
+            value_area_high=vp.value_area_high or 0,
+            value_area_low=vp.value_area_low or 0,
+            volume_profile_interpretation=vp.interpretation,
+            # Relative Strength
             ticker_return_1m=fmt_pct(rs.ticker_return_1m),
             vs_sector_1m=fmt_pct(rs.vs_sector_1m),
             vs_market_1m=fmt_pct(rs.vs_market_1m),
             ticker_return_3m=fmt_pct(rs.ticker_return_3m),
             vs_sector_3m=fmt_pct(rs.vs_sector_3m),
             vs_market_3m=fmt_pct(rs.vs_market_3m),
+            # Entry/Exit Signals
+            overall_signal=signals.overall_signal.value,
+            signal_confidence=signals.confidence,
+            bullish_count=len(signals.bullish_factors),
+            bearish_count=len(signals.bearish_factors),
         )
 
         try:

@@ -46,16 +46,27 @@ class FundamentalistState(TypedDict, total=False):
 
     # Extracted data - Annual mode (backward compatibility)
     financial_metrics: Optional[Dict[str, Any]]  # Financial metrics extracted from 10-K
-    supply_chain_data: Optional[Dict[str, Any]]  # Supply chain data (customers, suppliers)
+    business_model_data: Optional[Dict[str, Any]]  # Business model and revenue streams
+
+    # TTM-specific extracted fields
+    quarterly_metrics: Optional[List[Dict[str, Any]]]  # List of quarterly metrics
 
     # Analysis results (shared by both modes)
     financial_analysis: Optional[str]  # Qualitative financial analysis
     financial_health_score: Optional[float]  # Final health score (0-10)
     score_breakdown: Optional[Dict[str, float]]  # Breakdown by component (profitability, growth, etc.)
+    business_model_moat_score: Optional[float]  # Business model moat score (0-10)
+    business_model_score_breakdown: Optional[Dict[str, float]]  # Business model score breakdown
+    enhanced_moat: Optional[Dict[str, Any]]  # Enhanced moat breakdown across 8 categories
     confidence: Optional[float]  # Confidence level (0-1)
 
     # Data quality tracking (TTM mode)
     data_quality: Optional[Dict[str, str]]  # Quarter -> "10-Q" | "10-K" | "missing"
+
+    # Earnings momentum data (NEW)
+    earnings_raw_data: Optional[Dict[str, Any]]  # Bundle of yfinance earnings data
+    vgm_scores: Optional[Dict[str, Any]]  # Calculated VGM breakdown
+    earnings_momentum_score: Optional[float]  # Momentum component (0-10)
 
     # Metadata
     tokens_used: int  # Total tokens used in API calls

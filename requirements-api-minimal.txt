@@ -1,0 +1,18 @@
+# Minimal API dependencies for immediate local testing
+# Use this for Phase 1 MVP testing without external services
+
+# Core API Framework
+fastapi>=0.109.0
+mangum>=0.17.0
+uvicorn[standard]>=0.27.0
+
+# Authentication (JWT)
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# Include core research_swarm dependencies
+-r requirements.txt
+
+# Development tools (optional but helpful)
+httpx>=0.26.0
+pytest-asyncio>=0.23.0

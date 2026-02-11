@@ -71,36 +71,79 @@ class ManagerAnalyzer:
         """
         logger.info(f"Synthesizing findings for {ticker}")
 
-        # Extract key data for prompt
+        # Extract key scores
         financial_health_score = fundamentalist_output.get("financial_health_score", 0)
         sentiment_score = news_hound_output.get("sentiment_score", 0)
         technical_score = quant_output.get("technical_score", 0)
         supply_chain_score = quant_output.get("supply_chain_score", 0)
 
-        # Format summaries
+        # Format Fundamentalist data
+        vgm_summary = self._format_vgm_summary(fundamentalist_output)
+        moat_breakdown = self._format_moat_breakdown(fundamentalist_output)
+        valuation_summary = self._format_valuation_summary(fundamentalist_output)
+        price_targets = self._format_price_targets(fundamentalist_output)
         fundamentalist_summary = self._format_fundamentalist_summary(fundamentalist_output)
+        peer_comparison = self._format_peer_comparison(fundamentalist_output)
         fundamentalist_narrative = fundamentalist_output.get("analysis_summary", "N/A")
 
+        # Format News Hound data
+        signal_breakdown = self._format_signal_breakdown(news_hound_output)
+        earnings_revisions = self._format_earnings_revisions(news_hound_output)
+        analyst_consensus = self._format_analyst_consensus(news_hound_output)
+        institutional_activity = self._format_institutional_activity(news_hound_output)
+        insider_activity = self._format_insider_activity(news_hound_output)
+        management_quality = self._format_management_quality(news_hound_output)
+        short_interest = self._format_short_interest(news_hound_output)
+        catalyst_calendar = self._format_catalyst_calendar(news_hound_output)
         news_catalysts = self._format_news_catalysts(news_hound_output)
         news_narrative = news_hound_output.get("sentiment_analysis", "N/A")
 
-        technical_summary = self._format_technical_summary(quant_output)
+        # Format Quant data
+        trend_indicators = self._format_trend_indicators(quant_output)
+        momentum_indicators = self._format_momentum_indicators(quant_output)
+        volatility_indicators = self._format_volatility_indicators(quant_output)
+        volume_profile = self._format_volume_profile(quant_output)
+        relative_strength = self._format_relative_strength(quant_output)
+        entry_exit_signal = self._format_entry_exit_signal(quant_output)
         supply_chain_summary = quant_output.get("supply_chain_analysis", "N/A")
+        quant_narrative = quant_output.get("technical_analysis", "N/A")
 
         prompt = SYNTHESIS_PROMPT.format(
             ticker=ticker,
             analysis_date=analysis_date,
             analysis_period=analysis_period,
+            # Fundamentalist
             financial_health_score=financial_health_score,
+            vgm_summary=vgm_summary,
+            moat_breakdown=moat_breakdown,
+            valuation_summary=valuation_summary,
+            price_targets=price_targets,
             fundamentalist_summary=fundamentalist_summary,
+            peer_comparison=peer_comparison,
             fundamentalist_narrative=fundamentalist_narrative,
+            # News Hound
             sentiment_score=sentiment_score,
+            signal_breakdown=signal_breakdown,
+            earnings_revisions=earnings_revisions,
+            analyst_consensus=analyst_consensus,
+            institutional_activity=institutional_activity,
+            insider_activity=insider_activity,
+            management_quality=management_quality,
+            short_interest=short_interest,
+            catalyst_calendar=catalyst_calendar,
             news_catalysts=news_catalysts,
             news_narrative=news_narrative,
+            # Quant
             technical_score=technical_score,
             supply_chain_score=supply_chain_score,
-            technical_summary=technical_summary,
+            trend_indicators=trend_indicators,
+            momentum_indicators=momentum_indicators,
+            volatility_indicators=volatility_indicators,
+            volume_profile=volume_profile,
+            relative_strength=relative_strength,
+            entry_exit_signal=entry_exit_signal,
             supply_chain_summary=supply_chain_summary,
+            quant_narrative=quant_narrative,
         )
 
         try:
@@ -146,6 +189,10 @@ class ManagerAnalyzer:
         synthesis_narrative: str,
         key_insights: List[str],
         risk_factors: List[str],
+        # Enhanced context
+        fundamentalist_output: Dict[str, Any] = None,
+        news_hound_output: Dict[str, Any] = None,
+        quant_output: Dict[str, Any] = None,
     ) -> Tuple[Dict[str, Any], int]:
         """
         Generate investment thesis with buy/hold/avoid recommendation.
@@ -163,6 +210,9 @@ class ManagerAnalyzer:
             synthesis_narrative: Synthesis narrative
             key_insights: Key insights list
             risk_factors: Risk factors list
+            fundamentalist_output: Optional fundamentalist output for enhanced context
+            news_hound_output: Optional news hound output for enhanced context
+            quant_output: Optional quant output for enhanced context
 
         Returns:
             Tuple of (thesis_dict, tokens_used)
@@ -173,6 +223,76 @@ class ManagerAnalyzer:
         # Format lists for prompt
         key_insights_text = "\n".join([f"• {insight}" for insight in key_insights])
         risk_factors_text = "\n".join([f"• {risk}" for risk in risk_factors])
+
+        # Extract enhanced context if available
+        vgm_profile = "N/A"
+        earnings_signal = "N/A"
+        technical_signal = "N/A"
+        avg_price_target = "N/A"
+        institutional_insider_summary = "N/A"
+        next_catalyst = "N/A"
+
+        if fundamentalist_output:
+            vgm = fundamentalist_output.get("vgm_scores", {})
+            if vgm:
+                v_grade = vgm.get("value_grade", "N/A")
+                g_grade = vgm.get("growth_grade", "N/A")
+                m_grade = vgm.get("momentum_grade", "N/A")
+                vgm_profile = f"V:{v_grade}/G:{g_grade}/M:{m_grade}"
+
+            pt = fundamentalist_output.get("price_target_scenarios", {})
+            if pt:
+                scenarios = pt.get("scenarios", [])
+                base_case = next((s for s in scenarios if s.get("case") == "base"), None)
+                if base_case:
+                    target = base_case.get("target", 0)
+                    upside = base_case.get("upside_pct", 0)
+                    avg_price_target = f"${target:.2f} ({upside:+.1f}%)"
+
+        if news_hound_output:
+            revisions = news_hound_output.get("earnings_estimate_revisions", {})
+            if revisions:
+                ninety_day = revisions.get("ninety_day_activity", {})
+                trend = ninety_day.get("trend", "neutral")
+                earnings_signal = trend.upper()
+
+            consensus = news_hound_output.get("analyst_consensus", {})
+            if consensus and not avg_price_target or avg_price_target == "N/A":
+                targets = consensus.get("price_targets", {})
+                avg = targets.get("average", 0)
+                upside = targets.get("upside_to_average", 0)
+                if avg > 0:
+                    avg_price_target = f"${avg:.2f} ({upside:+.1f}%)"
+
+            inst = news_hound_output.get("institutional_activity", {})
+            insider = news_hound_output.get("insider_trading", {})
+            inst_trend = "neutral"
+            insider_signal = "neutral"
+            if inst:
+                activity = inst.get("recent_activity", {})
+                inst_trend = activity.get("trend", "neutral")
+            if insider:
+                six_month = insider.get("six_month_activity", {})
+                insider_signal = six_month.get("signal", "neutral")
+            institutional_insider_summary = f"Institutional: {inst_trend}, Insider: {insider_signal}"
+
+            catalysts = news_hound_output.get("upcoming_catalysts", {})
+            if catalysts:
+                events = catalysts.get("events", [])
+                if events:
+                    next_event = events[0]
+                    date = next_event.get("date", "TBD")
+                    event_type = next_event.get("type", "unknown")
+                    next_catalyst = f"{event_type} on {date}"
+
+        if quant_output:
+            indicators = quant_output.get("technical_indicators", {})
+            if indicators:
+                signals = indicators.get("entry_exit_signals", {})
+                if signals:
+                    overall = signals.get("overall_signal", "neutral")
+                    conf = signals.get("confidence", 0.5)
+                    technical_signal = f"{overall.upper()} ({conf:.0%})"
 
         prompt = INVESTMENT_THESIS_PROMPT.format(
             ticker=ticker,
@@ -187,6 +307,13 @@ class ManagerAnalyzer:
             synthesis_narrative=synthesis_narrative,
             key_insights=key_insights_text,
             risk_factors=risk_factors_text,
+            # Enhanced context
+            vgm_profile=vgm_profile,
+            earnings_signal=earnings_signal,
+            technical_signal=technical_signal,
+            avg_price_target=avg_price_target,
+            institutional_insider_summary=institutional_insider_summary,
+            next_catalyst=next_catalyst,
         )
 
         try:
@@ -283,7 +410,7 @@ class ManagerAnalyzer:
         return "\n".join([f"- {catalyst}" for catalyst in catalysts[:5]])
 
     def _format_technical_summary(self, output: Dict[str, Any]) -> str:
-        """Format technical indicators for prompt."""
+        """Format technical indicators for prompt (legacy - kept for backward compatibility)."""
         indicators = output.get("technical_indicators", {})
 
         summary_parts = []
@@ -309,3 +436,368 @@ class ManagerAnalyzer:
                 summary_parts.append(f"RSI: {rsi_value:.1f}")
 
         return "\n".join([f"- {part}" for part in summary_parts]) if summary_parts else "No technical data available"
+
+    # ========================================================================
+    # NEW Enhanced Data Formatting Methods
+    # ========================================================================
+
+    def _format_vgm_summary(self, output: Dict[str, Any]) -> str:
+        """Format VGM investment style profile."""
+        vgm = output.get("vgm_scores", {})
+        if not vgm:
+            return "VGM scores not available"
+
+        v_score = vgm.get("value_score", "N/A")
+        g_score = vgm.get("growth_score", "N/A")
+        m_score = vgm.get("momentum_score", "N/A")
+        v_grade = vgm.get("value_grade", "N/A")
+        g_grade = vgm.get("growth_grade", "N/A")
+        m_grade = vgm.get("momentum_grade", "N/A")
+
+        return f"Value: {v_score} ({v_grade}), Growth: {g_score} ({g_grade}), Momentum: {m_score} ({m_grade})"
+
+    def _format_moat_breakdown(self, output: Dict[str, Any]) -> str:
+        """Format 8-category moat breakdown."""
+        moat = output.get("enhanced_moat_analysis", {})
+        if not moat or not moat.get("moat_categories"):
+            return "Moat analysis not available"
+
+        categories = moat["moat_categories"]
+        lines = []
+        for cat in categories:
+            name = cat.get("name", "Unknown")
+            score = cat.get("score", 0)
+            strength = cat.get("strength", "none")
+            lines.append(f"• {name}: {score:.1f}/10 ({strength})")
+
+        return "\n".join(lines)
+
+    def _format_valuation_summary(self, output: Dict[str, Any]) -> str:
+        """Format valuation metrics."""
+        val = output.get("valuation_analysis", {})
+        if not val or not val.get("metrics"):
+            return "Valuation metrics not available"
+
+        metrics = val["metrics"]
+        lines = []
+        for m in metrics:
+            name = m.get("metric", "")
+            value = m.get("value", "N/A")
+            vs_sector = m.get("vs_sector_median", "N/A")
+            assessment = m.get("assessment", "neutral")
+            lines.append(f"• {name}: {value} (vs sector: {vs_sector}, {assessment})")
+
+        overall = val.get("overall_valuation", "neutral")
+        lines.append(f"\nOverall Valuation: {overall.upper()}")
+
+        return "\n".join(lines)
+
+    def _format_price_targets(self, output: Dict[str, Any]) -> str:
+        """Format price target scenarios."""
+        pt = output.get("price_target_scenarios", {})
+        if not pt or not pt.get("scenarios"):
+            return "Price targets not available"
+
+        scenarios = pt["scenarios"]
+        current = pt.get("current_price", 0)
+        lines = []
+
+        for s in scenarios:
+            case = s.get("case", "")
+            target = s.get("target", 0)
+            upside = s.get("upside_pct", 0)
+            prob = s.get("probability", 0)
+            lines.append(f"• {case.upper()}: ${target:.2f} ({upside:+.1f}%) - {prob:.0%} probability")
+
+        lines.insert(0, f"Current Price: ${current:.2f}")
+        return "\n".join(lines)
+
+    def _format_peer_comparison(self, output: Dict[str, Any]) -> str:
+        """Format peer competitive position."""
+        peer = output.get("peer_comparison", {})
+        if not peer or not peer.get("rankings"):
+            return "Peer comparison not available"
+
+        rankings = peer["rankings"]
+        competitive_pos = peer.get("competitive_position", "middle-of-pack")
+        lines = []
+
+        for r in rankings[:5]:  # Top 5
+            metric = r.get("metric", "")
+            rank = r.get("rank", "N/A")
+            total = r.get("total_peers", "N/A")
+            lines.append(f"• {metric}: #{rank} of {total}")
+
+        lines.append(f"\nCompetitive Position: {competitive_pos.upper()}")
+        return "\n".join(lines)
+
+    def _format_signal_breakdown(self, output: Dict[str, Any]) -> str:
+        """Format News Hound 7-signal breakdown."""
+        signals = output.get("signal_analysis", {})
+        if not signals or not signals.get("individual_signals"):
+            return "Signal breakdown not available"
+
+        individual = signals["individual_signals"]
+        overall = signals.get("overall_assessment", "neutral")
+
+        lines = []
+        for s in individual:
+            name = s.get("name", "")
+            signal = s.get("signal", "neutral")
+            score = s.get("score", 5.0)
+            confidence = s.get("confidence", 0.5)
+            weight = s.get("weight", 0.1)
+            lines.append(f"• {name}: {signal.upper()} (score: {score:.1f}/10, confidence: {confidence:.0%}, weight: {weight:.0%})")
+
+        lines.insert(0, f"Overall: {overall.upper()}\n")
+        return "\n".join(lines)
+
+    def _format_earnings_revisions(self, output: Dict[str, Any]) -> str:
+        """Format earnings estimate revisions (primary signal)."""
+        revisions = output.get("earnings_estimate_revisions", {})
+        if not revisions:
+            return "Earnings revisions not available"
+
+        ninety_day = revisions.get("ninety_day_activity", {})
+        surprise_hist = revisions.get("surprise_history", [])
+
+        lines = []
+        if ninety_day:
+            up = ninety_day.get("upgrades", 0)
+            down = ninety_day.get("downgrades", 0)
+            net = ninety_day.get("net_revisions", 0)
+            trend = ninety_day.get("trend", "neutral")
+            lines.append(f"90-Day Activity: {up} upgrades, {down} downgrades (net: {net:+d}) - {trend.upper()}")
+
+        if surprise_hist:
+            avg_surprise = sum([s.get("surprise_pct", 0) for s in surprise_hist[:4]]) / min(4, len(surprise_hist))
+            lines.append(f"Avg Surprise (4Q): {avg_surprise:+.1f}%")
+
+        return "\n".join(lines) if lines else "Limited data"
+
+    def _format_analyst_consensus(self, output: Dict[str, Any]) -> str:
+        """Format analyst consensus."""
+        consensus = output.get("analyst_consensus", {})
+        if not consensus:
+            return "Analyst consensus not available"
+
+        ratings = consensus.get("ratings_distribution", {})
+        targets = consensus.get("price_targets", {})
+
+        lines = []
+        if ratings:
+            total = ratings.get("total_analysts", 0)
+            strong_buy = ratings.get("strong_buy", 0)
+            buy = ratings.get("buy", 0)
+            hold = ratings.get("hold", 0)
+            sell = ratings.get("sell", 0)
+            consensus_rating = ratings.get("consensus_rating", "hold")
+            lines.append(f"Ratings ({total} analysts): {strong_buy} StrongBuy, {buy} Buy, {hold} Hold, {sell} Sell - Consensus: {consensus_rating.upper()}")
+
+        if targets:
+            avg = targets.get("average", 0)
+            high = targets.get("high", 0)
+            low = targets.get("low", 0)
+            upside = targets.get("upside_to_average", 0)
+            lines.append(f"Price Targets: Avg ${avg:.2f} ({upside:+.1f}%), Range: ${low:.2f}-${high:.2f}")
+
+        return "\n".join(lines) if lines else "Limited data"
+
+    def _format_institutional_activity(self, output: Dict[str, Any]) -> str:
+        """Format institutional money flow."""
+        inst = output.get("institutional_activity", {})
+        if not inst:
+            return "Institutional activity not available"
+
+        activity = inst.get("recent_activity", {})
+        ownership = inst.get("ownership_summary", {})
+
+        lines = []
+        if activity:
+            net_shares = activity.get("net_shares_change", 0)
+            trend = activity.get("trend", "neutral")
+            lines.append(f"Recent Activity: {trend.upper()} (net shares: {net_shares:+,.0f})")
+
+        if ownership:
+            total_pct = ownership.get("total_institutional_pct", 0)
+            top_holders = ownership.get("top_5_holders", [])
+            lines.append(f"Ownership: {total_pct:.1f}% institutional")
+            if top_holders:
+                top_3 = ", ".join([f"{h.get('name', 'N/A')} ({h.get('pct_held', 0):.1f}%)" for h in top_holders[:3]])
+                lines.append(f"Top Holders: {top_3}")
+
+        return "\n".join(lines) if lines else "Limited data"
+
+    def _format_insider_activity(self, output: Dict[str, Any]) -> str:
+        """Format insider trading activity."""
+        insider = output.get("insider_trading", {})
+        if not insider:
+            return "Insider activity not available"
+
+        six_month = insider.get("six_month_activity", {})
+
+        if not six_month:
+            return "No recent insider activity"
+
+        buys = six_month.get("total_buys", 0)
+        sells = six_month.get("total_sells", 0)
+        net_value = six_month.get("net_value_change", 0)
+        signal = six_month.get("signal", "neutral")
+
+        return f"6-Month Activity: {buys} buys, {sells} sells (net: ${net_value/1e6:.1f}M) - {signal.upper()}"
+
+    def _format_management_quality(self, output: Dict[str, Any]) -> str:
+        """Format management quality assessment."""
+        mgmt = output.get("management_quality", {})
+        if not mgmt:
+            return "Management quality not available"
+
+        tone = mgmt.get("overall_tone_score", 5.0)
+        guidance = mgmt.get("guidance_track_record", {})
+        capital_alloc = mgmt.get("capital_allocation_score", 5.0)
+        overall = mgmt.get("overall_assessment", "neutral")
+
+        lines = []
+        lines.append(f"Overall Tone: {tone:.1f}/10")
+        if guidance:
+            accuracy = guidance.get("accuracy", "mixed")
+            lines.append(f"Guidance Track Record: {accuracy}")
+        lines.append(f"Capital Allocation: {capital_alloc:.1f}/10")
+        lines.append(f"Assessment: {overall.upper()}")
+
+        return "\n".join(lines)
+
+    def _format_short_interest(self, output: Dict[str, Any]) -> str:
+        """Format short interest and squeeze risk."""
+        short = output.get("short_interest", {})
+        if not short:
+            return "Short interest not available"
+
+        current_pct = short.get("current_short_pct", 0)
+        trend = short.get("trend", "stable")
+        squeeze_risk = short.get("squeeze_risk", "low")
+        days_to_cover = short.get("days_to_cover", 0)
+
+        return f"Short Interest: {current_pct:.1f}% of float, {days_to_cover:.1f} days to cover - {trend.upper()} trend, {squeeze_risk.upper()} squeeze risk"
+
+    def _format_catalyst_calendar(self, output: Dict[str, Any]) -> str:
+        """Format upcoming catalysts calendar."""
+        catalysts = output.get("upcoming_catalysts", {})
+        if not catalysts or not catalysts.get("events"):
+            return "No upcoming catalysts identified"
+
+        events = catalysts["events"][:5]  # Next 5 events
+        density = catalysts.get("catalyst_density", "low")
+        outlook = catalysts.get("outlook", "neutral")
+
+        lines = []
+        for event in events:
+            date = event.get("date", "TBD")
+            event_type = event.get("type", "unknown")
+            expected_impact = event.get("expected_impact", "low")
+            lines.append(f"• {date}: {event_type} ({expected_impact} impact)")
+
+        lines.insert(0, f"Catalyst Density: {density.upper()}, Outlook: {outlook.upper()}\n")
+        return "\n".join(lines)
+
+    def _format_trend_indicators(self, output: Dict[str, Any]) -> str:
+        """Format trend indicators (SMAs)."""
+        indicators = output.get("technical_indicators", {})
+        ma = indicators.get("moving_averages", {})
+
+        if not ma:
+            return "N/A"
+
+        sma_50 = ma.get("sma_50", 0)
+        sma_200 = ma.get("sma_200", 0)
+        current = ma.get("current_price", 0)
+        signal = ma.get("crossover_signal", "none")
+
+        return f"SMA50: ${sma_50:.2f}, SMA200: ${sma_200:.2f}, Price: ${current:.2f}, Signal: {signal}"
+
+    def _format_momentum_indicators(self, output: Dict[str, Any]) -> str:
+        """Format momentum indicators (RSI, MACD, Stochastic)."""
+        indicators = output.get("technical_indicators", {})
+
+        rsi = indicators.get("rsi", {})
+        macd = indicators.get("macd", {})
+        stoch = indicators.get("stochastic", {})
+
+        parts = []
+        if rsi:
+            rsi_val = rsi.get("rsi_14", 50)
+            rsi_sig = rsi.get("rsi_signal", "neutral")
+            parts.append(f"RSI: {rsi_val:.1f} ({rsi_sig})")
+
+        if macd:
+            macd_sig = macd.get("macd_signal", "neutral")
+            parts.append(f"MACD: {macd_sig}")
+
+        if stoch:
+            k_val = stoch.get("k_value", 50)
+            stoch_sig = stoch.get("stochastic_signal", "neutral")
+            parts.append(f"Stochastic: {k_val:.1f} ({stoch_sig})")
+
+        return ", ".join(parts) if parts else "N/A"
+
+    def _format_volatility_indicators(self, output: Dict[str, Any]) -> str:
+        """Format volatility indicators (Bollinger Bands)."""
+        indicators = output.get("technical_indicators", {})
+        bb = indicators.get("bollinger_bands", {})
+
+        if not bb:
+            return "N/A"
+
+        position = bb.get("position", "middle")
+        bandwidth = bb.get("bandwidth", 0)
+
+        return f"Position: {position}, Bandwidth: {bandwidth:.2%}"
+
+    def _format_volume_profile(self, output: Dict[str, Any]) -> str:
+        """Format volume profile and key levels."""
+        indicators = output.get("technical_indicators", {})
+        vp = indicators.get("volume_profile", {})
+
+        if not vp:
+            return "N/A"
+
+        poc = vp.get("poc", 0)
+        va_high = vp.get("value_area_high", 0)
+        va_low = vp.get("value_area_low", 0)
+
+        return f"POC: ${poc:.2f}, Value Area: ${va_low:.2f}-${va_high:.2f}"
+
+    def _format_relative_strength(self, output: Dict[str, Any]) -> str:
+        """Format relative strength vs sector/market."""
+        indicators = output.get("technical_indicators", {})
+        rs = indicators.get("relative_strength", {})
+
+        if not rs:
+            return "N/A"
+
+        vs_sector_3m = rs.get("vs_sector_3m", 0)
+        vs_market_3m = rs.get("vs_market_3m", 0)
+
+        return f"vs Sector (3M): {vs_sector_3m:+.1f}pp, vs Market (3M): {vs_market_3m:+.1f}pp"
+
+    def _format_entry_exit_signal(self, output: Dict[str, Any]) -> str:
+        """Format aggregated entry/exit signal."""
+        indicators = output.get("technical_indicators", {})
+        signals = indicators.get("entry_exit_signals", {})
+
+        if not signals:
+            return "N/A"
+
+        overall = signals.get("overall_signal", "neutral")
+        confidence = signals.get("confidence", 0.5)
+        key_levels = signals.get("key_levels", {})
+
+        parts = [f"{overall.upper()} ({confidence:.0%} confidence)"]
+
+        if key_levels.get("entry"):
+            entry = key_levels["entry"]
+            stop = key_levels.get("stop_loss", 0)
+            target = key_levels.get("take_profit", 0)
+            parts.append(f"Entry: ${entry:.2f}, Stop: ${stop:.2f}, Target: ${target:.2f}")
+
+        return " | ".join(parts)

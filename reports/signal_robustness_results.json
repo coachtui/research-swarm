@@ -1,0 +1,17 @@
+[
+  {
+    "ticker": "NVDA",
+    "news_sentiment": 7.97,
+    "earnings_score": 5.0,
+    "analyst_score": 7.5,
+    "institutional_score": 9.0,
+    "insider_score": 5.0,
+    "overall_score": 6.9751546391752575,
+    "processing_time": 63.021913290023804,
+    "cost": 0.3,
+    "catalyst_count": 5,
+    "article_count": 57,
+    "confidence": 0.88,
+    "status": "success"
+  }
+]
