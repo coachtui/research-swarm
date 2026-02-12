@@ -4,6 +4,10 @@ set -e
 echo "Python version:"
 python3 --version
 
+# Remove Vercel's auto-installed packages to avoid stale/broken pydantic-core
+echo "Cleaning .vercel_python_packages..."
+rm -rf .vercel_python_packages
+
 echo "Installing dependencies..."
 uv pip install --system -r requirements-vercel.txt --no-cache-dir --only-binary pydantic,pydantic-core
 
