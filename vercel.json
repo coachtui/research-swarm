@@ -2,7 +2,7 @@
   "version": 2,
   "name": "research-swarm-api",
   "framework": null,
-  "buildCommand": "prisma generate --schema=db/schema.prisma",
+  "buildCommand": "bash build.sh",
   "rewrites": [
     {
       "source": "/api/:path*",
