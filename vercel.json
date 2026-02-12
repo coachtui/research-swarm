@@ -2,14 +2,7 @@
   "version": 2,
   "name": "research-swarm-api",
   "framework": null,
-  "buildCommand": "bash build.sh",
-  "installCommand": "pip install --upgrade pip setuptools wheel",
-  "outputDirectory": null,
-  "build": {
-    "env": {
-      "PYTHON_VERSION": "3.11"
-    }
-  },
+  "buildCommand": "prisma generate --schema=db/schema.prisma",
   "rewrites": [
     {
       "source": "/api/:path*",
