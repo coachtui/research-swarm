@@ -4,8 +4,11 @@ set -e
 echo "Python version:"
 python3 --version
 
-echo "Installing dependencies..."
-uv pip install --system -r requirements-vercel.txt
+echo "Upgrading pip..."
+python3 -m pip install --upgrade pip
+
+echo "Installing dependencies with pre-built wheels only..."
+python3 -m pip install -r requirements-vercel.txt --only-binary :all: --no-cache-dir
 
 echo "Verifying installations..."
 python3 -c "import pydantic; print(f'pydantic: {pydantic.__version__}')"
