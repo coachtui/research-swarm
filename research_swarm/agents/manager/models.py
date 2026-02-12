@@ -61,68 +61,39 @@ class MoatScoreBreakdown(BaseModel):
         description="Technical/momentum score from Quant (0-10)"
     )
 
-    # Legacy v1.0 components (Optional for backward compatibility)
-    business_model_moat: Optional[float] = Field(
-        None,
-        ge=0,
-        le=10,
-        description="[v1.0 Legacy] Business model and revenue moat score from Fundamentalist (0-10)"
-    )
-    supply_chain_position: Optional[float] = Field(
-        None,
-        ge=0,
-        le=10,
-        description="[v1.0 Legacy] Supply chain score from Quant (0-10)"
-    )
-
     def weighted_average(self) -> float:
         """
-        Calculate weighted average moat score.
+        Calculate weighted average moat score using v2.0 formula.
 
-        Uses v2.0 formula if new components present, else falls back to v1.0 formula.
+        Component Weights:
+        - Earnings Momentum: 25% (PRIMARY SIGNAL - estimate revisions)
+        - Financial Health: 25% (profitability, balance sheet, cash flow)
+        - Valuation: 20% (P/E, PEG, EV/EBITDA vs peers)
+        - Technical/Momentum: 15% (price trends, RSI, MACD)
+        - Sentiment/Catalysts: 15% (news, analyst consensus, smart money)
 
-        v2.0 Weights:
-        - Earnings Momentum: 25%
-        - Financial Health: 25%
-        - Valuation: 20%
-        - Technical/Momentum: 15%
-        - Sentiment: 15%
-
-        v1.0 Weights (legacy):
-        - Financial Health: 25%
-        - Business Model Moat: 25%
-        - Sentiment/Catalysts: 15%
-        - Technical Strength: 15%
-        - Supply Chain Position: 20%
+        Note: Supply chain data is collected for informational context only
+        and does NOT affect the moat score calculation.
 
         Returns:
             float: Moat score (0-10)
+
+        Raises:
+            ValueError: If required v2.0 components are missing
         """
-        # Use v2.0 formula if new components are present
-        if self.earnings_momentum is not None and self.valuation is not None:
-            return (
-                self.earnings_momentum * 0.25 +
-                self.financial_health * 0.25 +
-                self.valuation * 0.20 +
-                self.technical_strength * 0.15 +
-                self.sentiment_catalysts * 0.15
+        if self.earnings_momentum is None or self.valuation is None:
+            raise ValueError(
+                "MoatScoreBreakdown requires v2.0 components: "
+                "earnings_momentum and valuation must be provided. "
+                f"Got earnings_momentum={self.earnings_momentum}, valuation={self.valuation}"
             )
 
-        # Fall back to v1.0 formula for backward compatibility
-        if self.business_model_moat is not None and self.supply_chain_position is not None:
-            return (
-                self.financial_health * 0.25 +
-                self.business_model_moat * 0.25 +
-                self.sentiment_catalysts * 0.15 +
-                self.technical_strength * 0.15 +
-                self.supply_chain_position * 0.20
-            )
-
-        # If neither v1.0 nor v2.0 components complete, raise error
-        raise ValueError(
-            "MoatScoreBreakdown requires either v2.0 components "
-            "(earnings_momentum, valuation) or v1.0 components "
-            "(business_model_moat, supply_chain_position)"
+        return (
+            self.earnings_momentum * 0.25 +
+            self.financial_health * 0.25 +
+            self.valuation * 0.20 +
+            self.technical_strength * 0.15 +
+            self.sentiment_catalysts * 0.15
         )
 
 

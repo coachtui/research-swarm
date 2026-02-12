@@ -4,7 +4,7 @@ Financial Health Scoring Module.
 Scores companies across 5 dimensions and calculates overall health score.
 """
 import json
-from typing import Tuple, Dict
+from typing import Any, Dict, Optional, Tuple
 from langchain_anthropic import ChatAnthropic
 from research_swarm.logger import logger
 from research_swarm.config import settings
@@ -332,12 +332,13 @@ class HealthScorer:
         ticker: str,
         ttm_metrics: TTMMetrics,
         quarterly_trends: QuarterlyTrends,
-        earnings_momentum_score: float
+        earnings_momentum_score: float,
+        valuation_metrics: Optional[Dict[str, Any]] = None
     ) -> Tuple[VGMScoreBreakdown, int]:
         """
         Calculate VGM (Value/Growth/Momentum) composite score.
 
-        Value Score: Default 5.0 (TODO: add P/E, P/B vs sector)
+        Value Score: Based on P/E vs sector, PEG, forward P/E, dividend yield
         Growth Score: Based on revenue growth YoY + QoQ acceleration
         Momentum Score: Pre-calculated from earnings data
 
@@ -346,14 +347,15 @@ class HealthScorer:
             ttm_metrics: TTM financial metrics
             quarterly_trends: Quarterly trend data
             earnings_momentum_score: Pre-calculated momentum score (0-10)
+            valuation_metrics: Optional dict from market_data_client.get_valuation_metrics()
 
         Returns:
             Tuple of (VGMScoreBreakdown, tokens_used=0)
         """
         logger.debug(f"Calculating VGM scores for {ticker}")
 
-        # Value score (TODO: implement P/E, P/B vs sector)
-        value_score = 5.0
+        # Value score from valuation metrics
+        value_score, value_rationale = self._calculate_value_score(valuation_metrics)
 
         # Growth score from TTM metrics
         growth_score = self._calculate_growth_score(ttm_metrics, quarterly_trends)
@@ -374,7 +376,6 @@ class HealthScorer:
         best_fit_style = self._determine_investment_style(value_score, growth_score, momentum_score)
 
         # Rationales
-        value_rationale = "Neutral valuation (P/E, P/B analysis not yet implemented)"
         growth_rationale = self._growth_rationale(ttm_metrics, quarterly_trends)
         momentum_rationale = self._momentum_rationale(momentum_score)
 
@@ -395,6 +396,40 @@ class HealthScorer:
 
         logger.info(f"VGM: {vgm_composite:.1f}/10 (V:{value_score:.1f} G:{growth_score:.1f} M:{momentum_score:.1f}) - Style: {best_fit_style}")
         return vgm_breakdown, 0  # No LLM tokens used
+
+    def _calculate_value_score(self, valuation_metrics: Optional[Dict[str, Any]]) -> Tuple[float, str]:
+        """
+        Calculate value score from valuation metrics.
+
+        Args:
+            valuation_metrics: Dict from market_data_client.get_valuation_metrics()
+
+        Returns:
+            Tuple of (score 0-10, rationale string)
+        """
+        if not valuation_metrics:
+            return 5.0, "Neutral valuation (no valuation data available)"
+
+        from research_swarm.data.market_data_client import market_data_client
+        score = market_data_client.calculate_valuation_score(valuation_metrics)
+
+        pe = valuation_metrics.get("pe_ratio")
+        sector_pe = valuation_metrics.get("sector_avg_pe")
+        peg = valuation_metrics.get("peg_ratio")
+        category = valuation_metrics.get("valuation_category", "Fair")
+
+        parts = []
+        if pe and sector_pe:
+            premium = ((pe / sector_pe) - 1) * 100
+            parts.append(f"P/E {pe:.1f}x vs sector {sector_pe:.1f}x ({premium:+.0f}%)")
+        if peg:
+            parts.append(f"PEG {peg:.2f}")
+
+        rationale = f"{category} valuation"
+        if parts:
+            rationale += f" — {', '.join(parts)}"
+
+        return score, rationale
 
     def _calculate_growth_score(self, ttm_metrics: TTMMetrics, quarterly_trends: QuarterlyTrends) -> float:
         """

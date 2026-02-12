@@ -172,6 +172,306 @@ def extract_regulatory_node(state: NewsHoundState) -> NewsHoundState:
     return state
 
 
+def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
+    """
+    Node 5: Analyze earnings estimate revisions (PRIMARY SIGNAL).
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with earnings_estimates
+    """
+    logger.info(f"[Node 5] Analyzing earnings estimates for {state['ticker']}")
+
+    state["status"] = "analyzing_earnings"
+
+    from research_swarm.data.market_data_client import market_data_client
+
+    try:
+        # Fetch raw data
+        estimates_data = market_data_client.get_earnings_estimates(state["ticker"])
+        recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
+
+        # Analyze with LLM
+        result, tokens = analyzer.analyze_earnings_estimates(
+            estimates_data,
+            recommendations_data,
+            state["ticker"],
+            state.get("analysis_date", "")
+        )
+
+        # Store in state
+        state["earnings_estimates"] = result
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        logger.success(f"✓ Earnings estimates analyzed")
+
+    except Exception as e:
+        logger.error(f"Error in earnings estimates node: {e}")
+        state["earnings_estimates"] = None
+
+    return state
+
+
+def analyze_analyst_consensus_node(state: NewsHoundState) -> NewsHoundState:
+    """
+    Node 6: Analyze analyst consensus and price targets.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with analyst_consensus
+    """
+    logger.info(f"[Node 6] Analyzing analyst consensus for {state['ticker']}")
+
+    state["status"] = "analyzing_consensus"
+
+    from research_swarm.data.market_data_client import market_data_client
+
+    try:
+        # Fetch raw data
+        recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
+        price_targets = market_data_client.get_analyst_price_target(state["ticker"])
+
+        # Analyze with LLM
+        result, tokens = analyzer.analyze_analyst_consensus(
+            recommendations_data,
+            price_targets,
+            state["ticker"],
+            state.get("analysis_date", "")
+        )
+
+        # Store in state
+        state["analyst_consensus"] = result
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        logger.success(f"✓ Analyst consensus analyzed")
+
+    except Exception as e:
+        logger.error(f"Error in analyst consensus node: {e}")
+        state["analyst_consensus"] = None
+
+    return state
+
+
+def analyze_institutional_activity_node(state: NewsHoundState) -> NewsHoundState:
+    """
+    Node 7: Analyze institutional activity (13F smart money).
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with institutional_activity
+    """
+    logger.info(f"[Node 7] Analyzing institutional activity for {state['ticker']}")
+
+    state["status"] = "analyzing_institutional"
+
+    from research_swarm.data.market_data_client import market_data_client
+
+    try:
+        # Fetch raw data
+        institutional_data = market_data_client.get_institutional_holders(state["ticker"])
+
+        # Analyze with LLM
+        result, tokens = analyzer.analyze_institutional_activity(
+            institutional_data,
+            state["ticker"],
+            state.get("analysis_date", "")
+        )
+
+        # Store in state
+        state["institutional_activity"] = result
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        logger.success(f"✓ Institutional activity analyzed")
+
+    except Exception as e:
+        logger.error(f"Error in institutional activity node: {e}")
+        state["institutional_activity"] = None
+
+    return state
+
+
+def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
+    """
+    Node 8: Analyze insider trading activity.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with insider_activity
+    """
+    logger.info(f"[Node 8] Analyzing insider activity for {state['ticker']}")
+
+    state["status"] = "analyzing_insider"
+
+    from research_swarm.data.market_data_client import market_data_client
+
+    try:
+        # Fetch raw data
+        insider_data = market_data_client.get_insider_transactions(state["ticker"])
+
+        # Analyze with LLM
+        result, tokens = analyzer.analyze_insider_activity(
+            insider_data,
+            state["ticker"],
+            state.get("analysis_date", "")
+        )
+
+        # Store in state
+        state["insider_activity"] = result
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        logger.success(f"✓ Insider activity analyzed")
+
+    except Exception as e:
+        logger.error(f"Error in insider activity node: {e}")
+        state["insider_activity"] = None
+
+    return state
+
+
+def analyze_short_interest_node(state: NewsHoundState) -> NewsHoundState:
+    """
+    Node 9: Analyze short interest and squeeze risk.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with short_interest
+    """
+    logger.info(f"[Node 9] Analyzing short interest for {state['ticker']}")
+
+    state["status"] = "analyzing_short"
+
+    from research_swarm.data.market_data_client import market_data_client
+
+    try:
+        # Fetch raw data
+        short_data = market_data_client.get_short_interest(state["ticker"])
+
+        # Analyze with LLM
+        result, tokens = analyzer.analyze_short_interest(
+            short_data,
+            state["ticker"],
+            state.get("analysis_date", "")
+        )
+
+        # Store in state
+        state["short_interest"] = result
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        logger.success(f"✓ Short interest analyzed")
+
+    except Exception as e:
+        logger.error(f"Error in short interest node: {e}")
+        state["short_interest"] = None
+
+    return state
+
+
+def analyze_upcoming_catalysts_node(state: NewsHoundState) -> NewsHoundState:
+    """
+    Node 10: Analyze upcoming catalysts calendar.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with upcoming_catalysts
+    """
+    logger.info(f"[Node 10] Analyzing upcoming catalysts for {state['ticker']}")
+
+    state["status"] = "analyzing_catalysts"
+
+    from research_swarm.data.market_data_client import market_data_client
+    from research_swarm.agents.news_hound.models import CatalystEvent
+
+    try:
+        # Fetch raw data
+        earnings_dates = market_data_client.get_earnings_dates(state["ticker"])
+
+        # Get detected catalyst events
+        catalyst_events = []
+        if state.get("catalyst_events"):
+            catalyst_events = [CatalystEvent(**cat) for cat in state["catalyst_events"]]
+
+        # Analyze with LLM
+        result, tokens = analyzer.analyze_upcoming_catalysts(
+            earnings_dates,
+            catalyst_events,
+            state["ticker"],
+            state.get("analysis_date", "")
+        )
+
+        # Store in state
+        state["upcoming_catalysts"] = result
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        logger.success(f"✓ Upcoming catalysts analyzed")
+
+    except Exception as e:
+        logger.error(f"Error in upcoming catalysts node: {e}")
+        state["upcoming_catalysts"] = None
+
+    return state
+
+
+def analyze_management_commentary_node(state: NewsHoundState) -> NewsHoundState:
+    """
+    Node 11: Analyze management commentary and guidance.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with management_commentary
+    """
+    logger.info(f"[Node 11] Analyzing management commentary for {state['ticker']}")
+
+    state["status"] = "analyzing_management"
+
+    from research_swarm.agents.news_hound.models import NewsArticle
+
+    try:
+        # Get earnings-related articles from filtered articles
+        articles_filtered = state.get("articles_filtered", [])
+        if articles_filtered:
+            articles = [NewsArticle(**art) for art in articles_filtered]
+            # Filter for earnings-related articles
+            earnings_articles = [art for art in articles if any(
+                keyword in art.title.lower() or (art.description and keyword in art.description.lower())
+                for keyword in ["earnings", "guidance", "outlook", "forecast", "quarter"]
+            )]
+        else:
+            earnings_articles = []
+
+        # Analyze with LLM
+        result, tokens = analyzer.analyze_management_commentary(
+            earnings_articles,
+            state["ticker"],
+            state.get("analysis_date", "")
+        )
+
+        # Store in state
+        state["management_commentary"] = result
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        logger.success(f"✓ Management commentary analyzed")
+
+    except Exception as e:
+        logger.error(f"Error in management commentary node: {e}")
+        state["management_commentary"] = None
+
+    return state
+
+
 def analyze_sentiment_node(state: NewsHoundState) -> NewsHoundState:
     """
     Node 5: Perform nuanced sentiment analysis (Sonnet).
@@ -316,6 +616,15 @@ def build_news_hound_graph() -> StateGraph:
     workflow.add_node("filter_articles", filter_articles_node)
     workflow.add_node("extract_catalysts", extract_catalysts_node)
     workflow.add_node("extract_regulatory", extract_regulatory_node)
+    # New analyst data nodes
+    workflow.add_node("analyze_earnings", analyze_earnings_estimates_node)
+    workflow.add_node("analyze_consensus", analyze_analyst_consensus_node)
+    workflow.add_node("analyze_institutional", analyze_institutional_activity_node)
+    workflow.add_node("analyze_insider", analyze_insider_activity_node)
+    workflow.add_node("analyze_short", analyze_short_interest_node)
+    workflow.add_node("analyze_catalysts", analyze_upcoming_catalysts_node)
+    workflow.add_node("analyze_management", analyze_management_commentary_node)
+    # Sentiment nodes
     workflow.add_node("analyze_sentiment", analyze_sentiment_node)
     workflow.add_node("score_sentiment", score_sentiment_node)
 
@@ -326,7 +635,16 @@ def build_news_hound_graph() -> StateGraph:
     workflow.add_edge("fetch_news", "filter_articles")
     workflow.add_edge("filter_articles", "extract_catalysts")
     workflow.add_edge("extract_catalysts", "extract_regulatory")
-    workflow.add_edge("extract_regulatory", "analyze_sentiment")
+    # Wire new analyst data nodes
+    workflow.add_edge("extract_regulatory", "analyze_earnings")
+    workflow.add_edge("analyze_earnings", "analyze_consensus")
+    workflow.add_edge("analyze_consensus", "analyze_institutional")
+    workflow.add_edge("analyze_institutional", "analyze_insider")
+    workflow.add_edge("analyze_insider", "analyze_short")
+    workflow.add_edge("analyze_short", "analyze_catalysts")
+    workflow.add_edge("analyze_catalysts", "analyze_management")
+    workflow.add_edge("analyze_management", "analyze_sentiment")
+    # Final sentiment nodes
     workflow.add_edge("analyze_sentiment", "score_sentiment")
 
     # Score sentiment is the final node
@@ -409,7 +727,14 @@ def analyze_company_news(ticker: str, days_back: int = 30) -> NewsHoundOutput:
     # Build output
     from research_swarm.agents.news_hound.models import (
         CatalystEvent,
-        SentimentBreakdown
+        SentimentBreakdown,
+        EarningsEstimateRevision,
+        AnalystConsensus,
+        InstitutionalActivity,
+        InsiderActivity,
+        ManagementCommentary,
+        ShortInterest,
+        UpcomingCatalysts
     )
 
     # Reconstruct catalyst events
@@ -419,6 +744,35 @@ def analyze_company_news(ticker: str, days_back: int = 30) -> NewsHoundOutput:
 
     # Reconstruct sentiment breakdown
     sentiment_breakdown = SentimentBreakdown(**final_state["sentiment_breakdown"])
+
+    # Reconstruct new analyst data models
+    earnings_estimates = None
+    if final_state.get("earnings_estimates"):
+        earnings_estimates = EarningsEstimateRevision(**final_state["earnings_estimates"])
+
+    analyst_consensus = None
+    if final_state.get("analyst_consensus"):
+        analyst_consensus = AnalystConsensus(**final_state["analyst_consensus"])
+
+    institutional_activity = None
+    if final_state.get("institutional_activity"):
+        institutional_activity = InstitutionalActivity(**final_state["institutional_activity"])
+
+    insider_activity = None
+    if final_state.get("insider_activity"):
+        insider_activity = InsiderActivity(**final_state["insider_activity"])
+
+    management_commentary = None
+    if final_state.get("management_commentary"):
+        management_commentary = ManagementCommentary(**final_state["management_commentary"])
+
+    short_interest = None
+    if final_state.get("short_interest"):
+        short_interest = ShortInterest(**final_state["short_interest"])
+
+    upcoming_catalysts = None
+    if final_state.get("upcoming_catalysts"):
+        upcoming_catalysts = UpcomingCatalysts(**final_state["upcoming_catalysts"])
 
     output = NewsHoundOutput(
         ticker=final_state["ticker"],
@@ -430,6 +784,15 @@ def analyze_company_news(ticker: str, days_back: int = 30) -> NewsHoundOutput:
         sentiment_breakdown=sentiment_breakdown,
         sentiment_score=final_state["sentiment_score"],
         confidence=final_state["confidence"],
+        # New analyst data fields
+        earnings_estimates=earnings_estimates,
+        analyst_consensus=analyst_consensus,
+        institutional_activity=institutional_activity,
+        insider_activity=insider_activity,
+        management_commentary=management_commentary,
+        short_interest=short_interest,
+        upcoming_catalysts=upcoming_catalysts,
+        # Metadata
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time,
         cost_estimate=cost_estimate

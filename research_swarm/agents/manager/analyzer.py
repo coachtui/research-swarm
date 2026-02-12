@@ -181,10 +181,11 @@ class ManagerAnalyzer:
         analysis_date: str,
         moat_score: float,
         confidence: float,
+        earnings_momentum_score: float,
         financial_health_score: float,
+        valuation_score: float,
         sentiment_score: float,
         technical_score: float,
-        supply_chain_score: float,
         is_watchlist: bool,
         synthesis_narrative: str,
         key_insights: List[str],
@@ -202,10 +203,11 @@ class ManagerAnalyzer:
             analysis_date: Analysis date
             moat_score: Calculated moat score
             confidence: Confidence level
-            financial_health_score: Component score
-            sentiment_score: Component score
-            technical_score: Component score
-            supply_chain_score: Component score
+            earnings_momentum_score: Earnings momentum component score (v2.0)
+            financial_health_score: Financial health component score
+            valuation_score: Valuation component score (v2.0)
+            sentiment_score: Sentiment component score
+            technical_score: Technical component score
             is_watchlist: Watchlist candidate flag
             synthesis_narrative: Synthesis narrative
             key_insights: Key insights list
@@ -299,10 +301,11 @@ class ManagerAnalyzer:
             analysis_date=analysis_date,
             moat_score=moat_score,
             confidence=confidence,
+            earnings_momentum_score=earnings_momentum_score,
             financial_health_score=financial_health_score,
+            valuation_score=valuation_score,
             sentiment_score=sentiment_score,
             technical_score=technical_score,
-            supply_chain_score=supply_chain_score,
             is_watchlist="YES" if is_watchlist else "NO",
             synthesis_narrative=synthesis_narrative,
             key_insights=key_insights_text,
@@ -383,20 +386,20 @@ class ManagerAnalyzer:
         if revenue:
             summary_parts.append(f"Revenue: ${revenue/1e9:.1f}B")
 
-        # Profit margins
+        # Profit margins (already in percentage form)
         gross_margin = metrics.get("gross_margin")
         if gross_margin:
-            summary_parts.append(f"Gross Margin: {gross_margin*100:.1f}%")
+            summary_parts.append(f"Gross Margin: {gross_margin:.1f}%")
 
         # Balance sheet
         debt_to_equity = metrics.get("debt_to_equity")
         if debt_to_equity:
             summary_parts.append(f"Debt/Equity: {debt_to_equity:.2f}")
 
-        # ROE
+        # ROE (already in percentage form)
         roe = metrics.get("roe")
         if roe:
-            summary_parts.append(f"ROE: {roe*100:.1f}%")
+            summary_parts.append(f"ROE: {roe:.1f}%")
 
         return "\n".join([f"- {part}" for part in summary_parts]) if summary_parts else "No metrics available"
 

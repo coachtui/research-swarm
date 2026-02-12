@@ -8,6 +8,7 @@ from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 from research_swarm.logger import logger
 from research_swarm.data.sec_client import sec_client
+from research_swarm.data.data_provider_hybrid import hybrid_provider
 from research_swarm.agents.fundamentalist.state import FundamentalistState
 from research_swarm.agents.fundamentalist.parser import parser
 from research_swarm.agents.fundamentalist.analyzer import analyzer
@@ -374,22 +375,23 @@ def should_continue(state: FundamentalistState) -> str:
 
 def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistState:
     """
-    Node 1 (TTM): Fetch trailing 4 quarters of filings.
+    Node 1 (TTM): Fetch data from hybrid provider (SEC Edgar + yfinance).
 
     Args:
         state: Current workflow state
 
     Returns:
-        Updated state with filings_raw and metadata
+        Updated state with filings_raw, earnings data, and metadata
     """
-    logger.info(f"[Node 1-TTM] Fetching quarterly filings for {state['ticker']}")
+    logger.info(f"[Node 1-TTM] Fetching data for {state['ticker']} via HybridDataProvider")
 
     state["status"] = "fetching"
 
-    # Use SEC client to get TTM filings
-    ttm_result = sec_client.get_ttm_filings(state["ticker"])
+    # Single call replaces separate sec_client + earnings data fetches
+    complete_data = hybrid_provider.get_complete_data(state["ticker"])
 
-    # Extract metadata (with underscore prefix)
+    # Extract filing data (same format as before)
+    ttm_result = complete_data["filings_raw"]
     metadata = ttm_result.pop("_metadata", {})
 
     # Store filings keyed by quarter
@@ -397,6 +399,7 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
     state["quarters"] = metadata.get("quarters", [])
     state["analysis_period"] = metadata.get("analysis_period", "")
     state["data_quality"] = metadata.get("data_quality", {})
+    state["is_foreign"] = complete_data.get("is_foreign", False)
 
     available = metadata.get("available_quarters", 0)
     if available == 0:
@@ -404,10 +407,11 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
         state["error"] = f"No quarterly filings found for {state['ticker']}"
         return state
 
-    logger.success(f"✓ Fetched {available}/4 quarterly filings")
+    filer_type = "foreign (20-F/6-K)" if state.get("is_foreign") else "domestic (10-K/10-Q)"
+    logger.success(f"✓ Fetched {available}/4 quarterly filings ({filer_type})")
 
-    # NEW: Fetch earnings data (parallel operation)
-    earnings_data = _fetch_earnings_data(state["ticker"])
+    # Earnings data from hybrid provider
+    earnings_data = complete_data.get("earnings_data", {})
     state["earnings_raw_data"] = earnings_data
 
     # Check if we have any meaningful earnings data (handle DataFrames properly)
@@ -427,6 +431,10 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
         logger.info(f"✓ Fetched earnings data for {state['ticker']}")
     else:
         logger.warning("No earnings data available (continuing with neutral momentum)")
+
+    # Store valuation metrics from yfinance (used by DCF later)
+    if complete_data.get("valuation_metrics"):
+        state["valuation_metrics"] = complete_data["valuation_metrics"]
 
     return state
 
@@ -665,10 +673,48 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                 state["earnings_raw_data"]
             )
             state["earnings_momentum_score"] = momentum_score
+            state["earnings_momentum_breakdown"] = breakdown
             logger.info(f"✓ Momentum: {momentum_score:.1f}/10 ({breakdown['classification']})")
         else:
             state["earnings_momentum_score"] = 5.0  # Neutral default
+            state["earnings_momentum_breakdown"] = None
             logger.warning("No earnings data - using neutral momentum (5.0)")
+
+        # Fetch valuation metrics from yfinance (primary), SEC filing data (fallback)
+        from research_swarm.data.market_data_client import market_data_client
+
+        # Always fetch current price independently — more reliable than full valuation
+        current_price = market_data_client.get_current_price(state["ticker"])
+
+        valuation_raw = market_data_client.get_valuation_metrics(state["ticker"])
+        if valuation_raw:
+            state["valuation_metrics"] = valuation_raw
+            valuation_score = market_data_client.calculate_valuation_score(valuation_raw)
+            state["valuation_score"] = valuation_score
+            logger.info(f"✓ Valuation: {valuation_score:.1f}/10 ({valuation_raw.get('valuation_category', 'N/A')})")
+        elif current_price and state.get("ttm_metrics"):
+            # Fallback: build valuation from SEC filing data + current price
+            ttm = state["ttm_metrics"]
+            valuation_raw = market_data_client.build_valuation_from_fundamentals(
+                ticker=state["ticker"],
+                current_price=current_price,
+                ttm_net_income=ttm.get("ttm_net_income"),
+                ttm_revenue=ttm.get("ttm_revenue"),
+                ttm_free_cash_flow=ttm.get("ttm_free_cash_flow"),
+            )
+            if valuation_raw:
+                state["valuation_metrics"] = valuation_raw
+                valuation_score = market_data_client.calculate_valuation_score(valuation_raw)
+                state["valuation_score"] = valuation_score
+                logger.info(f"✓ Valuation (SEC-derived): {valuation_score:.1f}/10 ({valuation_raw.get('valuation_category', 'N/A')})")
+            else:
+                state["valuation_metrics"] = None
+                state["valuation_score"] = 5.0
+                logger.warning("No valuation data - using neutral score (5.0)")
+        else:
+            state["valuation_metrics"] = None
+            state["valuation_score"] = 5.0
+            logger.warning("No valuation data - using neutral score (5.0)")
 
         # NEW: Calculate VGM composite
         from research_swarm.agents.fundamentalist.models import TTMMetrics, QuarterlyTrends
@@ -680,13 +726,71 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
             state["ticker"],
             ttm_metrics,
             quarterly_trends,
-            state["earnings_momentum_score"]
+            state["earnings_momentum_score"],
+            valuation_metrics=valuation_raw
         )
 
         state["vgm_scores"] = vgm_scores.dict()
         state["tokens_used"] = state.get("tokens_used", 0) + vgm_tokens
 
         logger.info(f"✓ VGM: {vgm_scores.vgm_composite:.1f}/10 (V:{vgm_scores.value_score:.1f} G:{vgm_scores.growth_score:.1f} M:{vgm_scores.momentum_score:.1f}) - Style: {vgm_scores.best_fit_style}")
+
+        # NEW: DCF Valuation (only if sufficient filing data)
+        try:
+            from research_swarm.agents.fundamentalist.sec_edgar_parser import enhanced_parser
+            from research_swarm.agents.fundamentalist.dcf_calculator import dcf_calculator
+
+            if state.get("parsed_sections_by_quarter"):
+                # Use most recent quarter's filing for DCF inputs
+                most_recent = list(state["parsed_sections_by_quarter"].keys())[-1]
+                most_recent_sections = state["parsed_sections_by_quarter"][most_recent]
+                combined_text = "\n".join(most_recent_sections.values())[:30000]
+
+                # Extract DCF inputs (one Haiku call)
+                market_data_for_dcf = state.get("valuation_metrics")
+                dcf_inputs, dcf_tokens = enhanced_parser.extract_dcf_inputs(
+                    state["ticker"],
+                    combined_text,
+                    market_data=market_data_for_dcf
+                )
+                state["tokens_used"] = state.get("tokens_used", 0) + dcf_tokens
+
+                # Supplement with yfinance beta if not extracted from filing
+                if not dcf_inputs.beta and market_data_for_dcf:
+                    dcf_inputs.beta = market_data_for_dcf.get("beta")
+
+                # Calculate DCF if we have sufficient inputs
+                # current_price already fetched independently above (more reliable)
+                dcf_price = current_price  # from get_current_price() at top of this node
+                if not dcf_price and market_data_for_dcf:
+                    dcf_price = market_data_for_dcf.get("current_price")
+
+                if dcf_price and dcf_inputs.fcf_history:
+                    dcf_result = dcf_calculator.calculate_dcf(dcf_inputs, dcf_price)
+                    if dcf_result:
+                        state["price_targets"] = dcf_result.dict()
+                        logger.info(f"✓ DCF: Base=${dcf_result.base_target:.2f} "
+                                    f"Bull=${dcf_result.bull_target:.2f} Bear=${dcf_result.bear_target:.2f}")
+                    else:
+                        logger.warning("DCF calculation returned None (insufficient data)")
+                else:
+                    logger.warning(f"Skipping DCF: {'no current_price' if not dcf_price else 'no fcf_history'}")
+
+                # Also extract structured filing data
+                filing_type = "10-K"
+                if state.get("is_foreign"):
+                    filing_type = "20-F"
+                structured_data, struct_tokens = enhanced_parser.extract_structured_data(
+                    state["ticker"],
+                    combined_text,
+                    filing_type=filing_type
+                )
+                state["structured_filing_data"] = structured_data.dict()
+                state["tokens_used"] = state.get("tokens_used", 0) + struct_tokens
+
+        except Exception as e:
+            logger.warning(f"DCF/structured extraction failed (non-fatal): {e}")
+            # DCF is optional — don't fail the whole analysis
 
     except Exception as e:
         logger.error(f"Failed to score business model: {e}")
@@ -901,6 +1005,9 @@ def _analyze_company_ttm(ticker: str, quarters: list = None) -> FundamentalistOu
         "quarters": quarters or [],
         "analysis_period": "",
         "data_quality": {},
+        "is_foreign": None,
+        "structured_filing_data": None,
+        "price_targets": None,
     }
 
     # Build and run TTM workflow
@@ -927,7 +1034,9 @@ def _analyze_company_ttm(ticker: str, quarters: list = None) -> FundamentalistOu
         QuarterlyMetrics,
         TTMMetrics,
         QuarterlyTrends,
-        VGMScoreBreakdown
+        VGMScoreBreakdown,
+        ValuationMetrics,
+        PriceTargetScenarios
     )
 
     # Parse earnings data into models
@@ -967,6 +1076,11 @@ def _analyze_company_ttm(ticker: str, quarters: list = None) -> FundamentalistOu
         vgm_scores=VGMScoreBreakdown(**final_state["vgm_scores"]) if final_state.get("vgm_scores") else None,
         earnings_estimates=earnings_estimates,
         analyst_consensus=analyst_consensus,
+        earnings_momentum_score=final_state.get("earnings_momentum_score", 5.0),
+        earnings_momentum_breakdown=final_state.get("earnings_momentum_breakdown"),
+        valuation_score=final_state.get("valuation_score", 5.0),
+        valuation_metrics=ValuationMetrics(**final_state["valuation_metrics"]) if final_state.get("valuation_metrics") else None,
+        price_targets=PriceTargetScenarios(**final_state["price_targets"]) if final_state.get("price_targets") else None,
         confidence=final_state["confidence"],
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time

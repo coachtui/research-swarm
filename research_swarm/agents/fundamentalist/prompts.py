@@ -544,3 +544,100 @@ BUSINESS_MODEL_SCORE_PROMPT_TTM = """You are scoring a company's business model 
 - Each rationale should be 1-2 sentences
 - Return ONLY valid JSON, no other text
 """
+
+# ============================================================================
+# STRUCTURED FILING EXTRACTION PROMPT (Haiku)
+# Purpose: Extract structured data from any SEC filing type (10-K, 20-F, 6-K)
+# ============================================================================
+
+STRUCTURED_EXTRACTION_PROMPT = """You are extracting structured data from a SEC {filing_type} filing.
+
+**Company**: {ticker}
+
+**Filing Text** (truncated to ~30k chars):
+{filing_text}
+
+---
+
+**Task**: Extract the following information as JSON.
+
+{{
+  "business_description": "<2-3 sentence summary of how the company makes money>",
+  "risk_factors": [
+    "<risk 1 - most material>",
+    "<risk 2>",
+    "<risk 3>",
+    "<risk 4>",
+    "<risk 5>"
+  ],
+  "financial_metrics": {{
+    "revenue_millions": <float or null>,
+    "gross_profit_millions": <float or null>,
+    "operating_income_millions": <float or null>,
+    "net_income_millions": <float or null>,
+    "free_cash_flow_millions": <float or null>,
+    "total_debt_millions": <float or null>,
+    "cash_millions": <float or null>,
+    "shares_outstanding_millions": <float or null>
+  }},
+  "management_outlook": "<summary of management's forward guidance and expectations>",
+  "competitive_position": "<market position, key competitive advantages, and market share if disclosed>",
+  "growth_drivers": [
+    "<growth driver 1>",
+    "<growth driver 2>",
+    "<growth driver 3>"
+  ]
+}}
+
+**Instructions**:
+- Extract exact values from the filing where available
+- For risk_factors, prioritize risks that could materially impact the business
+- For management_outlook, focus on forward-looking statements and guidance
+- For competitive_position, note market share, competitive advantages, and positioning
+- Use null for metrics not found in the filing
+- Return ONLY valid JSON, no other text
+"""
+
+# ============================================================================
+# DCF INPUTS EXTRACTION PROMPT (Haiku)
+# Purpose: Extract inputs for DCF valuation model from SEC filings
+# ============================================================================
+
+DCF_INPUTS_EXTRACTION_PROMPT = """You are extracting DCF valuation inputs from a SEC filing.
+
+**Company**: {ticker}
+
+**Filing Text** (truncated):
+{filing_text}
+
+**Current Market Data** (from yfinance):
+{market_data}
+
+---
+
+**Task**: Extract inputs needed to build a Discounted Cash Flow model.
+
+{{
+  "fcf_history": [<list of annual free cash flow in millions USD, oldest to newest, 3-5 years>],
+  "revenue_growth_rate": <most recent YoY revenue growth as percentage, e.g. 15.2>,
+  "operating_margin_trend": "<expanding|stable|contracting>",
+  "capex_as_pct_revenue": <capital expenditures as percentage of revenue>,
+  "effective_tax_rate": <effective tax rate as percentage>,
+  "total_debt": <total debt in millions USD>,
+  "cash_and_equivalents": <cash and equivalents in millions USD>,
+  "shares_outstanding": <diluted shares outstanding in millions>,
+  "growth_drivers": "<key factors that support or limit future growth>",
+  "risk_factors": "<top risks that could impact valuation>"
+}}
+
+**Instructions**:
+- For fcf_history, extract Free Cash Flow = Operating Cash Flow - Capital Expenditures
+- If FCF is not directly stated, calculate from cash flow statement items
+- Include at least 3 years of FCF history if available in the filing
+- Revenue growth rate should be the most recent full-year YoY change
+- Operating margin trend: "expanding" if margins are improving, "contracting" if declining
+- Use the filing's effective tax rate, not statutory rate
+- Shares outstanding should be diluted shares if available
+- Use null for any metric not found
+- Return ONLY valid JSON, no other text
+"""

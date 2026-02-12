@@ -7,6 +7,7 @@ from research_swarm.data.fmp_client import fmp_client
 from research_swarm.data.news_client import news_client
 from research_swarm.data.rate_limiter import rate_limiter
 from research_swarm.data.market_data_client import market_data_client
+from research_swarm.data.data_provider_hybrid import hybrid_provider
 
 __all__ = [
     "cache",
@@ -15,4 +16,5 @@ __all__ = [
     "news_client",
     "rate_limiter",
     "market_data_client",
+    "hybrid_provider",
 ]

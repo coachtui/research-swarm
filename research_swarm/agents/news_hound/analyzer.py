@@ -4,7 +4,8 @@ News Analysis Module.
 Extracts catalyst events and performs sentiment analysis on news articles.
 """
 import json
-from typing import List, Dict, Any, Tuple
+import pandas as pd
+from typing import List, Dict, Any, Tuple, Optional
 from langchain_anthropic import ChatAnthropic
 from research_swarm.logger import logger
 from research_swarm.config import settings
@@ -12,11 +13,25 @@ from research_swarm.utils import extract_token_usage
 from research_swarm.agents.news_hound.prompts import (
     CATALYST_EXTRACTION_PROMPT,
     REGULATORY_EXTRACTION_PROMPT,
-    SENTIMENT_ANALYSIS_PROMPT
+    SENTIMENT_ANALYSIS_PROMPT,
+    EARNINGS_ESTIMATE_REVISION_PROMPT,
+    ANALYST_CONSENSUS_PROMPT,
+    INSTITUTIONAL_ACTIVITY_PROMPT,
+    INSIDER_ACTIVITY_PROMPT,
+    SHORT_INTEREST_PROMPT,
+    UPCOMING_CATALYSTS_PROMPT,
+    MANAGEMENT_COMMENTARY_PROMPT
 )
 from research_swarm.agents.news_hound.models import (
     NewsArticle,
-    CatalystEvent
+    CatalystEvent,
+    EarningsEstimateRevision,
+    AnalystConsensus,
+    InstitutionalActivity,
+    InsiderActivity,
+    ManagementCommentary,
+    ShortInterest,
+    UpcomingCatalysts
 )
 
 
@@ -355,6 +370,486 @@ class NewsAnalyzer:
 
         # Last resort: return as-is and let json.loads fail with useful error
         return text
+
+    def analyze_earnings_estimates(
+        self,
+        estimates_data: Optional[pd.DataFrame],
+        recommendations_data: Optional[pd.DataFrame],
+        ticker: str,
+        analysis_date: str
+    ) -> Tuple[Dict[str, Any], int]:
+        """
+        Analyze earnings estimate revisions (PRIMARY SIGNAL).
+
+        Args:
+            estimates_data: DataFrame from get_earnings_estimates()
+            recommendations_data: DataFrame from get_analyst_recommendations()
+            ticker: Stock ticker
+            analysis_date: Analysis date
+
+        Returns:
+            Tuple of (earnings_estimates_dict, tokens_used)
+        """
+        from research_swarm.agents.news_hound.prompts import EARNINGS_ESTIMATE_REVISION_PROMPT
+        from research_swarm.data.analyst_data_formatter import format_yf_analyst_recommendations
+
+        logger.info(f"Analyzing earnings estimates for {ticker}")
+
+        # Format data for prompt
+        estimates_text = "No forward estimates available"
+        if estimates_data is not None and not estimates_data.empty:
+            estimates_text = estimates_data.to_string()
+
+        recommendations_text = "No recent analyst activity"
+        if recommendations_data is not None and not recommendations_data.empty:
+            recommendations_text = recommendations_data.to_string()
+
+        # Build prompt
+        prompt = EARNINGS_ESTIMATE_REVISION_PROMPT.format(
+            ticker=ticker,
+            analysis_date=analysis_date,
+            estimate_data=estimates_text,
+            earnings_news="No earnings-related news available for estimate revision context",
+            recent_recommendations=recommendations_text
+        )
+
+        try:
+            # Use Sonnet for this critical PRIMARY SIGNAL analysis
+            response = self.sonnet.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            result = json.loads(json_text)
+
+            logger.info(f"✓ Earnings estimates analyzed ({tokens_used} tokens)")
+            return result, tokens_used
+
+        except Exception as e:
+            logger.error(f"Error analyzing earnings estimates: {e}")
+            # Return neutral defaults
+            return {
+                "current_quarter_eps": None,
+                "current_fy_eps": None,
+                "next_fy_eps": None,
+                "upward_revisions": 0,
+                "downward_revisions": 0,
+                "net_revision_direction": "neutral",
+                "analyst_coverage": 0,
+                "estimate_dispersion": "unknown",
+                "estimate_agreement": 0.5,
+                "surprise_history": [],
+                "beat_pattern": "unknown",
+                "current_year_growth_pct": None,
+                "next_year_growth_pct": None,
+                "momentum": "neutral",
+                "two_year_cagr": None
+            }, 0
+
+    def analyze_analyst_consensus(
+        self,
+        recommendations_data: Optional[pd.DataFrame],
+        price_targets: Optional[Dict[str, Any]],
+        ticker: str,
+        analysis_date: str
+    ) -> Tuple[Dict[str, Any], int]:
+        """
+        Analyze analyst consensus ratings and price targets.
+
+        Args:
+            recommendations_data: DataFrame from get_analyst_recommendations()
+            price_targets: Dict from get_analyst_price_target()
+            ticker: Stock ticker
+            analysis_date: Analysis date
+
+        Returns:
+            Tuple of (analyst_consensus_dict, tokens_used)
+        """
+        from research_swarm.agents.news_hound.prompts import ANALYST_CONSENSUS_PROMPT
+        from research_swarm.data.analyst_data_formatter import (
+            format_yf_analyst_recommendations,
+            format_yf_price_targets
+        )
+
+        logger.info(f"Analyzing analyst consensus for {ticker}")
+
+        # Format data for prompt
+        recommendations_text = "No analyst recommendations available"
+        if recommendations_data is not None and not recommendations_data.empty:
+            recommendations_text = recommendations_data.to_string()
+
+        targets_text = "No price target data available"
+        if price_targets:
+            targets_text = format_yf_price_targets(price_targets)
+
+        # Build prompt
+        prompt = ANALYST_CONSENSUS_PROMPT.format(
+            ticker=ticker,
+            analysis_date=analysis_date,
+            analyst_data=f"{recommendations_text}\n\n**Price Targets:**\n{targets_text}",
+            analyst_news="No recent analyst actions from news"
+        )
+
+        try:
+            # Use Haiku for this extraction task
+            response = self.haiku.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            result = json.loads(json_text)
+
+            logger.info(f"✓ Analyst consensus analyzed ({tokens_used} tokens)")
+            return result, tokens_used
+
+        except Exception as e:
+            logger.error(f"Error analyzing analyst consensus: {e}")
+            return {
+                "strong_buy": 0,
+                "buy": 0,
+                "hold": 0,
+                "sell": 0,
+                "strong_sell": 0,
+                "consensus_rating": "hold",
+                "avg_price_target": None,
+                "high_price_target": None,
+                "low_price_target": None,
+                "target_upside_pct": None,
+                "upgrades_90d": 0,
+                "downgrades_90d": 0,
+                "new_coverage_90d": 0,
+                "rating_momentum": "neutral",
+                "consensus_confidence": 0.5
+            }, 0
+
+    def analyze_institutional_activity(
+        self,
+        institutional_data: Optional[pd.DataFrame],
+        ticker: str,
+        analysis_date: str
+    ) -> Tuple[Dict[str, Any], int]:
+        """
+        Analyze institutional activity (13F smart money flows).
+
+        Args:
+            institutional_data: DataFrame from get_institutional_holders()
+            ticker: Stock ticker
+            analysis_date: Analysis date
+
+        Returns:
+            Tuple of (institutional_activity_dict, tokens_used)
+        """
+        from research_swarm.agents.news_hound.prompts import INSTITUTIONAL_ACTIVITY_PROMPT
+        from research_swarm.data.analyst_data_formatter import format_yf_institutional_holders
+
+        logger.info(f"Analyzing institutional activity for {ticker}")
+
+        # Format data for prompt
+        institutional_text = "No institutional holdings data available"
+        if institutional_data is not None and not institutional_data.empty:
+            institutional_text = format_yf_institutional_holders(
+                institutional_data.to_dict(orient="records")
+            )
+
+        # Build prompt
+        prompt = INSTITUTIONAL_ACTIVITY_PROMPT.format(
+            ticker=ticker,
+            analysis_date=analysis_date,
+            filing_data=institutional_text,
+            institutional_news="No recent institutional activity from news"
+        )
+
+        try:
+            # Use Haiku for this extraction task
+            response = self.haiku.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            result = json.loads(json_text)
+
+            logger.info(f"✓ Institutional activity analyzed ({tokens_used} tokens)")
+            return result, tokens_used
+
+        except Exception as e:
+            logger.error(f"Error analyzing institutional activity: {e}")
+            return {
+                "institutional_ownership_pct": None,
+                "qoq_change_pct": None,
+                "num_holders": 0,
+                "top_holders": [],
+                "notable_activity": [],
+                "institutional_sentiment": "neutral"
+            }, 0
+
+    def analyze_insider_activity(
+        self,
+        insider_data: Optional[pd.DataFrame],
+        ticker: str,
+        analysis_date: str
+    ) -> Tuple[Dict[str, Any], int]:
+        """
+        Analyze insider trading activity.
+
+        Args:
+            insider_data: DataFrame from get_insider_transactions()
+            ticker: Stock ticker
+            analysis_date: Analysis date
+
+        Returns:
+            Tuple of (insider_activity_dict, tokens_used)
+        """
+        from research_swarm.agents.news_hound.prompts import INSIDER_ACTIVITY_PROMPT
+        from research_swarm.data.analyst_data_formatter import format_yf_insider_transactions
+
+        logger.info(f"Analyzing insider activity for {ticker}")
+
+        # Format data for prompt
+        insider_text = "No insider transactions available"
+        if insider_data is not None and not insider_data.empty:
+            insider_text = format_yf_insider_transactions(
+                insider_data.to_dict(orient="records")
+            )
+
+        # Build prompt
+        prompt = INSIDER_ACTIVITY_PROMPT.format(
+            ticker=ticker,
+            transaction_data=insider_text,
+            insider_news="No recent insider trading news"
+        )
+
+        try:
+            # Use Haiku for this extraction task
+            response = self.haiku.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            result = json.loads(json_text)
+
+            logger.info(f"✓ Insider activity analyzed ({tokens_used} tokens)")
+            return result, tokens_used
+
+        except Exception as e:
+            logger.error(f"Error analyzing insider activity: {e}")
+            return {
+                "buy_transactions": 0,
+                "sell_transactions": 0,
+                "buy_shares": 0,
+                "sell_shares": 0,
+                "buy_value": 0,
+                "sell_value": 0,
+                "notable_transactions": [],
+                "insider_ownership_pct": None,
+                "ceo_ownership_pct": None,
+                "ownership_trend": "stable",
+                "insider_sentiment": "neutral",
+                "confidence": 0.5
+            }, 0
+
+    def analyze_short_interest(
+        self,
+        short_data: Optional[Dict[str, Any]],
+        ticker: str,
+        analysis_date: str
+    ) -> Tuple[Dict[str, Any], int]:
+        """
+        Analyze short interest and squeeze risk.
+
+        Args:
+            short_data: Dict from get_short_interest()
+            ticker: Stock ticker
+            analysis_date: Analysis date
+
+        Returns:
+            Tuple of (short_interest_dict, tokens_used)
+        """
+        from research_swarm.agents.news_hound.prompts import SHORT_INTEREST_PROMPT
+
+        logger.info(f"Analyzing short interest for {ticker}")
+
+        # Format data for prompt
+        short_text = "No short interest data available"
+        if short_data:
+            short_text = f"""
+Short % of Float: {short_data.get('short_percent_float', 'N/A')}%
+Shares Short: {short_data.get('shares_short', 'N/A'):,}
+Shares Short (Prior Month): {short_data.get('shares_short_prior_month', 'N/A'):,}
+Days to Cover: {short_data.get('short_ratio', 'N/A')}
+Float Shares: {short_data.get('float_shares', 'N/A'):,}
+Shares Outstanding: {short_data.get('shares_outstanding', 'N/A'):,}
+"""
+
+        # Build prompt
+        prompt = SHORT_INTEREST_PROMPT.format(
+            ticker=ticker,
+            analysis_date=analysis_date,
+            short_data=short_text,
+            short_news="No recent short seller news or reports"
+        )
+
+        try:
+            # Use Haiku for this extraction task
+            response = self.haiku.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            result = json.loads(json_text)
+
+            logger.info(f"✓ Short interest analyzed ({tokens_used} tokens)")
+            return result, tokens_used
+
+        except Exception as e:
+            logger.error(f"Error analyzing short interest: {e}")
+            return {
+                "short_interest_pct": None,
+                "short_interest_shares": None,
+                "days_to_cover": None,
+                "short_interest_trend": "unknown",
+                "mom_change_pct": None,
+                "squeeze_risk": "unknown",
+                "short_sentiment": "neutral",
+                "squeeze_triggers": [],
+                "notable_short_activity": []
+            }, 0
+
+    def analyze_upcoming_catalysts(
+        self,
+        earnings_dates: Optional[pd.DataFrame],
+        catalyst_events: List[CatalystEvent],
+        ticker: str,
+        analysis_date: str
+    ) -> Tuple[Dict[str, Any], int]:
+        """
+        Analyze upcoming catalysts calendar.
+
+        Args:
+            earnings_dates: DataFrame from get_earnings_dates()
+            catalyst_events: List of CatalystEvent from news
+            ticker: Stock ticker
+            analysis_date: Analysis date
+
+        Returns:
+            Tuple of (upcoming_catalysts_dict, tokens_used)
+        """
+        from research_swarm.agents.news_hound.prompts import UPCOMING_CATALYSTS_PROMPT
+
+        logger.info(f"Analyzing upcoming catalysts for {ticker}")
+
+        # Format earnings calendar
+        earnings_text = "No upcoming earnings dates available"
+        if earnings_dates is not None and not earnings_dates.empty:
+            earnings_text = earnings_dates.to_string()
+
+        # Format detected catalysts
+        detected_text = "No detected catalysts from news"
+        if catalyst_events:
+            detected_text = "\n".join([
+                f"- {cat.event_type}: {cat.description} ({cat.impact})"
+                for cat in catalyst_events[:10]
+            ])
+
+        # Build prompt
+        prompt = UPCOMING_CATALYSTS_PROMPT.format(
+            ticker=ticker,
+            analysis_date=analysis_date,
+            earnings_calendar=earnings_text,
+            upcoming_events_news=detected_text,
+            company_announcements="No recent company announcements available"
+        )
+
+        try:
+            # Use Haiku for this extraction task
+            response = self.haiku.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            result = json.loads(json_text)
+
+            logger.info(f"✓ Upcoming catalysts analyzed ({tokens_used} tokens)")
+            return result, tokens_used
+
+        except Exception as e:
+            logger.error(f"Error analyzing upcoming catalysts: {e}")
+            return {
+                "events": [],
+                "next_earnings_date": None,
+                "next_earnings_importance": "medium",
+                "near_term_catalysts": [],
+                "medium_term_catalysts": [],
+                "catalyst_density": "low"
+            }, 0
+
+    def analyze_management_commentary(
+        self,
+        earnings_articles: List[NewsArticle],
+        ticker: str,
+        analysis_date: str
+    ) -> Tuple[Dict[str, Any], int]:
+        """
+        Analyze management commentary and guidance quality.
+
+        Args:
+            earnings_articles: News articles about earnings calls
+            ticker: Stock ticker
+            analysis_date: Analysis date
+
+        Returns:
+            Tuple of (management_commentary_dict, tokens_used)
+        """
+        from research_swarm.agents.news_hound.prompts import MANAGEMENT_COMMENTARY_PROMPT
+
+        logger.info(f"Analyzing management commentary for {ticker}")
+
+        # Format earnings-related articles
+        articles_text = "No earnings-related news available"
+        if earnings_articles:
+            articles_text = self._format_articles_for_analysis(earnings_articles, max_articles=10)
+
+        # Build prompt
+        prompt = MANAGEMENT_COMMENTARY_PROMPT.format(
+            ticker=ticker,
+            analysis_date=analysis_date,
+            earnings_call_data="No earnings call transcripts available",
+            management_news=articles_text,
+            guidance_history="No guidance history available"
+        )
+
+        try:
+            # Use Sonnet for this nuanced analysis
+            response = self.sonnet.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            result = json.loads(json_text)
+
+            logger.info(f"✓ Management commentary analyzed ({tokens_used} tokens)")
+            return result, tokens_used
+
+        except Exception as e:
+            logger.error(f"Error analyzing management commentary: {e}")
+            return {
+                "guidance_raised": False,
+                "guidance_lowered": False,
+                "guidance_maintained": True,
+                "management_tone": "neutral",
+                "transparency": "medium",
+                "key_themes": [],
+                "red_flag_language": [],
+                "guidance_track_record": "unknown",
+                "capital_allocation_quality": "unknown",
+                "strategic_clarity": "medium"
+            }, 0
 
 
 # Global analyzer instance

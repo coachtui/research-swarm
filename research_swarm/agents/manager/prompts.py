@@ -80,10 +80,9 @@ You have received detailed reports from three specialized research teams with EN
 
 ---
 
-## 3. QUANTITATIVE ANALYSIS (Advanced Technical + Supply Chain)
+## 3. QUANTITATIVE ANALYSIS (Advanced Technical)
 
 **Technical Score**: {technical_score:.1f}/10
-**Supply Chain Score**: {supply_chain_score:.1f}/10
 
 **Advanced Technical Indicators**:
 - Trend: {trend_indicators}
@@ -94,7 +93,7 @@ You have received detailed reports from three specialized research teams with EN
 
 **Entry/Exit Signal**: {entry_exit_signal}
 
-**Supply Chain Resilience**:
+**Supply Chain Context** (Informational Only - Does NOT Affect Rating):
 {supply_chain_summary}
 
 **Full Analysis**: {quant_narrative}
@@ -110,21 +109,21 @@ Synthesize these three comprehensive perspectives into a unified investment anal
    - **Fundamental-Technical Alignment**: Do VGM scores, moat strength, and valuation align with technical setup and entry/exit signals?
    - **Catalyst Timing**: How do upcoming catalysts interact with current technical levels (e.g., earnings in 2 weeks + price at support)?
    - **Smart Money Confirmation**: Do institutional flows and insider activity confirm or contradict the fundamental/technical picture?
-   - **Valuation Context**: Are price targets achievable given technical resistance levels and supply chain risks?
-   - **Moat Sustainability**: Does the 8-category moat analysis support the competitive position suggested by peers and supply chain strength?
+   - **Valuation Context**: Are price targets achievable given technical resistance levels?
+   - **Moat Sustainability**: Does the 8-category moat analysis support the competitive position suggested by peers?
    - **Management Factor**: How does management quality and tone affect confidence in the thesis?
-   - **Risk Integration**: Synthesize short interest, supply chain vulnerabilities, and negative catalysts into cohesive risk assessment
+   - **Risk Integration**: Synthesize short interest, operational risks, and negative catalysts into cohesive risk assessment
 
-2. **Key Insights** (5-7 bullet points):
+2. **Key Insights** (3-5 bullet points):
    - The most important cross-signal insights for an investor
    - Each insight must synthesize data from MULTIPLE sources across agents
    - Highlight where signals converge powerfully (e.g., "Bullish earnings revisions + institutional accumulation + technical breakout + upcoming product launch")
    - Note critical divergences (e.g., "Strong fundamentals but bearish insider selling signals caution")
    - Reference specific data points (scores, percentages, price levels)
 
-3. **Risk Factors** (5-7 bullet points):
+3. **Risk Factors** (3-5 bullet points):
    - The most significant multi-dimensional risks
-   - Consider: fundamental deterioration, catalyst disappointment, technical breakdowns, supply chain shocks, valuation compression, sentiment reversal
+   - Consider: fundamental deterioration, catalyst disappointment, technical breakdowns, operational disruptions, valuation compression, sentiment reversal
    - Be specific with numbers and scenarios
    - Prioritize by impact and probability
 
@@ -159,19 +158,15 @@ Return your response as a JSON object:
     "<insight 1 with cross-agent data>",
     "<insight 2 with cross-agent data>",
     "<insight 3 with cross-agent data>",
-    "<insight 4 with cross-agent data>",
-    "<insight 5 with cross-agent data>",
-    "<insight 6 (optional)>",
-    "<insight 7 (optional)>"
+    "<insight 4 (optional)>",
+    "<insight 5 (optional)>"
   ],
   "risk_factors": [
     "<specific risk 1 with data>",
     "<specific risk 2 with data>",
     "<specific risk 3 with data>",
-    "<specific risk 4 with data>",
-    "<specific risk 5 with data>",
-    "<risk 6 (optional)>",
-    "<risk 7 (optional)>"
+    "<specific risk 4 (optional)>",
+    "<specific risk 5 (optional)>"
   ],
   "structured_risks": [
     {{
@@ -195,7 +190,19 @@ Return your response as a JSON object:
       "threshold": "<precise threshold value>",
       "action": "Downgrade to HOLD|SELL|STRONG SELL"
     }}
-  ]
+  ],
+  "price_targets": {{
+    "bull_target": <12-month bull case price as float>,
+    "bull_probability": <0.15 to 0.35>,
+    "bull_assumptions": "<key bull case assumptions>",
+    "base_target": <12-month base case price as float>,
+    "base_probability": <0.40 to 0.60>,
+    "base_assumptions": "<key base case assumptions>",
+    "bear_target": <12-month bear case price as float>,
+    "bear_probability": <0.15 to 0.35>,
+    "bear_assumptions": "<key bear case assumptions>",
+    "methodology": "<DCF / P/E Multiple / Comparable / Blended>"
+  }}
 }}
 
 Return ONLY valid JSON, no other text.
@@ -214,11 +221,14 @@ INVESTMENT_THESIS_PROMPT = """You are a senior investment analyst writing a fina
 **Overall Moat Score**: {moat_score:.1f}/10 (Watchlist Candidate: {is_watchlist})
 **Analysis Confidence**: {confidence:.0%}
 
-**Component Scores** (weighted):
-- Financial Health & Moat: {financial_health_score:.1f}/10 (30% weight)
-- Multi-Signal Sentiment/Catalysts: {sentiment_score:.1f}/10 (20% weight)
-- Advanced Technical Strength: {technical_score:.1f}/10 (20% weight)
-- Supply Chain Resilience: {supply_chain_score:.1f}/10 (30% weight)
+**Component Scores** (v2.0 Formula - weighted):
+- Earnings Momentum (PRIMARY SIGNAL): {earnings_momentum_score:.1f}/10 (25% weight)
+- Financial Health: {financial_health_score:.1f}/10 (25% weight)
+- Valuation: {valuation_score:.1f}/10 (20% weight)
+- Technical Strength: {technical_score:.1f}/10 (15% weight)
+- Sentiment/Catalysts: {sentiment_score:.1f}/10 (15% weight)
+
+Note: Supply chain data is provided for context only and does NOT affect the moat score.
 
 **Enhanced Context**:
 - VGM Investment Style: {vgm_profile}
@@ -296,11 +306,12 @@ MOAT_SCORING_PROMPT = """You are validating moat component scores for consistenc
 
 **Company**: {ticker}
 
-**Component Scores**:
-- Financial Health: {financial_health_score:.1f}/10 (from Fundamentalist)
-- Sentiment/Catalysts: {sentiment_score:.1f}/10 (from News Hound)
-- Technical Strength: {technical_score:.1f}/10 (from Quant)
-- Supply Chain Position: {supply_chain_score:.1f}/10 (from Quant)
+**Component Scores (v2.0 Formula)**:
+- Earnings Momentum: {earnings_momentum_score:.1f}/10 (PRIMARY SIGNAL - 25% weight)
+- Financial Health: {financial_health_score:.1f}/10 (25% weight)
+- Valuation: {valuation_score:.1f}/10 (20% weight)
+- Sentiment/Catalysts: {sentiment_score:.1f}/10 (15% weight)
+- Technical Strength: {technical_score:.1f}/10 (15% weight)
 
 **Preliminary Moat Score**: {preliminary_moat_score:.1f}/10
 
@@ -317,8 +328,8 @@ MOAT_SCORING_PROMPT = """You are validating moat component scores for consistenc
 
 Review these scores for cross-agent consistency:
 
-1. Do the scores tell a coherent story? (e.g., strong financials + positive sentiment makes sense)
-2. Are there any obvious contradictions? (e.g., strong financials but terrible supply chain)
+1. Do the scores tell a coherent story? (e.g., strong earnings momentum + positive valuation makes sense)
+2. Are there any obvious contradictions? (e.g., strong fundamentals but weak technical setup)
 3. Should any scores be adjusted based on agent confidence levels?
 
 Return a JSON object:
@@ -326,10 +337,11 @@ Return a JSON object:
 {{
   "scores_consistent": true/false,
   "suggested_adjustments": {{
+    "earnings_momentum": <adjusted score or null>,
     "financial_health": <adjusted score or null>,
+    "valuation": <adjusted score or null>,
     "sentiment_catalysts": <adjusted score or null>,
-    "technical_strength": <adjusted score or null>,
-    "supply_chain_position": <adjusted score or null>
+    "technical_strength": <adjusted score or null>
   }},
   "confidence_adjustment": <+/- 0.1 adjustment to confidence, or 0>,
   "reasoning": "<brief explanation of any adjustments>"

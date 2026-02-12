@@ -358,6 +358,34 @@ class PriceTargetScenarios(BaseModel):
         )
 
 
+class FilingExtraction(BaseModel):
+    """Structured data extracted from a SEC filing via LLM."""
+
+    business_description: Optional[str] = Field(None, description="2-3 sentence summary of what the company does")
+    risk_factors: List[str] = Field(default_factory=list, description="Top 5 material risk factors")
+    financial_metrics: Dict[str, Any] = Field(default_factory=dict, description="Key financial figures extracted from filing")
+    management_outlook: Optional[str] = Field(None, description="Management's forward guidance summary")
+    competitive_position: Optional[str] = Field(None, description="Market position and key advantages")
+    growth_drivers: List[str] = Field(default_factory=list, description="Top 3-5 growth catalysts")
+    filing_type: str = Field("10-K", description="Source filing type: 10-K, 20-F, 10-Q, or 6-K")
+
+
+class DCFInputs(BaseModel):
+    """Inputs for DCF valuation model, extracted from SEC filings."""
+
+    fcf_history: List[float] = Field(default_factory=list, description="3-5 years of FCF in millions USD")
+    revenue_growth_rate: Optional[float] = Field(None, description="Recent YoY revenue growth as percentage")
+    operating_margin_trend: Optional[str] = Field(None, description="expanding, stable, or contracting")
+    capex_as_pct_revenue: Optional[float] = Field(None, description="CapEx as percentage of revenue")
+    effective_tax_rate: Optional[float] = Field(None, description="Effective tax rate as percentage")
+    total_debt: Optional[float] = Field(None, description="Total debt in millions USD")
+    cash_and_equivalents: Optional[float] = Field(None, description="Cash and equivalents in millions USD")
+    shares_outstanding: Optional[float] = Field(None, description="Shares outstanding in millions")
+    beta: Optional[float] = Field(None, description="Stock beta (from yfinance)")
+    risk_free_rate: float = Field(4.5, description="Risk-free rate (10Y Treasury)")
+    equity_risk_premium: float = Field(5.5, description="Equity risk premium")
+
+
 class FundamentalistOutput(BaseModel):
     """Final validated output from the Fundamentalist agent."""
 

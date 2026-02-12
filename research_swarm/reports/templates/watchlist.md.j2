@@ -10,10 +10,11 @@
 
 **Moat Strengths:**
 {% set strengths = [] %}
+{% if stock.moat_breakdown.earnings_momentum >= 7.0 %}{% set _ = strengths.append('Earnings Momentum ⭐ (' + "%.1f"|format(stock.moat_breakdown.earnings_momentum) + ')') %}{% endif %}
 {% if stock.moat_breakdown.financial_health >= 7.0 %}{% set _ = strengths.append('Strong Financial Health (' + "%.1f"|format(stock.moat_breakdown.financial_health) + ')') %}{% endif %}
+{% if stock.moat_breakdown.valuation >= 7.0 %}{% set _ = strengths.append('Attractive Valuation (' + "%.1f"|format(stock.moat_breakdown.valuation) + ')') %}{% endif %}
 {% if stock.moat_breakdown.sentiment_catalysts >= 7.0 %}{% set _ = strengths.append('Positive Sentiment (' + "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) + ')') %}{% endif %}
 {% if stock.moat_breakdown.technical_strength >= 7.0 %}{% set _ = strengths.append('Technical Strength (' + "%.1f"|format(stock.moat_breakdown.technical_strength) + ')') %}{% endif %}
-{% if stock.moat_breakdown.supply_chain_position >= 7.0 %}{% set _ = strengths.append('Supply Chain Position (' + "%.1f"|format(stock.moat_breakdown.supply_chain_position) + ')') %}{% endif %}
 {% for strength in strengths %}
 - {{ strength }}
 {% endfor %}

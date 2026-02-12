@@ -543,25 +543,57 @@ def format_yf_insider_transactions(transactions_data: Optional[List[Dict]]) -> s
         sell_shares = 0
         notable = []
 
-        for trans in transactions_data[:20]:
-            trans_type = trans.get("transaction", "")
-            shares = trans.get("shares", 0)
+        for raw_trans in transactions_data[:20]:
+            # Normalize keys to lowercase for yfinance compatibility
+            # yfinance returns Title Case columns (Shares, Text, Insider Trading, etc.)
+            trans = {str(k).lower().replace(" ", "_"): v for k, v in raw_trans.items()}
 
-            if trans_type == "Buy":
+            # Try multiple possible field names for transaction type
+            trans_type = str(
+                trans.get("text", "") or
+                trans.get("transaction", "") or
+                trans.get("type", "") or
+                ""
+            ).lower()
+
+            # Try multiple possible field names for shares
+            shares = trans.get("shares", 0) or 0
+            if isinstance(shares, str):
+                try:
+                    shares = int(str(shares).replace(",", ""))
+                except (ValueError, AttributeError):
+                    shares = 0
+
+            # Detect buy vs sell from various yfinance transaction text formats
+            is_buy = any(w in trans_type for w in ["buy", "purchase", "acquisition"])
+            is_sell = any(w in trans_type for w in ["sale", "sell", "disposition"])
+
+            # Get insider name and position (yfinance uses various column names)
+            insider_name = (
+                trans.get("insider", "") or trans.get("insider_trading", "") or
+                trans.get("name", "") or "Unknown"
+            )
+            position = (
+                trans.get("position", "") or trans.get("relationship", "") or
+                trans.get("title", "") or ""
+            )
+            date = trans.get("date", "") or trans.get("start_date", "") or ""
+
+            if is_buy:
                 buy_count += 1
-                buy_shares += shares
+                buy_shares += abs(int(shares))
 
                 # Notable if > 10k shares or executive
-                position = trans.get("position", "").lower()
-                if shares > 10000 or "ceo" in position or "cfo" in position or "director" in position:
+                position_lower = str(position).lower()
+                if abs(shares) > 10000 or "ceo" in position_lower or "cfo" in position_lower or "director" in position_lower:
                     notable.append(
-                        f"   - {trans.get('insider')} ({trans.get('position')}) bought "
-                        f"{shares:,} shares on {trans.get('date')}"
+                        f"   - {insider_name} ({position}) bought "
+                        f"{abs(int(shares)):,} shares on {date}"
                     )
 
-            elif trans_type == "Sale":
+            elif is_sell:
                 sell_count += 1
-                sell_shares += shares
+                sell_shares += abs(int(shares))
 
         lines.append(f"Summary (Last 20 Transactions):")
         lines.append(f"   - Buy Transactions: {buy_count}")

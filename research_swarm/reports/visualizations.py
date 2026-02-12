@@ -42,22 +42,24 @@ class ChartGenerator:
         Returns:
             Path to generated PNG file
         """
-        fig, ax = plt.subplots(figsize=(8, 4))
+        fig, ax = plt.subplots(figsize=(8, 5))
 
-        # Define components with weights
+        # Define components (v2.0 moat scoring formula)
         components = [
-            "Financial Health (30%)",
-            "Sentiment (20%)",
-            "Technical (20%)",
-            "Supply Chain (30%)",
+            "Earnings Momentum",
+            "Financial Health",
+            "Valuation",
+            "Technical/Momentum",
+            "Sentiment",
         ]
 
         # Extract values in the same order
         values = [
+            breakdown.get("earnings_momentum", 0.0),
             breakdown.get("financial_health", 0.0),
-            breakdown.get("sentiment_catalysts", 0.0),
+            breakdown.get("valuation", 0.0),
             breakdown.get("technical_strength", 0.0),
-            breakdown.get("supply_chain_position", 0.0),
+            breakdown.get("sentiment_catalysts", 0.0),
         ]
 
         # Color code based on score thresholds

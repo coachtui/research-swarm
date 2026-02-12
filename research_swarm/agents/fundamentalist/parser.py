@@ -50,6 +50,49 @@ SECTION_PATTERNS_10Q = {
     ],
 }
 
+# Section patterns for 20-F filings (foreign private issuers / ADRs)
+# 20-F item numbers differ from 10-K; we map to the same semantic keys
+SECTION_PATTERNS_20F = {
+    "Item 1": [  # Business overview = Item 4 in 20-F
+        r"(?i)item\s+4\.?\s*\n?\s*information\s+on\s+the\s+company",
+        r"(?i)item\s+4\.?\s*\n?\s*the\s+company",
+        r"(?i)item\s+4[a-c]?\.?\s*$",
+    ],
+    "Item 1A": [  # Risk factors = Item 3D in 20-F
+        r"(?i)item\s+3\.?d\.?\s*\n?\s*risk\s+factors",
+        r"(?i)item\s+3d\.?\s*\n?\s*risk",
+        r"(?i)risk\s+factors",
+    ],
+    "Item 7": [  # MD&A = Item 5 in 20-F
+        r"(?i)item\s+5\.?\s*\n?\s*operating\s+and\s+financial\s+review",
+        r"(?i)item\s+5\.?\s*\n?\s*management.?s?\s+discussion",
+        r"(?i)item\s+5\.?",
+    ],
+    "Item 8": [  # Financial statements = Item 8 in 20-F (same number)
+        r"(?i)item\s+8\.?\s*\n?\s*financial\s+information",
+        r"(?i)item\s+18\.?\s*\n?\s*financial\s+statements",
+        r"(?i)item\s+8\.?",
+    ],
+}
+
+# Section patterns for 6-K filings (foreign interim / current reports)
+# 6-K filings are less structured — free-form exhibits, so use broad patterns
+SECTION_PATTERNS_6K = {
+    "Item 7": [  # MD&A equivalent
+        r"(?i)management.?s?\s+discussion\s+and\s+analysis",
+        r"(?i)operating\s+results",
+        r"(?i)financial\s+review\s+and\s+analysis",
+        r"(?i)results\s+of\s+operations",
+    ],
+    "Item 8": [  # Financial statements
+        r"(?i)condensed\s+consolidated\s+(financial\s+)?statements",
+        r"(?i)unaudited\s+(condensed\s+)?(consolidated\s+)?financial\s+statements",
+        r"(?i)financial\s+statements\s+and\s+supplementary",
+        r"(?i)consolidated\s+balance\s+sheet",
+        r"(?i)consolidated\s+statements?\s+of\s+(income|operations)",
+    ],
+}
+
 # Next section markers to find end of current section
 NEXT_SECTION_PATTERNS = [
     r"(?i)item\s+\d+[a-z]?\.?\s",
@@ -113,6 +156,14 @@ class FilingParser:
             # For 10-Q, only parse MD&A and financials (no business description or risk factors)
             sections_to_parse = ["Item 7", "Item 8"]
             section_patterns = SECTION_PATTERNS_10Q
+        elif filing_type == "20-F":
+            # For 20-F (foreign annual), parse all sections using 20-F item numbers
+            sections_to_parse = ["Item 1", "Item 1A", "Item 7", "Item 8"]
+            section_patterns = SECTION_PATTERNS_20F
+        elif filing_type == "6-K":
+            # For 6-K (foreign interim), only MD&A and financials (like 10-Q)
+            sections_to_parse = ["Item 7", "Item 8"]
+            section_patterns = SECTION_PATTERNS_6K
         else:
             # For 10-K, parse all sections
             sections_to_parse = ["Item 1", "Item 1A", "Item 7", "Item 8"]
@@ -148,21 +199,24 @@ class FilingParser:
 
     def _detect_filing_type(self, filing_text: str) -> str:
         """
-        Detect whether a filing is a 10-K or 10-Q.
+        Detect filing type from content.
 
         Args:
             filing_text: Raw filing text
 
         Returns:
-            "10-K" or "10-Q"
+            "10-K", "10-Q", "20-F", or "6-K"
         """
         # Look for filing type in the first 5000 chars (typically in header)
         header = filing_text[:5000].upper()
 
-        # Check for explicit "10-Q" or "10-K" declarations
-        if "10-Q" in header and "10-K" not in header:
-            return "10-Q"
-        elif "FORM 10-Q" in header:
+        # Check for foreign filings first (more specific)
+        if "FORM 20-F" in header or ("20-F" in header and "10-K" not in header and "10-Q" not in header):
+            return "20-F"
+        elif "FORM 6-K" in header or ("6-K" in header and "10-K" not in header and "10-Q" not in header):
+            return "6-K"
+        # Check for domestic filings
+        elif "FORM 10-Q" in header or ("10-Q" in header and "10-K" not in header):
             return "10-Q"
         elif "FORM 10-K" in header or "10-K" in header:
             return "10-K"

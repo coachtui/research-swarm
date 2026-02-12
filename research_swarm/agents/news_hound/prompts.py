@@ -866,12 +866,13 @@ UPCOMING_CATALYSTS_PROMPT = """You are building a catalyst calendar for {ticker}
 **What to Extract**:
 
 1. **Next Earnings Date**:
-   - Date (YYYY-MM-DD) or "early Q1 2025" if not specific
+   - Date (YYYY-MM-DD) or timeframe relative to analysis date (e.g., "early Q2")
    - Confirmed (true) or Estimated (false)
+   - IMPORTANT: All dates MUST be in the future relative to the analysis date ({analysis_date}). Do NOT generate dates from previous years.
 
-2. **Upcoming Catalysts** (next 6 months):
+2. **Upcoming Catalysts** (next 6 months from {analysis_date}):
    - Event type (earnings, FDA, product launch, etc.)
-   - Expected date or timeframe
+   - Expected date or timeframe (must be future dates)
    - Description
    - Potential impact: High/Medium/Low
    - Impact direction: Positive/Negative/Neutral

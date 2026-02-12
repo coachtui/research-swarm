@@ -1,6 +1,7 @@
 """Extract and transform SwarmRun data into report data."""
 
 from typing import Dict, Any
+from loguru import logger
 
 from ..orchestration import PersistenceManager
 from ..orchestration.models import StockResult, StockStatus
@@ -233,15 +234,14 @@ class DataExtractor:
 
         output = result.full_output  # ManagerOutput dict
 
-        # Extract moat breakdown
+        # Extract moat breakdown (v2.0 components only)
         moat_breakdown_dict = output.get("moat_breakdown", {})
         moat_breakdown = {
+            "earnings_momentum": moat_breakdown_dict.get("earnings_momentum", 0.0),
             "financial_health": moat_breakdown_dict.get("financial_health", 0.0),
-            "sentiment_catalysts": moat_breakdown_dict.get("sentiment_catalysts", 0.0),
+            "valuation": moat_breakdown_dict.get("valuation", 0.0),
             "technical_strength": moat_breakdown_dict.get("technical_strength", 0.0),
-            "supply_chain_position": moat_breakdown_dict.get(
-                "supply_chain_position", 0.0
-            ),
+            "sentiment_catalysts": moat_breakdown_dict.get("sentiment_catalysts", 0.0),
         }
 
         # Extract supply chain from quant_output
@@ -260,9 +260,42 @@ class DataExtractor:
         fundamentalist = output.get("fundamentalist_output", {})
         vgm_scores = fundamentalist.get("vgm_scores")
         enhanced_moat = fundamentalist.get("enhanced_moat")
+
+        # Calculate composite_score if enhanced_moat exists but doesn't have it
+        if enhanced_moat and "composite_score" not in enhanced_moat:
+            scores = [
+                enhanced_moat.get("network_effects", 0),
+                enhanced_moat.get("switching_costs", 0),
+                enhanced_moat.get("brand_power", 0),
+                enhanced_moat.get("cost_advantages", 0),
+                enhanced_moat.get("scale_economies", 0),
+                enhanced_moat.get("intangible_assets", 0),
+                enhanced_moat.get("regulatory_barriers", 0),
+                enhanced_moat.get("distribution_advantages", 0),
+            ]
+            active_scores = [s for s in scores if s > 0]
+            enhanced_moat["composite_score"] = (
+                sum(active_scores) / len(active_scores) if active_scores else 0.0
+            )
+
         valuation_metrics = fundamentalist.get("valuation_metrics")
         price_targets = fundamentalist.get("price_targets")
         peer_comparison = fundamentalist.get("peer_comparison")
+
+        # Generate peer comparison if not already provided by fundamentalist
+        if not peer_comparison:
+            try:
+                from .peer_comparison_generator import peer_comparison_generator
+
+                peer_comparison = peer_comparison_generator.generate(
+                    ticker=result.ticker,
+                    moat_score=result.moat_score or 5.0,
+                    enhanced_moat=enhanced_moat,
+                    valuation_metrics=valuation_metrics,
+                    vgm_scores=vgm_scores,
+                )
+            except Exception as e:
+                logger.warning(f"Peer comparison generation failed for {result.ticker}: {e}")
 
         # Extract News Hound enhancements
         news_hound = output.get("news_hound_output", {})
@@ -284,24 +317,54 @@ class DataExtractor:
 
         # Calculate recommended strategy if we have required data
         recommended_strategy = None
-        if price_targets and valuation_metrics:
+        current_price = valuation_metrics.get("current_price", 0) if valuation_metrics else 0
+        if price_targets and current_price and current_price > 0:
             try:
                 from ..agents.manager.strategy_calculator import strategy_calculator
 
-                current_price = valuation_metrics.get("current_price", 0)
-                if current_price and current_price > 0:
-                    recommended_strategy = strategy_calculator.calculate_full_strategy(
-                        current_price=current_price,
-                        valuation_targets=price_targets,
-                        risk_level=risk_level or "Medium",
-                        conviction=output.get("confidence", 0.7),
-                        moat_score=result.moat_score or 5.0,
-                        rating=rating or "HOLD",
-                        technical_levels=None  # Could extract from quant output if available
-                    )
+                recommended_strategy = strategy_calculator.calculate_full_strategy(
+                    current_price=current_price,
+                    valuation_targets=price_targets,
+                    risk_level=risk_level or "Medium",
+                    conviction=output.get("confidence", 0.7),
+                    moat_score=result.moat_score or 5.0,
+                    rating=rating or "HOLD",
+                    technical_levels=None
+                )
+            except ImportError:
+                logger.warning(f"strategy_calculator module not found")
             except Exception as e:
                 logger.warning(f"Strategy calculation failed for {result.ticker}: {e}")
-                recommended_strategy = None
+
+        # Calculate valuation sensitivity
+        valuation_sensitivity = None
+        if valuation_metrics and current_price and current_price > 0:
+            try:
+                from ..agents.fundamentalist.sensitivity_calculator import sensitivity_calculator
+
+                pe_ratio = valuation_metrics.get("pe_ratio")
+                forward_pe = valuation_metrics.get("forward_pe")
+
+                # Derive base EPS from P/E and price
+                base_eps = None
+                base_pe = None
+
+                if forward_pe and forward_pe > 0:
+                    base_eps = current_price / forward_pe
+                    base_pe = forward_pe
+                elif pe_ratio and pe_ratio > 0:
+                    base_eps = current_price / pe_ratio
+                    base_pe = pe_ratio
+
+                if base_eps and base_pe:
+                    valuation_sensitivity = sensitivity_calculator.calculate_sensitivity_matrix(
+                        base_eps=base_eps,
+                        base_pe=base_pe,
+                        current_price=current_price,
+                        valuation_metrics=valuation_metrics,
+                    )
+            except Exception as e:
+                logger.warning(f"Sensitivity calculation failed for {result.ticker}: {e}")
 
         # Calculate expected value from price targets
         expected_value = None
@@ -380,14 +443,40 @@ class DataExtractor:
             print(f"Warning: Track record calculation failed for {result.ticker}: {e}")
             track_record = None
 
+        # Truncate lists to meet StockReportData validation (max 5 items)
+        key_insights = output.get("key_insights", [])[:5]
+        risk_factors = output.get("risk_factors", [])[:5]
+
+        # Generate conviction statement (LLM-based)
+        conviction_statement = None
+        try:
+            from .conviction_generator import conviction_generator
+
+            conviction_statement = conviction_generator.generate(
+                ticker=result.ticker,
+                moat_score=result.moat_score or 5.0,
+                rating=rating,
+                rating_score=rating_score,
+                risk_level=risk_level,
+                vgm_scores=vgm_scores,
+                valuation_metrics=valuation_metrics,
+                price_targets=price_targets,
+                enhanced_moat=enhanced_moat,
+                investment_thesis=output.get("investment_thesis", ""),
+                key_insights=key_insights,
+                risk_factors=risk_factors,
+            )
+        except Exception as e:
+            logger.warning(f"Conviction generation failed for {result.ticker}: {e}")
+
         return StockReportData(
             ticker=result.ticker,
             moat_score=result.moat_score or 0.0,
             moat_breakdown=moat_breakdown,
             is_watchlist_candidate=result.is_watchlist_candidate or False,
             investment_thesis=output.get("investment_thesis", ""),
-            key_insights=output.get("key_insights", []),
-            risk_factors=output.get("risk_factors", []),
+            key_insights=key_insights,
+            risk_factors=risk_factors,
             synthesis_narrative=output.get("synthesis_narrative", ""),
             supply_chain_nodes=sc_graph.get("nodes", []),
             supply_chain_edges=sc_graph.get("edges", []),
@@ -423,4 +512,6 @@ class DataExtractor:
             peer_comparison_group=peer_comparison_group,
             earnings_date=earnings_date,
             track_record=track_record,
+            valuation_sensitivity=valuation_sensitivity,
+            conviction_statement=conviction_statement,
         )

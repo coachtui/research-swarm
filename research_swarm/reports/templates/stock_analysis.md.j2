@@ -7,28 +7,20 @@
 
 **Investment Thesis:** {{ stock.investment_thesis }}
 
-**Processing Time:** {{ "%.1f"|format(stock.processing_time) }}s | **Cost:** ${{ "%.4f"|format(stock.cost_usd) }}
-
 ---
 
 #### 📊 Moat Score Breakdown
 
-| Component | Score | Weight |
-|-----------|-------|--------|
-{% if stock.moat_breakdown.get('earnings_momentum') is not none and stock.moat_breakdown.get('valuation') is not none %}
-| Earnings Momentum | {{ "%.1f"|format(stock.moat_breakdown.earnings_momentum) }}/10 | 25% |
-| Financial Health | {{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10 | 25% |
-| Valuation | {{ "%.1f"|format(stock.moat_breakdown.valuation) }}/10 | 20% |
-| Technical/Momentum | {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 | 15% |
-| Sentiment | {{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10 | 15% |
-{% else %}
-| Financial Health | {{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10 | 25% |
-| Business Model Moat | {{ "%.1f"|format(stock.moat_breakdown.get('business_model_moat', 0)) }}/10 | 25% |
-| Sentiment & Catalysts | {{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10 | 15% |
-| Technical Strength | {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 | 15% |
-| Supply Chain Position | {{ "%.1f"|format(stock.moat_breakdown.get('supply_chain_position', 0)) }}/10 | 20% |
-{% endif %}
-| **Overall Moat Score** | **{{ "%.1f"|format(stock.moat_score) }}/10** | **100%** |
+| Component | Score |
+|-----------|-------|
+| Earnings Momentum ⭐ | {{ "%.1f"|format(stock.moat_breakdown.earnings_momentum) }}/10 |
+| Financial Health | {{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10 |
+| Valuation | {{ "%.1f"|format(stock.moat_breakdown.valuation) }}/10 |
+| Technical/Momentum | {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 |
+| Sentiment | {{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10 |
+| **Overall Moat Score** | **{{ "%.1f"|format(stock.moat_score) }}/10** |
+
+*⭐ Earnings Momentum = PRIMARY SIGNAL (estimate revisions)*
 
 {% if include_charts %}
 ![{{ stock.ticker }} Moat Breakdown](./charts/moat_{{ stock.ticker }}.png)
@@ -71,6 +63,12 @@
 | 🚚 Distribution | {{ "%.1f"|format(stock.enhanced_moat.distribution_advantages) }}/10 | {% if stock.enhanced_moat.distribution_advantages >= 7 %}Dominant{% elif stock.enhanced_moat.distribution_advantages >= 4 %}Established{% else %}Limited{% endif %} |
 
 ---
+{% else %}
+#### 📈 VGM Investment Style Analysis
+
+*VGM (Value/Growth/Momentum) style analysis not available for this ticker.*
+
+---
 {% endif %}
 
 {% if stock.valuation_metrics %}
@@ -103,6 +101,12 @@
 {% endif %}
 
 ---
+{% else %}
+#### 💵 Valuation Analysis
+
+*Valuation metrics not available for this ticker via free data sources.*
+
+---
 {% endif %}
 
 {% if stock.price_targets %}
@@ -121,6 +125,12 @@
 {% if stock.valuation_metrics and stock.valuation_metrics.current_price %}
 **Upside to Expected Value:** {{ "%.1f"|format((stock.price_targets.expected_value / stock.valuation_metrics.current_price - 1) * 100) }}%
 {% endif %}
+
+---
+{% else %}
+#### 🎯 Price Target Scenarios (12-Month)
+
+*Price target scenarios not available for this ticker.*
 
 ---
 {% endif %}
@@ -151,6 +161,12 @@
 {% endif %}
 
 ---
+{% else %}
+#### 🏆 Peer Comparison & Competitive Position
+
+*Peer comparison data not available for this ticker via free data sources. Premium data sources would provide detailed competitive positioning.*
+
+---
 {% endif %}
 
 #### 📡 Signal Breakdown & Divergence Analysis
@@ -175,8 +191,10 @@
 {{ stock.signal_breakdown.divergence_explanation }}
 
 **Interpretation:** {{ stock.signal_breakdown.divergence_recommendation }}
-{% else %}
+{% elif "STRONG" in stock.signal_breakdown.alignment_status %}
 ✅ **Signal Alignment:** All signals pointing in the same direction - {{ stock.signal_breakdown.direction_consensus }}
+{% else %}
+🔶 **Signal Alignment:** Signals generally aligned with some variation - {{ stock.signal_breakdown.direction_consensus }}
 {% endif %}
 
 {% if include_charts %}
@@ -198,23 +216,39 @@
 - Downward Revisions: {{ stock.earnings_estimates.downward_revisions }}
 {% if stock.earnings_estimates.consensus_change_pct %}- Consensus Change: {{ "%.1f"|format(stock.earnings_estimates.consensus_change_pct) }}%{% endif %}
 
-{% if stock.earnings_estimates.current_fy_eps %}**Current FY EPS Estimate:** ${{ "%.2f"|format(stock.earnings_estimates.current_fy_eps) }}{% endif %}
-{% if stock.earnings_estimates.next_fy_eps %}**Next FY EPS Estimate:** ${{ "%.2f"|format(stock.earnings_estimates.next_fy_eps) }}{% endif %}
+{% if stock.earnings_estimates.current_fy_eps %}
+**Current FY EPS Estimate:** ${{ "%.2f"|format(stock.earnings_estimates.current_fy_eps) }}
+{% endif %}
+{% if stock.earnings_estimates.next_fy_eps %}
+**Next FY EPS Estimate:** ${{ "%.2f"|format(stock.earnings_estimates.next_fy_eps) }}
+{% endif %}
 
 **EPS Surprise History (Last 4 Quarters):**
 {% if stock.earnings_estimates.beat_pattern %}{{ stock.earnings_estimates.beat_pattern }}{% if stock.earnings_estimates.avg_surprise_pct %} | Avg Surprise: {{ "%.1f"|format(stock.earnings_estimates.avg_surprise_pct) }}%{% endif %}{% endif %}
 
 {% if stock.earnings_estimates.current_year_growth_pct or stock.earnings_estimates.next_year_growth_pct %}
 **Growth Trajectory:**
-{% if stock.earnings_estimates.current_year_growth_pct %}- Current Year Growth: {{ "%.1f"|format(stock.earnings_estimates.current_year_growth_pct) }}%{% endif %}
-{% if stock.earnings_estimates.next_year_growth_pct %}- Next Year Growth: {{ "%.1f"|format(stock.earnings_estimates.next_year_growth_pct) }}%{% endif %}
-{% if stock.earnings_estimates.momentum %}- Momentum: {{ stock.earnings_estimates.momentum }}{% endif %}
+{% if stock.earnings_estimates.current_year_growth_pct %}
+- Current Year Growth: {{ "%.1f"|format(stock.earnings_estimates.current_year_growth_pct) }}%
+{% endif %}
+{% if stock.earnings_estimates.next_year_growth_pct %}
+- Next Year Growth: {{ "%.1f"|format(stock.earnings_estimates.next_year_growth_pct) }}%
+{% endif %}
+{% if stock.earnings_estimates.momentum %}
+- Momentum: {{ stock.earnings_estimates.momentum }}
+{% endif %}
 {% endif %}
 
 **Estimate Quality:**
 - Analyst Coverage: {{ stock.earnings_estimates.analyst_coverage }} analysts
 - Estimate Dispersion: {{ stock.earnings_estimates.estimate_dispersion }}
 - Agreement Level: {{ "%.0f"|format(stock.earnings_estimates.estimate_agreement * 100) }}%
+
+---
+{% else %}
+#### 📈 Earnings Estimate Revisions (PRIMARY SIGNAL)
+
+*Earnings estimate revision data not available. Using proxy signal from analyst recommendation changes.*
 
 ---
 {% endif %}
@@ -234,8 +268,12 @@
 {% if stock.analyst_consensus.avg_price_target %}
 **Price Targets:**
 - Average Target: ${{ "%.2f"|format(stock.analyst_consensus.avg_price_target) }}{% if stock.analyst_consensus.target_upside_pct %} ({{ "%.1f"|format(stock.analyst_consensus.target_upside_pct) }}% upside){% endif %}
-{% if stock.analyst_consensus.high_price_target %}- High Target: ${{ "%.2f"|format(stock.analyst_consensus.high_price_target) }}{% endif %}
-{% if stock.analyst_consensus.low_price_target %}- Low Target: ${{ "%.2f"|format(stock.analyst_consensus.low_price_target) }}{% endif %}
+{% if stock.analyst_consensus.high_price_target %}
+- High Target: ${{ "%.2f"|format(stock.analyst_consensus.high_price_target) }}
+{% endif %}
+{% if stock.analyst_consensus.low_price_target %}
+- Low Target: ${{ "%.2f"|format(stock.analyst_consensus.low_price_target) }}
+{% endif %}
 {% endif %}
 
 **Recent Activity (90 days):**
@@ -255,15 +293,22 @@
 
 **Institutional Sentiment:** {{ stock.institutional_activity.institutional_sentiment }}
 
-{% if stock.institutional_activity.institutional_ownership_pct %}**Institutional Ownership:** {{ "%.1f"|format(stock.institutional_activity.institutional_ownership_pct) }}%{% endif %}
-{% if stock.institutional_activity.qoq_change_pct %}**QoQ Change:** {{ "%.1f"|format(stock.institutional_activity.qoq_change_pct) }}%{% endif %}
+{% if stock.institutional_activity.institutional_ownership_pct %}
+**Institutional Ownership:** {{ "%.1f"|format(stock.institutional_activity.institutional_ownership_pct) }}%
+{% endif %}
+{% if stock.institutional_activity.qoq_change_pct %}
+**QoQ Change:** {{ "%.1f"|format(stock.institutional_activity.qoq_change_pct) }}%
+{% endif %}
+
 **Number of Holders:** {{ stock.institutional_activity.num_holders }}
+
 **Trend:** {{ stock.institutional_activity.trend }}
 
 {% if stock.institutional_activity.top_holders %}
 **Top 5 Institutional Holders:**
 {% for holder in stock.institutional_activity.top_holders[:5] %}
 {{ loop.index }}. {{ holder.name }} - {{ holder.ownership_pct }}%{% if holder.change %} ({{ holder.change }}){% endif %}
+
 {% endfor %}
 {% endif %}
 
@@ -346,9 +391,15 @@
 {% if stock.short_interest %}
 #### 📉 Short Interest & Squeeze Risk
 
-**Short Interest:** {% if stock.short_interest.short_interest_pct %}{{ "%.1f"|format(stock.short_interest.short_interest_pct) }}% of float{% endif %}
-{% if stock.short_interest.short_interest_shares %}**Shares Shorted:** {{ stock.short_interest.short_interest_shares|int }}{% endif %}
-{% if stock.short_interest.days_to_cover %}**Days to Cover:** {{ "%.1f"|format(stock.short_interest.days_to_cover) }}{% endif %}
+{% if stock.short_interest.short_interest_pct %}
+**Short Interest:** {{ "%.1f"|format(stock.short_interest.short_interest_pct) }}% of float
+{% endif %}
+{% if stock.short_interest.short_interest_shares %}
+**Shares Shorted:** {{ stock.short_interest.short_interest_shares|int }}
+{% endif %}
+{% if stock.short_interest.days_to_cover %}
+**Days to Cover:** {{ "%.1f"|format(stock.short_interest.days_to_cover) }}
+{% endif %}
 
 **Trend:** {{ stock.short_interest.short_interest_trend }}
 {% if stock.short_interest.mom_change_pct %}**MoM Change:** {{ "%.1f"|format(stock.short_interest.mom_change_pct) }}%{% endif %}

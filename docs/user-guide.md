@@ -89,7 +89,7 @@ python -m research_swarm run AAPL NVDA MSFT
 python -m research_swarm run --from-file watchlist.txt
 
 # Custom parameters
-python -m research_swarm run AAPL --fiscal-year 2024 --news-days 30
+python -m research_swarm run AAPL --fiscal-year 2025 --news-days 30
 ```
 
 ### `report` - Generate Reports

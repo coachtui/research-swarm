@@ -67,6 +67,14 @@ class FundamentalistState(TypedDict, total=False):
     earnings_raw_data: Optional[Dict[str, Any]]  # Bundle of yfinance earnings data
     vgm_scores: Optional[Dict[str, Any]]  # Calculated VGM breakdown
     earnings_momentum_score: Optional[float]  # Momentum component (0-10)
+    earnings_momentum_breakdown: Optional[Dict[str, Any]]  # Breakdown of momentum components
+
+    # Hybrid provider fields
+    is_foreign: Optional[bool]  # Whether ticker is a foreign ADR (20-F/6-K filer)
+    structured_filing_data: Optional[Dict[str, Any]]  # FilingExtraction dict from enhanced parser
+
+    # DCF valuation
+    price_targets: Optional[Dict[str, Any]]  # PriceTargetScenarios dict from DCF calculator
 
     # Metadata
     tokens_used: int  # Total tokens used in API calls

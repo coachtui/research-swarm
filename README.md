@@ -138,7 +138,7 @@ Monitor costs: `python -m research_swarm cost --dashboard`
 
 ## Tech Stack
 
-- Python 3.10+ (3.11.9 recommended)
+- Python 3.10+ (3.11.9 recommended) (3.12 required for vercel)
 - LangGraph (agent orchestration)
 - Anthropic Claude API (Haiku 3.5 & Sonnet 3.5)
 - SQLite (caching & persistence)

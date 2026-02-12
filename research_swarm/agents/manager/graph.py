@@ -238,6 +238,14 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
         state["upgrade_triggers"] = synthesis.get("upgrade_triggers", [])
         state["downgrade_triggers"] = synthesis.get("downgrade_triggers", [])
 
+        # NEW: Extract LLM-generated price targets
+        price_targets = synthesis.get("price_targets")
+        if price_targets and price_targets.get("base_target"):
+            state["price_targets"] = price_targets
+            logger.info(f"✓ Price targets: Bull ${price_targets.get('bull_target', 0):.2f} / Base ${price_targets.get('base_target', 0):.2f} / Bear ${price_targets.get('bear_target', 0):.2f}")
+        else:
+            state["price_targets"] = None
+
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
         logger.success(f"✓ Synthesis complete ({tokens} tokens, {len(state.get('structured_risks', []))} structured risks)")
@@ -281,50 +289,44 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
         financial_health_score = state["financial_health_score"]
         sentiment_score = state["sentiment_score"]
         technical_score = state["technical_score"]
-        supply_chain_score = state["supply_chain_score"]
 
         # Get agent confidence levels
         fundamentalist_confidence = state["fundamentalist_output"].get("confidence", 1.0)
         news_hound_confidence = state["news_hound_output"].get("confidence", 1.0)
         quant_confidence = state["quant_output"].get("confidence", 1.0)
 
-        # Check if fundamentalist has v2.0 scores (earnings momentum, valuation)
+        # Get v2.0 scores (earnings momentum, valuation)
         fundamentalist_output = state["fundamentalist_output"]
         earnings_momentum_score = fundamentalist_output.get("earnings_momentum_score")
         valuation_score = fundamentalist_output.get("valuation_score")
-        business_model_moat_score = fundamentalist_output.get("business_model_moat_score")
 
-        # Create breakdown - MoatScoreBreakdown auto-detects v1.0 vs v2.0
-        if earnings_momentum_score is not None and valuation_score is not None:
-            # Use v2.0 formula
-            logger.info(f"Using v2.0 moat formula with earnings momentum and valuation")
-            breakdown = MoatScoreBreakdown(
-                earnings_momentum=earnings_momentum_score,
-                financial_health=financial_health_score,
-                valuation=valuation_score,
-                technical_strength=technical_score,
-                sentiment_catalysts=sentiment_score,
-            )
-        else:
-            # Fall back to v1.0 formula
-            logger.info(f"Using v1.0 moat formula (legacy)")
-            breakdown = MoatScoreBreakdown(
-                financial_health=financial_health_score,
-                business_model_moat=business_model_moat_score if business_model_moat_score is not None else 0.0,
-                sentiment_catalysts=sentiment_score,
-                technical_strength=technical_score,
-                supply_chain_position=supply_chain_score,
+        if earnings_momentum_score is None or valuation_score is None:
+            raise ValueError(
+                f"Missing required v2.0 components for {state['ticker']}: "
+                f"earnings_momentum={earnings_momentum_score}, valuation={valuation_score}"
             )
 
-        # Calculate moat score using breakdown
+        # Create moat breakdown using v2.0 formula
+        logger.info(f"Using v2.0 moat formula (Earnings Momentum + Valuation)")
+        breakdown = MoatScoreBreakdown(
+            earnings_momentum=earnings_momentum_score,
+            financial_health=financial_health_score,
+            valuation=valuation_score,
+            technical_strength=technical_score,
+            sentiment_catalysts=sentiment_score,
+        )
+
+        # Calculate moat score
         moat_score = breakdown.weighted_average()
 
-        # Calculate confidence
-        component_scores = [financial_health_score, sentiment_score, technical_score]
-        if earnings_momentum_score is not None and valuation_score is not None:
-            component_scores.extend([earnings_momentum_score, valuation_score])
-        else:
-            component_scores.extend([business_model_moat_score if business_model_moat_score else 0.0, supply_chain_score])
+        # Calculate confidence using all v2.0 components
+        component_scores = [
+            earnings_momentum_score,
+            financial_health_score,
+            valuation_score,
+            technical_score,
+            sentiment_score
+        ]
 
         confidence = manager_scorer.assess_confidence(
             component_scores=component_scores,
@@ -405,16 +407,22 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
     state["node_timestamps"] = {**state.get("node_timestamps", {}), "generate_thesis": time.time()}
 
     try:
+        # Get v2.0 component scores from fundamentalist
+        fundamentalist_output = state.get("fundamentalist_output", {})
+        earnings_momentum_score = fundamentalist_output.get("earnings_momentum_score", 5.0)
+        valuation_score = fundamentalist_output.get("valuation_score", 5.0)
+
         # Generate investment thesis
         thesis, tokens = manager_analyzer.generate_investment_thesis(
             ticker=state["ticker"],
             analysis_date=state["analysis_date"],
             moat_score=state["moat_score"],
             confidence=state["confidence"],
+            earnings_momentum_score=earnings_momentum_score,
             financial_health_score=state["financial_health_score"],
+            valuation_score=valuation_score,
             sentiment_score=state["sentiment_score"],
             technical_score=state["technical_score"],
-            supply_chain_score=state["supply_chain_score"],
             is_watchlist=state["is_watchlist_candidate"],
             synthesis_narrative=state["synthesis_narrative"] or "",
             key_insights=state["key_insights"] or [],
@@ -625,6 +633,11 @@ def analyze_swarm(
         tokens_in = int(manager_only_tokens * 0.3)
         tokens_out = int(manager_only_tokens * 0.7)
         cost_by_agent["manager"] = cost_tracker.calculate_cost(tokens_in, tokens_out, "sonnet")
+
+    # Inject LLM-generated price_targets into fundamentalist_output
+    # so data_extractor picks it up from fundamentalist.get("price_targets")
+    if final_state.get("price_targets") and final_state.get("fundamentalist_output"):
+        final_state["fundamentalist_output"]["price_targets"] = final_state["price_targets"]
 
     # Build output
     output = ManagerOutput(

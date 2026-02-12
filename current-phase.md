@@ -1,96 +1,401 @@
-# Current Phase Status
+# Current Phase: MVP Launch — Path to First Revenue
 
-**Phase**: 8 - Report Generation
-**Status**: ✅ COMPLETE (2026-01-17)
-**Duration**: ~4 hours (broken into 4 sub-phases)
-**Cost**: $0 (no LLM API calls)
+**Created**: 2026-02-12
+**Timeline**: 3 weeks (Feb 12 — Mar 5, 2026)
+**Goal**: API live, minimal frontend, 10 paid reports at $14.99 each
+**Revenue Target**: $150
 
 ---
 
-## Phase 8 Summary
+## Strategic Context
 
-Complete report generation module with professional Markdown and PDF outputs.
+### Where We Are
+- Analysis engine: **~98% complete** — all 4 agents working, SEC Edgar + DCF + conviction + peers, $0.38/report
+- Backend API: **built but not deployed**
+- Report templates: **comprehensive** (20+ sections) but data gaps from yfinance
+- Frontend: **0%**
+- Payments: **0%**
+- Revenue: **$0**
 
-### What Was Built
+### The Problem
+Working product generating institutional-quality analysis, sitting on localhost. Zero users, zero revenue, zero validation.
 
-**Phase 8.1 - Core Models & Data Extraction**
-- 8 Pydantic models for report configuration and data
-- Data extractor to transform SwarmRun → ReportData
-- Public API exports
-- 9 unit tests ✅
+### The Strategy
+**Ship fast, validate with real money, iterate on feedback.**
 
-**Phase 8.2 - Visualizations**
-- ChartGenerator with matplotlib + NetworkX
-- 3 chart types:
-  - Moat breakdown (horizontal bars, color-coded)
-  - Supply chain graphs (directed network graphs)
-  - Portfolio overview (sorted moat scores)
-- 10 unit tests ✅
+Minimum path to first dollar:
+1. Deploy the API that already works
+2. Fix data quality enough to not embarrass ourselves
+3. Build the simplest possible frontend + payment flow
+4. Launch to Reddit/Twitter, sell 10 reports
 
-**Phase 8.3 - Template Rendering**
-- 5 Jinja2 templates (base, executive_summary, stock_analysis, supply_chain, watchlist)
-- TemplateRenderer with section-based rendering
-- Modular report assembly
-- 11 unit tests ✅
+### What We're NOT Doing
+- FMP API integration (deferred until revenue justifies $199/mo)
+- User authentication / Clerk
+- Subscription billing
+- Mobile app
+- Admin dashboards
+- Performance optimization
+- Advanced features
 
-**Phase 8.4 - PDF Generation & CLI Integration**
-- PDFGenerator with WeasyPrint + professional CSS styling
-- ReportGenerator orchestrator
-- CLI command: `python -m research_swarm report <run_id>`
-- generate_report() convenience function
-- 13 integration tests ✅
+---
 
-### Test Results
-```
-43 tests passed in 6.65s
-Phase 8.1: 9/9 ✅
-Phase 8.2: 10/10 ✅
-Phase 8.3: 11/11 ✅
-Phase 8.4: 13/13 ✅
-```
+## Week 1: Deploy & Harden
 
-### Files Created
-- 7 Python modules (~41.6 KB)
-- 5 Jinja2 templates (~5.6 KB)
-- 1 comprehensive test file (1,061 lines)
-- Updated: requirements.txt, __main__.py
+**Goal**: API live, 5 showcase-quality reports generated
 
-### CLI Usage Examples
+### Task 1.1: Fix lxml Dependency
+**Time**: 30 min | **Priority**: HIGH | **Blocks**: Data quality
+
+Add `lxml>=5.0.0` to:
+- `requirements.txt`
+- `requirements-vercel.txt`
+
+Test: `pip install lxml && python -m research_swarm run AAPL`
+Verify: No "Import lxml failed" warning, earnings calendar populates.
+
+### Task 1.2: Data Quality Audit
+**Time**: 2 hours | **Priority**: HIGH | **Blocks**: Report quality
+
+Test 10 tickers across market caps and sectors:
+- Mega: AAPL, MSFT, NVDA, GOOGL, AMZN
+- Large: CRM, DIS, BA, JPM, XOM
+
+For each ticker, document:
+- Which yfinance fields return data vs empty
+- Which report sections render vs blank
+- Data completeness percentage
+
+Output: Know exactly which fields to rely on and which to handle gracefully.
+
+### Task 1.3: Graceful Degradation for Missing Data
+**Time**: 2-3 hours | **Priority**: HIGH | **Blocks**: Report quality
+
+Files to modify:
+- `research_swarm/reports/templates/stock_analysis.md.j2` — replace empty sections with "Data not available for this ticker via free data sources" instead of blank tables
+- `research_swarm/reports/data_extractor.py` — add data completeness score to report metadata
+- `research_swarm/data/market_data_client.py` — improve logging for missing fields (WARNING not ERROR)
+
+### Task 1.4: Deploy API to Vercel
+**Time**: 1-2 hours | **Priority**: CRITICAL | **Blocks**: Everything
+
+Steps:
+1. Set environment variables in Vercel dashboard:
+   - `ANTHROPIC_API_KEY`
+   - `NEWS_API_KEY`
+   - `DATABASE_URL` (Neon connection string)
+   - `ENVIRONMENT=production`
+2. Run: `vercel --prod`
+3. Test: `curl https://<app>.vercel.app/api/health`
+4. Test: POST to `/api/analyze` with `{"ticker": "AAPL"}` via Swagger UI
+
+Success: API responds, analysis completes, result stored in database.
+
+### Task 1.5: Generate 5 Showcase Reports
+**Time**: 3-4 hours | **Priority**: HIGH | **Blocks**: Launch
+
+Tickers: AAPL, NVDA, MSFT, GOOGL, AMZN
+
+For each:
+1. Run analysis: `python -m research_swarm run <TICKER>`
+2. Generate report: `python -m research_swarm report <run_id>`
+3. Review manually — check for:
+   - [ ] Moat score reasonable
+   - [ ] Investment thesis coherent
+   - [ ] No "None" / "NaN" in visible sections
+   - [ ] Charts render (moat radar, signal comparison)
+   - [ ] Professional appearance
+4. Fix issues and regenerate if needed
+
+### Task 1.6: Report Quality Fixes (COMPLETED 2026-02-12)
+**Time**: 3 hours | **Priority**: CRITICAL | **Status**: DONE
+
+Fixed 11 report generation issues:
+- [x] earnings_momentum_score passed to output (was always 0.0/10)
+- [x] valuation_score passed to output (was always default 5.0)
+- [x] VGM Value Score uses real P/E vs sector calculation
+- [x] Valuation metrics fetched from yfinance (P/E, PEG, P/B, P/S, EV/EBITDA)
+- [x] Price targets generated by Manager synthesis LLM (Bull/Base/Bear)
+- [x] Template newlines fixed (6 locations where fields merged)
+- [x] Signal alignment: three-state logic (was binary)
+- [x] Insider data: column name normalization for yfinance
+- [x] Catalyst dates: prompt updated to use dynamic dates
+- [x] Graceful degradation for missing sections
+- [x] lxml>=5.0.0 added to requirements.txt
+
+### Task 1.7: SEC Edgar Integration & DCF Valuation (COMPLETED 2026-02-12)
+**Time**: 6 hours | **Priority**: HIGH | **Status**: DONE
+
+Hybrid data provider combining SEC Edgar filings with yfinance:
+- [x] **20-F + 6-K support** — Foreign ADRs (TSM, BABA, etc.) now use 20-F annual / 6-K interim filings
+- [x] **Foreign filer detection** — SEC submissions check + yfinance country fallback
+- [x] **20-F/6-K section patterns** — Parser routes to correct section regex for each filing type
+- [x] **Enhanced filing parser** — LLM-driven structured extraction (risk factors, growth drivers, management outlook)
+- [x] **DCF valuation calculator** — Pure Python WACC/FCF projection/terminal value, 3 scenarios (bull/base/bear)
+- [x] **HybridDataProvider** — Single orchestration point for SEC + yfinance data
+- [x] **Graph integration** — `fetch_quarterly_filings_node` uses hybrid provider, DCF runs in scoring node
+
+New files:
+- `research_swarm/data/data_provider_hybrid.py`
+- `research_swarm/agents/fundamentalist/sec_edgar_parser.py`
+- `research_swarm/agents/fundamentalist/dcf_calculator.py`
+
+Modified files:
+- `research_swarm/data/sec_client.py` (+150 lines: 20-F, 6-K, is_foreign_filer)
+- `research_swarm/agents/fundamentalist/parser.py` (+45 lines: 20-F/6-K patterns)
+- `research_swarm/agents/fundamentalist/models.py` (+30 lines: FilingExtraction, DCFInputs)
+- `research_swarm/agents/fundamentalist/prompts.py` (+60 lines: extraction prompts)
+- `research_swarm/agents/fundamentalist/state.py` (+5 lines: new state fields)
+- `research_swarm/agents/fundamentalist/graph.py` (+40 lines: hybrid provider + DCF)
+
+### Task 1.8: Pipeline Completeness — Valuation & Analysis Gaps (COMPLETED 2026-02-12)
+**Time**: 4 hours | **Priority**: HIGH | **Status**: DONE
+
+Closed remaining gaps between analysis engine and report templates:
+- [x] **SEC-derived valuation fallback** — When yfinance `get_valuation_metrics()` returns None, computes P/E, P/S, P/FCF from SEC filing TTM data + current price (`market_data_client.build_valuation_from_fundamentals()`)
+- [x] **Conviction statement generator** — LLM-based (Haiku) bottom-line paragraph + rule-based conviction level & investor suitability. New file: `research_swarm/reports/conviction_generator.py`
+- [x] **Peer comparison generator** — Curated peer maps for ~40 major tickers + sector-based fallback + market cap ranking for competitive position. New file: `research_swarm/reports/peer_comparison_generator.py`
+- [x] **Valuation sensitivity analysis** — Wired existing `sensitivity_calculator` into `data_extractor.py` (was built but never called)
+- [x] **Strategy calculator hardening** — Pre-validates `current_price > 0`, separated `ImportError` from runtime errors
+- [x] **Earnings momentum breakdown** — Full breakdown dict (revision/surprise/sentiment scores) now stored in graph state, not just the composite score
+- [x] **Track record verification** — Confirmed working, depends on `PersistenceManager.get_previous_report()`
+
+Additional cost: ~$0.02/analysis (1 Haiku call for conviction bottom-line)
+
+### Week 1 Checklist
+- [x] lxml installed and working
+- [ ] Data quality audit complete (partially — bugs found and fixed, formal audit pending)
+- [x] Empty sections show graceful messages
+- [x] SEC Edgar integration + foreign ADR support (20-F/6-K)
+- [x] DCF valuation model (3-scenario price targets)
+- [x] SEC-derived valuation fallback (P/E, P/S, P/FCF from filings)
+- [x] Conviction statement generator (LLM + rule-based)
+- [x] Peer comparison generator (curated maps + sector fallback)
+- [x] Valuation sensitivity, strategy calculator, earnings breakdown wired
+- [ ] API deployed and responding at production URL
+- [ ] 5 showcase reports pass quality review
+
+---
+
+## Week 2: Minimal Frontend + Payments
+
+**Goal**: Users can visit site, pay $14.99, receive a PDF report
+
+### Task 2.1: Next.js Project Setup
+**Time**: 1 hour
+
 ```bash
-# Generate full report (MD + PDF with charts)
-python -m research_swarm report <run_id>
-
-# Markdown only, no charts
-python -m research_swarm report <run_id> --format markdown --no-charts
-
-# PDF to custom directory with 5 top picks
-python -m research_swarm report <run_id> --format pdf --output-dir ./output --top-picks 5
+npx create-next-app@latest frontend --typescript --tailwind --app
+cd frontend
+npm install @stripe/stripe-js
 ```
 
-### Success Criteria (All Met)
-- ✅ All 43 tests passing
-- ✅ Markdown reports generate correctly
-- ✅ PDF renders with embedded charts
-- ✅ Supply chain graphs show node hierarchy
-- ✅ Moat breakdown charts are color-coded
-- ✅ Watchlist candidates correctly identified
-- ✅ Report generation < 30 seconds
-- ✅ Cost = $0 (no LLM API calls)
-- ✅ CLI command integrated
-- ✅ Error handling complete
+Deploy to same Vercel project or new one.
+
+### Task 2.2: Landing Page
+**Time**: 4-5 hours
+
+`frontend/app/page.tsx` — Single page with:
+- Hero: headline + value prop + CTA ("Get Your Report — $14.99")
+- Sample report preview (embedded AAPL report, first 3 sections visible, rest blurred)
+- How it works (3 steps: Enter ticker -> AI analyzes -> Get report)
+- What you get (list the 20+ analysis sections)
+- Divergence detection example (MSFT: news bearish 4.3, institutions bullish 7.5)
+- Pricing: $14.99/report, no commitment
+- FAQ (What tickers? How long? What data sources? Refund policy?)
+
+### Task 2.3: Stripe Integration
+**Time**: 3-4 hours
+
+1. Create Stripe product: "Single Stock Analysis Report" — $14.99
+2. Build checkout page (`frontend/app/request/page.tsx`):
+   - Ticker input (validated against known tickers)
+   - Email input
+   - Stripe Checkout redirect
+3. Webhook handler: `checkout.session.completed` triggers API analysis
+4. Test with Stripe test mode
+
+### Task 2.4: Email Delivery
+**Time**: 2-3 hours
+
+Service: Resend.com (free tier, 3K emails/month)
+
+Two emails:
+1. **Payment confirmed**: "Your {TICKER} report is being generated. You'll receive it in ~5 minutes."
+2. **Report ready**: "Your {TICKER} analysis is complete." + PDF attachment + web link
+
+### Task 2.5: Results Page
+**Time**: 2-3 hours
+
+`frontend/app/results/[id]/page.tsx`:
+- Overall moat score (large visual)
+- Rating (Strong Buy / Buy / Hold / Sell / Strong Sell)
+- Investment thesis (2-3 sentences)
+- Top 3 key insights
+- Download PDF button
+- CTA: "Analyze another stock"
+
+### Week 2 Checklist
+- [ ] Landing page deployed
+- [ ] Stripe checkout functional ($14.99)
+- [ ] Payment triggers analysis
+- [ ] User receives PDF via email
+- [ ] Results page shows summary + download
 
 ---
 
-## Next Phase: Phase 9 - Scheduling & Automation
+## Week 3: Launch & Validate
 
-**Focus**: Bi-weekly automation with cron jobs and email delivery
+**Goal**: 10 paid reports, real user feedback
 
-**Key Features**:
-- Cron job configuration (Mac launchd or Linux cron)
-- Email report delivery (SMTP/SendGrid)
-- Cost alerts and error notifications
-- Unattended execution
-- Success: Automated bi-weekly run with email delivery
+### Task 3.1: Pre-Launch QA
+**Time**: 2-3 hours
 
-**Estimated Time**: 2-3 hours
-**Dependencies**: Phase 8 (report generation) ✅ Complete
+Full end-to-end test:
+- [ ] Landing page loads < 2s
+- [ ] Checkout flow completes (Stripe test -> live)
+- [ ] Analysis runs and completes
+- [ ] Email delivered with PDF
+- [ ] Results page renders correctly
+- [ ] Mobile responsive
+- [ ] No broken links
+
+### Task 3.2: Set Up Analytics
+**Time**: 30 min
+
+Plausible Analytics ($9/mo) — track:
+- Landing page visits
+- Checkout starts vs completions
+- Conversion rate
+
+### Task 3.3: Write Launch Content
+**Time**: 3-4 hours
+
+**Reddit post** (r/stocks, r/investing):
+- Hook: "I built an AI that detects when Wall Street institutions are buying stocks that news says are bearish"
+- Show MSFT divergence example
+- Link to landing page
+- Be transparent: solo dev, $14.99, still improving
+
+**Twitter thread** (5-7 tweets):
+- Signal divergence concept
+- Charts from showcase reports
+- Launch announcement
+
+### Task 3.4: Launch
+**Time**: Week-long activity
+
+Day 1: Post to r/stocks (Tuesday 9am EST — peak traffic)
+Day 2: Post to r/investing
+Day 3: Post to r/algotrading + Twitter thread
+Ongoing: Respond to comments, questions, support emails
+
+### Task 3.5: Collect Feedback & Iterate
+Track:
+- Which tickers people request
+- Which report sections they mention/value
+- Complaints about data quality
+- Feature requests
+- Refund requests and reasons
+
+Fix bugs within 24 hours. Ship improvements daily.
+
+### Week 3 Checklist
+- [ ] 10 paid reports sold ($150 revenue)
+- [ ] Conversion rate measured
+- [ ] User feedback collected (min 3 responses)
+- [ ] Critical bugs fixed
+- [ ] Next iteration priorities identified
+
+---
+
+## Risk Assessment
+
+| Risk | Probability | Impact | Mitigation |
+|------|------------|--------|------------|
+| yfinance data gaps hurt perceived value | HIGH | HIGH | Graceful degradation, data quality disclaimer, price at $14.99 not $49.99 |
+| No one buys | MEDIUM | HIGH | Test $9.99 pricing, Reddit ads ($50), free reports for influencers |
+| Analysis failures in production | MEDIUM | MEDIUM | Test 10 tickers pre-launch, auto-refund on failures, monitor error logs |
+| Cost overruns | LOW | MEDIUM | Budget alert at $180/mo, break-even at 3 sales/month |
+| Vercel deployment issues | LOW | HIGH | Config already tested in 5+ commits, Railway/Render as backup |
+
+---
+
+## Unit Economics
+
+```
+Revenue per sale:      $14.99
+- LLM cost:           ($0.36)
+- Stripe fee:         ($0.74)   [5% + $0.30]
+- Email delivery:     ($0.00)   [free tier]
+= Profit per sale:    $13.89
+= Margin:             93%
+
+Break-even:           1 sale/month ($14.99 > $9/mo fixed costs)
+Target (Week 3):      10 sales = $138.90 profit
+```
+
+### Monthly Fixed Costs
+- Vercel: $0 (hobby tier)
+- Neon Postgres: $0 (free tier)
+- Resend email: $0 (free tier, < 3K/mo)
+- Plausible analytics: $9/mo
+- **Total: $9/mo**
+
+---
+
+## What Comes After
+
+Once pay-per-report is validated with 10+ sales:
+
+**Month 2 — Subscriptions**:
+- Clerk authentication ($25/mo)
+- Basic tier: $79/mo (5 reports)
+- Pro tier: $149/mo (15 reports + priority)
+- User dashboard
+- Target: $1,200 MRR
+
+**Month 3-6 — Scale**:
+- FMP Premium API ($199/mo) for true earnings revisions
+- Real-time alerts
+- Portfolio tracking
+- Content marketing / SEO
+- Target: $10K MRR
+
+---
+
+## Daily Execution Template
+
+```
+What did I ship yesterday?
+- [specific task completed]
+
+What am I shipping today?
+- [specific task in progress]
+
+What's blocking me?
+- [issue + how resolving]
+
+Metrics:
+- API uptime: ___
+- Reports generated: ___
+- Sales: $___
+- Conversion: ___%
+```
+
+---
+
+## Previous Phases (Complete)
+
+| Phase | Description | Status | Date |
+|-------|------------|--------|------|
+| 1-7 | Core analysis engine, 4 agents, data integration | Complete | Jan 2026 |
+| 8 | Report generation (templates, PDF, charts, CLI) | Complete | Jan 17, 2026 |
+| 9-10 | News Hound 7-signal integration, Moat v2.0 | Complete | Feb 11, 2026 |
+| 11 | Vercel deployment config, Pydantic v2 migration | Complete | Feb 11, 2026 |
+| **12** | **MVP Launch — Path to First Revenue** | **IN PROGRESS** | **Feb 12, 2026** |
+
+---
+
+**Status**: READY TO EXECUTE
+**Start**: Task 1.1 — add lxml dependency

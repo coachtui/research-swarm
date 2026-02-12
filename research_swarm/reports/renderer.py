@@ -91,7 +91,6 @@ class TemplateRenderer:
             sections = [
                 ReportSection.EXECUTIVE_SUMMARY,
                 ReportSection.STOCK_ANALYSIS,
-                ReportSection.SUPPLY_CHAIN,
                 ReportSection.WATCHLIST,
             ]
 
