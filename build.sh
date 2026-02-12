@@ -5,7 +5,7 @@ echo "Python version:"
 python3 --version
 
 echo "Installing dependencies..."
-pip install -r requirements-vercel.txt --no-cache-dir --only-binary pydantic,pydantic-core
+uv pip install --system -r requirements-vercel.txt --no-cache-dir --only-binary pydantic,pydantic-core
 
 echo "Verifying installations..."
 python3 -c "import pydantic; print(f'Pydantic v{pydantic.__version__}')"
