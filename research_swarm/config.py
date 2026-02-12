@@ -1,16 +1,14 @@
 from pathlib import Path
-from pydantic_settings import BaseSettings
-from pydantic import ConfigDict
+from pydantic import BaseSettings
 from dotenv import load_dotenv
 
 load_dotenv()
 
 class Settings(BaseSettings):
-    model_config = ConfigDict(
-        env_file=".env",
-        case_sensitive=False,
-        extra="ignore"  # Ignore extra fields from .env
-    )
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+        extra = "ignore"  # Ignore extra fields from .env
 
     # API Keys
     anthropic_api_key: str = ""  # Set in .env for actual use
