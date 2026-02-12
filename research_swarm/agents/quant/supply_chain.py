@@ -93,7 +93,7 @@ class SupplyChainGraphBuilder:
             description="Root company being analyzed"
         )
         nodes.append(root_node)
-        G.add_node(root_ticker, **root_node.model_dump())
+        G.add_node(root_ticker, **root_node.dict())
 
         # 1. Add suppliers from 10-K extraction
         for supplier_name in supply_chain_data.major_suppliers or []:
@@ -108,7 +108,7 @@ class SupplyChainGraphBuilder:
                 description=f"Supplier identified from 10-K filing"
             )
             nodes.append(supplier_node)
-            G.add_node(supplier_id, **supplier_node.model_dump())
+            G.add_node(supplier_id, **supplier_node.dict())
 
             # Add edge
             edge = SupplyChainEdge(
@@ -135,7 +135,7 @@ class SupplyChainGraphBuilder:
                     description=f"{kb_supplier.description} [KB: {kb_supplier.criticality}, Bottleneck: {kb_supplier.bottleneck_risk}]"
                 )
                 nodes.append(supplier_node)
-                G.add_node(supplier_id, **supplier_node.model_dump())
+                G.add_node(supplier_id, **supplier_node.dict())
 
                 edge = SupplyChainEdge(
                     source=supplier_id,
@@ -164,7 +164,7 @@ class SupplyChainGraphBuilder:
                 description=f"{kb_customer.description} [Revenue exposure: {kb_customer.revenue_exposure}]"
             )
             nodes.append(customer_node)
-            G.add_node(customer_id, **customer_node.model_dump())
+            G.add_node(customer_id, **customer_node.dict())
 
             edge = SupplyChainEdge(
                 source=root_ticker,
@@ -192,7 +192,7 @@ class SupplyChainGraphBuilder:
                                 description=f"Tier-2 supplier: {tier2_supplier.description}"
                             )
                             nodes.append(tier2_node)
-                            G.add_node(tier2_id, **tier2_node.model_dump())
+                            G.add_node(tier2_id, **tier2_node.dict())
 
                             # Add edge from tier-2 to tier-1
                             edge = SupplyChainEdge(

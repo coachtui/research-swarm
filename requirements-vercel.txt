@@ -1,10 +1,11 @@
 # Vercel Deployment Requirements - Phase 1
 # Minimal dependencies for serverless API with database
+# Using Pydantic v1 to avoid Rust compilation issues on Vercel
 
-# Core API Framework
-fastapi>=0.109.0
+# Core API Framework (Pydantic v1 compatible versions)
+fastapi==0.109.2
 mangum>=0.17.0  # ASGI adapter for Vercel serverless
-uvicorn[standard]>=0.27.0
+uvicorn[standard]==0.27.1
 
 # Database
 prisma>=0.11.0

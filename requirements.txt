@@ -1,7 +1,6 @@
-# Core dependencies - INSTALL FIRST (Vercel-compatible versions)
-pydantic==2.7.4
-annotated-types==0.6.0
-pydantic-settings>=2.1.0
+# Core dependencies - Pydantic v1 (no Rust compilation needed for Vercel)
+pydantic==1.10.14
+pydantic-settings==2.0.3
 
 # Core framework
 langgraph>=0.2.0

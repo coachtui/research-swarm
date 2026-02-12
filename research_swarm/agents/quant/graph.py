@@ -92,11 +92,11 @@ def calculate_indicators_node(state: QuantState) -> QuantState:
     )
 
     # Store in state as dict
-    state["technical_indicators"] = indicators.model_dump()
-    state["moving_averages"] = indicators.moving_averages.model_dump()
-    state["rsi"] = indicators.rsi.model_dump()
-    state["volume"] = indicators.volume.model_dump()
-    state["relative_strength"] = indicators.relative_strength.model_dump()
+    state["technical_indicators"] = indicators.dict()
+    state["moving_averages"] = indicators.moving_averages.dict()
+    state["rsi"] = indicators.rsi.dict()
+    state["volume"] = indicators.volume.dict()
+    state["relative_strength"] = indicators.relative_strength.dict()
 
     logger.success(f"✓ Calculated technical indicators")
 
@@ -131,7 +131,7 @@ def build_supply_chain_node(state: QuantState) -> QuantState:
             max_depth=0,
             root_ticker=state["ticker"]
         )
-        state["supply_chain_graph"] = supply_chain_graph.model_dump()
+        state["supply_chain_graph"] = supply_chain_graph.dict()
         return state
 
     # Check if fundamentalist data is available
@@ -153,7 +153,7 @@ def build_supply_chain_node(state: QuantState) -> QuantState:
     )
 
     # Store in state
-    state["supply_chain_graph"] = supply_chain_graph.model_dump()
+    state["supply_chain_graph"] = supply_chain_graph.dict()
 
     logger.success(
         f"✓ Built supply chain graph: "
@@ -278,9 +278,9 @@ def score_quant_node(state: QuantState) -> QuantState:
 
     # Update state
     state["technical_score"] = technical_score
-    state["technical_breakdown"] = technical_breakdown.model_dump()
+    state["technical_breakdown"] = technical_breakdown.dict()
     state["supply_chain_score"] = supply_chain_score
-    state["supply_chain_breakdown"] = supply_chain_breakdown.model_dump()
+    state["supply_chain_breakdown"] = supply_chain_breakdown.dict()
     state["quant_score"] = quant_score
     state["confidence"] = confidence
     state["status"] = "completed"
@@ -430,7 +430,7 @@ def analyze_quant(
         "rsi": None,
         "volume": None,
         "relative_strength": None,
-        "fundamentalist_supply_chain": fundamentalist_supply_chain.model_dump() if fundamentalist_supply_chain else None,
+        "fundamentalist_supply_chain": fundamentalist_supply_chain.dict() if fundamentalist_supply_chain else None,
         "supply_chain_graph": None,
         "networkx_graph": None,
         "technical_analysis": None,

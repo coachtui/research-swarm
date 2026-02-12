@@ -61,7 +61,7 @@ class HealthScorer:
         logger.info(f"Scoring financial health for {ticker} {fiscal_year}")
 
         # Format inputs for prompt
-        metrics_text = json.dumps(financial_metrics.model_dump(), indent=2)
+        metrics_text = json.dumps(financial_metrics.dict(), indent=2)
 
         # Truncate analysis if too long
         if len(financial_analysis) > 3000:
@@ -141,8 +141,8 @@ class HealthScorer:
         logger.info(f"Scoring TTM financial health for {ticker} {analysis_period}")
 
         # Format inputs for prompt
-        ttm_metrics_text = json.dumps(ttm_metrics.model_dump(), indent=2)
-        quarterly_trends_text = json.dumps(quarterly_trends.model_dump(), indent=2)
+        ttm_metrics_text = json.dumps(ttm_metrics.dict(), indent=2)
+        quarterly_trends_text = json.dumps(quarterly_trends.dict(), indent=2)
         data_quality_text = json.dumps(data_quality, indent=2)
 
         # Truncate analysis if too long
@@ -236,7 +236,7 @@ class HealthScorer:
         logger.info(f"Scoring business model for {ticker}")
 
         # Format inputs for prompt
-        business_model_text = json.dumps(business_model_data.model_dump(), indent=2)
+        business_model_text = json.dumps(business_model_data.dict(), indent=2)
 
         # Truncate analysis for summary context
         financial_summary = financial_analysis[:1500] + "..." if len(financial_analysis) > 1500 else financial_analysis

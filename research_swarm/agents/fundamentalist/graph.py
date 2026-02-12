@@ -238,7 +238,7 @@ def extract_metrics_node(state: FundamentalistState) -> FundamentalistState:
         if not metrics or metrics.revenue is None:
             raise ValueError("extract_metrics returned empty or None (revenue is None)")
 
-        state["financial_metrics"] = metrics.model_dump()
+        state["financial_metrics"] = metrics.dict()
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
     except Exception as e:
@@ -338,7 +338,7 @@ def score_health_node(state: FundamentalistState) -> FundamentalistState:
             raise ValueError("score_health returned None values")
 
         state["financial_health_score"] = overall_score
-        state["score_breakdown"] = breakdown.model_dump()
+        state["score_breakdown"] = breakdown.dict()
         state["confidence"] = confidence
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
         state["status"] = "completed"
@@ -501,9 +501,9 @@ def extract_metrics_ttm_node(state: FundamentalistState) -> FundamentalistState:
         )
 
         # Store as dicts for state
-        state["quarterly_metrics"] = [m.model_dump() for m in quarterly_metrics]
-        state["ttm_metrics"] = ttm_metrics.model_dump()
-        state["quarterly_trends"] = trends.model_dump()
+        state["quarterly_metrics"] = [m.dict() for m in quarterly_metrics]
+        state["ttm_metrics"] = ttm_metrics.dict()
+        state["quarterly_trends"] = trends.dict()
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
         # Also populate legacy financial_metrics for compatibility
@@ -601,7 +601,7 @@ def extract_business_model_ttm_node(state: FundamentalistState) -> Fundamentalis
         if not business_model:
             raise ValueError("extract_business_model_ttm returned None")
 
-        state["business_model_data"] = business_model.model_dump()
+        state["business_model_data"] = business_model.dict()
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
     except Exception as e:
@@ -649,8 +649,8 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
             raise ValueError("score_business_model_ttm returned None values")
 
         state["business_model_moat_score"] = overall_moat_score
-        state["business_model_score_breakdown"] = moat_breakdown.model_dump()
-        state["enhanced_moat"] = enhanced_moat.model_dump()
+        state["business_model_score_breakdown"] = moat_breakdown.dict()
+        state["enhanced_moat"] = enhanced_moat.dict()
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
         # Update confidence with moat confidence (average with existing)
@@ -683,7 +683,7 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
             state["earnings_momentum_score"]
         )
 
-        state["vgm_scores"] = vgm_scores.model_dump()
+        state["vgm_scores"] = vgm_scores.dict()
         state["tokens_used"] = state.get("tokens_used", 0) + vgm_tokens
 
         logger.info(f"✓ VGM: {vgm_scores.vgm_composite:.1f}/10 (V:{vgm_scores.value_score:.1f} G:{vgm_scores.growth_score:.1f} M:{vgm_scores.momentum_score:.1f}) - Style: {vgm_scores.best_fit_style}")
@@ -741,7 +741,7 @@ def score_health_ttm_node(state: FundamentalistState) -> FundamentalistState:
             raise ValueError("score_health_ttm returned None values")
 
         state["financial_health_score"] = overall_score
-        state["score_breakdown"] = breakdown.model_dump()
+        state["score_breakdown"] = breakdown.dict()
         state["confidence"] = confidence
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
         state["status"] = "completed"

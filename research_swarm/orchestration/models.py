@@ -46,7 +46,7 @@ class StockResult(BaseModel):
     moat_score: Optional[float] = None  # 0-10
     is_watchlist_candidate: Optional[bool] = None
     investment_thesis: Optional[str] = None
-    full_output: Optional[Dict] = None  # ManagerOutput.model_dump()
+    full_output: Optional[Dict] = None  # ManagerOutput.dict()
     tokens_used: int = 0
     cost_usd: float = 0.0
     error_message: Optional[str] = None

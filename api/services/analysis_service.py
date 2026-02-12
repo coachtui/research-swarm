@@ -71,7 +71,7 @@ async def run_stock_analysis(
             "processing_time_seconds": processing_time,
 
             # Full output for database storage (convert Pydantic to dict)
-            "full_output": result.model_dump()
+            "full_output": result.dict()
         }
 
     except Exception as e:

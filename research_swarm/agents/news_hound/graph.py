@@ -46,7 +46,7 @@ def fetch_news_node(state: NewsHoundState) -> NewsHoundState:
         state["article_count"] = 0
     else:
         # Convert to dicts for state storage
-        state["articles_raw"] = [article.model_dump() for article in articles]
+        state["articles_raw"] = [article.dict() for article in articles]
         state["article_count"] = len(articles)
         logger.success(f"✓ Fetched {len(articles)} articles")
 
@@ -85,7 +85,7 @@ def filter_articles_node(state: NewsHoundState) -> NewsHoundState:
     articles = aggregator.filter_articles(articles, state["ticker"])
 
     # Store filtered articles
-    state["articles_filtered"] = [article.model_dump() for article in articles]
+    state["articles_filtered"] = [article.dict() for article in articles]
 
     logger.success(f"✓ Filtered to {len(articles)} relevant articles")
 
@@ -122,7 +122,7 @@ def extract_catalysts_node(state: NewsHoundState) -> NewsHoundState:
     catalysts, tokens = analyzer.extract_catalysts(articles, state["ticker"], state["days_back"])
 
     # Store catalysts
-    state["catalyst_events"] = [catalyst.model_dump() for catalyst in catalysts]
+    state["catalyst_events"] = [catalyst.dict() for catalyst in catalysts]
     state["catalyst_count"] = len(catalysts)
     state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
@@ -158,7 +158,7 @@ def extract_regulatory_node(state: NewsHoundState) -> NewsHoundState:
     reg_events, tokens = analyzer.extract_regulatory_events(articles, state["ticker"])
 
     # Store regulatory events (these will be merged with catalyst_events in final output)
-    state["regulatory_events"] = [event.model_dump() for event in reg_events]
+    state["regulatory_events"] = [event.dict() for event in reg_events]
     state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
     # Merge regulatory events into catalyst_events
@@ -253,7 +253,7 @@ def score_sentiment_node(state: NewsHoundState) -> NewsHoundState:
         )
 
         state["sentiment_score"] = 5.0
-        state["sentiment_breakdown"] = breakdown.model_dump()
+        state["sentiment_breakdown"] = breakdown.dict()
         state["confidence"] = 0.3  # Low confidence due to no data
         state["status"] = "completed"
 
@@ -273,7 +273,7 @@ def score_sentiment_node(state: NewsHoundState) -> NewsHoundState:
     )
 
     state["sentiment_score"] = sentiment_score
-    state["sentiment_breakdown"] = breakdown.model_dump()
+    state["sentiment_breakdown"] = breakdown.dict()
     state["confidence"] = confidence
     state["tokens_used"] = state.get("tokens_used", 0) + tokens
     state["status"] = "completed"

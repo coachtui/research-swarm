@@ -154,7 +154,7 @@ def analyze_stock(state: SwarmOrchestrationState) -> SwarmOrchestrationState:
         result.moat_score = manager_output.moat_score
         result.is_watchlist_candidate = manager_output.is_watchlist_candidate
         result.investment_thesis = manager_output.investment_thesis
-        result.full_output = manager_output.model_dump()
+        result.full_output = manager_output.dict()
         result.tokens_used = manager_output.tokens_used
         result.processing_time_seconds = processing_time
         result.error_message = None

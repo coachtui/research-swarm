@@ -136,7 +136,7 @@ class FinancialAnalyzer:
             max_length=15000  # Limit for Sonnet context
         )
 
-        metrics_text = json.dumps(financial_metrics.model_dump(), indent=2)
+        metrics_text = json.dumps(financial_metrics.dict(), indent=2)
 
         prompt = QUALITATIVE_ANALYSIS_PROMPT.format(
             ticker=ticker,
@@ -342,8 +342,8 @@ class FinancialAnalyzer:
             ticker=ticker,
             analysis_period=analysis_period,
             quarters=", ".join(quarters),
-            ttm_metrics=json.dumps(ttm_metrics.model_dump(), indent=2),
-            quarterly_trends=json.dumps(quarterly_trends.model_dump(), indent=2),
+            ttm_metrics=json.dumps(ttm_metrics.dict(), indent=2),
+            quarterly_trends=json.dumps(quarterly_trends.dict(), indent=2),
             parsed_sections=sections_text
         )
 

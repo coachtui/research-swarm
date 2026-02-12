@@ -149,7 +149,7 @@ class PersistenceManager:
                     swarm_run.total_stocks,
                     swarm_run.completed_count,
                     swarm_run.failed_count,
-                    json.dumps(swarm_run.cost_summary.model_dump()),
+                    json.dumps(swarm_run.cost_summary.dict()),
                     swarm_run.created_at.isoformat(),
                     swarm_run.started_at.isoformat() if swarm_run.started_at else None,
                     (
@@ -344,7 +344,7 @@ class PersistenceManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 "UPDATE swarm_runs SET cost_summary = ? WHERE run_id = ?",
-                (json.dumps(cost_summary.model_dump()), run_id),
+                (json.dumps(cost_summary.dict()), run_id),
             )
             conn.commit()
 

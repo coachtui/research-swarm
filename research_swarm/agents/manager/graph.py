@@ -54,7 +54,7 @@ def call_fundamentalist_node(state: ManagerState) -> ManagerState:
         )
 
         # Store output as dict
-        state["fundamentalist_output"] = fundamentalist_output.model_dump()
+        state["fundamentalist_output"] = fundamentalist_output.dict()
         state["financial_health_score"] = fundamentalist_output.financial_health_score
 
         # Track tokens and time
@@ -104,7 +104,7 @@ def call_news_hound_node(state: ManagerState) -> ManagerState:
         )
 
         # Store output as dict
-        state["news_hound_output"] = news_hound_output.model_dump()
+        state["news_hound_output"] = news_hound_output.dict()
         state["sentiment_score"] = news_hound_output.sentiment_score
 
         # Track tokens and time
@@ -166,7 +166,7 @@ def call_quant_node(state: ManagerState) -> ManagerState:
         )
 
         # Store output as dict
-        state["quant_output"] = quant_output.model_dump()
+        state["quant_output"] = quant_output.dict()
         state["technical_score"] = quant_output.technical_score
         # Supply chain disabled per user request
         state["supply_chain_score"] = 0.0  # Always 0 since supply chain is disabled
@@ -358,7 +358,7 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
 
         # Update state
         state["moat_score"] = moat_score
-        state["moat_breakdown"] = breakdown.model_dump()
+        state["moat_breakdown"] = breakdown.dict()
         state["confidence"] = confidence
         state["is_watchlist_candidate"] = is_watchlist
         state["rating"] = rating
