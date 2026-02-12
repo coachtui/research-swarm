@@ -3,6 +3,7 @@
   "name": "research-swarm-api",
   "framework": null,
   "buildCommand": "bash build.sh",
+  "installCommand": "pip install --upgrade pip setuptools wheel",
   "outputDirectory": null,
   "build": {
     "env": {
