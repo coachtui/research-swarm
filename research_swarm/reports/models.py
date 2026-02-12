@@ -68,7 +68,7 @@ class StockReportData(BaseModel):
         ..., min_length=3, max_length=5, description="Top 3-5 investment insights"
     )
     risk_factors: List[str] = Field(
-        ..., min_length=3, max_length=5, description="Top 3-5 risk factors"
+        ..., min_length=1, max_length=5, description="Top 1-5 risk factors (min 1 after filtering)"
     )
     synthesis_narrative: str = Field(
         ..., description="Combined analysis narrative"

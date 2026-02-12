@@ -514,13 +514,28 @@ def extract_metrics_ttm_node(state: FundamentalistState) -> FundamentalistState:
         state["quarterly_trends"] = trends.dict()
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
+        # ENHANCEMENT: Fallback to yfinance for revenue_growth_yoy if missing from SEC parsing
+        if ttm_metrics.revenue_growth_yoy is None:
+            try:
+                from research_swarm.data.market_data_client import market_data_client
+                info = market_data_client.get_company_info(state["ticker"])
+                if info:
+                    yf_revenue_growth = info.get("revenueGrowth")
+                    if yf_revenue_growth is not None:
+                        # Convert to percentage (yfinance returns 0.625 for 62.5%)
+                        revenue_growth_pct = yf_revenue_growth * 100
+                        state["ttm_metrics"]["revenue_growth_yoy"] = revenue_growth_pct
+                        logger.info(f"✓ Using yfinance revenue growth: {revenue_growth_pct:.1f}%")
+            except Exception as e:
+                logger.warning(f"Could not fetch revenue growth from yfinance: {e}")
+
         # Also populate legacy financial_metrics for compatibility
         state["financial_metrics"] = {
             "revenue": ttm_metrics.ttm_revenue,
             "gross_margin": ttm_metrics.gross_margin,
             "operating_margin": ttm_metrics.operating_margin,
             "net_margin": ttm_metrics.net_margin,
-            "revenue_growth_yoy": ttm_metrics.revenue_growth_yoy,
+            "revenue_growth_yoy": state["ttm_metrics"].get("revenue_growth_yoy", ttm_metrics.revenue_growth_yoy),
         }
 
     except Exception as e:

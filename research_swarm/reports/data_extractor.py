@@ -236,10 +236,16 @@ class DataExtractor:
 
         # Extract moat breakdown (v2.0 components only)
         moat_breakdown_dict = output.get("moat_breakdown", {})
+
+        # Get VGM scores from fundamentalist for accurate valuation/growth/momentum
+        fundamentalist = output.get("fundamentalist_output", {})
+        vgm_scores_raw = fundamentalist.get("vgm_scores", {})
+
         moat_breakdown = {
             "earnings_momentum": moat_breakdown_dict.get("earnings_momentum", 0.0),
             "financial_health": moat_breakdown_dict.get("financial_health", 0.0),
-            "valuation": moat_breakdown_dict.get("valuation", 0.0),
+            # Use VGM value_score for valuation (more reliable)
+            "valuation": vgm_scores_raw.get("value_score", moat_breakdown_dict.get("valuation", 0.0)),
             "technical_strength": moat_breakdown_dict.get("technical_strength", 0.0),
             "sentiment_catalysts": moat_breakdown_dict.get("sentiment_catalysts", 0.0),
         }
@@ -311,7 +317,21 @@ class DataExtractor:
         rating = output.get("rating")
         rating_score = output.get("rating_score")
         risk_level = output.get("risk_level")
-        structured_risks = output.get("structured_risks", [])
+
+        # Filter out supply chain-related structured risks (data quality issues)
+        all_structured_risks = output.get("structured_risks", [])
+        filtered_structured_risks = [
+            risk for risk in all_structured_risks
+            if not any(keyword in str(risk).lower() for keyword in [
+                "supply chain opacity",
+                "supply chain",
+                "supplier",
+                "zero identified suppliers",
+                "catastrophic blind spots"
+            ])
+        ]
+        structured_risks = filtered_structured_risks
+
         upgrade_triggers = output.get("upgrade_triggers", [])
         downgrade_triggers = output.get("downgrade_triggers", [])
 
@@ -445,7 +465,20 @@ class DataExtractor:
 
         # Truncate lists to meet StockReportData validation (max 5 items)
         key_insights = output.get("key_insights", [])[:5]
-        risk_factors = output.get("risk_factors", [])[:5]
+
+        # Filter out supply chain-related risks (data quality issues until better sources available)
+        all_risk_factors = output.get("risk_factors", [])
+        filtered_risk_factors = [
+            risk for risk in all_risk_factors
+            if not any(keyword in risk.lower() for keyword in [
+                "supply chain opacity",
+                "supply chain",
+                "supplier",
+                "zero identified suppliers",
+                "catastrophic blind spots"
+            ])
+        ]
+        risk_factors = filtered_risk_factors[:5]
 
         # Generate conviction statement (LLM-based)
         conviction_statement = None

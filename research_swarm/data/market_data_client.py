@@ -129,6 +129,7 @@ class MarketDataClient:
                 "industry": info.get("industry", "Unknown"),
                 "market_cap": info.get("marketCap"),
                 "exchange": info.get("exchange"),
+                "revenueGrowth": info.get("revenueGrowth"),  # Used for Growth score fallback
             }
 
             cache.set("market_info", cache_key, result, ttl_days=7)
