@@ -2,7 +2,7 @@
 API request schemas using Pydantic for validation.
 """
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 
 class AnalyzeRequest(BaseModel):
@@ -14,15 +14,13 @@ class AnalyzeRequest(BaseModel):
         description="Stock ticker symbol (e.g., 'AAPL', 'MSFT')",
         min_length=1,
         max_length=10,
-        example="NVDA"
     )
 
     quarters: List[str] = Field(
         default=["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"],
         description="Quarters for TTM analysis (e.g., ['Q4_2024', 'Q1_2025'])",
-        min_items=1,
-        max_items=8,
-        example=["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"]
+        min_length=1,
+        max_length=8,
     )
 
     news_days_back: int = Field(
@@ -30,17 +28,16 @@ class AnalyzeRequest(BaseModel):
         description="Number of days to look back for news sentiment",
         ge=1,
         le=90,
-        example=30
     )
 
-    @validator('ticker')
-    def ticker_uppercase(cls, v):
-        """Convert ticker to uppercase."""
+    @field_validator('ticker')
+    @classmethod
+    def ticker_uppercase(cls, v: str) -> str:
         return v.upper().strip()
 
-    @validator('quarters')
-    def validate_quarters(cls, v):
-        """Validate quarter format."""
+    @field_validator('quarters')
+    @classmethod
+    def validate_quarters(cls, v: List[str]) -> List[str]:
         for quarter in v:
             if not quarter.startswith('Q') or '_' not in quarter:
                 raise ValueError(
@@ -65,9 +62,8 @@ class BatchAnalyzeRequest(BaseModel):
     tickers: List[str] = Field(
         ...,
         description="List of stock ticker symbols",
-        min_items=1,
-        max_items=20,
-        example=["NVDA", "AMD", "INTC"]
+        min_length=1,
+        max_length=20,
     )
 
     quarters: List[str] = Field(
@@ -86,17 +82,16 @@ class BatchAnalyzeRequest(BaseModel):
         None,
         description="Optional name for this batch run",
         max_length=100,
-        example="Semiconductor Sector Analysis"
     )
 
-    @validator('tickers')
-    def tickers_uppercase(cls, v):
-        """Convert all tickers to uppercase."""
+    @field_validator('tickers')
+    @classmethod
+    def tickers_uppercase(cls, v: List[str]) -> List[str]:
         return [ticker.upper().strip() for ticker in v]
 
-    @validator('tickers')
-    def validate_unique_tickers(cls, v):
-        """Ensure tickers are unique."""
+    @field_validator('tickers')
+    @classmethod
+    def validate_unique_tickers(cls, v: List[str]) -> List[str]:
         if len(v) != len(set(v)):
             raise ValueError("Duplicate tickers found in request")
         return v

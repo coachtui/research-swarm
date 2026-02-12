@@ -1,5 +1,6 @@
-# Core dependencies - Pydantic v1 (no Rust compilation needed for Vercel)
-pydantic==1.10.14
+# Core dependencies
+pydantic>=2.7.4
+email-validator>=2.0.0
 
 # Core framework
 langgraph>=0.2.0
