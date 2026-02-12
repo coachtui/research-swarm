@@ -124,6 +124,30 @@ Closed remaining gaps between analysis engine and report templates:
 - **Earnings momentum breakdown** — Full breakdown dict (revision/surprise/sentiment component scores) now stored in graph state and passed to output
 - **Track record** — Verified working; compares current vs previous analysis via `PersistenceManager.get_previous_report()`
 
+### Default Score Elimination (2026-02-12)
+Fixed all remaining default 5.0/10 scores appearing in reports:
+
+**Moat Score Breakdown - Valuation Component:**
+- **Problem**: Valuation showing default 5.0/10 instead of calculated score (e.g., NVDA should be 3.5/10)
+- **Root Cause**: `data_extractor.py` pulling from Manager's stale `moat_breakdown` dict instead of VGM scores
+- **Solution**: Modified `data_extractor.py:237-250` to use VGM `value_score` as source of truth for moat breakdown valuation
+- **Result**: NVDA 3.5/10 ✅, JPM 7.2/10 ✅
+
+**VGM Investment Style - Growth Component:**
+- **Problem**: Growth showing default 5.0/10 with "Revenue growth data not available" despite yfinance having data
+- **Root Cause**: SEC filing parsing returns `revenue_growth_yoy = None`, yfinance `revenueGrowth` field not included in filtered `get_company_info()` result
+- **Solution**:
+  - Modified `graph.py:517-531` to add yfinance fallback: when SEC parsing returns None, fetch `revenueGrowth` from yfinance and convert to percentage
+  - Modified `market_data_client.py:135` to include `revenueGrowth` field in filtered company info result
+  - Converts decimal (0.625) to percentage (62.5%) for TTM metrics
+- **Result**: NVDA Growth 10.0/10 (62.5% YoY) ✅, JPM calculated from actual data ✅
+
+**Supply Chain Risk Filtering:**
+- Modified `models.py:71` to relax `risk_factors` Pydantic validation from `min_length=3` to `min_length=1` after supply chain keyword filtering
+- Modified `data_extractor.py:310-328, 446-460` to filter supply chain-related risks until better data sources available
+
+**Impact**: All default 5.0/10 scores eliminated from reports. VGM and Moat breakdowns now show real calculated values.
+
 ### Data Extraction Pipeline
 `research_swarm/reports/data_extractor.py` transforms ManagerOutput into StockReportData — handles all 20+ sections including conviction, peers, sensitivity, strategy with graceful None handling.
 
