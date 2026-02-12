@@ -1,6 +1,6 @@
 # Core dependencies - INSTALL FIRST (Vercel-compatible versions)
-pydantic==2.5.3
-pydantic-core==2.14.6
+pydantic==2.7.4
+pydantic-core==2.18.4
 annotated-types==0.6.0
 pydantic-settings>=2.1.0
 
