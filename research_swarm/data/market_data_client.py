@@ -545,6 +545,68 @@ class MarketDataClient:
             logger.error(f"Error fetching earnings estimates for {ticker}: {e}")
             return None
 
+    def get_upgrades_downgrades(self, ticker: str, days_back: int = 90) -> Optional[pd.DataFrame]:
+        """
+        Get analyst upgrades/downgrades history.
+
+        Args:
+            ticker: Stock ticker
+            days_back: Number of days of history to return (default 90)
+
+        Returns:
+            DataFrame with upgrades/downgrades or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_upgrades_downgrades"
+
+        # Cache for 1 day
+        cached = cache.get("market_upgrades", cache_key)
+        if cached:
+            logger.debug(f"Using cached upgrades/downgrades for {ticker}")
+            df = pd.DataFrame(cached)
+            # Filter by date
+            if not df.empty and 'GradeDate' in df.columns:
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=days_back)
+                df = df[pd.to_datetime(df['GradeDate']) >= cutoff]
+            return df if not df.empty else None
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+
+            stock = yf.Ticker(ticker)
+            df = stock.upgrades_downgrades
+
+            if df is None or df.empty:
+                logger.warning(f"No upgrades/downgrades for {ticker}")
+                cache.set("market_upgrades", cache_key, None, ttl_days=1)
+                return None
+
+            # Reset index to make GradeDate a column
+            df = df.reset_index()
+
+            # Filter to recent history
+            if 'GradeDate' in df.columns:
+                cutoff = pd.Timestamp.now() - pd.Timedelta(days=days_back)
+                df = df[pd.to_datetime(df['GradeDate']) >= cutoff]
+
+            if df.empty:
+                logger.info(f"No recent upgrades/downgrades for {ticker} (last {days_back} days)")
+                return None
+
+            # Cache full dataset
+            df_cache = df.copy()
+            for col in df_cache.columns:
+                if pd.api.types.is_datetime64_any_dtype(df_cache[col]):
+                    df_cache[col] = df_cache[col].astype(str)
+
+            cache.set("market_upgrades", cache_key, df_cache.to_dict(orient="list"), ttl_days=1)
+            logger.info(f"Fetched {len(df)} upgrades/downgrades for {ticker} (last {days_back} days)")
+            return df
+
+        except Exception as e:
+            logger.error(f"Error fetching upgrades/downgrades for {ticker}: {e}")
+            return None
+
     # Sector median P/E ratios (approximate, updated periodically)
     # Source: historical averages as of early 2026
     SECTOR_MEDIAN_PE = {
@@ -857,6 +919,126 @@ class MarketDataClient:
         weighted_sum = sum(s * w for s, w in zip(scores, weights))
         total_weight = sum(weights)
         return round(min(10.0, max(0.0, weighted_sum / total_weight)), 1)
+
+    def get_quarterly_financials(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Get structured quarterly financial statements from yfinance.
+
+        Returns quarterly revenue, income, margins, and TTM aggregates.
+        This is more reliable than LLM extraction from SEC filing text.
+
+        Args:
+            ticker: Stock ticker
+
+        Returns:
+            Dict with quarterly metrics and TTM totals, or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_quarterly_financials"
+
+        cached = cache.get("market_quarterly_fin", cache_key)
+        if cached:
+            logger.debug(f"Using cached quarterly financials for {ticker}")
+            return cached
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+
+            stock = yf.Ticker(ticker)
+
+            # Fetch quarterly financial statements
+            q_financials = stock.quarterly_financials  # Income statement
+            q_cashflow = stock.quarterly_cashflow  # Cash flow
+
+            if q_financials is None or q_financials.empty:
+                logger.warning(f"No quarterly financials for {ticker}")
+                return None
+
+            # yfinance returns columns as dates (newest first), rows as line items
+            # Take up to 4 most recent quarters
+            num_quarters = min(4, len(q_financials.columns))
+
+            quarterly_data = []
+            for i in range(num_quarters):
+                col = q_financials.columns[i]
+                quarter_date = str(col.date()) if hasattr(col, 'date') else str(col)
+
+                q = {"quarter_end": quarter_date}
+
+                # Income statement items
+                q["revenue"] = self._safe_millions(q_financials, "Total Revenue", i)
+                q["gross_profit"] = self._safe_millions(q_financials, "Gross Profit", i)
+                q["operating_income"] = self._safe_millions(q_financials, "Operating Income", i)
+                if q["operating_income"] is None:
+                    q["operating_income"] = self._safe_millions(q_financials, "EBIT", i)
+                q["net_income"] = self._safe_millions(q_financials, "Net Income", i)
+
+                # Cash flow items
+                if q_cashflow is not None and not q_cashflow.empty and i < len(q_cashflow.columns):
+                    q["operating_cash_flow"] = self._safe_millions(q_cashflow, "Operating Cash Flow", i)
+                    if q["operating_cash_flow"] is None:
+                        q["operating_cash_flow"] = self._safe_millions(q_cashflow, "Total Cash From Operating Activities", i)
+                    capex = self._safe_millions(q_cashflow, "Capital Expenditure", i)
+                    if capex is None:
+                        capex = self._safe_millions(q_cashflow, "Capital Expenditures", i)
+                    q["capex"] = capex
+                    if q["operating_cash_flow"] is not None and capex is not None:
+                        q["free_cash_flow"] = q["operating_cash_flow"] + capex  # capex is negative
+                    else:
+                        q["free_cash_flow"] = self._safe_millions(q_cashflow, "Free Cash Flow", i)
+                else:
+                    q["operating_cash_flow"] = None
+                    q["capex"] = None
+                    q["free_cash_flow"] = None
+
+                quarterly_data.append(q)
+
+            # Reverse to chronological order (oldest first)
+            quarterly_data.reverse()
+
+            # Calculate TTM aggregates
+            ttm = {}
+            for key in ["revenue", "gross_profit", "operating_income", "net_income", "free_cash_flow"]:
+                values = [q[key] for q in quarterly_data if q.get(key) is not None]
+                ttm[f"ttm_{key}"] = sum(values) if values else None
+
+            # Calculate TTM margins
+            if ttm.get("ttm_revenue") and ttm["ttm_revenue"] > 0:
+                if ttm.get("ttm_gross_profit") is not None:
+                    ttm["gross_margin"] = (ttm["ttm_gross_profit"] / ttm["ttm_revenue"]) * 100
+                if ttm.get("ttm_operating_income") is not None:
+                    ttm["operating_margin"] = (ttm["ttm_operating_income"] / ttm["ttm_revenue"]) * 100
+                if ttm.get("ttm_net_income") is not None:
+                    ttm["net_margin"] = (ttm["ttm_net_income"] / ttm["ttm_revenue"]) * 100
+
+            result = {
+                "quarterly": quarterly_data,
+                "ttm": ttm,
+                "quarters_available": len(quarterly_data),
+            }
+
+            cache.set("market_quarterly_fin", cache_key, result, ttl_days=1)
+            logger.info(
+                f"Fetched quarterly financials for {ticker}: "
+                f"{len(quarterly_data)}Q, TTM Rev=${ttm.get('ttm_revenue', 'N/A')}M"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Error fetching quarterly financials for {ticker}: {e}")
+            return None
+
+    @staticmethod
+    def _safe_millions(df: pd.DataFrame, row_name: str, col_idx: int) -> Optional[float]:
+        """Safely extract a value from a DataFrame and convert to millions."""
+        try:
+            if row_name in df.index:
+                val = df.iloc[df.index.get_loc(row_name), col_idx]
+                if pd.notna(val):
+                    return float(val) / 1_000_000  # Convert to millions
+        except (IndexError, KeyError, TypeError):
+            pass
+        return None
 
 
 # Global instance

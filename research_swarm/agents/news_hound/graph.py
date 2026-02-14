@@ -172,6 +172,107 @@ def extract_regulatory_node(state: NewsHoundState) -> NewsHoundState:
     return state
 
 
+def extract_8k_events_node(state: NewsHoundState) -> NewsHoundState:
+    """
+    Node 4b: Extract material events from SEC 8-K filings.
+
+    8-K filings disclose material events between quarterly reports
+    (M&A, officer changes, material agreements, etc.). These are
+    official SEC disclosures — harder signals than news articles.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with sec_material_events merged into catalyst_events
+    """
+    logger.info(f"[Node 4b] Extracting SEC 8-K material events for {state['ticker']}")
+
+    shared_data = state.get("shared_swarm_data") or {}
+    filings_8k = shared_data.get("recent_8k_filings")
+
+    if not filings_8k or not filings_8k.get("filings"):
+        state["sec_8k_filings"] = []
+        state["sec_material_events"] = []
+        logger.info(f"No 8-K filings available for {state['ticker']}")
+        return state
+
+    filings_list = filings_8k["filings"]
+    state["sec_8k_filings"] = filings_list
+
+    # Build text summary for LLM extraction
+    filings_text_parts = []
+    for filing in filings_list:
+        filing_date = filing.get("filing_date", "Unknown")
+        items = filing.get("items", {})
+        for item_num, item_text in items.items():
+            # Truncate individual items for prompt efficiency
+            truncated = item_text[:2000] if len(item_text) > 2000 else item_text
+            filings_text_parts.append(
+                f"**Filing Date: {filing_date} — Item {item_num}**\n{truncated}"
+            )
+
+    if not filings_text_parts:
+        state["sec_material_events"] = []
+        logger.info(f"No parseable 8-K items for {state['ticker']}")
+        return state
+
+    filings_text = "\n\n---\n\n".join(filings_text_parts)
+
+    # Use Haiku for cost-efficient extraction
+    from research_swarm.agents.news_hound.prompts import SEC_8K_EXTRACTION_PROMPT
+    from langchain_anthropic import ChatAnthropic
+    import json as json_module
+
+    try:
+        llm = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0, max_tokens=2000)
+        prompt = SEC_8K_EXTRACTION_PROMPT.format(
+            ticker=state["ticker"],
+            filings_text=filings_text,
+        )
+        response = llm.invoke(prompt)
+        tokens = response.usage_metadata.get("total_tokens", 0) if hasattr(response, "usage_metadata") and response.usage_metadata else 500
+
+        # Parse response
+        content = response.content.strip()
+        # Handle markdown code blocks
+        if content.startswith("```"):
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:]
+            content = content.strip()
+
+        parsed = json_module.loads(content)
+        material_events = parsed.get("material_events", [])
+
+        # Convert to catalyst event format for consistency
+        catalyst_events = state.get("catalyst_events", []) or []
+        for event in material_events:
+            catalyst_events.append({
+                "event_type": event.get("event_type", "other"),
+                "impact": event.get("impact", "neutral"),
+                "description": f"[SEC 8-K] {event.get('description', '')}",
+                "date": event.get("date"),
+                "confidence": event.get("confidence", 0.95),
+                "source_urls": [],
+                "sec_item": event.get("sec_item"),
+                "severity": event.get("severity", "medium"),
+            })
+
+        state["sec_material_events"] = material_events
+        state["catalyst_events"] = catalyst_events
+        state["catalyst_count"] = len(catalyst_events)
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        logger.success(f"✓ Extracted {len(material_events)} material events from 8-K filings for {state['ticker']}")
+
+    except Exception as e:
+        logger.warning(f"8-K extraction failed for {state['ticker']}: {e}")
+        state["sec_material_events"] = []
+
+    return state
+
+
 def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
     """
     Node 5: Analyze earnings estimate revisions (PRIMARY SIGNAL).
@@ -187,11 +288,31 @@ def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
     state["status"] = "analyzing_earnings"
 
     from research_swarm.data.market_data_client import market_data_client
+    from research_swarm.data.analyst_revision_calculator import calculate_revision_metrics
 
     try:
-        # Fetch raw data
-        estimates_data = market_data_client.get_earnings_estimates(state["ticker"])
-        recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
+        # NEW: Get from shared data first, fallback to direct fetch
+        shared_data = state.get("shared_swarm_data", {})
+        estimates_data = shared_data.get("analyst_estimates")
+        recommendations_data = shared_data.get("earnings_data", {}).get("recommendations")
+
+        # Fallback if not in shared data
+        if estimates_data is None:
+            logger.debug("Fetching earnings estimates directly (no shared data)")
+            estimates_data = market_data_client.get_earnings_estimates(state["ticker"])
+        if recommendations_data is None:
+            logger.debug("Fetching analyst recommendations directly (no shared data)")
+            recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
+
+        # CRITICAL FIX: Fetch upgrades/downgrades data for revision detection
+        logger.debug("Fetching upgrades/downgrades data for revision metrics")
+        upgrades_downgrades = market_data_client.get_upgrades_downgrades(
+            state["ticker"],
+            days_back=90  # Last 3 months
+        )
+
+        # Calculate revision metrics from upgrades/downgrades
+        revision_metrics = calculate_revision_metrics(upgrades_downgrades)
 
         # Analyze with LLM
         result, tokens = analyzer.analyze_earnings_estimates(
@@ -201,11 +322,17 @@ def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
             state.get("analysis_date", "")
         )
 
+        # CRITICAL: Override LLM-generated revision metrics with calculated metrics
+        result["upward_revisions"] = revision_metrics["upward_revisions"]
+        result["downward_revisions"] = revision_metrics["downward_revisions"]
+        result["net_revision_direction"] = revision_metrics["net_revision_direction"]
+        result["momentum"] = revision_metrics["momentum"]
+
         # Store in state
         state["earnings_estimates"] = result
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
-        logger.success(f"✓ Earnings estimates analyzed")
+        logger.success(f"✓ Earnings estimates analyzed (revisions: {revision_metrics['upward_revisions']} up, {revision_metrics['downward_revisions']} down)")
 
     except Exception as e:
         logger.error(f"Error in earnings estimates node: {e}")
@@ -231,9 +358,18 @@ def analyze_analyst_consensus_node(state: NewsHoundState) -> NewsHoundState:
     from research_swarm.data.market_data_client import market_data_client
 
     try:
-        # Fetch raw data
-        recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
-        price_targets = market_data_client.get_analyst_price_target(state["ticker"])
+        # NEW: Get from shared data first, fallback to direct fetch
+        shared_data = state.get("shared_swarm_data", {})
+        recommendations_data = shared_data.get("earnings_data", {}).get("recommendations")
+        price_targets = shared_data.get("earnings_data", {}).get("price_target")
+
+        # Fallback if not in shared data
+        if recommendations_data is None:
+            logger.debug("Fetching analyst recommendations directly (no shared data)")
+            recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
+        if price_targets is None:
+            logger.debug("Fetching price targets directly (no shared data)")
+            price_targets = market_data_client.get_analyst_price_target(state["ticker"])
 
         # Analyze with LLM
         result, tokens = analyzer.analyze_analyst_consensus(
@@ -273,8 +409,14 @@ def analyze_institutional_activity_node(state: NewsHoundState) -> NewsHoundState
     from research_swarm.data.market_data_client import market_data_client
 
     try:
-        # Fetch raw data
-        institutional_data = market_data_client.get_institutional_holders(state["ticker"])
+        # NEW: Get from shared data first, fallback to direct fetch
+        shared_data = state.get("shared_swarm_data", {})
+        institutional_data = shared_data.get("institutional_holders")
+
+        # Fallback if not in shared data
+        if institutional_data is None:
+            logger.debug("Fetching institutional holders directly (no shared data)")
+            institutional_data = market_data_client.get_institutional_holders(state["ticker"])
 
         # Analyze with LLM
         result, tokens = analyzer.analyze_institutional_activity(
@@ -311,10 +453,36 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
     state["status"] = "analyzing_insider"
 
     from research_swarm.data.market_data_client import market_data_client
+    from research_swarm.data.insider_activity_calculator import calculate_insider_metrics
 
     try:
-        # Fetch raw data
-        insider_data = market_data_client.get_insider_transactions(state["ticker"])
+        # NEW: Get from shared data first, fallback to direct fetch
+        shared_data = state.get("shared_swarm_data", {})
+        insider_data = shared_data.get("insider_transactions")
+
+        # Fallback if not in shared data
+        if insider_data is None:
+            logger.debug("Fetching insider transactions directly (no shared data)")
+            insider_data = market_data_client.get_insider_transactions(state["ticker"])
+
+        # Get market cap for context-aware sentiment analysis
+        market_cap = None
+        try:
+            import yfinance as yf
+            ticker_obj = yf.Ticker(state["ticker"])
+            market_cap = ticker_obj.info.get('marketCap')
+            if market_cap:
+                logger.debug(f"Market cap: ${market_cap/1e9:.1f}B")
+        except Exception as e:
+            logger.warning(f"Could not fetch market cap: {e}")
+
+        # CRITICAL FIX: Calculate insider metrics directly from transaction data
+        # Use market cap for context-aware sentiment (mega-caps need bigger trades to matter)
+        insider_metrics = calculate_insider_metrics(
+            insider_data,
+            days_back=365,  # 1 year for meaningful patterns
+            market_cap=market_cap
+        )
 
         # Analyze with LLM
         result, tokens = analyzer.analyze_insider_activity(
@@ -323,11 +491,23 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
             state.get("analysis_date", "")
         )
 
+        # CRITICAL: Override LLM-calculated values with accurate calculated metrics
+        result["buy_transactions"] = insider_metrics["buy_transactions"]
+        result["sell_transactions"] = insider_metrics["sell_transactions"]
+        result["buy_shares"] = insider_metrics["buy_shares"]
+        result["sell_shares"] = insider_metrics["sell_shares"]
+        result["net_shares"] = insider_metrics["net_shares"]
+        result["buy_value_usd"] = insider_metrics["buy_value_usd"]
+        result["sell_value_usd"] = insider_metrics["sell_value_usd"]
+        result["net_value_usd"] = insider_metrics["net_value_usd"]
+        result["insider_sentiment"] = insider_metrics["insider_sentiment"]
+        result["ownership_trend"] = insider_metrics["ownership_trend"]
+
         # Store in state
         state["insider_activity"] = result
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
-        logger.success(f"✓ Insider activity analyzed")
+        logger.success(f"✓ Insider activity analyzed (net: ${insider_metrics['net_value_usd']:,.0f})")
 
     except Exception as e:
         logger.error(f"Error in insider activity node: {e}")
@@ -353,8 +533,14 @@ def analyze_short_interest_node(state: NewsHoundState) -> NewsHoundState:
     from research_swarm.data.market_data_client import market_data_client
 
     try:
-        # Fetch raw data
-        short_data = market_data_client.get_short_interest(state["ticker"])
+        # NEW: Get from shared data first, fallback to direct fetch
+        shared_data = state.get("shared_swarm_data", {})
+        short_data = shared_data.get("short_interest")
+
+        # Fallback if not in shared data
+        if short_data is None:
+            logger.debug("Fetching short interest directly (no shared data)")
+            short_data = market_data_client.get_short_interest(state["ticker"])
 
         # Analyze with LLM
         result, tokens = analyzer.analyze_short_interest(
@@ -394,8 +580,14 @@ def analyze_upcoming_catalysts_node(state: NewsHoundState) -> NewsHoundState:
     from research_swarm.agents.news_hound.models import CatalystEvent
 
     try:
-        # Fetch raw data
-        earnings_dates = market_data_client.get_earnings_dates(state["ticker"])
+        # NEW: Get from shared data first, fallback to direct fetch
+        shared_data = state.get("shared_swarm_data", {})
+        earnings_dates = shared_data.get("earnings_data", {}).get("earnings_dates")
+
+        # Fallback if not in shared data
+        if earnings_dates is None:
+            logger.debug("Fetching earnings dates directly (no shared data)")
+            earnings_dates = market_data_client.get_earnings_dates(state["ticker"])
 
         # Get detected catalyst events
         catalyst_events = []
@@ -616,6 +808,7 @@ def build_news_hound_graph() -> StateGraph:
     workflow.add_node("filter_articles", filter_articles_node)
     workflow.add_node("extract_catalysts", extract_catalysts_node)
     workflow.add_node("extract_regulatory", extract_regulatory_node)
+    workflow.add_node("extract_8k_events", extract_8k_events_node)
     # New analyst data nodes
     workflow.add_node("analyze_earnings", analyze_earnings_estimates_node)
     workflow.add_node("analyze_consensus", analyze_analyst_consensus_node)
@@ -635,8 +828,9 @@ def build_news_hound_graph() -> StateGraph:
     workflow.add_edge("fetch_news", "filter_articles")
     workflow.add_edge("filter_articles", "extract_catalysts")
     workflow.add_edge("extract_catalysts", "extract_regulatory")
-    # Wire new analyst data nodes
-    workflow.add_edge("extract_regulatory", "analyze_earnings")
+    # Wire 8-K extraction and analyst data nodes
+    workflow.add_edge("extract_regulatory", "extract_8k_events")
+    workflow.add_edge("extract_8k_events", "analyze_earnings")
     workflow.add_edge("analyze_earnings", "analyze_consensus")
     workflow.add_edge("analyze_consensus", "analyze_institutional")
     workflow.add_edge("analyze_institutional", "analyze_insider")
@@ -657,13 +851,14 @@ def build_news_hound_graph() -> StateGraph:
 # Main Analysis Function
 # ============================================================================
 
-def analyze_company_news(ticker: str, days_back: int = 30) -> NewsHoundOutput:
+def analyze_company_news(ticker: str, days_back: int = 30, shared_swarm_data: dict = None) -> NewsHoundOutput:
     """
     Analyze news sentiment and catalysts for a company.
 
     Args:
         ticker: Stock ticker (e.g., "NVDA")
         days_back: Number of days to look back (default 30)
+        shared_swarm_data: Pre-fetched data bundle from Manager (NEW)
 
     Returns:
         NewsHoundOutput with complete analysis
@@ -694,6 +889,7 @@ def analyze_company_news(ticker: str, days_back: int = 30) -> NewsHoundOutput:
         "tokens_used": 0,
         "processing_time": None,
         "cost_estimate": None,
+        "shared_swarm_data": shared_swarm_data,  # NEW: Pre-fetched data from Manager
     }
 
     # Build and run workflow
