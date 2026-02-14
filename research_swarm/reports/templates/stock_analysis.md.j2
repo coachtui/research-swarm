@@ -3,13 +3,65 @@
 {% for stock in stocks %}
 ### {{ stock.ticker }} - {% if stock.rating %}{{ stock.rating }}{% else %}{{ "%.1f"|format(stock.moat_score) }}/10{% endif %}{% if stock.is_watchlist_candidate %} ⭐{% endif %}
 
-{% if stock.rating %}**Rating:** {{ stock.rating }} ({{ "%.1f"|format(stock.rating_score if stock.rating_score else stock.moat_score) }}/10){% if stock.risk_level %} | **Risk Level:** {{ stock.risk_level }}{% endif %} | {% endif %}**Moat Score:** {{ "%.1f"|format(stock.moat_score) }}/10
+{% if stock.rating %}**Rating:** {{ stock.rating }} ({{ "%.1f"|format(stock.rating_score if stock.rating_score else stock.moat_score) }}/10){% if stock.risk_level %} | **Risk Level:** {{ stock.risk_level }}{% endif %} | {% endif %}**Overall Score:** {{ "%.1f"|format(stock.moat_score) }}/10
 
 **Investment Thesis:** {{ stock.investment_thesis }}
 
 ---
 
-#### 📊 Moat Score Breakdown
+{% if stock.decision_framework %}
+#### ⚡ {{ stock.decision_framework.one_liner }}
+
+{% if stock.fund_tech_divergence %}
+> **⚠️ DIVERGENCE ALERT ({{ stock.fund_tech_divergence.severity }}):** {{ stock.fund_tech_divergence.interpretation }}
+>
+> *{{ stock.fund_tech_divergence.recommendation }}*
+>
+> *Resolution bias: {{ stock.fund_tech_divergence.resolution_bias }}*
+
+{% endif %}
+**FOR CURRENT HOLDERS: {{ stock.decision_framework.current_holders.action }}**
+
+{{ stock.decision_framework.current_holders.detail }}
+
+{% if stock.decision_framework.current_holders.conditions %}
+{% for condition in stock.decision_framework.current_holders.conditions %}- {{ condition }}
+{% endfor %}
+{% endif %}
+
+**FOR NEW BUYERS: {{ stock.decision_framework.new_buyers.action }}**{% if stock.decision_framework.new_buyers.urgency and stock.decision_framework.new_buyers.urgency != "N/A" %} (Urgency: {{ stock.decision_framework.new_buyers.urgency }}){% endif %}
+
+{{ stock.decision_framework.new_buyers.detail }}
+
+{% if stock.decision_framework.new_buyers.caveat %}
+> ⚠️ {{ stock.decision_framework.new_buyers.caveat }}
+{% endif %}
+
+---
+{% endif %}
+
+{% if stock.enhanced_trade_setup %}
+#### 🎯 Trade Setup Playbook
+
+{% if stock.conviction_position %}
+**Conviction:** {{ stock.conviction_position.conviction_level }} ({{ stock.conviction_position.conviction_score }}/10) → **Position Size:** {{ "%.1f"|format(stock.conviction_position.recommended_pct) }}% of portfolio (${{ "%.0f"|format(stock.conviction_position.dollar_per_100k) }} per $100K)
+
+*{{ stock.conviction_position.conviction_justification }}*
+
+{% endif %}
+| | {{ stock.enhanced_trade_setup.conservative.label }} | {{ stock.enhanced_trade_setup.aggressive.label }} |
+|---|---|---|
+| **Entry Price** | ${{ "%.2f"|format(stock.enhanced_trade_setup.conservative.entry) }} | ${{ "%.2f"|format(stock.enhanced_trade_setup.aggressive.entry) }} |
+| **Stop Loss** | ${{ "%.2f"|format(stock.enhanced_trade_setup.conservative.stop_loss) }} | ${{ "%.2f"|format(stock.enhanced_trade_setup.aggressive.stop_loss) }} |
+{% for i in range(3) %}| **{{ stock.enhanced_trade_setup.conservative.targets[i].label }}** | ${{ "%.2f"|format(stock.enhanced_trade_setup.conservative.targets[i].price) }} (sell {{ stock.enhanced_trade_setup.conservative.targets[i].sell_pct }}%) | ${{ "%.2f"|format(stock.enhanced_trade_setup.aggressive.targets[i].price) }} (sell {{ stock.enhanced_trade_setup.aggressive.targets[i].sell_pct }}%) |
+{% endfor %}| **Risk/Reward** | {{ "%.1f"|format(stock.enhanced_trade_setup.conservative.risk_reward) }}:1 | {{ "%.1f"|format(stock.enhanced_trade_setup.aggressive.risk_reward) }}:1 |
+| **Max Loss (100 shares)** | -${{ "%.0f"|format(stock.enhanced_trade_setup.conservative.max_loss_per_100) }} | -${{ "%.0f"|format(stock.enhanced_trade_setup.aggressive.max_loss_per_100) }} |
+| **Max Gain (100 shares)** | +${{ "%.0f"|format(stock.enhanced_trade_setup.conservative.max_gain_per_100) }} | +${{ "%.0f"|format(stock.enhanced_trade_setup.aggressive.max_gain_per_100) }} |
+
+---
+{% endif %}
+
+#### 📊 Overall Score Breakdown
 
 | Component | Score |
 |-----------|-------|
@@ -18,13 +70,9 @@
 | Valuation | {{ "%.1f"|format(stock.moat_breakdown.valuation) }}/10 |
 | Technical/Momentum | {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 |
 | Sentiment | {{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10 |
-| **Overall Moat Score** | **{{ "%.1f"|format(stock.moat_score) }}/10** |
+| **Overall Score** | **{{ "%.1f"|format(stock.moat_score) }}/10** |
 
 *⭐ Earnings Momentum = PRIMARY SIGNAL (estimate revisions)*
-
-{% if include_charts %}
-![{{ stock.ticker }} Moat Breakdown](./charts/moat_{{ stock.ticker }}.png)
-{% endif %}
 
 ---
 
@@ -45,13 +93,13 @@
 {% endif %}
 
 {% if stock.enhanced_moat %}
-#### 🏰 Enhanced Moat Analysis (8 Categories)
+#### 🏰 Competitive Advantage Analysis (8 Categories)
 
-**Moat Width:** {{ stock.enhanced_moat.moat_width }} | **Durability:** {{ stock.enhanced_moat.moat_durability }}
+**Advantage Strength:** {{ stock.enhanced_moat.moat_width }} | **Sustainability:** {{ stock.enhanced_moat.moat_durability }}
 
-**Composite Moat Score:** {{ "%.1f"|format(stock.enhanced_moat.composite_score) }}/10
+**Competitive Advantage Score:** {{ "%.1f"|format(stock.enhanced_moat.composite_score) }}/10
 
-| Moat Category | Score | Assessment |
+| Category | Score | Assessment |
 |--------------|-------|------------|
 | 🌐 Network Effects | {{ "%.1f"|format(stock.enhanced_moat.network_effects) }}/10 | {% if stock.enhanced_moat.network_effects >= 7 %}Strong{% elif stock.enhanced_moat.network_effects >= 4 %}Moderate{% else %}Weak{% endif %} |
 | 🔒 Switching Costs | {{ "%.1f"|format(stock.enhanced_moat.switching_costs) }}/10 | {% if stock.enhanced_moat.switching_costs >= 7 %}High{% elif stock.enhanced_moat.switching_costs >= 4 %}Moderate{% else %}Low{% endif %} |
@@ -120,7 +168,7 @@
 | 📊 **Base Case** | ${{ "%.2f"|format(stock.price_targets.base_target) }} | {{ "%.0f"|format(stock.price_targets.base_probability * 100) }}% | {{ stock.price_targets.base_assumptions }} |
 | 🐻 **Bear Case** | ${{ "%.2f"|format(stock.price_targets.bear_target) }} | {{ "%.0f"|format(stock.price_targets.bear_probability * 100) }}% | {{ stock.price_targets.bear_assumptions }} |
 
-**Expected Value (Probability-Weighted):** ${{ "%.2f"|format(stock.price_targets.expected_value) }}
+**Expected Value:** ${{ "%.2f"|format(stock.price_targets.expected_value) }}
 
 {% if stock.valuation_metrics and stock.valuation_metrics.current_price %}
 **Upside to Expected Value:** {{ "%.1f"|format((stock.price_targets.expected_value / stock.valuation_metrics.current_price - 1) * 100) }}%
@@ -446,22 +494,6 @@
 ---
 {% endif %}
 
-#### 💡 Key Insights
-
-{% for insight in stock.key_insights %}
-{{ loop.index }}. {{ insight }}
-{% endfor %}
-
----
-
-#### ⚠️ Risk Factors
-
-{% for risk in stock.risk_factors %}
-{{ loop.index }}. {{ risk }}
-{% endfor %}
-
----
-
 {% if stock.structured_risks %}
 #### 🚨 Structured Investment Risks
 
@@ -552,9 +584,9 @@
 
 **Risk/Reward:** {{ "%.1f"|format(stock.recommended_strategy.exit.risk_reward_ratio) }}:1
 
-**Expected Holding Period:** {{ stock.recommended_strategy.holding_period }}
+**Expected Holding Period:** {{ stock.recommended_strategy.exit.holding_period }}
 
-**Expected Returns:** {{ "%.1f"|format(stock.recommended_strategy.expected_return_total) }}% total ({{ "%.1f"|format(stock.recommended_strategy.expected_return_annualized) }}% annualized)
+**Expected Returns:** {{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_total) }}% total ({{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_annualized) }}% annualized)
 
 ---
 {% endif %}
@@ -593,10 +625,6 @@
 
 ---
 {% endif %}
-
-#### 📝 Comprehensive Synthesis
-
-{{ stock.synthesis_narrative }}
 
 {% if not loop.last %}
 
