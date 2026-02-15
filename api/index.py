@@ -22,12 +22,19 @@ app = FastAPI(
 )
 
 # CORS middleware for web/mobile clients
+# Get allowed origins from env or use defaults
+allowed_origins = os.getenv(
+    "CORS_ORIGINS",
+    "https://research-swarm-frontend.vercel.app,http://localhost:3000,http://localhost:3001"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Register routes
