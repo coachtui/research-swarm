@@ -13,6 +13,11 @@ export const metadata: Metadata = {
   keywords: ['stock analysis', 'AI investing', 'moat score', 'divergence detection', 'investment research'],
   authors: [{ name: 'DVRG' }],
   creator: 'DVRG',
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 5,
+  },
   openGraph: {
     type: 'website',
     locale: 'en_US',
