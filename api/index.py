@@ -54,4 +54,8 @@ async def root():
     }
 
 # Vercel handler (ASGI adapter for serverless)
-handler = Mangum(app)
+handler = Mangum(app, lifespan="off")
+
+# Also export app directly for Vercel
+# Vercel will use this if Mangum doesn't work
+app = app
