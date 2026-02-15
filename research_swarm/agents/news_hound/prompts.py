@@ -848,7 +848,13 @@ UPCOMING_CATALYSTS_PROMPT = """You are building a catalyst calendar for {ticker}
 
 ---
 
-**Task**: Identify upcoming catalyst events in the next 6 months.
+**Task**: Identify upcoming catalyst events in the next 6 months from {analysis_date}.
+
+**CRITICAL**:
+- The current analysis date is {analysis_date}
+- ALL catalyst dates MUST be AFTER {analysis_date}
+- DO NOT include any events with dates before {analysis_date}
+- If you see references to events that already occurred, DO NOT include them unless they have a confirmed future occurrence
 
 **Types of Catalysts to Track**:
 
@@ -866,17 +872,19 @@ UPCOMING_CATALYSTS_PROMPT = """You are building a catalyst calendar for {ticker}
 **What to Extract**:
 
 1. **Next Earnings Date**:
-   - Date (YYYY-MM-DD) or timeframe relative to analysis date (e.g., "early Q2")
+   - Date (YYYY-MM-DD) or timeframe relative to analysis date
    - Confirmed (true) or Estimated (false)
-   - IMPORTANT: All dates MUST be in the future relative to the analysis date ({analysis_date}). Do NOT generate dates from previous years.
+   - IMPORTANT: Date MUST be AFTER {analysis_date}. The year should be 2026 or later, NOT 2024 or 2025.
 
 2. **Upcoming Catalysts** (next 6 months from {analysis_date}):
    - Event type (earnings, FDA, product launch, etc.)
-   - Expected date or timeframe (must be future dates)
+   - Expected date or timeframe (MUST be dates AFTER {analysis_date})
+   - Use format YYYY-MM-DD where YYYY is 2026 or later
    - Description
    - Potential impact: High/Medium/Low
    - Impact direction: Positive/Negative/Neutral
    - Confidence: 0-1 (1.0 = confirmed date, 0.5 = rumored/estimated)
+   - IMPORTANT: If you see news about past events (2024, 2025), project them forward to 2026+ or exclude them
 
 3. **Catalyst Density**:
    - High: Many upcoming events (>5)
@@ -911,4 +919,57 @@ UPCOMING_CATALYSTS_PROMPT = """You are building a catalyst calendar for {ticker}
 }}
 
 Return ONLY valid JSON, no other text.
+"""
+
+# ============================================================================
+# SEC 8-K MATERIAL EVENT EXTRACTION PROMPT (Haiku)
+# Purpose: Categorize material events from SEC 8-K filings
+# ============================================================================
+
+SEC_8K_EXTRACTION_PROMPT = """You are analyzing SEC 8-K material event filings for investment-relevant information.
+
+**Company Ticker**: {ticker}
+
+**Recent 8-K Filings** (last 90 days):
+{filings_text}
+
+---
+
+**Task**: Categorize each 8-K item into catalyst events for investment analysis.
+
+**8-K Item Type Reference**:
+- Item 1.01 = Material definitive agreement (contracts, partnerships, licensing)
+- Item 1.02 = Termination of material agreement
+- Item 2.02 = Results of operations / financial condition disclosure
+- Item 4.02 = Non-reliance on prior financial statements (restatement risk)
+- Item 5.02 = Departure/appointment of directors or principal officers
+- Item 7.01 = Regulation FD disclosure (forward-looking guidance)
+- Item 8.01 = Other material events
+
+**Output Format**: Return a JSON array of categorized events:
+
+{{
+  "material_events": [
+    {{
+      "event_type": "<M&A|contract|regulatory|executive_change|earnings_surprise|partnership|expansion|supply_chain>",
+      "impact": "<positive|negative|neutral>",
+      "description": "<concise description of the material event>",
+      "date": "<filing date YYYY-MM-DD>",
+      "sec_item": "<Item number, e.g. 1.01>",
+      "severity": "<high|medium|low>",
+      "confidence": 0.95
+    }}
+  ],
+  "total_events": <count>,
+  "summary": "<1-2 sentence summary of material events and their aggregate impact>"
+}}
+
+**Instructions**:
+- Only extract genuinely material events (skip routine/boilerplate disclosures)
+- Item 5.02 officer departures are HIGH severity if CEO/CFO, MEDIUM otherwise
+- Item 1.01 contracts are HIGH severity if value > 5% of market cap
+- Item 4.02 restatements are always HIGH severity and NEGATIVE
+- Item 2.02 results disclosures may overlap with quarterly earnings — flag as earnings_surprise only if they reveal unexpected results
+- Map each event to the closest catalyst event_type from the list above
+- Return ONLY valid JSON, no other text
 """

@@ -195,7 +195,7 @@ class ConvictionGenerator:
         # Build context summary
         context_parts = [f"Ticker: {ticker}", f"Rating: {rating or 'HOLD'}"]
         context_parts.append(f"Moat Score: {moat_score:.1f}/10")
-        context_parts.append(f"Conviction: {conviction_level}")
+        context_parts.append(f"Conviction: {conviction_level or 'Medium'}")  # Handle None
         context_parts.append(f"Risk Level: {risk_level or 'Medium'}")
 
         if vgm_scores:
@@ -208,7 +208,7 @@ class ConvictionGenerator:
 
         if valuation_metrics:
             pe = valuation_metrics.get("pe_ratio")
-            cat = valuation_metrics.get("valuation_category", "Fair")
+            cat = valuation_metrics.get("valuation_category") or "Fair"  # Ensure not None
             context_parts.append(f"Valuation: P/E {pe:.1f if pe else 'N/A'}, {cat}")
 
         if price_targets:

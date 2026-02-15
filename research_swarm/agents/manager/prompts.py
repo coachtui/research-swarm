@@ -73,8 +73,10 @@ You have received detailed reports from three specialized research teams with EN
 **Upcoming Catalysts** (6-month calendar):
 {catalyst_calendar}
 
-**Recent News Catalysts**:
+**Recent News & SEC Material Event Catalysts**:
 {news_catalysts}
+
+NOTE: Events prefixed with [SEC 8-K] are official SEC filings — these are legally binding disclosures and should be weighted more heavily than news-sourced catalysts.
 
 **Full Analysis**: {news_narrative}
 
@@ -92,9 +94,6 @@ You have received detailed reports from three specialized research teams with EN
 - Relative Strength: {relative_strength}
 
 **Entry/Exit Signal**: {entry_exit_signal}
-
-**Supply Chain Context** (Informational Only - Does NOT Affect Rating):
-{supply_chain_summary}
 
 **Full Analysis**: {quant_narrative}
 
@@ -149,6 +148,15 @@ Synthesize these three comprehensive perspectives into a unified investment anal
 - Be quantitative: cite specific scores, percentages, price targets
 - Focus on actionable insights with clear evidence chains
 - Do NOT make buy/sell recommendations yet (that comes in thesis)
+
+**CRITICAL - Language Calibration for Price Movements**:
+- "Plummeted" / "Crashed": ONLY for drops >20% in 1 week or >25% in 1 month
+- "Declined significantly": 10-20% drops
+- "Declined" / "Down": 5-10% drops - use neutral, factual language
+- "Dipped" / "Edged lower": 2-5% drops
+- AVOID loaded terms: "corrected" (implies wrong), "pulled back" (implies temporary)
+- For <10% moves: State the fact plainly: "down 7.5%" without characterization
+- 5-10% monthly moves in tech stocks are routine volatility, NOT events worth emphasizing
 
 Return your response as a JSON object:
 
@@ -218,17 +226,21 @@ INVESTMENT_THESIS_PROMPT = """You are a senior investment analyst writing a fina
 **Company**: {ticker}
 **Analysis Date**: {analysis_date}
 
+**Company Overview**:
+{company_overview}
+
 **Overall Moat Score**: {moat_score:.1f}/10 (Watchlist Candidate: {is_watchlist})
 **Analysis Confidence**: {confidence:.0%}
 
-**Component Scores** (v2.0 Formula - weighted):
-- Earnings Momentum (PRIMARY SIGNAL): {earnings_momentum_score:.1f}/10 (25% weight)
-- Financial Health: {financial_health_score:.1f}/10 (25% weight)
-- Valuation: {valuation_score:.1f}/10 (20% weight)
-- Technical Strength: {technical_score:.1f}/10 (15% weight)
-- Sentiment/Catalysts: {sentiment_score:.1f}/10 (15% weight)
+**Component Scores**:
+- Earnings Momentum: {earnings_momentum_score:.1f}/10
+- Financial Health: {financial_health_score:.1f}/10
+- Valuation: {valuation_score:.1f}/10
+- Technical Strength: {technical_score:.1f}/10
+- Sentiment/Catalysts: {sentiment_score:.1f}/10
 
-Note: Supply chain data is provided for context only and does NOT affect the moat score.
+**Valuation Context** (explains the Valuation score):
+{valuation_context}
 
 **Enhanced Context**:
 - VGM Investment Style: {vgm_profile}
@@ -251,14 +263,16 @@ Note: Supply chain data is provided for context only and does NOT affect the moa
 
 ## YOUR TASK
 
-Write a concise, data-driven investment thesis (200-300 words) that:
+Write a concise, data-driven investment thesis (250-350 words) that:
 
-1. **Opens with a clear recommendation**: BUY, HOLD, or AVOID
-2. **Justifies with SPECIFIC data**: Reference moat score, key signals (earnings revisions, institutional flow, technical setup), and price targets
-3. **Addresses multi-signal convergence/divergence**: Are all 7 news signals + technicals + fundamentals aligned?
-4. **Acknowledges key risks with specificity**: Cite actual risk factors with data
-5. **Provides tactical guidance**: Entry levels, catalysts to watch, position sizing considerations
-6. **Defines investor fit**: Value/Growth/Momentum profile, time horizon, risk tolerance
+1. **Opens with a 1-2 sentence company description**: What the company does, its sector, and why it matters — so a new investor immediately understands the business
+2. **States a clear recommendation**: BUY, HOLD, or AVOID
+3. **Explains every score that stands out**: If any component score is notably high (≥8) or low (≤4), explicitly explain WHY in plain language. For example, if Valuation is 3.5/10 while Financial Health is 9.2/10, explain the disconnect (e.g., "The low valuation score reflects a P/E of 35x vs the sector median of 28x, meaning the stock trades at a premium despite strong fundamentals")
+4. **Justifies with SPECIFIC data**: Reference moat score, key signals (earnings revisions, institutional flow, technical setup), and price targets
+5. **Addresses signal convergence/divergence**: Are fundamentals, technicals, and sentiment aligned or conflicting?
+6. **Acknowledges key risks with specificity**: Cite actual risk factors with data
+7. **Provides tactical guidance**: Entry levels, catalysts to watch, position sizing considerations
+8. **Defines investor fit**: Value/Growth/Momentum profile, time horizon, risk tolerance
 
 **Enhanced Guidelines for Recommendation**:
 - **BUY (moat_score >= 8.0)**:
@@ -286,6 +300,15 @@ Write a concise, data-driven investment thesis (200-300 words) that:
 - ACTIONABLE: Clear on what to do and when (entry levels, catalysts to watch)
 - HONEST: Don't oversell - acknowledge where confidence is lower
 - TACTICAL: Consider both near-term technical and long-term fundamental view
+- LANGUAGE: Use "overall score" or just "score" in text - avoid overusing "moat score" (too jargony)
+
+**CRITICAL - Language Calibration**:
+- 5-10% monthly moves are NORMAL market volatility
+- "Plummeted"/"Crashed" = ONLY for >20% drops
+- "Declined"/"Down" = 5-10% drops (neutral, factual)
+- "Dipped" = 2-5% drops
+- AVOID: "corrected", "pulled back" (loaded terms)
+- Just state facts: "down 7.5%" without drama
 
 Return your response as a JSON object:
 

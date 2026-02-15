@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     fmp_api_key: str = ""  # Optional for Phase 1
     news_api_key: str = ""  # Optional for Phase 1
 
+    # Database
+    database_url: str = ""  # Neon PostgreSQL connection string (required)
+
     # Paths
     cache_dir: Path = Path("./data/cache")
     state_dir: Path = Path("./data/state")

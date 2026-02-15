@@ -66,7 +66,7 @@ class ChartGenerator:
         colors = []
         for value in values:
             if value >= 7.0:
-                colors.append("#2ecc71")  # Green - Strong
+                colors.append("#00D9B5")  # Green - Strong
             elif value >= 4.0:
                 colors.append("#f39c12")  # Gold - Moderate
             else:
@@ -126,7 +126,7 @@ class ChartGenerator:
         # Node type color mapping
         node_colors_map = {
             "root": "#4361ee",  # Blue - Root company
-            "customer": "#2ecc71",  # Green - Customers
+            "customer": "#00D9B5",  # Green - Customers
             "supplier": "#e67e22",  # Orange - Suppliers
             "supplier_t2": "#f39c12",  # Yellow - Tier 2 suppliers
         }
@@ -212,7 +212,7 @@ class ChartGenerator:
                 [0],
                 marker="o",
                 color="w",
-                markerfacecolor="#2ecc71",
+                markerfacecolor="#00D9B5",
                 markersize=10,
                 label="Customer",
             ),
@@ -286,7 +286,7 @@ class ChartGenerator:
         colors = []
         for score in sorted_scores:
             if score >= 8.0:
-                colors.append("#2ecc71")  # Green - Watchlist
+                colors.append("#00D9B5")  # Green - Watchlist
             elif score >= 7.0:
                 colors.append("#f39c12")  # Gold - Strong
             elif score >= 5.0:
@@ -313,14 +313,14 @@ class ChartGenerator:
         )
 
         # Add watchlist threshold line
-        ax.axhline(y=8.0, color="green", linestyle="--", linewidth=2, alpha=0.5)
+        ax.axhline(y=8.0, color="#00D9B5", linestyle="--", linewidth=2, alpha=0.5)
         ax.text(
             len(sorted_tickers) - 0.5,
             8.2,
             "Watchlist Threshold",
             ha="right",
             fontsize=9,
-            color="green",
+            color="#00D9B5",
         )
 
         # Add value labels on bars

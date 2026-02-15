@@ -39,7 +39,6 @@ class ReportConfig(BaseModel):
         default_factory=lambda: [
             ReportSection.EXECUTIVE_SUMMARY,
             ReportSection.STOCK_ANALYSIS,
-            ReportSection.SUPPLY_CHAIN,
             ReportSection.WATCHLIST,
         ],
         description="Sections to include in the report",
@@ -170,6 +169,20 @@ class StockReportData(BaseModel):
     )
     expected_value_price_target: Optional[float] = Field(
         None, description="Probability-weighted expected value from scenarios"
+    )
+
+    # Decision Intelligence fields (Phase 1)
+    decision_framework: Optional[Dict[str, Any]] = Field(
+        None, description="Decision framework with holder/buyer action guidance"
+    )
+    enhanced_trade_setup: Optional[Dict[str, Any]] = Field(
+        None, description="Conservative and aggressive trade setups with 3 targets"
+    )
+    fund_tech_divergence: Optional[Dict[str, Any]] = Field(
+        None, description="Fundamental vs technical divergence detection"
+    )
+    conviction_position: Optional[Dict[str, Any]] = Field(
+        None, description="Conviction-linked position sizing with dollar amounts"
     )
 
     # Enhanced report metadata

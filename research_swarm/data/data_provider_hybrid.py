@@ -52,6 +52,67 @@ class HybridDataProvider:
             "is_foreign": is_foreign,
         }
 
+    def get_complete_swarm_data(self, ticker: str, period: str = "1y") -> Dict[str, Any]:
+        """
+        Fetch ALL data needed by Fundamentalist, News Hound, and Quant agents.
+        Single source of truth - eliminates redundant API calls across agents.
+
+        Args:
+            ticker: Stock ticker (e.g., "AAPL", "TSM")
+            period: Historical data period for Quant agent (default: "1y")
+
+        Returns:
+            Dict containing:
+            - filings_raw: SEC Edgar filings (10-K/10-Q/20-F/6-K)
+            - company_info: Sector, industry, market cap
+            - valuation_metrics: P/E, PEG, P/B, P/S, EV/EBITDA
+            - earnings_data: {recommendations, earnings_history, price_target, earnings_dates}
+            - historical_data: OHLCV DataFrame for technical indicators (Quant)
+            - institutional_holders: 13F data (News Hound)
+            - insider_transactions: Insider trading activity (News Hound)
+            - short_interest: Short interest metrics (News Hound)
+            - analyst_estimates: Earnings estimate revisions (News Hound)
+            - is_foreign: Foreign ADR detection
+        """
+        logger.info(f"[Swarm Data] Fetching complete swarm data for {ticker}")
+
+        # 1. Detect if foreign ADR
+        is_foreign = self._is_foreign(ticker)
+        logger.info(f"{ticker}: {'Foreign ADR (20-F/6-K)' if is_foreign else 'Domestic (10-K/10-Q)'}")
+
+        # 2. Fetch SEC Edgar filings (for Fundamentalist)
+        filings_raw = self._get_edgar_bundle(ticker)
+
+        # 3. Fetch extended yfinance bundle (all agents)
+        yfinance_bundle = self._get_extended_yfinance_bundle(ticker, period)
+
+        # 4. Combine and return
+        result = {
+            "filings_raw": filings_raw,
+            "company_info": yfinance_bundle.get("company_info"),
+            "valuation_metrics": yfinance_bundle.get("valuation_metrics"),
+            "earnings_data": yfinance_bundle.get("earnings_data", {}),
+            "quarterly_financials": yfinance_bundle.get("quarterly_financials"),
+            "historical_data": yfinance_bundle.get("historical_data"),
+            "institutional_holders": yfinance_bundle.get("institutional_holders"),
+            "insider_transactions": yfinance_bundle.get("insider_transactions"),
+            "short_interest": yfinance_bundle.get("short_interest"),
+            "analyst_estimates": yfinance_bundle.get("analyst_estimates"),
+            "is_foreign": is_foreign,
+        }
+
+        # 5. Fetch recent 8-K material event filings (for News Hound)
+        try:
+            result["recent_8k_filings"] = sec_client.get_8k_filings(ticker, days_back=90)
+            filings_count = result["recent_8k_filings"].get("_metadata", {}).get("filings_found", 0) if result["recent_8k_filings"] else 0
+            logger.info(f"[Swarm Data] Fetched {filings_count} recent 8-K filings for {ticker}")
+        except Exception as e:
+            logger.warning(f"Failed to get 8-K filings for {ticker}: {e}")
+            result["recent_8k_filings"] = None
+
+        logger.info(f"[Swarm Data] Successfully fetched complete data bundle for {ticker}")
+        return result
+
     def _is_foreign(self, ticker: str) -> bool:
         """
         Detect if ticker is a foreign ADR.
@@ -126,6 +187,77 @@ class HybridDataProvider:
             earnings_data["earnings_dates"] = None
 
         bundle["earnings_data"] = earnings_data
+
+        return bundle
+
+    def _get_extended_yfinance_bundle(self, ticker: str, period: str = "1y") -> Dict[str, Any]:
+        """
+        Fetch extended yfinance data bundle including all fields needed by all agents.
+
+        Extends _get_yfinance_bundle() with additional fields:
+        - historical_data (for Quant agent)
+        - institutional_holders (for News Hound)
+        - insider_transactions (for News Hound)
+        - short_interest (for News Hound)
+        - analyst_estimates (for News Hound)
+
+        Args:
+            ticker: Stock ticker
+            period: Historical data period (default: "1y")
+
+        Returns:
+            Dict with all yfinance data
+        """
+        # Start with base bundle (company_info, valuation_metrics, earnings_data)
+        bundle = self._get_yfinance_bundle(ticker)
+
+        # Quarterly financial statements (for Fundamentalist fallback)
+        try:
+            bundle["quarterly_financials"] = market_data_client.get_quarterly_financials(ticker)
+            logger.debug(f"Fetched quarterly financials for {ticker}")
+        except Exception as e:
+            logger.warning(f"Failed to get quarterly financials for {ticker}: {e}")
+            bundle["quarterly_financials"] = None
+
+        # Historical OHLCV data (for Quant agent)
+        try:
+            bundle["historical_data"] = market_data_client.get_historical_data(ticker, period=period)
+            logger.debug(f"Fetched historical data for {ticker} ({period})")
+        except Exception as e:
+            logger.warning(f"Failed to get historical data for {ticker}: {e}")
+            bundle["historical_data"] = None
+
+        # Institutional holders (for News Hound agent)
+        try:
+            bundle["institutional_holders"] = market_data_client.get_institutional_holders(ticker)
+            logger.debug(f"Fetched institutional holders for {ticker}")
+        except Exception as e:
+            logger.warning(f"Failed to get institutional holders for {ticker}: {e}")
+            bundle["institutional_holders"] = None
+
+        # Insider transactions (for News Hound agent)
+        try:
+            bundle["insider_transactions"] = market_data_client.get_insider_transactions(ticker)
+            logger.debug(f"Fetched insider transactions for {ticker}")
+        except Exception as e:
+            logger.warning(f"Failed to get insider transactions for {ticker}: {e}")
+            bundle["insider_transactions"] = None
+
+        # Short interest (for News Hound agent)
+        try:
+            bundle["short_interest"] = market_data_client.get_short_interest(ticker)
+            logger.debug(f"Fetched short interest for {ticker}")
+        except Exception as e:
+            logger.warning(f"Failed to get short interest for {ticker}: {e}")
+            bundle["short_interest"] = None
+
+        # Analyst earnings estimates (for News Hound agent)
+        try:
+            bundle["analyst_estimates"] = market_data_client.get_earnings_estimates(ticker)
+            logger.debug(f"Fetched analyst estimates for {ticker}")
+        except Exception as e:
+            logger.warning(f"Failed to get analyst estimates for {ticker}: {e}")
+            bundle["analyst_estimates"] = None
 
         return bundle
 

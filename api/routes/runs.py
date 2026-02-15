@@ -7,6 +7,7 @@ from api.models.responses import RunResponse, RunListResponse, RunSummary
 from api.dependencies import get_current_user
 from api.models.auth import User
 from api.lib.db import get_db
+from api.lib.decision_intelligence import enrich_with_decision_intelligence
 from typing import Optional
 
 router = APIRouter()
@@ -99,6 +100,13 @@ async def get_run(
     results = []
     if run.stockResults:
         for result in run.stockResults:
+            # Enrich fullOutput with decision intelligence on-the-fly
+            full_output = result.fullOutput
+            if full_output and result.moatScore is not None:
+                full_output = enrich_with_decision_intelligence(
+                    full_output, result.moatScore
+                )
+
             results.append({
                 "ticker": result.ticker,
                 "status": result.status,
@@ -113,7 +121,8 @@ async def get_run(
                 "tokens_used": result.tokensUsed,
                 "processing_time_seconds": result.processingTimeSeconds,
                 "error_message": result.errorMessage,
-                "created_at": result.createdAt
+                "created_at": result.createdAt,
+                "full_output": full_output
             })
 
     return RunResponse(

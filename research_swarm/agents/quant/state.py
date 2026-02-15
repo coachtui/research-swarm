@@ -20,6 +20,9 @@ class QuantState(TypedDict, total=False):
     analysis_date: str  # Date of analysis (YYYY-MM-DD)
     supply_chain_depth: int  # Maximum supply chain tier depth to explore (default 2)
 
+    # Shared data layer (NEW: eliminates redundant API calls)
+    shared_swarm_data: Optional[Dict[str, Any]]  # Pre-fetched data bundle from Manager
+
     # Status tracking
     status: str  # Current workflow status: "initialized", "fetching_data", "calculating_indicators", "building_graph", "analyzing", "scoring", "completed", "error"
     error: Optional[str]  # Error message if status is "error"

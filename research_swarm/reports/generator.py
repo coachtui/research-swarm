@@ -188,19 +188,24 @@ class ReportGenerator:
             md_path.write_text(markdown_content, encoding="utf-8")
             logger.info(f"Saved Markdown report: {md_path}")
 
-            # Step 5: Generate PDF if requested
+            # Step 5: Generate PDF if requested (uses DVRG HTML template)
             pdf_path = None
             if config.report_type in [ReportType.PDF, ReportType.BOTH]:
                 if PDFGenerator is None:
                     logger.warning("PDF generation unavailable (missing system dependencies). Skipping PDF generation.")
                     logger.info("To enable PDF generation, install system dependencies: https://doc.courtbouillon.org/weasyprint/stable/first_steps.html#installation")
                 else:
-                    logger.debug("Generating PDF...")
+                    logger.debug("Generating DVRG-branded PDF...")
                     pdf_gen = PDFGenerator()
                     pdf_path = config.output_dir / f"report_{config.run_id[:8]}.pdf"
 
                     try:
-                        pdf_gen.generate(md_path, pdf_path)
+                        html_content = self.renderer.render_pdf_report(
+                            report_data, include_charts=config.include_charts
+                        )
+                        pdf_gen.generate_from_html(
+                            html_content, pdf_path, base_dir=config.output_dir
+                        )
                         logger.info(f"Saved PDF report: {pdf_path}")
                     except Exception as e:
                         logger.error(f"PDF generation failed: {e}")

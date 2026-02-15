@@ -19,6 +19,7 @@ from .state import ManagerState
 from .analyzer import ManagerAnalyzer
 from .scorer import ManagerScorer
 from .models import ManagerOutput, MoatScoreBreakdown
+from .signal_divergence import calculate_signal_divergence
 
 
 # Initialize singletons
@@ -29,6 +30,47 @@ manager_scorer = ManagerScorer()
 # ============================================================================
 # Node Functions
 # ============================================================================
+
+def fetch_swarm_data_node(state: ManagerState) -> ManagerState:
+    """
+    Node 0: Pre-fetch ALL data for all agents (NEW).
+
+    Eliminates redundant API calls by fetching all data once before agent execution.
+    This single fetch replaces ~15+ individual API calls across agents.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with shared_swarm_data containing complete data bundle
+    """
+    from research_swarm.data.data_provider_hybrid import hybrid_provider
+
+    logger.info(f"[Node 0] Pre-fetching swarm data for {state['ticker']}")
+
+    state["status"] = "fetching_data"
+    state["node_timestamps"] = {**state.get("node_timestamps", {}), "fetch_swarm_data": time.time()}
+
+    try:
+        # Fetch complete data bundle for all agents
+        period = "1y"  # Historical data period for Quant agent
+        shared_data = hybrid_provider.get_complete_swarm_data(state["ticker"], period=period)
+
+        # Store in state for agents to consume
+        state["shared_swarm_data"] = shared_data
+
+        logger.success(
+            f"✓ Swarm data fetched: {state['ticker']} "
+            f"(Foreign: {shared_data.get('is_foreign', False)})"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to fetch swarm data for {state['ticker']}: {e}")
+        state["status"] = "error"
+        state["error"] = f"Data fetch failed: {str(e)}"
+
+    return state
+
 
 def call_fundamentalist_node(state: ManagerState) -> ManagerState:
     """
@@ -50,7 +92,8 @@ def call_fundamentalist_node(state: ManagerState) -> ManagerState:
         fundamentalist_output = analyze_company(
             ticker=state["ticker"],
             quarters=state.get("quarters"),
-            fiscal_year=state.get("fiscal_year")  # Backward compatibility
+            fiscal_year=state.get("fiscal_year"),  # Backward compatibility
+            shared_swarm_data=state.get("shared_swarm_data")  # NEW: Pass pre-fetched data
         )
 
         # Store output as dict
@@ -100,7 +143,8 @@ def call_news_hound_node(state: ManagerState) -> ManagerState:
         # Call News Hound agent
         news_hound_output = analyze_company_news(
             ticker=state["ticker"],
-            days_back=state["news_days_back"]
+            days_back=state["news_days_back"],
+            shared_swarm_data=state.get("shared_swarm_data")  # NEW: Pass pre-fetched data
         )
 
         # Store output as dict
@@ -162,7 +206,8 @@ def call_quant_node(state: ManagerState) -> ManagerState:
         quant_output = analyze_quant(
             ticker=state["ticker"],
             supply_chain_depth=0,  # Disable supply chain analysis
-            fundamentalist_supply_chain=None  # Don't pass supply chain data
+            fundamentalist_supply_chain=None,  # Don't pass supply chain data
+            shared_swarm_data=state.get("shared_swarm_data")  # NEW: Pass pre-fetched data
         )
 
         # Store output as dict
@@ -218,6 +263,39 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
     state["node_timestamps"] = {**state.get("node_timestamps", {}), "synthesize_findings": time.time()}
 
     try:
+        # NEW: Extract and deduplicate insights from all agents
+        fund_output = state["fundamentalist_output"]
+        news_output = state["news_hound_output"]
+        quant_output = state["quant_output"]
+
+        # Collect insights from all agents
+        all_insights = []
+        all_risks = []
+
+        # Fundamentalist insights (if present)
+        if fund_output.get("key_insights"):
+            all_insights.extend(fund_output["key_insights"])
+        if fund_output.get("risk_factors"):
+            all_risks.extend(fund_output["risk_factors"])
+
+        # News Hound insights (if present)
+        if news_output.get("key_insights"):
+            all_insights.extend(news_output["key_insights"])
+        if news_output.get("risk_factors"):
+            all_risks.extend(news_output["risk_factors"])
+
+        # Quant insights (if present)
+        if quant_output.get("key_insights"):
+            all_insights.extend(quant_output["key_insights"])
+        if quant_output.get("risk_factors"):
+            all_risks.extend(quant_output["risk_factors"])
+
+        # Deduplicate insights and risks
+        deduplicated_insights = manager_analyzer.deduplicate_insights(all_insights, max_results=5)
+        deduplicated_risks = manager_analyzer.deduplicate_insights(all_risks, max_results=5)
+
+        logger.info(f"Deduplicated: {len(all_insights)} insights → {len(deduplicated_insights)}, {len(all_risks)} risks → {len(deduplicated_risks)}")
+
         # Synthesize findings
         synthesis, tokens = manager_analyzer.synthesize_findings(
             ticker=state["ticker"],
@@ -228,10 +306,10 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
             quant_output=state["quant_output"],
         )
 
-        # Update state
+        # Update state with deduplicated insights (override LLM-generated if present)
         state["synthesis_narrative"] = synthesis.get("synthesis_narrative", "")
-        state["key_insights"] = synthesis.get("key_insights", [])
-        state["risk_factors"] = synthesis.get("risk_factors", [])
+        state["key_insights"] = deduplicated_insights if deduplicated_insights else synthesis.get("key_insights", [])
+        state["risk_factors"] = deduplicated_risks if deduplicated_risks else synthesis.get("risk_factors", [])
 
         # NEW v2.0: Extract structured risks and triggers
         state["structured_risks"] = synthesis.get("structured_risks", [])
@@ -247,6 +325,16 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
             state["price_targets"] = None
 
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        # NEW v2.0: Calculate signal divergence analysis
+        signal_breakdown = calculate_signal_divergence(
+            fundamentalist_output=state["fundamentalist_output"],
+            news_hound_output=state["news_hound_output"],
+            quant_output=state["quant_output"]
+        )
+        if signal_breakdown:
+            state["signal_breakdown"] = signal_breakdown
+            logger.info(f"✓ Signal divergence: {signal_breakdown['alignment_status']}")
 
         logger.success(f"✓ Synthesis complete ({tokens} tokens, {len(state.get('structured_risks', []))} structured risks)")
 
@@ -456,10 +544,12 @@ def build_manager_graph() -> StateGraph:
     """
     Build the LangGraph workflow for Manager agent.
 
-    6-Node Sequential Workflow:
-    1. call_fundamentalist → 2. call_news_hound → 3. call_quant
-                                                      ↓
-    6. generate_thesis ← 5. calculate_moat ← 4. synthesize_findings
+    7-Node Sequential Workflow (NEW: Data pre-fetching):
+    0. fetch_swarm_data → 1. call_fundamentalist → 2. call_news_hound → 3. call_quant
+                                                                          ↓
+    7. generate_thesis ← 6. calculate_moat ← 5. synthesize_findings ← 4. (from quant)
+
+    Node 0 (NEW) fetches ALL data once, eliminating redundant API calls across agents.
 
     Returns:
         Compiled StateGraph
@@ -467,6 +557,7 @@ def build_manager_graph() -> StateGraph:
     workflow = StateGraph(ManagerState)
 
     # Add nodes
+    workflow.add_node("fetch_swarm_data", fetch_swarm_data_node)  # NEW: Pre-fetch data
     workflow.add_node("call_fundamentalist", call_fundamentalist_node)
     workflow.add_node("call_news_hound", call_news_hound_node)
     workflow.add_node("call_quant", call_quant_node)
@@ -474,10 +565,11 @@ def build_manager_graph() -> StateGraph:
     workflow.add_node("calculate_moat_score", calculate_moat_score_node)
     workflow.add_node("generate_thesis", generate_thesis_node)
 
-    # Set entry point
-    workflow.set_entry_point("call_fundamentalist")
+    # Set entry point (NEW: Start with data fetch)
+    workflow.set_entry_point("fetch_swarm_data")
 
     # Add edges - sequential flow
+    workflow.add_edge("fetch_swarm_data", "call_fundamentalist")  # NEW edge
     workflow.add_edge("call_fundamentalist", "call_news_hound")
     workflow.add_edge("call_news_hound", "call_quant")
     workflow.add_edge("call_quant", "synthesize_findings")
@@ -639,6 +731,11 @@ def analyze_swarm(
     if final_state.get("price_targets") and final_state.get("fundamentalist_output"):
         final_state["fundamentalist_output"]["price_targets"] = final_state["price_targets"]
 
+    # Extract VGM scores from fundamentalist_output
+    vgm_scores = None
+    if final_state.get("fundamentalist_output"):
+        vgm_scores = final_state["fundamentalist_output"].get("vgm_scores")
+
     # Build output
     output = ManagerOutput(
         ticker=final_state["ticker"],
@@ -658,6 +755,8 @@ def analyze_swarm(
         moat_breakdown=MoatScoreBreakdown(**final_state["moat_breakdown"]),
         confidence=final_state["confidence"],
         is_watchlist_candidate=final_state["is_watchlist_candidate"],
+        signal_breakdown=final_state.get("signal_breakdown"),  # v2.0
+        vgm_scores=vgm_scores,  # Extract from fundamentalist output
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time,
         agent_processing_times=final_state.get("agent_processing_times"),

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 import os
 
-from api.routes import analyze, runs, health
+from api.routes import analyze, runs, health, reports
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -34,6 +34,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api", tags=["Health"])
 app.include_router(analyze.router, prefix="/api", tags=["Analysis"])
 app.include_router(runs.router, prefix="/api", tags=["Runs"])
+app.include_router(reports.router, prefix="/api", tags=["Reports"])
 
 # Root endpoint
 @app.get("/")

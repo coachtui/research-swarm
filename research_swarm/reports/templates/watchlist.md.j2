@@ -1,7 +1,7 @@
 ## Watchlist Candidates
 
 {% if watchlist_candidates|length > 0 %}
-**{{ watchlist_candidates|length }} stock(s)** meet the watchlist criteria (moat score ≥ 8.0)
+**{{ watchlist_candidates|length }} stock(s)** meet the watchlist criteria
 
 {% for stock in watchlist_candidates|sort(attribute='moat_score', reverse=True) %}
 ### {{ loop.index }}. {{ stock.ticker }} - {{ "%.1f"|format(stock.moat_score) }}/10
@@ -29,22 +29,18 @@
 - {{ risk }}
 {% endfor %}
 
-{% if include_charts %}
-![{{ stock.ticker }} Moat Breakdown](./charts/moat_{{ stock.ticker }}.png)
-{% endif %}
-
 {% if not loop.last %}---{% endif %}
 
 {% endfor %}
 
 {% else %}
-*No stocks currently meet the watchlist threshold of 8.0 or higher.*
+*No stocks currently meet the watchlist criteria.*
 
 **Closest Candidates:**
 
 {% for stock in stocks|sort(attribute='moat_score', reverse=True) %}
 {% if loop.index <= 3 %}
-- **{{ stock.ticker }}**: {{ "%.1f"|format(stock.moat_score) }}/10 ({{ "%.1f"|format(8.0 - stock.moat_score) }} points below threshold)
+- **{{ stock.ticker }}**: {{ "%.1f"|format(stock.moat_score) }}/10
 {% endif %}
 {% endfor %}
 

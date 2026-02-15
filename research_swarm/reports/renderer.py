@@ -107,6 +107,27 @@ class TemplateRenderer:
         base_template = self.env.get_template("base.md.j2")
         return base_template.render(report=report_data, content=content)
 
+    def render_pdf_report(
+        self,
+        report_data: ReportData,
+        include_charts: bool = False,
+    ) -> str:
+        """Render the DVRG-branded HTML PDF report.
+
+        Args:
+            report_data: Complete report data
+            include_charts: Whether to include chart references
+
+        Returns:
+            Complete rendered HTML string for WeasyPrint
+        """
+        template = self.env.get_template("pdf_report.html.j2")
+        return template.render(
+            report=report_data,
+            stocks=report_data.stocks,
+            include_charts=include_charts,
+        )
+
     def render_custom(self, template_string: str, context: dict) -> str:
         """Render a custom template string.
 

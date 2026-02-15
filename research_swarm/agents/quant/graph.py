@@ -42,20 +42,30 @@ def fetch_market_data_node(state: QuantState) -> QuantState:
     """
     Node 1: Fetch historical market data from yfinance.
 
+    NEW: Uses pre-fetched shared_swarm_data if available, falls back to direct fetch.
+
     Args:
         state: Current workflow state
 
     Returns:
         Updated state with historical_data
     """
-    logger.info(f"[Node 1] Fetching market data for {state['ticker']}")
-
     state["status"] = "fetching_data"
     state["node_timestamps"] = {**state.get("node_timestamps", {}), "fetch_market_data": time.time()}
 
-    # Fetch historical data
+    # Get data period
     period = state.get("data_period", "1y")
-    df = market_data_client.get_historical_data(state["ticker"], period=period)
+
+    # NEW: Get from shared data first, fallback to direct fetch
+    shared_data = state.get("shared_swarm_data", {})
+    df = shared_data.get("historical_data")
+
+    if df is not None and not df.empty:
+        logger.info(f"[Node 1] Using pre-fetched market data for {state['ticker']}")
+    else:
+        # Fallback: Direct fetch (for standalone execution or backward compatibility)
+        logger.info(f"[Node 1] No shared_swarm_data found, fetching market data directly for {state['ticker']}")
+        df = market_data_client.get_historical_data(state["ticker"], period=period)
 
     if df.empty:
         state["status"] = "error"
@@ -394,7 +404,8 @@ def build_quant_graph() -> StateGraph:
 def analyze_quant(
     ticker: str,
     supply_chain_depth: int = 2,
-    fundamentalist_supply_chain: Optional[FundamentalistSupplyChain] = None
+    fundamentalist_supply_chain: Optional[FundamentalistSupplyChain] = None,
+    shared_swarm_data: dict = None  # NEW: Pre-fetched data from Manager
 ) -> QuantOutput:
     """
     Perform quantitative analysis on a company.
@@ -403,6 +414,7 @@ def analyze_quant(
         ticker: Stock ticker (e.g., "NVDA")
         supply_chain_depth: Maximum supply chain tier depth (default 2)
         fundamentalist_supply_chain: Optional supply chain data from Fundamentalist agent
+        shared_swarm_data: Pre-fetched data bundle from Manager (NEW)
 
     Returns:
         QuantOutput with complete quantitative analysis
@@ -444,6 +456,7 @@ def analyze_quant(
         "confidence": None,
         "processing_time": None,
         "node_timestamps": {},
+        "shared_swarm_data": shared_swarm_data,  # NEW: Pre-fetched data from Manager
     }
 
     # Build and run workflow

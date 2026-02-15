@@ -19,6 +19,9 @@ class FundamentalistState(TypedDict, total=False):
     # Input fields
     ticker: str  # Stock ticker (e.g., "AAPL")
 
+    # Shared data layer (NEW: eliminates redundant API calls)
+    shared_swarm_data: Optional[Dict[str, Any]]  # Pre-fetched data bundle from Manager
+
     # TTM mode fields (primary)
     quarters: List[str]  # Quarters to analyze (e.g., ["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"])
     analysis_period: str  # Analysis period description (e.g., "TTM Q4 2024 - Q3 2025")
@@ -75,6 +78,11 @@ class FundamentalistState(TypedDict, total=False):
 
     # DCF valuation
     price_targets: Optional[Dict[str, Any]]  # PriceTargetScenarios dict from DCF calculator
+
+    # yfinance fallback data
+    yfinance_quarterly_financials: Optional[Dict[str, Any]]  # Structured quarterly financials from yfinance
+    valuation_metrics: Optional[Dict[str, Any]]  # Valuation metrics from yfinance
+    valuation_score: Optional[float]  # Calculated valuation score (0-10)
 
     # Metadata
     tokens_used: int  # Total tokens used in API calls

@@ -254,9 +254,9 @@ class DataExtractor:
         quant = output.get("quant_output", {})
         sc_graph = quant.get("supply_chain_graph", {})
 
-        # Extract signal breakdown from news_hound_output
-        signal_breakdown = None
-        if output.get("news_hound_output"):
+        # Extract signal breakdown - prefer manager output (v2.0), fallback to news_hound extraction
+        signal_breakdown = output.get("signal_breakdown")
+        if not signal_breakdown and output.get("news_hound_output"):
             try:
                 signal_breakdown = extract_signal_breakdown(output["news_hound_output"])
             except Exception as e:
@@ -338,6 +338,74 @@ class DataExtractor:
         # Calculate recommended strategy if we have required data
         recommended_strategy = None
         current_price = valuation_metrics.get("current_price", 0) if valuation_metrics else 0
+
+        # Generate fallback price targets from analyst consensus if DCF targets missing
+        if not price_targets and current_price and current_price > 0:
+            if analyst_consensus and analyst_consensus.get("avg_price_target"):
+                avg_target = analyst_consensus["avg_price_target"]
+                high_target = analyst_consensus.get("high_price_target", avg_target * 1.15)
+                low_target = analyst_consensus.get("low_price_target", avg_target * 0.85)
+                price_targets = {
+                    "base_target": avg_target,
+                    "bull_target": high_target,
+                    "bear_target": low_target,
+                    "base_probability": 0.50,
+                    "bull_probability": 0.25,
+                    "bear_probability": 0.25,
+                    "methodology": "Analyst consensus (fallback)",
+                    "base_assumptions": "Analyst average target",
+                    "bull_assumptions": "Analyst high target",
+                    "bear_assumptions": "Analyst low target",
+                    "expected_value": avg_target * 0.50 + high_target * 0.25 + low_target * 0.25,
+                }
+            else:
+                # Last resort: percentage-based targets from current price
+                moat = result.moat_score or 5.0
+                upside_mult = 1.10 + (moat - 5.0) * 0.02  # 10-20% upside based on moat
+                price_targets = {
+                    "base_target": round(current_price * upside_mult, 2),
+                    "bull_target": round(current_price * (upside_mult + 0.15), 2),
+                    "bear_target": round(current_price * 0.85, 2),
+                    "base_probability": 0.50,
+                    "bull_probability": 0.25,
+                    "bear_probability": 0.25,
+                    "methodology": "Percentage-based estimate (fallback)",
+                    "base_assumptions": f"Moat-adjusted {(upside_mult - 1) * 100:.0f}% upside",
+                    "bull_assumptions": f"{(upside_mult + 0.14) * 100:.0f}% upside scenario",
+                    "bear_assumptions": "15% downside scenario",
+                    "expected_value": round(
+                        current_price * upside_mult * 0.50
+                        + current_price * (upside_mult + 0.15) * 0.25
+                        + current_price * 0.85 * 0.25, 2
+                    ),
+                }
+
+        # Derive fallback rating from moat_score if manager didn't produce one
+        if not rating and result.moat_score is not None:
+            ms = result.moat_score
+            if ms >= 8.5:
+                rating = "STRONG BUY"
+            elif ms >= 7.0:
+                rating = "BUY"
+            elif ms >= 5.0:
+                rating = "HOLD"
+            elif ms >= 3.5:
+                rating = "SELL"
+            else:
+                rating = "STRONG SELL"
+            rating_score = ms
+
+        # Derive fallback risk_level from moat and valuation
+        if not risk_level:
+            ms = result.moat_score or 5.0
+            val_cat = valuation_metrics.get("valuation_category", "Fair") if valuation_metrics else "Fair"
+            if ms >= 7.0 and val_cat not in ("Extreme Premium", "Premium"):
+                risk_level = "Low"
+            elif ms < 5.0 or val_cat in ("Extreme Premium",):
+                risk_level = "High"
+            else:
+                risk_level = "Medium"
+
         if price_targets and current_price and current_price > 0:
             try:
                 from ..agents.manager.strategy_calculator import strategy_calculator
@@ -463,7 +531,8 @@ class DataExtractor:
             print(f"Warning: Track record calculation failed for {result.ticker}: {e}")
             track_record = None
 
-        # Truncate lists to meet StockReportData validation (max 5 items)
+        # Extract deduplicated insights and risks (already deduplicated by Manager agent)
+        # Truncate to max 5 items to meet StockReportData validation
         key_insights = output.get("key_insights", [])[:5]
 
         # Filter out supply chain-related risks (data quality issues until better sources available)
@@ -501,6 +570,57 @@ class DataExtractor:
             )
         except Exception as e:
             logger.warning(f"Conviction generation failed for {result.ticker}: {e}")
+
+        # Calculate decision intelligence (Phase 1 - all deterministic, no LLM calls)
+        decision_framework = None
+        enhanced_trade_setup = None
+        fund_tech_divergence = None
+        conviction_position = None
+
+        if recommended_strategy and current_price and current_price > 0:
+            try:
+                from .decision_intelligence_calculator import decision_intelligence_calculator
+
+                # Get quant technical indicators from full output
+                quant_output = output.get("quant_output", {})
+                technical_indicators = quant_output.get("technical_indicators", {})
+
+                # Get conviction level from conviction statement (default Medium)
+                di_conviction_level = (
+                    conviction_statement.get("conviction_level", "Medium")
+                    if conviction_statement
+                    else "Medium"
+                )
+
+                # Get discount to target from existing entry strategy
+                discount_to_target = recommended_strategy.get("entry", {}).get(
+                    "discount_to_target_pct", 0
+                )
+
+                di_result = decision_intelligence_calculator.calculate_all(
+                    current_price=current_price,
+                    rating=rating or "HOLD",
+                    risk_level=risk_level or "Medium",
+                    moat_score=result.moat_score or 5.0,
+                    conviction_level=di_conviction_level,
+                    discount_to_target_pct=discount_to_target,
+                    entry_strategy=recommended_strategy.get("entry", {}),
+                    exit_plan=recommended_strategy.get("exit", {}),
+                    position_sizing=recommended_strategy.get("position_sizing", {}),
+                    price_targets=price_targets or {},
+                    technical_indicators=technical_indicators,
+                    signal_breakdown=signal_breakdown,
+                )
+
+                decision_framework = di_result.get("decision_framework")
+                enhanced_trade_setup = di_result.get("enhanced_trade_setup")
+                fund_tech_divergence = di_result.get("fund_tech_divergence")
+                conviction_position = di_result.get("conviction_position")
+
+            except Exception as e:
+                logger.warning(
+                    f"Decision intelligence calculation failed for {result.ticker}: {e}"
+                )
 
         return StockReportData(
             ticker=result.ticker,
@@ -547,4 +667,9 @@ class DataExtractor:
             track_record=track_record,
             valuation_sensitivity=valuation_sensitivity,
             conviction_statement=conviction_statement,
+            # Decision Intelligence (Phase 1)
+            decision_framework=decision_framework,
+            enhanced_trade_setup=enhanced_trade_setup,
+            fund_tech_divergence=fund_tech_divergence,
+            conviction_position=conviction_position,
         )

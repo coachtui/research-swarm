@@ -166,6 +166,18 @@ class ManagerOutput(BaseModel):
         description="Confidence level in the analysis (0-1)"
     )
 
+    # Signal divergence analysis (v2.0)
+    signal_breakdown: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Signal divergence analysis across 5 key signals"
+    )
+
+    # VGM scores (from Fundamentalist agent)
+    vgm_scores: Optional[Dict[str, Any]] = Field(
+        None,
+        description="VGM (Value/Growth/Momentum) scores from Fundamentalist"
+    )
+
     # Watchlist eligibility
     is_watchlist_candidate: bool = Field(
         ...,

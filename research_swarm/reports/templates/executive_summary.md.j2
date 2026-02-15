@@ -1,11 +1,9 @@
 ## Executive Summary
 
-Analyzed **{{ report.total_stocks }}** stocks for {{ report.analysis_period }}. Average Moat Score: **{{ "%.1f"|format(report.average_moat_score) }}/10**
+Analyzed **{{ report.total_stocks }}** stocks for {{ report.analysis_period }}. Average Score: **{{ "%.1f"|format(report.average_moat_score) }}/10**
 
 {% if report.watchlist_candidates|length > 0 %}
-**{{ report.watchlist_candidates|length }} Watchlist Candidate(s)** identified (moat score ≥ 8.0)
-{% else %}
-**No watchlist candidates** identified in this analysis (none reached threshold of 8.0)
+**{{ report.watchlist_candidates|length }} Watchlist Candidate(s)** identified
 {% endif %}
 
 ### Top {{ top_picks|length }} Picks
@@ -26,10 +24,6 @@ Analyzed **{{ report.total_stocks }}** stocks for {{ report.analysis_period }}. 
 {% for risk in stock.risk_factors %}
 - {{ risk }}
 {% endfor %}
-
-{% if include_charts %}
-![{{ stock.ticker }} Moat Breakdown](./charts/moat_{{ stock.ticker }}.png)
-{% endif %}
 
 {% if not loop.last %}---{% endif %}
 

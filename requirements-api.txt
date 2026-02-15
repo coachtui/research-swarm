@@ -5,10 +5,6 @@ uvicorn[standard]>=0.27.0  # For local development
 python-jose[cryptography]>=3.3.0  # JWT handling
 passlib[bcrypt]>=1.7.4  # Password hashing
 
-# Database (Prisma for Neon Postgres)
-prisma>=0.11.0
-asyncpg>=0.29.0  # PostgreSQL async driver
-
 # Background Jobs (Inngest)
 inngest>=0.3.0
 flask>=3.0.0  # For Inngest HTTP handler

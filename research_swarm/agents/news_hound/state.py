@@ -18,6 +18,9 @@ class NewsHoundState(TypedDict, total=False):
     ticker: str  # Stock ticker (e.g., "NVDA")
     days_back: int  # Number of days to look back for news (default 30)
 
+    # Shared data layer (NEW: eliminates redundant API calls)
+    shared_swarm_data: Optional[Dict[str, Any]]  # Pre-fetched data bundle from Manager
+
     # Status tracking
     status: str  # Current workflow status: "initialized", "fetching", "filtering", "extracting", "analyzing", "scoring", "completed", "error"
     error: Optional[str]  # Error message if status is "error"
@@ -46,6 +49,10 @@ class NewsHoundState(TypedDict, total=False):
     management_commentary: Optional[Dict[str, Any]]  # Management tone and guidance quality
     short_interest: Optional[Dict[str, Any]]  # Short interest tracking and squeeze risk
     upcoming_catalysts: Optional[Dict[str, Any]]  # Upcoming catalyst calendar (6 months)
+
+    # SEC 8-K material events
+    sec_8k_filings: Optional[List[Dict[str, Any]]]  # Raw 8-K filings from SEC Edgar
+    sec_material_events: Optional[List[Dict[str, Any]]]  # Categorized material events from 8-K
 
     # Metadata
     article_count: int  # Total number of articles analyzed

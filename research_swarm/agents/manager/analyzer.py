@@ -45,6 +45,60 @@ class ManagerAnalyzer:
 
         logger.info("ManagerAnalyzer initialized")
 
+    def deduplicate_insights(
+        self,
+        all_insights: List[str],
+        max_results: int = 5
+    ) -> List[str]:
+        """
+        Remove duplicate insights using fuzzy string matching.
+
+        Strategy:
+        1. Compare all insights pairwise
+        2. Use difflib.SequenceMatcher for similarity (threshold: 0.8)
+        3. Keep first occurrence, discard duplicates
+        4. Return top N by length (longer = more specific)
+
+        Args:
+            all_insights: Combined insights from all agents
+            max_results: Maximum insights to return (default: 5)
+
+        Returns:
+            List of unique, ranked insights
+        """
+        from difflib import SequenceMatcher
+
+        if not all_insights:
+            return []
+
+        unique_insights = []
+
+        for insight in all_insights:
+            # Skip empty insights
+            if not insight or not insight.strip():
+                continue
+
+            is_duplicate = False
+            insight_lower = insight.lower().strip()
+
+            for existing in unique_insights:
+                existing_lower = existing.lower().strip()
+                similarity = SequenceMatcher(None, insight_lower, existing_lower).ratio()
+
+                if similarity > 0.8:
+                    is_duplicate = True
+                    logger.debug(f"Duplicate insight detected (similarity: {similarity:.2f})")
+                    break
+
+            if not is_duplicate:
+                unique_insights.append(insight)
+
+        # Rank by length (longer insights tend to be more specific)
+        unique_insights.sort(key=len, reverse=True)
+
+        logger.info(f"Deduplicated {len(all_insights)} insights → {len(unique_insights[:max_results])} unique")
+        return unique_insights[:max_results]
+
     def synthesize_findings(
         self,
         ticker: str,
@@ -75,7 +129,6 @@ class ManagerAnalyzer:
         financial_health_score = fundamentalist_output.get("financial_health_score", 0)
         sentiment_score = news_hound_output.get("sentiment_score", 0)
         technical_score = quant_output.get("technical_score", 0)
-        supply_chain_score = quant_output.get("supply_chain_score", 0)
 
         # Format Fundamentalist data
         vgm_summary = self._format_vgm_summary(fundamentalist_output)
@@ -105,7 +158,6 @@ class ManagerAnalyzer:
         volume_profile = self._format_volume_profile(quant_output)
         relative_strength = self._format_relative_strength(quant_output)
         entry_exit_signal = self._format_entry_exit_signal(quant_output)
-        supply_chain_summary = quant_output.get("supply_chain_analysis", "N/A")
         quant_narrative = quant_output.get("technical_analysis", "N/A")
 
         prompt = SYNTHESIS_PROMPT.format(
@@ -135,14 +187,12 @@ class ManagerAnalyzer:
             news_narrative=news_narrative,
             # Quant
             technical_score=technical_score,
-            supply_chain_score=supply_chain_score,
             trend_indicators=trend_indicators,
             momentum_indicators=momentum_indicators,
             volatility_indicators=volatility_indicators,
             volume_profile=volume_profile,
             relative_strength=relative_strength,
             entry_exit_signal=entry_exit_signal,
-            supply_chain_summary=supply_chain_summary,
             quant_narrative=quant_narrative,
         )
 
@@ -296,6 +346,12 @@ class ManagerAnalyzer:
                     conf = signals.get("confidence", 0.5)
                     technical_signal = f"{overall.upper()} ({conf:.0%})"
 
+        # Build company overview from fundamentalist data
+        company_overview = self._build_company_overview(ticker, fundamentalist_output)
+
+        # Build valuation context explaining the valuation score
+        valuation_context = self._build_valuation_context(valuation_score, fundamentalist_output)
+
         prompt = INVESTMENT_THESIS_PROMPT.format(
             ticker=ticker,
             analysis_date=analysis_date,
@@ -311,6 +367,8 @@ class ManagerAnalyzer:
             key_insights=key_insights_text,
             risk_factors=risk_factors_text,
             # Enhanced context
+            company_overview=company_overview,
+            valuation_context=valuation_context,
             vgm_profile=vgm_profile,
             earnings_signal=earnings_signal,
             technical_signal=technical_signal,
@@ -404,13 +462,29 @@ class ManagerAnalyzer:
         return "\n".join([f"- {part}" for part in summary_parts]) if summary_parts else "No metrics available"
 
     def _format_news_catalysts(self, output: Dict[str, Any]) -> str:
-        """Format news catalysts for prompt."""
-        catalysts = output.get("key_catalysts", [])
+        """Format news catalysts for prompt, including SEC 8-K material events."""
+        parts = []
 
-        if not catalysts:
+        # Legacy key_catalysts field
+        catalysts = output.get("key_catalysts", [])
+        for catalyst in catalysts[:5]:
+            parts.append(f"- {catalyst}")
+
+        # Include catalyst_events (includes both news-extracted and SEC 8-K events)
+        catalyst_events = output.get("catalyst_events", [])
+        for event in catalyst_events[:10]:
+            if isinstance(event, dict):
+                desc = event.get("description", "")
+                impact = event.get("impact", "neutral")
+                event_type = event.get("event_type", "other")
+                date = event.get("date", "")
+                date_str = f" ({date})" if date else ""
+                parts.append(f"- [{event_type.upper()}] {desc}{date_str} — Impact: {impact}")
+
+        if not parts:
             return "No recent catalysts identified"
 
-        return "\n".join([f"- {catalyst}" for catalyst in catalysts[:5]])
+        return "\n".join(parts)
 
     def _format_technical_summary(self, output: Dict[str, Any]) -> str:
         """Format technical indicators for prompt (legacy - kept for backward compatibility)."""
@@ -804,3 +878,109 @@ class ManagerAnalyzer:
             parts.append(f"Entry: ${entry:.2f}, Stop: ${stop:.2f}, Target: ${target:.2f}")
 
         return " | ".join(parts)
+
+    def _build_company_overview(self, ticker: str, fundamentalist_output: Dict[str, Any] = None) -> str:
+        """Build a brief company overview for the investment thesis."""
+        if not fundamentalist_output:
+            return f"{ticker} — company details not available."
+
+        parts = []
+
+        # Get sector and industry from peer_comparison
+        peer = fundamentalist_output.get("peer_comparison", {})
+        sector = peer.get("sector", "Unknown") if peer else "Unknown"
+        industry = peer.get("industry", "Unknown") if peer else "Unknown"
+
+        # Get market cap from valuation_metrics
+        val = fundamentalist_output.get("valuation_metrics", {})
+        market_cap = val.get("market_cap_millions") if val else None
+
+        if market_cap and market_cap > 0:
+            if market_cap >= 1_000_000:
+                cap_str = f"${market_cap / 1_000_000:.1f}T"
+            elif market_cap >= 1_000:
+                cap_str = f"${market_cap / 1_000:.0f}B"
+            else:
+                cap_str = f"${market_cap:.0f}M"
+            parts.append(f"{ticker} is a {cap_str} market cap company")
+        else:
+            parts.append(f"{ticker}")
+
+        if sector != "Unknown" or industry != "Unknown":
+            parts.append(f"in the {industry} industry ({sector} sector)")
+
+        # Get revenue streams from business_model_data
+        biz = fundamentalist_output.get("business_model_data", {})
+        segments = biz.get("business_segments", {}) if biz else {}
+        streams = biz.get("revenue_streams", []) if biz else []
+
+        if segments:
+            seg_names = [name for name, _ in sorted(segments.items(), key=lambda x: x[1] or 0, reverse=True)[:3]]
+            if seg_names:
+                parts.append(f"with key segments: {', '.join(seg_names)}")
+        elif streams:
+            stream_names = [s.get("name", "") for s in streams[:3] if s.get("name")]
+            if stream_names:
+                parts.append(f"with revenue from: {', '.join(stream_names)}")
+
+        # Get competitive position
+        competitive_pos = peer.get("competitive_position", "") if peer else ""
+        if competitive_pos and competitive_pos.lower() not in ("", "challenger"):
+            parts.append(f"({competitive_pos})")
+
+        return " ".join(parts) + "." if parts else f"{ticker} — company details not available."
+
+    def _build_valuation_context(self, valuation_score: float, fundamentalist_output: Dict[str, Any] = None) -> str:
+        """Build valuation context explaining why the valuation score is what it is."""
+        if not fundamentalist_output:
+            return f"Valuation score: {valuation_score:.1f}/10 — no detailed valuation data available."
+
+        val = fundamentalist_output.get("valuation_metrics", {})
+        if not val:
+            return f"Valuation score: {valuation_score:.1f}/10 — valuation metrics not available."
+
+        lines = []
+
+        pe = val.get("pe_ratio")
+        forward_pe = val.get("forward_pe")
+        sector_pe = val.get("sector_avg_pe")
+        peg = val.get("peg_ratio")
+        ps = val.get("ps_ratio")
+        ev_ebitda = val.get("ev_ebitda")
+        sector_ev = val.get("sector_avg_ev_ebitda")
+        category = val.get("valuation_category", "Fair")
+
+        lines.append(f"Valuation Category: {category}")
+
+        if pe and sector_pe:
+            premium = ((pe / sector_pe) - 1) * 100
+            direction = "premium" if premium > 0 else "discount"
+            lines.append(f"P/E Ratio: {pe:.1f}x vs sector average {sector_pe:.1f}x ({abs(premium):.0f}% {direction})")
+        elif pe:
+            lines.append(f"P/E Ratio: {pe:.1f}x (no sector comparison available)")
+
+        if forward_pe:
+            lines.append(f"Forward P/E: {forward_pe:.1f}x")
+
+        if peg:
+            lines.append(f"PEG Ratio: {peg:.2f}" + (" (>2.0 = expensive relative to growth)" if peg > 2.0 else " (<1.0 = attractive relative to growth)" if peg < 1.0 else ""))
+
+        if ev_ebitda and sector_ev:
+            ev_premium = ((ev_ebitda / sector_ev) - 1) * 100
+            direction = "premium" if ev_premium > 0 else "discount"
+            lines.append(f"EV/EBITDA: {ev_ebitda:.1f}x vs sector {sector_ev:.1f}x ({abs(ev_premium):.0f}% {direction})")
+        elif ev_ebitda:
+            lines.append(f"EV/EBITDA: {ev_ebitda:.1f}x")
+
+        if ps:
+            lines.append(f"P/S Ratio: {ps:.1f}x")
+
+        # Add interpretation
+        if valuation_score <= 4.0:
+            lines.append(f"→ Score {valuation_score:.1f}/10 reflects the stock trading at a premium to peers, meaning the market already prices in high expectations")
+        elif valuation_score >= 7.0:
+            lines.append(f"→ Score {valuation_score:.1f}/10 reflects the stock trading at a discount to peers, suggesting potential upside if fundamentals hold")
+        else:
+            lines.append(f"→ Score {valuation_score:.1f}/10 reflects roughly fair valuation relative to peers")
+
+        return "\n".join(lines)

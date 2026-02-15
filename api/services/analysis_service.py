@@ -53,13 +53,12 @@ async def run_stock_analysis(
             "ticker": ticker,
             "status": "completed",
 
-            # Scores (from moat_breakdown - excluding supply chain)
+            # Scores (from moat_breakdown v2.0)
             "moat_score": result.moat_score,
             "financial_health_score": breakdown.financial_health,
-            "business_model_moat_score": breakdown.business_model_moat,
+            "business_model_moat_score": breakdown.earnings_momentum,  # v2.0: earnings_momentum replaces business_model_moat
             "sentiment_score": breakdown.sentiment_catalysts,
             "technical_score": breakdown.technical_strength,
-            # NOTE: supply_chain_score removed per user request
 
             # Analysis outputs
             "investment_thesis": result.investment_thesis,
@@ -75,6 +74,11 @@ async def run_stock_analysis(
         }
 
     except Exception as e:
+        # Log the actual error for debugging
+        import traceback
+        print(f"❌ Analysis service error for {ticker}: {type(e).__name__}: {e}")
+        traceback.print_exc()
+
         # Return error information
         processing_time = time.time() - start_time
 

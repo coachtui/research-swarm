@@ -837,5 +837,191 @@ class SECClient:
             text = re.sub(r'\s+', ' ', text)
             return text.strip()
 
+    def get_8k_filings(
+        self,
+        ticker: str,
+        days_back: int = 90,
+    ) -> Optional[Dict]:
+        """
+        Fetch recent 8-K material event filings from SEC Edgar.
+
+        8-K filings disclose material events between quarterly reports:
+        Item 1.01 = Material agreements/contracts
+        Item 1.02 = Termination of material agreements
+        Item 2.02 = Results of operations and financial condition
+        Item 4.02 = Non-reliance on prior financial statements
+        Item 5.02 = Departure/appointment of directors or officers
+        Item 7.01 = Regulation FD disclosure
+        Item 8.01 = Other events
+
+        Args:
+            ticker: Stock ticker
+            days_back: How far back to search (default 90 days)
+
+        Returns:
+            Dict with metadata and list of parsed filings, or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_8K_{days_back}d"
+
+        cached = cache.get("sec_8k", cache_key)
+        if cached:
+            logger.info(f"Using cached 8-K filings for {ticker}")
+            return cached
+
+        # Skip foreign filers — they use 6-K for interim disclosures
+        if self.is_foreign_filer(ticker):
+            logger.info(f"Skipping 8-K for {ticker} (foreign filer uses 6-K)")
+            return {"_metadata": {"ticker": ticker, "filings_found": 0, "skipped": "foreign_filer"}, "filings": []}
+
+        cik = self.get_company_cik(ticker)
+        if not cik:
+            logger.warning(f"Could not find CIK for {ticker}, skipping 8-K")
+            return None
+
+        try:
+            logger.info(f"Fetching 8-K filings for {ticker} (last {days_back} days)")
+            submissions_url = f"{self.BASE_URL}/submissions/CIK{cik}.json"
+            response = requests.get(submissions_url, headers=self.headers, timeout=10)
+            response.raise_for_status()
+            submissions = response.json()
+
+            filings_data = submissions.get("filings", {}).get("recent", {})
+            forms = filings_data.get("form", [])
+            filing_dates = filings_data.get("filingDate", [])
+            accession_numbers = filings_data.get("accessionNumber", [])
+            primary_documents = filings_data.get("primaryDocument", [])
+
+            cutoff_date = datetime.now() - timedelta(days=days_back)
+            filings = []
+
+            for i, form in enumerate(forms):
+                if form != "8-K":
+                    continue
+
+                filing_date_str = filing_dates[i]
+                try:
+                    filing_dt = datetime.strptime(filing_date_str, "%Y-%m-%d")
+                except ValueError:
+                    continue
+
+                if filing_dt < cutoff_date:
+                    # Filings are in reverse chronological order
+                    break
+
+                # Download and parse the 8-K
+                accession = accession_numbers[i].replace("-", "")
+                doc_name = primary_documents[i]
+                doc_url = f"https://www.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{accession}/{doc_name}"
+
+                try:
+                    doc_response = requests.get(doc_url, headers=self.headers, timeout=20)
+                    doc_response.raise_for_status()
+                    html_content = doc_response.text
+
+                    # Parse item sections from the 8-K
+                    items = self._extract_8k_items(html_content)
+                    if not items:
+                        continue
+
+                    filings.append({
+                        "filing_date": filing_date_str,
+                        "accession_number": accession_numbers[i],
+                        "item_types": list(items.keys()),
+                        "items": items,
+                        "url": doc_url,
+                    })
+
+                except Exception as e:
+                    logger.warning(f"Failed to download 8-K from {doc_url}: {e}")
+                    continue
+
+                # Limit to 10 most recent 8-K filings
+                if len(filings) >= 10:
+                    break
+
+            result = {
+                "_metadata": {
+                    "ticker": ticker,
+                    "filings_found": len(filings),
+                    "days_back": days_back,
+                    "coverage_start": cutoff_date.strftime("%Y-%m-%d"),
+                    "coverage_end": datetime.now().strftime("%Y-%m-%d"),
+                },
+                "filings": filings,
+            }
+
+            cache.set("sec_8k", cache_key, result, ttl_days=7)
+            logger.success(f"✓ Found {len(filings)} 8-K filings for {ticker} (last {days_back} days)")
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error fetching 8-K for {ticker}: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching 8-K for {ticker}: {e}")
+            return None
+
+    def _extract_8k_items(self, html: str) -> Dict[str, str]:
+        """
+        Extract item sections from an 8-K filing HTML document.
+
+        Parses Item headers (e.g., "Item 1.01", "Item 2.02") and extracts
+        the text content for each item section.
+
+        Args:
+            html: Raw HTML of the 8-K filing
+
+        Returns:
+            Dict mapping item numbers to their text content
+            e.g., {"1.01": "Description of material agreement...", "5.02": "..."}
+        """
+        text = self._extract_text_from_html(html)
+        if not text or len(text) < 100:
+            return {}
+
+        # Match Item headers: "Item 1.01", "ITEM 2.02", etc.
+        item_pattern = re.compile(
+            r'(?:^|\n)\s*(?:Item|ITEM)\s+(\d+\.\d+)\b[^\n]*',
+            re.IGNORECASE
+        )
+
+        matches = list(item_pattern.finditer(text))
+        if not matches:
+            return {}
+
+        items = {}
+        # Items we care about (material events)
+        relevant_items = {"1.01", "1.02", "2.02", "4.02", "5.02", "7.01", "8.01"}
+
+        for idx, match in enumerate(matches):
+            item_number = match.group(1)
+            if item_number not in relevant_items:
+                continue
+
+            # Extract text between this item and the next item (or end)
+            start = match.end()
+            if idx + 1 < len(matches):
+                end = matches[idx + 1].start()
+            else:
+                end = len(text)
+
+            item_text = text[start:end].strip()
+
+            # Skip signatures/boilerplate at end
+            sig_idx = item_text.lower().find("signature")
+            if sig_idx > 0 and sig_idx < len(item_text):
+                item_text = item_text[:sig_idx].strip()
+
+            # Only include if there's meaningful content
+            if len(item_text) > 50:
+                # Truncate very long items to keep payload manageable
+                if len(item_text) > 5000:
+                    item_text = item_text[:5000] + "... [truncated]"
+                items[item_number] = item_text
+
+        return items
+
+
 # Global instance
 sec_client = SECClient()

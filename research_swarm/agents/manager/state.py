@@ -21,6 +21,9 @@ class ManagerState(TypedDict, total=False):
     news_days_back: int  # Number of days to look back for news analysis (default 30)
     analysis_date: str  # Date of analysis (YYYY-MM-DD)
 
+    # Shared data layer (NEW: eliminates redundant API calls)
+    shared_swarm_data: Optional[Dict[str, Any]]  # Pre-fetched data bundle for all agents
+
     # Backward compatibility
     fiscal_year: Optional[int]  # Deprecated - for backward compatibility only
 
@@ -43,6 +46,7 @@ class ManagerState(TypedDict, total=False):
     synthesis_narrative: Optional[str]  # Combined analysis narrative
     key_insights: Optional[List[str]]  # Top 3-5 investment insights
     risk_factors: Optional[List[str]]  # Top 3-5 risk factors
+    signal_breakdown: Optional[Dict[str, Any]]  # Signal divergence analysis (v2.0)
 
     # Moat scoring
     moat_score: Optional[float]  # Final moat score (0-10)
@@ -52,6 +56,16 @@ class ManagerState(TypedDict, total=False):
 
     # Investment thesis
     investment_thesis: Optional[str]  # One-paragraph investment thesis
+
+    # v2.0 enhancements
+    rating: Optional[str]  # 5-tier rating: STRONG BUY/BUY/HOLD/SELL/STRONG SELL
+    rating_score: Optional[float]  # Numeric rating score (0-10)
+    risk_level: Optional[str]  # Risk classification: Low/Medium/High
+    structured_risks: Optional[List[Dict[str, Any]]]  # Risks with severity, likelihood, impact, mitigation
+    upgrade_triggers: Optional[List[Dict[str, str]]]  # Specific metrics → action for upgrades
+    downgrade_triggers: Optional[List[Dict[str, str]]]  # Specific metrics → action for downgrades
+    price_targets: Optional[Dict[str, Any]]  # Bull/Base/Bear price target scenarios
+    conviction_statement: Optional[Dict[str, Any]]  # Conviction level, bottom line, best suited for
 
     # Metadata
     tokens_used: int  # Total tokens used in API calls (default 0)

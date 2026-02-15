@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* DVRG Brand Colors */
+    --primary: #00D9B5;
+    --primary-dark: #00B396;
+    --primary-light: #33E4C8;
+
+    /* Dark Mode Palette */
+    --background: #0A0E1A;
+    --surface: #1A1F2E;
+    --surface-elevated: #252B3D;
+
+    --text-primary: #FFFFFF;
+    --text-secondary: #9CA3AF;
+    --text-tertiary: #6B7280;
+
+    /* Semantic Colors */
+    --success: #10B981;
+    --warning: #F59E0B;
+    --error: #EF4444;
+    --info: #3B82F6;
+  }
+
+  * {
+    @apply border-surface-elevated;
+  }
+
+  body {
+    @apply bg-background text-text-primary font-sans antialiased;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Custom scrollbar (Robinhood-style) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-surface-elevated rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-primary/50;
+}

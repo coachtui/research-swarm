@@ -9,24 +9,61 @@ import os
 
 from api.models.auth import User
 
-# HTTP Bearer token security
-security = HTTPBearer()
+# HTTP Bearer token security (optional in development)
+USE_MOCK_AUTH = os.getenv("USE_MOCK_AUTH", "true").lower() == "true"
+security = HTTPBearer(auto_error=not USE_MOCK_AUTH)
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> User:
     """
     Get the currently authenticated user from JWT token.
 
-    For MVP, this returns a mock user. In production, this will:
-    1. Verify Clerk JWT token
-    2. Extract user_id from token
-    3. Query database for user record
-    4. Return User model
+    For MVP, this returns a mock user when USE_MOCK_AUTH=true.
+    In production, this will verify Clerk JWT tokens.
 
-    **Phase 1**: Mock implementation
-    **Phase 2**: Full Clerk integration
+    **Phase 1**: Mock implementation (development)
+    **Phase 2**: Full Clerk integration (production)
     """
+
+    # Skip auth verification in mock mode (development)
+    if USE_MOCK_AUTH or credentials is None:
+        # Mock user for development
+        from api.lib.db import get_db
+
+        # Use the actual user ID from database so existing runs are accessible
+        user_id = "ec2e1e65-e0eb-4aaf-9b1a-6b2b6cb9a817"
+
+        try:
+            db = await get_db()
+            if not db.is_connected():
+                await db.connect()
+
+            existing_user = await db.user.find_unique(where={"id": user_id})
+            if not existing_user:
+                await db.user.create(
+                    data={
+                        "id": user_id,
+                        "clerkId": "user_mock_123",
+                        "email": "test@example.com",
+                        "fullName": "Test User",
+                        "tier": "free",
+                        "monthlyBudgetUsd": 200.0,
+                        "isActive": True
+                    }
+                )
+        except Exception as e:
+            print(f"Warning: Could not ensure user exists: {e}")
+
+        return User(
+            id=user_id,
+            clerk_id="user_mock_123",
+            email="test@example.com",
+            full_name="Test User",
+            tier="free",
+            monthly_budget_usd=200.0,
+            is_active=True
+        )
 
     # TODO: Implement Clerk JWT verification
     # from jose import JWTError, jwt
@@ -53,45 +90,10 @@ async def get_current_user(
     #
     # return User(**user.dict())
 
-    # Mock user for MVP testing
-    # Ensure user exists in database
-    from api.lib.db import get_db
-
-    user_id = "550e8400-e29b-41d4-a716-446655440000"
-
-    try:
-        db = await get_db()
-
-        # Ensure connection is active
-        if not db.is_connected():
-            await db.connect()
-
-        # Check if user exists, create if not
-        existing_user = await db.user.find_unique(where={"id": user_id})
-
-        if not existing_user:
-            await db.user.create(
-                data={
-                    "id": user_id,
-                    "clerkId": "user_mock_123",
-                    "email": "test@example.com",
-                    "fullName": "Test User",
-                    "tier": "free",
-                    "monthlyBudgetUsd": 200.0,
-                    "isActive": True
-                }
-            )
-    except Exception as e:
-        print(f"Warning: Could not ensure user exists: {e}")
-
-    return User(
-        id=user_id,
-        clerk_id="user_mock_123",
-        email="test@example.com",
-        full_name="Test User",
-        tier="free",
-        monthly_budget_usd=200.0,
-        is_active=True
+    # If we get here, real auth is enabled but not implemented
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Full authentication not yet implemented. Set USE_MOCK_AUTH=true for development."
     )
 
 async def get_optional_user(
@@ -110,34 +112,3 @@ async def get_optional_user(
         return await get_current_user(credentials)
     except HTTPException:
         return None
-
-# Database session dependency (Prisma)
-# async def get_db():
-#     """
-#     Get database session.
-#     TODO: Implement Prisma client initialization
-#     """
-#     from api.lib.db import prisma
-#     await prisma.connect()
-#     try:
-#         yield prisma
-#     finally:
-#         await prisma.disconnect()
-
-# Inngest client dependency
-# async def get_inngest_client():
-#     """
-#     Get Inngest client for triggering background jobs.
-#     TODO: Implement Inngest client initialization
-#     """
-#     from api.lib.inngest import inngest_client
-#     return inngest_client
-
-# R2 storage client dependency
-# async def get_storage_client():
-#     """
-#     Get R2 (S3-compatible) storage client.
-#     TODO: Implement R2 client initialization
-#     """
-#     from api.lib.storage import storage_client
-#     return storage_client

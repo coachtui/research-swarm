@@ -377,18 +377,25 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
     """
     Node 1 (TTM): Fetch data from hybrid provider (SEC Edgar + yfinance).
 
+    NEW: Uses pre-fetched shared_swarm_data if available, falls back to direct fetch.
+
     Args:
         state: Current workflow state
 
     Returns:
         Updated state with filings_raw, earnings data, and metadata
     """
-    logger.info(f"[Node 1-TTM] Fetching data for {state['ticker']} via HybridDataProvider")
-
     state["status"] = "fetching"
 
-    # Single call replaces separate sec_client + earnings data fetches
-    complete_data = hybrid_provider.get_complete_data(state["ticker"])
+    # NEW: Check for pre-fetched data from Manager
+    complete_data = state.get("shared_swarm_data")
+
+    if complete_data:
+        logger.info(f"[Node 1-TTM] Using pre-fetched swarm data for {state['ticker']}")
+    else:
+        # Fallback: Direct fetch (for standalone execution or backward compatibility)
+        logger.info(f"[Node 1-TTM] No shared_swarm_data found, fetching directly for {state['ticker']}")
+        complete_data = hybrid_provider.get_complete_data(state["ticker"])
 
     # Extract filing data (same format as before)
     ttm_result = complete_data["filings_raw"]
@@ -435,6 +442,11 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
     # Store valuation metrics from yfinance (used by DCF later)
     if complete_data.get("valuation_metrics"):
         state["valuation_metrics"] = complete_data["valuation_metrics"]
+
+    # Store quarterly financials from yfinance (fallback for LLM extraction)
+    if complete_data.get("quarterly_financials"):
+        state["yfinance_quarterly_financials"] = complete_data["quarterly_financials"]
+        logger.info(f"✓ yfinance quarterly financials available ({complete_data['quarterly_financials'].get('quarters_available', 0)}Q)")
 
     return state
 
@@ -514,15 +526,42 @@ def extract_metrics_ttm_node(state: FundamentalistState) -> FundamentalistState:
         state["quarterly_trends"] = trends.dict()
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
-        # ENHANCEMENT: Fallback to yfinance for revenue_growth_yoy if missing from SEC parsing
-        if ttm_metrics.revenue_growth_yoy is None:
+        # ENHANCEMENT: Supplement missing TTM metrics with yfinance quarterly financials
+        yf_financials = state.get("yfinance_quarterly_financials")
+        if yf_financials:
+            yf_ttm = yf_financials.get("ttm", {})
+            supplemented = []
+
+            # Supplement core metrics if missing from LLM extraction
+            metric_map = {
+                "ttm_revenue": "ttm_revenue",
+                "ttm_gross_profit": "ttm_gross_profit",
+                "ttm_operating_income": "ttm_operating_income",
+                "ttm_net_income": "ttm_net_income",
+                "ttm_free_cash_flow": "ttm_free_cash_flow",
+                "gross_margin": "gross_margin",
+                "operating_margin": "operating_margin",
+                "net_margin": "net_margin",
+            }
+
+            for state_key, yf_key in metric_map.items():
+                current_val = state["ttm_metrics"].get(state_key)
+                yf_val = yf_ttm.get(yf_key)
+                if current_val is None and yf_val is not None:
+                    state["ttm_metrics"][state_key] = yf_val
+                    supplemented.append(state_key)
+
+            if supplemented:
+                logger.info(f"✓ Supplemented {len(supplemented)} TTM metrics from yfinance: {', '.join(supplemented)}")
+
+        # Fallback to yfinance for revenue_growth_yoy if still missing
+        if state["ttm_metrics"].get("revenue_growth_yoy") is None:
             try:
                 from research_swarm.data.market_data_client import market_data_client
                 info = market_data_client.get_company_info(state["ticker"])
                 if info:
                     yf_revenue_growth = info.get("revenueGrowth")
                     if yf_revenue_growth is not None:
-                        # Convert to percentage (yfinance returns 0.625 for 62.5%)
                         revenue_growth_pct = yf_revenue_growth * 100
                         state["ttm_metrics"]["revenue_growth_yoy"] = revenue_growth_pct
                         logger.info(f"✓ Using yfinance revenue growth: {revenue_growth_pct:.1f}%")
@@ -531,11 +570,11 @@ def extract_metrics_ttm_node(state: FundamentalistState) -> FundamentalistState:
 
         # Also populate legacy financial_metrics for compatibility
         state["financial_metrics"] = {
-            "revenue": ttm_metrics.ttm_revenue,
-            "gross_margin": ttm_metrics.gross_margin,
-            "operating_margin": ttm_metrics.operating_margin,
-            "net_margin": ttm_metrics.net_margin,
-            "revenue_growth_yoy": state["ttm_metrics"].get("revenue_growth_yoy", ttm_metrics.revenue_growth_yoy),
+            "revenue": state["ttm_metrics"].get("ttm_revenue"),
+            "gross_margin": state["ttm_metrics"].get("gross_margin"),
+            "operating_margin": state["ttm_metrics"].get("operating_margin"),
+            "net_margin": state["ttm_metrics"].get("net_margin"),
+            "revenue_growth_yoy": state["ttm_metrics"].get("revenue_growth_yoy"),
         }
 
     except Exception as e:
@@ -953,7 +992,8 @@ def analyze_company(
     ticker: str,
     quarters: list = None,
     fiscal_year: int = None,
-    mode: str = "ttm"
+    mode: str = "ttm",
+    shared_swarm_data: dict = None  # NEW: Pre-fetched data from Manager
 ) -> FundamentalistOutput:
     """
     Analyze a company's financial health.
@@ -963,6 +1003,7 @@ def analyze_company(
         quarters: List of quarters for TTM mode (default: fetch latest 4 quarters)
         fiscal_year: Fiscal year for annual mode (deprecated)
         mode: "ttm" or "annual" (default: "ttm")
+        shared_swarm_data: Pre-fetched data bundle from Manager (NEW)
 
     Returns:
         FundamentalistOutput with complete analysis
@@ -976,18 +1017,19 @@ def analyze_company(
         logger.warning(f"fiscal_year parameter is deprecated. Using annual mode for {ticker} FY{fiscal_year}")
 
     if mode == "ttm":
-        return _analyze_company_ttm(ticker, quarters)
+        return _analyze_company_ttm(ticker, quarters, shared_swarm_data)
     else:
         return _analyze_company_annual(ticker, fiscal_year)
 
 
-def _analyze_company_ttm(ticker: str, quarters: list = None) -> FundamentalistOutput:
+def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: dict = None) -> FundamentalistOutput:
     """
     Analyze company using TTM (quarterly) data.
 
     Args:
         ticker: Stock ticker
         quarters: Optional list of quarters (auto-fetched if None)
+        shared_swarm_data: Pre-fetched data bundle from Manager (NEW)
 
     Returns:
         FundamentalistOutput with TTM analysis
@@ -1023,6 +1065,7 @@ def _analyze_company_ttm(ticker: str, quarters: list = None) -> FundamentalistOu
         "is_foreign": None,
         "structured_filing_data": None,
         "price_targets": None,
+        "shared_swarm_data": shared_swarm_data,  # NEW: Pre-fetched data from Manager
     }
 
     # Build and run TTM workflow

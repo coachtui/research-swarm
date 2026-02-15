@@ -8,7 +8,7 @@ from api.models.responses import AnalyzeResponse, JobStatus
 from api.dependencies import get_current_user
 from api.models.auth import User
 from api.services.analysis_service import run_stock_analysis
-from api.lib.db import save_analysis_result, get_user_monthly_cost
+from api.lib.db import save_analysis_result, get_user_monthly_cost, close_db
 import uuid
 from datetime import datetime
 
@@ -46,23 +46,32 @@ async def analyze_stock(
             detail=f"Monthly budget exceeded. Current: ${monthly_cost:.2f}, Limit: $50.00"
         )
 
+    # CRITICAL: Close the database connection BEFORE the long analysis
+    # The sync analysis blocks the event loop for 4+ minutes, killing Prisma connections
+    print(f"🔌 Closing DB connection before analysis for {request.ticker}...")
+    await close_db()
+
     # Run the analysis (this takes ~4 minutes)
     try:
+        print(f"🚀 Starting analysis for {request.ticker}...")
         result = await run_stock_analysis(
             ticker=request.ticker,
             quarters=request.quarters or ["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"],
             news_days_back=request.news_days_back or 30,
             user_id=user.id
         )
+        print(f"✅ Analysis complete for {request.ticker}, status: {result['status']}")
 
         # Save results to database
         if result['status'] == 'completed':
             try:
+                print(f"💾 Saving results for {request.ticker}...")
                 saved = await save_analysis_result(
                     user_id=user.id,
                     ticker=request.ticker,
                     result=result
                 )
+                print(f"✅ Saved {request.ticker} to database: run_id={saved['run_id']}")
             except Exception as db_error:
                 print(f"❌ Database save error: {db_error}")
                 import traceback
@@ -91,9 +100,14 @@ async def analyze_stock(
                     detail=f"Response creation failed: {str(response_error)}"
                 )
         else:
+            error_msg = result.get('error_message', 'Unknown error')
+            error_type = result.get('error_type', 'Unknown')
+            print(f"❌ Analysis returned failed status for {request.ticker}")
+            print(f"   Error type: {error_type}")
+            print(f"   Error message: {error_msg}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Analysis failed: {result.get('error_message', 'Unknown error')}"
+                detail=f"Analysis failed: {error_msg}"
             )
 
     except HTTPException:

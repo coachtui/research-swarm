@@ -189,3 +189,21 @@ model AuditLog {
   @@index([resourceType, resourceId])
   @@map("audit_logs")
 }
+
+// Report snapshots for CLI track record
+model ReportSnapshot {
+  id               String   @id @default(uuid())
+  ticker           String
+  runId            String   @map("run_id")
+  analysisDate     String   @map("analysis_date")
+  rating           String?
+  priceAtAnalysis  Float    @map("price_at_analysis")
+  priceTarget      Float    @map("price_target")
+  moatScore        Float    @map("moat_score")
+  snapshotData     Json     @map("snapshot_data")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([ticker, analysisDate])
+  @@index([ticker])
+  @@map("report_snapshots")
+}

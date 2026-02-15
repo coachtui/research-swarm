@@ -35,8 +35,9 @@ def initialize_run(state: SwarmOrchestrationState) -> SwarmOrchestrationState:
             status=StockStatus.PENDING,
         )
 
-    # Create persistence manager and save initial state
-    persistence = PersistenceManager()
+    # Create persistence manager with user_id
+    user_id = state.get("user_id")
+    persistence = PersistenceManager(user_id=user_id)
     swarm_run = SwarmRun(
         run_id=state["run_id"],
         run_name=state.get("run_name"),
@@ -109,7 +110,8 @@ def analyze_stock(state: SwarmOrchestrationState) -> SwarmOrchestrationState:
     result.status = StockStatus.IN_PROGRESS
 
     # Update persistence
-    persistence = PersistenceManager()
+    user_id = state.get("user_id")
+    persistence = PersistenceManager(user_id=user_id)
     persistence.update_stock_result(state["run_id"], result)
 
     # Setup retry handler
@@ -274,7 +276,8 @@ def finalize_run(state: SwarmOrchestrationState) -> SwarmOrchestrationState:
     state["status"] = final_status
 
     # Update persistence
-    persistence = PersistenceManager()
+    user_id = state.get("user_id")
+    persistence = PersistenceManager(user_id=user_id)
     persistence.update_run_status(
         state["run_id"],
         final_status,
@@ -354,6 +357,7 @@ def run_batch(
     news_days_back: int = 30,
     max_retries: int = 3,
     run_name: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> SwarmRun:
     """Run a batch analysis on multiple stocks.
 
@@ -364,14 +368,22 @@ def run_batch(
         news_days_back: Days to look back for news analysis
         max_retries: Maximum retry attempts per stock
         run_name: Optional name for the run
+        user_id: User ID for Neon persistence (auto-fetched if not provided)
 
     Returns:
         SwarmRun with complete results
     """
     from uuid import uuid4
     from datetime import datetime as dt
+    import asyncio
 
     logger.info(f"Starting batch run with {len(tickers)} stocks")
+
+    # Get or create CLI user if user_id not provided
+    if not user_id:
+        from api.lib.db import get_or_create_cli_user
+        user_id = asyncio.run(get_or_create_cli_user())
+        logger.info(f"Using CLI user: {user_id}")
 
     # Generate run ID
     run_id = str(uuid4())
@@ -407,6 +419,7 @@ def run_batch(
         "start_time": None,
         "elapsed_seconds": 0.0,
         "last_error": None,
+        "user_id": user_id,  # Add user_id for persistence
     }
 
     # Build and run graph
@@ -414,7 +427,7 @@ def run_batch(
     final_state = graph.invoke(initial_state)
 
     # Load final results from persistence
-    persistence = PersistenceManager()
+    persistence = PersistenceManager(user_id=user_id)
     swarm_run = persistence.get_run(run_id)
 
     return swarm_run
@@ -431,8 +444,13 @@ def resume_batch(run_id: str) -> SwarmRun:
     """
     logger.info(f"Resuming run {run_id}")
 
+    # Get CLI user for persistence
+    import asyncio
+    from api.lib.db import get_or_create_cli_user
+    user_id = asyncio.run(get_or_create_cli_user())
+
     # Load run from persistence
-    persistence = PersistenceManager()
+    persistence = PersistenceManager(user_id=user_id)
     swarm_run = persistence.get_run(run_id)
 
     if not swarm_run:
@@ -480,26 +498,40 @@ def resume_batch(run_id: str) -> SwarmRun:
     return swarm_run
 
 
-def get_run_history(limit: int = 20) -> List[SwarmRun]:
+def get_run_history(limit: int = 20, user_id: Optional[str] = None) -> List[SwarmRun]:
     """Get recent run history.
 
     Args:
         limit: Maximum number of runs to return
+        user_id: User ID (auto-fetched if not provided)
 
     Returns:
         List of SwarmRun objects, most recent first
     """
-    persistence = PersistenceManager()
+    import asyncio
+    if not user_id:
+        from api.lib.db import get_or_create_cli_user
+        user_id = asyncio.run(get_or_create_cli_user())
+
+    persistence = PersistenceManager(user_id=user_id)
     return persistence.get_run_history(limit)
 
 
-def get_resumable_runs() -> List[SwarmRun]:
+def get_resumable_runs(user_id: Optional[str] = None) -> List[SwarmRun]:
     """Get runs that can be resumed.
+
+    Args:
+        user_id: User ID (auto-fetched if not provided)
 
     Returns:
         List of SwarmRun objects with pending stocks
     """
-    persistence = PersistenceManager()
+    import asyncio
+    if not user_id:
+        from api.lib.db import get_or_create_cli_user
+        user_id = asyncio.run(get_or_create_cli_user())
+
+    persistence = PersistenceManager(user_id=user_id)
     return persistence.get_resumable_runs()
 
 
