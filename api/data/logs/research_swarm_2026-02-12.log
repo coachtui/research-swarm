@@ -1,0 +1,16 @@
+2026-02-12 17:13:51 | DEBUG    | research_swarm.data.cache:_init_db - Cache initialized at data/cache/api_cache.db
+2026-02-12 17:13:51 | INFO     | research_swarm.data.sec_client:__init__ - SEC Edgar client initialized
+2026-02-12 17:13:51 | INFO     | research_swarm.data.news_client:__init__ - NewsAPI client initialized
+2026-02-12 17:13:51 | INFO     | research_swarm.data.market_data_client:__init__ - MarketDataClient initialized (yfinance)
+2026-02-12 17:13:51 | INFO     | research_swarm.data.data_provider_hybrid:__init__ - HybridDataProvider initialized
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.fundamentalist.parser:__init__ - FilingParser initialized with Haiku model
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.fundamentalist.analyzer:__init__ - FinancialAnalyzer initialized
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.fundamentalist.scorer:__init__ - HealthScorer initialized with Haiku
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.news_hound.aggregator:__init__ - NewsAggregator initialized
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.news_hound.analyzer:__init__ - NewsAnalyzer initialized
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.news_hound.scorer:__init__ - SentimentScorer initialized with Haiku
+2026-02-12 17:13:52 | INFO     | research_swarm.data.supply_chain_knowledge:__init__ - Loaded supply chain knowledge base with 11 companies
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.quant.supply_chain:__init__ - SupplyChainGraphBuilder initialized with knowledge base integration
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.quant.supply_chain:__init__ - SupplyChainGraphBuilder initialized with knowledge base integration
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.quant.analyzer:__init__ - QuantAnalyzer initialized
+2026-02-12 17:13:52 | INFO     | research_swarm.agents.manager.analyzer:__init__ - ManagerAnalyzer initialized

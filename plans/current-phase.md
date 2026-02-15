@@ -1,10 +1,348 @@
 # Phase 12: Documentation & Maintenance
 
-**Status**: 🚀 READY TO START
+**Status**: ⏸️ PAUSED (skipped to Phase 13 - Frontend Development)
 **Duration**: ~3-4 sessions
 **Owner**: CTO Architect Agent
 **Dependencies**: Phases 1-11 Complete (264 tests total)
 **Started**: 2026-01-18
+
+---
+
+# Phase 13: DVRG Frontend Development (NEW)
+
+**Status**: ✅ COMPLETE (2026-02-12)
+**Duration**: 1 session (~4 hours)
+**Owner**: Full-Stack Agent
+**Dependencies**: Phase A complete (Backend API deployed)
+**Started**: 2026-02-12
+**Completed**: 2026-02-12
+
+## Overview
+
+Built complete customer-facing web frontend for DVRG (formerly Research Swarm) with Robinhood-inspired design aesthetic using #00D9B5 as primary brand color. Frontend is fully functional on localhost:3000 and ready for Vercel deployment once backend API issues are resolved.
+
+## Completed Work
+
+### Tech Stack Implemented
+- ✅ Next.js 14 (App Router, TypeScript)
+- ✅ Tailwind CSS with custom #00D9B5 color palette
+- ✅ TanStack Query (React Query) for API state management + polling
+- ✅ Recharts for moat breakdown visualization
+- ✅ React Hook Form + Zod for form validation
+- ✅ shadcn/ui component patterns
+- ✅ Lucide React for icons
+
+### Pages Built (3 Core Pages)
+
+1. **Landing Page** ([app/page.tsx](../frontend/app/page.tsx))
+   - Hero section with value proposition and #00D9B5 CTA button
+   - "How It Works" 3-step process explanation
+   - Sample report preview section
+   - FAQ accordion with common questions
+   - Mobile-responsive with dark mode aesthetic
+
+2. **Analyze Page** ([app/analyze/page.tsx](../frontend/app/analyze/page.tsx))
+   - Ticker search form with uppercase validation
+   - Email input for report delivery
+   - News lookback slider (1-90 days, default 30)
+   - Popular tickers display (static)
+   - Form validation with react-hook-form + Zod
+   - Submit triggers POST to `/api/analyze` and redirects to results page
+
+3. **Results Page** ([app/results/[run_id]/page.tsx](../frontend/app/results/[run_id]/page.tsx))
+   - Dynamic route with run_id parameter
+   - Loading state with 4-minute wait spinner and progress bar
+   - Polling every 5 seconds (status: queued → running → completed)
+   - Moat score card display (large visual indicator)
+   - Moat breakdown chart (5 components: earnings, financial, valuation, technical, sentiment)
+   - Investment thesis display
+   - Key insights list (top 5)
+   - Download PDF button (UI ready, not yet wired to backend)
+   - Metadata display (processing time, tokens used, cost, data sources)
+   - Error and failed state handling
+
+### Components Built (25+ Components)
+
+**UI Primitives** (shadcn/ui patterns):
+- Button (with variants: primary, secondary, outline, ghost)
+- Card, CardHeader, CardTitle, CardContent
+- Input, Label
+- Badge
+- Progress
+- Alert, AlertDescription
+- Dialog
+- Skeleton
+
+**Layout Components**:
+- [Header](../frontend/components/layout/Header.tsx) - Navigation with logo and CTA
+- [Footer](../frontend/components/layout/Footer.tsx) - Links and social
+- [Container](../frontend/components/layout/Container.tsx) - Max-width wrapper
+
+**Landing Page Components**:
+- [Hero](../frontend/components/landing/Hero.tsx) - Value proposition with #00D9B5 CTA
+- [HowItWorks](../frontend/components/landing/HowItWorks.tsx) - 3-step process
+- [FAQ](../frontend/components/landing/FAQ.tsx) - Accordion with common questions
+
+**Analyze Page Components**:
+- [TickerSearchForm](../frontend/components/analyze/TickerSearchForm.tsx) - Form with validation and submission
+
+**Results Page Components**:
+- [MoatScoreCard](../frontend/components/results/MoatScoreCard.tsx) - Large score display with color-coded rating
+- [MoatBreakdownChart](../frontend/components/results/MoatBreakdownChart.tsx) - Recharts horizontal bar chart (5 components)
+- [InvestmentThesis](../frontend/components/results/InvestmentThesis.tsx) - 2-3 sentence summary display
+- [KeyInsights](../frontend/components/results/KeyInsights.tsx) - Top 5 numbered insights list
+- [DownloadPDFButton](../frontend/components/results/DownloadPDFButton.tsx) - PDF download CTA (UI only)
+- [LoadingSpinner](../frontend/components/shared/LoadingSpinner.tsx) - 4-minute wait animation with progress
+
+**Shared Components**:
+- [QueryProvider](../frontend/components/shared/QueryProvider.tsx) - TanStack Query client wrapper
+
+### API Integration
+
+**API Client** ([lib/api/client.ts](../frontend/lib/api/client.ts)):
+- Type-safe wrapper for FastAPI endpoints
+- CORS proxy detection for localhost development
+- Automatic /api/ prefix stripping when using proxy
+- Methods: `analyzeStock()`, `getAnalysis()`, `listAnalyses()`
+- Error handling with user-friendly messages
+
+**CORS Proxy** ([app/api/proxy/[...path]/route.ts](../frontend/app/api/proxy/[...path]/route.ts)):
+- Next.js API route to bypass CORS during development
+- Handles GET, POST, DELETE methods
+- Forwards requests to backend at `https://research-swarm.vercel.app`
+- Preserves status codes and response bodies
+
+**Polling Hook** ([lib/hooks/useAnalysis.ts](../frontend/lib/hooks/useAnalysis.ts)):
+- TanStack Query hook with automatic polling
+- Polls every 5 seconds when status is queued/running
+- Stops polling when status is completed/failed
+- Integrates with QueryProvider for global state management
+
+### Design System
+
+**Color Palette** (Robinhood-inspired with DVRG teal):
+```css
+--primary: #00D9B5           /* DVRG Teal - CTA buttons, links, accents */
+--primary-dark: #00B396      /* Hover state */
+--primary-light: #33E4C8     /* Light accents */
+--background: #0A0E1A        /* Dark page background */
+--surface: #1A1F2E           /* Card/panel background */
+--surface-elevated: #252B3D  /* Elevated cards */
+--text-primary: #FFFFFF      /* Headlines, body text */
+--text-secondary: #9CA3AF    /* Labels, metadata */
+--text-tertiary: #6B7280     /* Dimmed text */
+--success: #10B981           /* Bullish signals */
+--warning: #F59E0B           /* Caution/Hold */
+--error: #EF4444             /* Bearish/Sell */
+```
+
+**Typography**:
+- Font: Inter (sans-serif)
+- Headings: Bold, large sizes
+- Body: Regular weight, comfortable line height
+- Code: Monospace for tickers and numbers
+
+**Spacing**:
+- Generous whitespace following Robinhood aesthetic
+- Card-based layout with rounded corners
+- Mobile-first responsive design
+
+### Utilities & Helpers
+
+**Formatting** ([lib/utils/formatting.ts](../frontend/lib/utils/formatting.ts)):
+- `scoreToGrade()` - Convert 0-10 score to letter grade (A+, A, B, etc.)
+- `formatCurrency()` - Format USD amounts
+- `formatDateTime()` - Format ISO dates to readable strings
+- `formatTicker()` - Uppercase ticker validation
+
+**Error Messages** ([lib/utils/errors.ts](../frontend/lib/utils/errors.ts)):
+- User-friendly error message mappings
+- Fixed apostrophe syntax error in ANALYSIS_FAILED message
+
+**TypeScript Types** ([lib/api/types.ts](../frontend/lib/api/types.ts)):
+- Complete type definitions matching backend API schemas
+- Request/response interfaces for all endpoints
+
+### Configuration Files
+
+**Package.json** ([frontend/package.json](../frontend/package.json)):
+```json
+{
+  "dependencies": {
+    "next": "^14.2.0",
+    "react": "^18.3.0",
+    "@tanstack/react-query": "^5.56.0",
+    "recharts": "^2.12.0",
+    "react-hook-form": "^7.53.0",
+    "zod": "^3.23.0",
+    "lucide-react": "^0.309.0",
+    ...
+  }
+}
+```
+
+**Tailwind Config** ([frontend/tailwind.config.ts](../frontend/tailwind.config.ts)):
+- Custom #00D9B5 color palette
+- Extended theme with surface colors
+- Custom border radius for Robinhood aesthetic
+
+**Global Styles** ([frontend/app/globals.css](../frontend/app/globals.css)):
+- CSS variables for all colors
+- Custom scrollbar styling
+- Dark mode by default
+
+## Issues Resolved
+
+### 1. Syntax Error - Apostrophe in String
+- **Error**: `'We've'` in single-quoted string caused parser error
+- **Location**: [lib/utils/errors.ts:6](../frontend/lib/utils/errors.ts#L6)
+- **Fix**: Changed to double quotes: `"We've issued a full refund."`
+
+### 2. Server Component Error - onClick Handlers
+- **Error**: Event handlers cannot be passed to Client Component props
+- **Location**: [app/analyze/page.tsx](../frontend/app/analyze/page.tsx)
+- **Fix**: Removed onClick handlers from popular ticker buttons, made them static display
+
+### 3. CORS Error - Cross-Origin Request Blocked
+- **Error**: Browser blocking requests from localhost:3000 to research-swarm.vercel.app
+- **Fix**: Created Next.js API proxy at [/app/api/proxy/[...path]/route.ts](../frontend/app/api/proxy/[...path]/route.ts)
+
+### 4. Double /api/ Path Error
+- **Error**: Requests going to `/api/proxy/api/analyze` instead of `/api/proxy/analyze`
+- **Fix**: Added `useProxy` flag to ApiClient and strip `/api/` prefix when using proxy
+- **Code**: `const cleanEndpoint = this.useProxy ? endpoint.replace(/^\/api\//, '/') : endpoint`
+
+### 5. npm Install Network Error
+- **Error**: ECONNRESET during initial dependency installation
+- **Fix**: Retried npm install, succeeded on second attempt
+
+## Current State
+
+### ✅ Working
+- All 3 pages render correctly on localhost:3000
+- Form validation (ticker uppercase, email format)
+- API proxy bypassing CORS for development
+- Polling logic (5-second intervals during 4-minute analysis)
+- Loading states with progress indicators
+- Moat breakdown chart visualization
+- Mobile-responsive design
+- Dark mode aesthetic with #00D9B5 branding
+
+### ❌ Blocked
+- **Backend API returning 500 errors** - All endpoints (`/api/health`, `/api/analyze`, `/api/runs`) returning FUNCTION_INVOCATION_FAILED
+- Cannot test end-to-end flow until backend is fixed
+
+### ⏳ Deferred (Post-Backend Fix)
+- Stripe checkout integration ($14.99 per report)
+- PDF download backend wiring
+- Email delivery integration (Resend.com)
+- Frontend deployment to Vercel
+- Production environment variable configuration
+
+## File Structure
+
+```
+frontend/
+├── app/
+│   ├── page.tsx                        # Landing page
+│   ├── analyze/page.tsx                # Ticker input form
+│   ├── results/[run_id]/page.tsx       # Analysis results
+│   ├── api/proxy/[...path]/route.ts    # CORS proxy
+│   ├── layout.tsx                      # Root layout
+│   └── globals.css                     # Global styles + CSS variables
+├── components/
+│   ├── ui/                             # 12 shadcn/ui primitives
+│   │   ├── button.tsx
+│   │   ├── card.tsx
+│   │   ├── input.tsx
+│   │   ├── badge.tsx
+│   │   ├── progress.tsx
+│   │   ├── alert.tsx
+│   │   ├── dialog.tsx
+│   │   └── skeleton.tsx
+│   ├── layout/
+│   │   ├── Header.tsx                  # Navigation
+│   │   ├── Footer.tsx                  # Footer links
+│   │   └── Container.tsx               # Max-width wrapper
+│   ├── landing/
+│   │   ├── Hero.tsx                    # Value prop + CTA
+│   │   ├── HowItWorks.tsx              # 3-step process
+│   │   └── FAQ.tsx                     # Accordion FAQ
+│   ├── analyze/
+│   │   └── TickerSearchForm.tsx        # Form with validation
+│   ├── results/
+│   │   ├── MoatScoreCard.tsx           # Score display
+│   │   ├── MoatBreakdownChart.tsx      # 5-component chart
+│   │   ├── InvestmentThesis.tsx        # Thesis display
+│   │   ├── KeyInsights.tsx             # Insights list
+│   │   └── DownloadPDFButton.tsx       # PDF CTA
+│   └── shared/
+│       ├── LoadingSpinner.tsx          # 4-min wait animation
+│       └── QueryProvider.tsx           # TanStack Query wrapper
+├── lib/
+│   ├── api/
+│   │   ├── client.ts                   # API wrapper + proxy support
+│   │   └── types.ts                    # TypeScript interfaces
+│   ├── hooks/
+│   │   └── useAnalysis.ts              # Polling hook
+│   └── utils/
+│       ├── formatting.ts               # Score, currency, date formatters
+│       ├── errors.ts                   # Error message mapping
+│       └── cn.ts                       # Tailwind className utility
+├── public/                             # Static assets
+├── tailwind.config.ts                  # #00D9B5 color palette
+├── package.json                        # Dependencies
+├── tsconfig.json                       # TypeScript config
+└── next.config.ts                      # Next.js config
+```
+
+## Next Steps
+
+### Immediate (Fix Backend API)
+1. Debug Vercel deployment logs for backend
+2. Check Vercel function configuration
+3. Verify environment variables (Anthropic API key, database connection)
+4. Test API locally with `vercel dev`
+5. Fix serverless function handler (Mangum/FastAPI compatibility)
+6. Re-deploy backend once fixed
+7. Test all 3 endpoints return 200 OK
+
+### After Backend Fix
+1. Test end-to-end flow on localhost:
+   - Landing page → Analyze page
+   - Submit ticker + email
+   - Redirect to results page
+   - Poll every 5 seconds
+   - Display completed results
+2. Fix any integration issues discovered during testing
+3. Integrate Stripe checkout ($14.99 per report)
+4. Wire PDF download button to backend endpoint
+5. Integrate email delivery (Resend.com)
+6. Deploy frontend to Vercel
+7. Configure production environment variables
+8. End-to-end test on production
+9. Launch preparation (showcase reports, marketing materials)
+
+## Success Metrics
+
+- ✅ 3 pages built (Landing, Analyze, Results)
+- ✅ 25+ components implemented
+- ✅ Robinhood-inspired design with #00D9B5 branding
+- ✅ Mobile-responsive across all pages
+- ✅ Form validation working
+- ✅ API integration ready (proxy + polling)
+- ✅ Loading states with progress indicators
+- ✅ Error handling implemented
+- ⏳ End-to-end test (blocked by backend 500 errors)
+- ⏳ Deployed to Vercel (deferred until backend fixed)
+
+## Cost
+
+- **API calls**: $0 (no LLM calls for frontend development)
+- **Development time**: ~4 hours (1 session)
+- **Dependencies installed**: ~500MB node_modules
+
+---
 
 ---
 

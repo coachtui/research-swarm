@@ -193,6 +193,41 @@ Fixed remaining default 5.0/10 scores appearing in reports:
 
 **Impact**: All default 5.0/10 scores eliminated from reports ✅
 
+### Task 1.10: Report Polish & Professional Language (COMPLETED 2026-02-12 PM)
+**Time**: 2 hours | **Priority**: HIGH | **Status**: DONE
+
+Made reports more professional and less "financial bro-y" based on user review:
+
+**Template Cleanup:**
+- [x] Removed supply chain section (no actual data, just "not available" messages)
+- [x] Removed redundant moat breakdown graphs (3 locations: exec summary, stock analysis, watchlist)
+- [x] Removed internal threshold exposure ("8.0 watchlist criteria" now hidden from users)
+- [x] Simplified terminology: "Moat Score" → "Overall Score" (less jargony)
+- [x] Changed section headers: "📊 Moat Score Breakdown" → "📊 Overall Score Breakdown"
+
+**Language Calibration:**
+- [x] Price movement scale added to prompts:
+  - "Plummeted"/"Crashed" = ONLY >20% drops (not 7.5%!)
+  - "Declined" = 5-10% drops (neutral, factual)
+  - Removed loaded terms: "corrected" (implies wrong), "pulled back" (implies temporary)
+- [x] Catalyst dates: Enhanced prompt to prevent 2024 dates appearing (we're in 2026)
+- [x] Instructed LLM to use simpler language: "overall score" instead of repeating "moat score"
+
+**Files Modified:**
+- `research_swarm/reports/models.py` — Default sections list
+- `research_swarm/reports/templates/executive_summary.md.j2`
+- `research_swarm/reports/templates/stock_analysis.md.j2`
+- `research_swarm/reports/templates/watchlist.md.j2`
+- `research_swarm/agents/news_hound/prompts.py` — Catalyst date instructions
+- `research_swarm/agents/manager/prompts.py` — Language calibration guidelines
+
+**Known Issues (documented in REPORT_FIXES_2026-02-12.md):**
+- Enhanced moat zeros: Requires LLM response debugging (add logging)
+- Capital allocation scoring: May be working correctly (aggressive spending = red flag)
+- Valuation/price targets: yfinance API reliability (try cache clear)
+
+**Impact**: Reports now sound like institutional research, not Reddit posts ✅
+
 ### Week 1 Checklist
 - [x] lxml installed and working
 - [x] Data quality issues fixed (valuation, growth, supply chain - all default scores eliminated)
@@ -205,8 +240,11 @@ Fixed remaining default 5.0/10 scores appearing in reports:
 - [x] Valuation sensitivity, strategy calculator, earnings breakdown wired
 - [x] VGM Growth score using yfinance revenue growth fallback
 - [x] Moat breakdown valuation using VGM value_score
+- [x] Report polish: removed supply chain section, redundant graphs, threshold exposure
+- [x] Language improvements: neutral price movement terms, simplified "moat score" → "overall score"
+- [x] Catalyst date prompts updated (2026 not 2024)
 - [ ] API deployed and responding at production URL (Vercel ready, deployment pending)
-- [ ] 5 showcase reports pass quality review (3 test reports generated: NVDA, JPM validated)
+- [ ] 5 showcase reports pass quality review (GOOGL generated and reviewed, language improvements applied)
 
 ---
 

@@ -1,9 +1,6 @@
 """
 Main FastAPI application entry point for Vercel serverless deployment.
-
-This file serves as the handler for Vercel's serverless functions.
 """
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
@@ -21,8 +18,7 @@ app = FastAPI(
     openapi_url="/api/openapi.json"
 )
 
-# CORS middleware for web/mobile clients
-# Get allowed origins from env or use production default
+# CORS middleware
 allowed_origins = os.getenv(
     "CORS_ORIGINS",
     "https://research-swarm-frontend.vercel.app"
@@ -53,9 +49,5 @@ async def root():
         "docs": "/api/docs"
     }
 
-# Vercel handler (ASGI adapter for serverless)
+# Vercel serverless function handler
 handler = Mangum(app, lifespan="off")
-
-# Also export app directly for Vercel
-# Vercel will use this if Mangum doesn't work
-app = app
