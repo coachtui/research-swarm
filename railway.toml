@@ -1,7 +1,5 @@
 [build]
 builder = "nixpacks"
-
-[build.buildCommand]
 buildCommand = "prisma generate --schema=db/schema.prisma"
 
 [deploy]
