@@ -3,6 +3,13 @@
 import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { HelpCircle } from 'lucide-react'
 import type { SignalBreakdown } from '@/types/api'
 
 interface SignalDivergenceSectionProps {
@@ -16,6 +23,7 @@ interface SignalDisplay {
   icon: string
   score: number
   interpretation: string
+  tooltip: string
 }
 
 function getInterpretationType(interpretation: string): 'BULLISH' | 'BEARISH' | 'NEUTRAL' {
@@ -73,30 +81,35 @@ export function SignalDivergenceSection({
       icon: '📰',
       score: breakdown.news_score,
       interpretation: breakdown.news_interpretation,
+      tooltip: 'Measures media coverage sentiment over the past 30 days. High scores indicate positive news flow, analyst upgrades, and bullish headlines. Low scores suggest negative coverage or controversy.',
     },
     {
       name: 'Earnings Revisions',
       icon: '📈',
       score: breakdown.earnings_score,
       interpretation: breakdown.earnings_interpretation,
+      tooltip: 'Tracks whether analysts are raising or lowering earnings estimates. Upward revisions (high scores) signal improving fundamentals. Downward revisions (low scores) indicate deteriorating expectations.',
     },
     {
       name: 'Analyst Ratings',
       icon: '👔',
       score: breakdown.analyst_score,
       interpretation: breakdown.analyst_interpretation,
+      tooltip: 'Wall Street consensus rating based on buy/hold/sell recommendations. High scores = majority buy ratings. Low scores = majority sell ratings. Captures professional analyst sentiment.',
     },
     {
       name: 'Institutional Activity',
       icon: '🏛️',
       score: breakdown.institutional_score,
       interpretation: breakdown.institutional_interpretation,
+      tooltip: 'Tracks what pension funds, hedge funds, and mutual funds are doing with their holdings. High scores = net buying/accumulation. Low scores = net selling/distribution. Smart money indicator.',
     },
     {
       name: 'Insider Activity',
       icon: '👤',
       score: breakdown.insider_score,
       interpretation: breakdown.insider_interpretation,
+      tooltip: 'Monitors trading by CEOs, CFOs, and board members (Form 4 filings). High scores = net insider buying (bullish signal). Low scores = net insider selling (bearish signal). Insiders know things the market doesn\'t.',
     },
   ]
 
@@ -131,6 +144,7 @@ export function SignalDivergenceSection({
       {/* Main Card */}
       <Card className={`border-2 ${severityColors[severity]}`}>
         <CardContent className="pt-6">
+          <TooltipProvider>
           {/* Signal Comparison */}
           <div className="space-y-4 mb-6">
             {signals.map((signal, idx) => {
@@ -138,9 +152,19 @@ export function SignalDivergenceSection({
               return (
                 <div key={idx} className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <span className="text-xl">{signal.icon}</span>
                       <span className="font-medium text-text-primary">{signal.name}</span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button className="text-text-tertiary hover:text-text-secondary transition-colors">
+                            <HelpCircle className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">
+                          <p className="text-xs leading-relaxed">{signal.tooltip}</p>
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
                     <div className="flex items-center gap-3">
                       <span
@@ -180,6 +204,7 @@ export function SignalDivergenceSection({
               )
             })}
           </div>
+          </TooltipProvider>
 
           {/* Interpretation */}
           {breakdown.has_divergence && (
