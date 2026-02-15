@@ -1,18 +1,37 @@
-# Vercel Deployment Requirements - Phase 1
-# Minimal dependencies for serverless API with database
+# Core dependencies
+pydantic>=2.7.4
+pydantic-settings>=2.0.0
+email-validator>=2.0.0
 
-# Core API Framework
-fastapi==0.109.2
-mangum>=0.17.0  # ASGI adapter for Vercel serverless
-uvicorn[standard]==0.27.1
+# Core framework
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-anthropic>=0.2.0
+langchain-core>=0.3.0
 
-# Database
+# Data handling
+python-dotenv==1.0.0
+
+# Database (Neon PostgreSQL via Prisma)
 prisma>=0.11.0
 asyncpg>=0.29.0
 
-# Authentication (JWT for mock auth, ready for Clerk)
+# API clients
+requests==2.31.0
+aiohttp==3.9.0
+beautifulsoup4==4.12.3
+
+# Utilities
+loguru==0.7.2
+python-dateutil==2.8.2
+
+# Quant Agent
+yfinance>=0.2.31
+lxml>=5.0.0
+
+# API Framework (for FastAPI deployment)
+fastapi>=0.109.0
+mangum>=0.17.0
+uvicorn[standard]>=0.27.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
-
-# Include all core research_swarm dependencies
--r requirements.txt
