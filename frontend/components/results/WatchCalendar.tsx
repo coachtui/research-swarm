@@ -49,7 +49,7 @@ export function WatchCalendar({ events }: WatchCalendarProps) {
                 <span className="font-semibold text-sm">{event.event}</span>
                 <Badge
                   variant={
-                    event.importance === 'high' ? 'destructive' :
+                    event.importance === 'high' ? 'error' :
                     event.importance === 'medium' ? 'default' :
                     'secondary'
                   }
