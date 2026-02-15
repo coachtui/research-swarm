@@ -45,21 +45,21 @@ export function ProfessionalExecutiveSummary({
               <tbody className="text-sm">
                 <tr className="border-b">
                   <td className="py-2 font-medium text-text-secondary">Ticker Symbol</td>
-                  <td className="py-2 text-right font-semibold">{ticker}</td>
+                  <td className="py-2 text-right font-semibold text-text-primary">{ticker}</td>
                 </tr>
                 <tr className="border-b">
                   <td className="py-2 font-medium text-text-secondary">Current Price</td>
-                  <td className="py-2 text-right font-semibold">
+                  <td className="py-2 text-right font-semibold text-text-primary">
                     ${currentPrice.toFixed(2)}
                   </td>
                 </tr>
                 <tr className="border-b">
                   <td className="py-2 font-medium text-text-secondary">Investment Rating</td>
-                  <td className="py-2 text-right font-semibold">{rating}</td>
+                  <td className="py-2 text-right font-semibold text-text-primary">{rating}</td>
                 </tr>
                 <tr className="border-b">
                   <td className="py-2 font-medium text-text-secondary">Risk Classification</td>
-                  <td className="py-2 text-right font-semibold">{riskLevel}</td>
+                  <td className="py-2 text-right font-semibold text-text-primary">{riskLevel}</td>
                 </tr>
               </tbody>
             </table>
@@ -70,7 +70,7 @@ export function ProfessionalExecutiveSummary({
                 {moat_score !== null && (
                   <tr className="border-b">
                     <td className="py-2 font-medium text-text-secondary">Overall Moat Score</td>
-                    <td className="py-2 text-right font-semibold">
+                    <td className="py-2 text-right font-semibold text-text-primary">
                       {moat_score.toFixed(1)}/10
                     </td>
                   </tr>
@@ -79,15 +79,15 @@ export function ProfessionalExecutiveSummary({
                   <>
                     <tr className="border-b">
                       <td className="py-2 font-medium text-text-secondary">Value Score</td>
-                      <td className="py-2 text-right">{vgmScores.value_score.toFixed(1)}/10</td>
+                      <td className="py-2 text-right font-semibold text-text-primary">{vgmScores.value_score.toFixed(1)}/10</td>
                     </tr>
                     <tr className="border-b">
                       <td className="py-2 font-medium text-text-secondary">Growth Score</td>
-                      <td className="py-2 text-right">{vgmScores.growth_score.toFixed(1)}/10</td>
+                      <td className="py-2 text-right font-semibold text-text-primary">{vgmScores.growth_score.toFixed(1)}/10</td>
                     </tr>
                     <tr className="border-b">
                       <td className="py-2 font-medium text-text-secondary">Momentum Score</td>
-                      <td className="py-2 text-right">{vgmScores.momentum_score.toFixed(1)}/10</td>
+                      <td className="py-2 text-right font-semibold text-text-primary">{vgmScores.momentum_score.toFixed(1)}/10</td>
                     </tr>
                   </>
                 )}
