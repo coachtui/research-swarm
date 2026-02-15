@@ -60,9 +60,9 @@ export function WhatsNew({ items }: WhatsNewProps) {
                 </span>
                 <Badge
                   variant={
-                    item.impact === 'positive' ? 'default' :
-                    item.impact === 'negative' ? 'destructive' :
-                    'outline'
+                    item.impact === 'positive' ? 'success' :
+                    item.impact === 'negative' ? 'error' :
+                    'secondary'
                   }
                   className="text-xs"
                 >
