@@ -71,81 +71,18 @@ function getBand(score: number): string {
   return 'Weak'
 }
 
-interface ScoreBand {
-  label: string
-  range: string
-  min: number
-  max: number
-}
-
-const SCORE_BANDS: ScoreBand[] = [
-  { label: 'Strong Buy Zone', range: '8-10', min: 8, max: 10 },
-  { label: 'Hold/Tactical Zone', range: '6-8', min: 6, max: 8 },
-  { label: 'Caution Zone', range: '4-6', min: 4, max: 6 },
-  { label: 'Avoid Zone', range: '0-4', min: 0, max: 4 },
-]
-
 export function ScoreBreakdownBars({ breakdown, overallScore }: ScoreBreakdownBarsProps) {
-
-  const currentBand = SCORE_BANDS.find(
-    (band) => overallScore >= band.min && overallScore < band.max
-  ) || SCORE_BANDS[SCORE_BANDS.length - 1]
-
   return (
     <section className="score-breakdown">
-      <h2 className="text-2xl font-bold mb-4">
-        📊 Understanding Your {overallScore.toFixed(1)} Score
-      </h2>
-
-      {/* Score Context Card */}
-      <Card className="mb-6 bg-gradient-to-br from-primary/5 to-primary/10">
-        <CardContent className="pt-6">
-          <p className="mb-4 text-sm text-text-secondary">
-            Your score of{' '}
-            <strong className="text-lg text-text-primary">{overallScore.toFixed(1)}/10</strong> puts
-            this stock in the{' '}
-            <span className="font-semibold text-text-primary">{currentBand.label}</span>
-          </p>
-
-          {/* Score Bands */}
-          <div className="space-y-2">
-            {SCORE_BANDS.map((band) => {
-              const isActive = overallScore >= band.min && overallScore < band.max
-              return (
-                <div
-                  key={band.label}
-                  className={`flex items-center justify-between p-3 rounded-lg transition-all ${
-                    isActive
-                      ? 'bg-primary/10 border border-primary/30'
-                      : 'bg-surface-elevated/50 border border-transparent'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`text-sm font-medium ${
-                        isActive ? 'text-primary' : 'text-text-tertiary'
-                      }`}
-                    >
-                      {band.label}
-                    </span>
-                    {isActive && (
-                      <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full font-medium">
-                        ← YOU ARE HERE
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-text-tertiary">{band.range}</span>
-                </div>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Component Breakdown */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Component Breakdown</CardTitle>
+          <CardTitle className="text-lg">
+            Component Breakdown
+            <span className="ml-3 text-sm font-normal text-text-tertiary">
+              Overall Score: <span className="font-semibold text-text-primary">{overallScore.toFixed(1)}/10</span>
+            </span>
+          </CardTitle>
         </CardHeader>
         <CardContent>
         <TooltipProvider>
