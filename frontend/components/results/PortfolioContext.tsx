@@ -1,0 +1,152 @@
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Briefcase, AlertTriangle } from 'lucide-react'
+
+interface PortfolioContextProps {
+  ticker: string
+  rating: string
+  moatScore: number
+  financialHealthScore?: number
+  sector?: string
+  currentPrice: number
+}
+
+export function PortfolioContext({
+  ticker,
+  rating,
+  moatScore,
+  financialHealthScore = 5.0,
+  sector = 'Technology',
+  currentPrice,
+}: PortfolioContextProps) {
+  // Calculate suggested allocation based on rating and quality
+  const getSuggestedAllocation = () => {
+    if (moatScore >= 8.0 && rating.includes('BUY')) {
+      return { min: 3, max: 5, type: 'Core Holding' }
+    } else if (moatScore >= 7.0 && rating.includes('BUY')) {
+      return { min: 2, max: 4, type: 'Core Holding' }
+    } else if (moatScore >= 6.0 || rating === 'HOLD') {
+      return { min: 1, max: 2, type: 'Satellite Position' }
+    } else {
+      return { min: 0, max: 1, type: 'Speculative / Avoid' }
+    }
+  }
+
+  const allocation = getSuggestedAllocation()
+  const portfolioExamples = [
+    { size: 10000, position: (10000 * allocation.max) / 100 },
+    { size: 50000, position: (50000 * allocation.max) / 100 },
+    { size: 100000, position: (100000 * allocation.max) / 100 },
+  ]
+
+  // Risk warnings based on quality
+  const qualityLevel = financialHealthScore >= 8.0 ? 'high' : financialHealthScore >= 6.0 ? 'medium' : 'low'
+
+  return (
+    <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
+      <CardContent className="pt-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Briefcase className="h-5 w-5 text-primary" />
+          <h3 className="text-lg font-semibold text-text-primary">Portfolio Context</h3>
+          <Badge variant="secondary">{ticker}</Badge>
+        </div>
+
+        {/* Position Sizing Guidance */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-text-secondary">Suggested Allocation</p>
+            <div className="bg-surface rounded-lg p-3 border border-border">
+              <div className="flex items-baseline gap-2 mb-1">
+                <span className="text-2xl font-bold text-primary">
+                  {allocation.min}–{allocation.max}%
+                </span>
+                <span className="text-xs text-text-tertiary">of portfolio</span>
+              </div>
+              <p className="text-xs text-text-secondary">{allocation.type}</p>
+            </div>
+
+            {/* Quality context */}
+            <div className="text-xs space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-text-tertiary">Quality Rating:</span>
+                <span className="font-medium text-text-primary">
+                  {financialHealthScore.toFixed(1)}/10 Financial Health
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-text-tertiary">Position Type:</span>
+                <span className="font-medium text-text-primary">{allocation.type}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-text-secondary">Example Position Sizes</p>
+            <div className="bg-surface rounded-lg p-3 border border-border space-y-1.5">
+              {portfolioExamples.map((example, i) => (
+                <div key={i} className="flex items-center justify-between text-xs">
+                  <span className="text-text-tertiary">
+                    ${(example.size / 1000).toFixed(0)}K portfolio:
+                  </span>
+                  <span className="font-medium text-text-primary">
+                    ${example.position.toLocaleString()} ({allocation.max}%)
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-text-tertiary italic">
+              Based on {allocation.max}% max allocation ({currentPrice > 0 ? Math.floor((portfolioExamples[1].position / currentPrice)) : '~'} shares at ${currentPrice.toFixed(2)})
+            </p>
+          </div>
+        </div>
+
+        {/* Risk Considerations */}
+        <div className="bg-surface/50 rounded-lg p-4 border border-border">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-warning mt-0.5 flex-shrink-0" />
+            <div className="flex-1 space-y-2">
+              <p className="text-xs font-medium text-text-primary">Risk Considerations</p>
+              <ul className="space-y-1 text-xs text-text-secondary">
+                {qualityLevel === 'high' ? (
+                  <li className="flex gap-2">
+                    <span className="text-success">✓</span>
+                    <span>High-quality company suitable as core holding with disciplined sizing</span>
+                  </li>
+                ) : qualityLevel === 'medium' ? (
+                  <li className="flex gap-2">
+                    <span className="text-warning">⚠</span>
+                    <span>Moderate quality - consider as satellite position, not core holding</span>
+                  </li>
+                ) : (
+                  <li className="flex gap-2">
+                    <span className="text-error">⚠</span>
+                    <span>Lower quality - limit position size and consider speculative allocation only</span>
+                  </li>
+                )}
+                <li className="flex gap-2">
+                  <span className="text-primary">•</span>
+                  <span>
+                    Check sector concentration: If you own other {sector} stocks, reduce allocation to avoid over-concentration
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="text-primary">•</span>
+                  <span>
+                    Timing matters: {rating === 'HOLD' || rating === 'SELL'
+                      ? 'Current signals suggest waiting for better entry or holding existing position'
+                      : 'Current signals support initiation or addition to position'}
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom line */}
+        <p className="text-xs text-text-tertiary italic">
+          Position sizing is as important as stock selection. The suggested allocations balance opportunity vs. risk based on company quality, current valuation, and market signals.
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
