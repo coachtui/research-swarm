@@ -33,12 +33,12 @@ def calculate_signal_divergence(
         Signal breakdown dict with scores, interpretations, and divergence analysis
     """
     try:
-        # Extract the 5 signal scores
-        news_score = _extract_news_score(news_hound_output)
-        earnings_score = _extract_earnings_score(news_hound_output)
-        analyst_score = _extract_analyst_score(news_hound_output)
-        institutional_score = _extract_institutional_score(news_hound_output)
-        insider_score = _extract_insider_score(news_hound_output)
+        # Extract the 5 signal scores with data availability flags
+        news_score, news_has_data = _extract_news_score(news_hound_output)
+        earnings_score, earnings_has_data = _extract_earnings_score(news_hound_output)
+        analyst_score, analyst_has_data = _extract_analyst_score(news_hound_output)
+        institutional_score, institutional_has_data = _extract_institutional_score(news_hound_output)
+        insider_score, insider_has_data = _extract_insider_score(news_hound_output)
 
         # Calculate overall signal score (average of 5)
         scores = [news_score, earnings_score, analyst_score, institutional_score, insider_score]
@@ -48,11 +48,11 @@ def calculate_signal_divergence(
         has_divergence, std_dev = _check_divergence(scores)
 
         # Generate interpretations
-        news_interp = _interpret_score(news_score, "News Sentiment")
-        earnings_interp = _interpret_score(earnings_score, "Earnings Revisions")
-        analyst_interp = _interpret_score(analyst_score, "Analyst Ratings")
-        institutional_interp = _interpret_score(institutional_score, "Institutional")
-        insider_interp = _interpret_score(insider_score, "Insider")
+        news_interp = _interpret_score(news_score, "News Sentiment", news_has_data)
+        earnings_interp = _interpret_score(earnings_score, "Earnings Revisions", earnings_has_data)
+        analyst_interp = _interpret_score(analyst_score, "Analyst Ratings", analyst_has_data)
+        institutional_interp = _interpret_score(institutional_score, "Institutional", institutional_has_data)
+        insider_interp = _interpret_score(insider_score, "Insider", insider_has_data)
 
         # Determine alignment status
         if not has_divergence:
@@ -88,6 +88,12 @@ def calculate_signal_divergence(
             "analyst_interpretation": analyst_interp,
             "institutional_interpretation": institutional_interp,
             "insider_interpretation": insider_interp,
+            # NEW: Data availability flags
+            "news_has_data": news_has_data,
+            "earnings_has_data": earnings_has_data,
+            "analyst_has_data": analyst_has_data,
+            "institutional_has_data": institutional_has_data,
+            "insider_has_data": insider_has_data,
             "alignment_status": alignment_status,
             "has_divergence": has_divergence,
             "divergence_explanation": divergence_explanation,
@@ -103,12 +109,20 @@ def calculate_signal_divergence(
         return None
 
 
-def _extract_news_score(news_hound_output: Dict[str, Any]) -> float:
-    """Extract news sentiment score from news hound output."""
-    return float(news_hound_output.get("sentiment_score", 5.0))
+def _extract_news_score(news_hound_output: Dict[str, Any]) -> Tuple[float, bool]:
+    """
+    Extract news sentiment score from news hound output.
+
+    Returns:
+        Tuple of (score, has_data)
+    """
+    score = float(news_hound_output.get("sentiment_score", 5.0))
+    # News always has data (even if no articles, we have a confidence score)
+    has_data = True
+    return score, has_data
 
 
-def _extract_earnings_score(news_hound_output: Dict[str, Any]) -> float:
+def _extract_earnings_score(news_hound_output: Dict[str, Any]) -> Tuple[float, bool]:
     """
     Extract earnings revision score from news hound output.
 
@@ -116,28 +130,39 @@ def _extract_earnings_score(news_hound_output: Dict[str, Any]) -> float:
     - Recent upgrades = bullish (7-10)
     - Stable estimates = neutral (4-6)
     - Recent downgrades = bearish (0-3)
+
+    Returns:
+        Tuple of (score, has_data)
     """
     earnings_data = news_hound_output.get("earnings_estimates")
     if not earnings_data or not isinstance(earnings_data, dict):
-        return 5.0
+        return 5.0, False
+
+    # Check if we have actual revision data (not just estimates)
+    upward = earnings_data.get("upward_revisions", 0)
+    downward = earnings_data.get("downward_revisions", 0)
+    analyst_coverage = earnings_data.get("analyst_coverage", 0)
+
+    # Has data if there's analyst coverage (even if no recent revisions)
+    has_data = analyst_coverage > 0
 
     # Look for net_revision_direction field (from EarningsEstimateRevision model)
     net_direction = earnings_data.get("net_revision_direction", "neutral").lower()
 
     # Map direction to score
     if "strongly positive" in net_direction:
-        return 9.0
+        return 9.0, has_data
     elif "positive" in net_direction:
-        return 7.5
+        return 7.5, has_data
     elif "strongly negative" in net_direction:
-        return 1.5
+        return 1.5, has_data
     elif "negative" in net_direction:
-        return 2.5
+        return 2.5, has_data
     else:  # neutral
-        return 5.0
+        return 5.0, has_data
 
 
-def _extract_analyst_score(news_hound_output: Dict[str, Any]) -> float:
+def _extract_analyst_score(news_hound_output: Dict[str, Any]) -> Tuple[float, bool]:
     """
     Extract analyst rating score from news hound output.
 
@@ -145,10 +170,24 @@ def _extract_analyst_score(news_hound_output: Dict[str, Any]) -> float:
     - Strong Buy/Buy majority = bullish (7-10)
     - Hold majority = neutral (4-6)
     - Sell/Strong Sell majority = bearish (0-3)
+
+    Returns:
+        Tuple of (score, has_data)
     """
     analyst_data = news_hound_output.get("analyst_consensus")
     if not analyst_data or not isinstance(analyst_data, dict):
-        return 5.0
+        return 5.0, False
+
+    # Check if we have actual analyst data
+    strong_buy = analyst_data.get("strong_buy", 0)
+    buy = analyst_data.get("buy", 0)
+    hold = analyst_data.get("hold", 0)
+    sell = analyst_data.get("sell", 0)
+    strong_sell = analyst_data.get("strong_sell", 0)
+    total_analysts = strong_buy + buy + hold + sell + strong_sell
+
+    # Has data if there are analysts covering the stock
+    has_data = total_analysts > 0
 
     # Look for consensus_rating field (from AnalystConsensus model)
     consensus = analyst_data.get("consensus_rating", "hold").lower()
@@ -173,10 +212,10 @@ def _extract_analyst_score(news_hound_output: Dict[str, Any]) -> float:
     elif "deteriorating" in rating_momentum and base_score > 2.0:
         base_score -= 0.5
 
-    return base_score
+    return base_score, has_data
 
 
-def _extract_institutional_score(news_hound_output: Dict[str, Any]) -> float:
+def _extract_institutional_score(news_hound_output: Dict[str, Any]) -> Tuple[float, bool]:
     """
     Extract institutional activity score from news hound output.
 
@@ -184,10 +223,20 @@ def _extract_institutional_score(news_hound_output: Dict[str, Any]) -> float:
     - Net buying/accumulation = bullish (7-10)
     - Neutral/stable = neutral (4-6)
     - Net selling/distribution = bearish (0-3)
+
+    Returns:
+        Tuple of (score, has_data)
     """
     inst_data = news_hound_output.get("institutional_activity")
     if not inst_data or not isinstance(inst_data, dict):
-        return 5.0
+        return 5.0, False
+
+    # Check if we have actual institutional holder data
+    num_holders = inst_data.get("num_holders", 0)
+    institutional_ownership_pct = inst_data.get("institutional_ownership_pct")
+
+    # Has data if there are institutional holders tracked
+    has_data = num_holders > 0 or institutional_ownership_pct is not None
 
     # Look for trend and sentiment fields (from InstitutionalActivity model)
     trend = inst_data.get("trend", "stable").lower()
@@ -195,16 +244,16 @@ def _extract_institutional_score(news_hound_output: Dict[str, Any]) -> float:
 
     # Map sentiment to score (primary signal)
     if "strongly bullish" in sentiment:
-        return 9.0
+        return 9.0, has_data
     elif "bullish" in sentiment or "accumulation" in trend:
-        return 7.5
+        return 7.5, has_data
     elif "bearish" in sentiment or "distribution" in trend:
-        return 2.5
+        return 2.5, has_data
     else:  # neutral or stable
-        return 5.0
+        return 5.0, has_data
 
 
-def _extract_insider_score(news_hound_output: Dict[str, Any]) -> float:
+def _extract_insider_score(news_hound_output: Dict[str, Any]) -> Tuple[float, bool]:
     """
     Extract insider activity score from news hound output.
 
@@ -213,13 +262,13 @@ def _extract_insider_score(news_hound_output: Dict[str, Any]) -> float:
     - Neutral = neutral (4-6)
     - Net selling = bearish (0-3)
 
-    IMPORTANT: Returns 5.0 only when there's no data OR when data shows neutral.
-    Check transaction counts and values to distinguish real neutral from no data.
+    Returns:
+        Tuple of (score, has_data)
     """
     insider_data = news_hound_output.get("insider_activity")
     if not insider_data or not isinstance(insider_data, dict):
         logger.debug("No insider activity data available - using neutral score 5.0")
-        return 5.0
+        return 5.0, False
 
     # Extract transaction data to detect if we have real data
     buy_transactions = insider_data.get("buy_transactions", 0)
@@ -230,34 +279,37 @@ def _extract_insider_score(news_hound_output: Dict[str, Any]) -> float:
     # If no transactions recorded, this is likely missing data not true neutral
     if buy_transactions == 0 and sell_transactions == 0 and net_value == 0.0:
         logger.warning("Insider activity exists but has no transaction data - defaulting to neutral 5.0")
-        return 5.0
+        return 5.0, False
+
+    # We have real transaction data
+    has_data = True
 
     # Now we have real data - score based on net activity
     # Use net_value as primary signal, sentiment as secondary
     if net_value > 1_000_000 or "bullish" in sentiment:  # $1M+ net buying
         # Scale score based on magnitude
         if net_value > 5_000_000:  # $5M+ = strong bullish
-            return 8.5
+            return 8.5, has_data
         elif net_value > 2_000_000:  # $2M+ = bullish
-            return 7.5
+            return 7.5, has_data
         else:
-            return 7.0
+            return 7.0, has_data
     elif net_value < -1_000_000 or "bearish" in sentiment:  # $1M+ net selling
         # Scale score based on magnitude
         if net_value < -5_000_000:  # $5M+ selling = strong bearish
-            return 1.5
+            return 1.5, has_data
         elif net_value < -2_000_000:  # $2M+ selling = bearish
-            return 2.5
+            return 2.5, has_data
         else:
-            return 3.0
+            return 3.0, has_data
     else:  # Truly neutral - small net value between -1M and +1M
         # Mild buying/selling within normal ranges
         if net_value > 500_000:  # Mild buying
-            return 6.0
+            return 6.0, has_data
         elif net_value < -500_000:  # Mild selling
-            return 4.0
+            return 4.0, has_data
         else:
-            return 5.0  # Truly neutral activity
+            return 5.0, has_data  # Truly neutral activity
 
 
 def _check_divergence(scores: List[float], threshold: float = 2.0) -> Tuple[bool, float]:
@@ -279,19 +331,25 @@ def _check_divergence(scores: List[float], threshold: float = 2.0) -> Tuple[bool
     return has_divergence, std_dev
 
 
-def _interpret_score(score: float, signal_name: str) -> str:
+def _interpret_score(score: float, signal_name: str, has_data: bool = True) -> str:
     """
     Generate interpretation text for a signal score.
 
     Args:
         score: Signal score (0-10)
         signal_name: Name of the signal
+        has_data: Whether actual data is available (vs placeholder)
 
     Returns:
         Interpretation string with emoji
     """
+    # If no data available, show different indicator
+    if not has_data:
+        return f"⚠️ No Data - {signal_name}"
+
+    # Standard score interpretation with data
     if score >= 8.0:
-        return f"🟢 Strongly Bullish {signal_name}"
+        return f"🟢🟢 Strongly Bullish {signal_name}"
     elif score >= 7.0:
         return f"🟢 Bullish {signal_name}"
     elif score >= 5.5:
@@ -300,8 +358,10 @@ def _interpret_score(score: float, signal_name: str) -> str:
         return f"⚪ Neutral {signal_name}"
     elif score >= 3.5:
         return f"⚪ Mildly Bearish {signal_name}"
-    else:
+    elif score >= 2.0:
         return f"🔴 Bearish {signal_name}"
+    else:
+        return f"🔴🔴 Strongly Bearish {signal_name}"
 
 
 def _get_direction(score: float) -> str:

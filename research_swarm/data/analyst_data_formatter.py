@@ -499,17 +499,23 @@ def format_yf_institutional_holders(holders_data: Optional[List[Dict]]) -> str:
         lines = ["**Top 10 Institutional Holders:**\n"]
 
         for i, holder in enumerate(holders_data[:10], 1):
-            name = holder.get("holder", "N/A")
-            shares = holder.get("shares", 0)
-            pct_held = holder.get("pct_held")
-            date = holder.get("date_reported", "N/A")
+            # yfinance uses Title Case column names: "Holder", "Shares", "Date Reported", "pctHeld"
+            # Also try lowercase variants for compatibility
+            name = holder.get("Holder") or holder.get("holder", "N/A")
+            shares = holder.get("Shares") or holder.get("shares", 0)
+            pct_held = holder.get("pctHeld") or holder.get("pct_held")
+            date = holder.get("Date Reported") or holder.get("date_reported", "N/A")
+            pct_change = holder.get("pctChange") or holder.get("pct_change")
 
             shares_m = shares / 1_000_000 if shares else 0
 
             lines.append(f"{i}. {name}")
             lines.append(f"   - Shares: {shares_m:.2f}M")
             if pct_held:
-                lines.append(f"   - % of Outstanding: {pct_held:.2f}%")
+                lines.append(f"   - % of Outstanding: {pct_held*100:.2f}%")
+            if pct_change is not None:
+                change_direction = "+" if pct_change > 0 else ""
+                lines.append(f"   - QoQ Change: {change_direction}{pct_change*100:.1f}%")
             lines.append(f"   - Date Reported: {date}")
             lines.append("")
 

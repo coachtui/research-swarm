@@ -104,6 +104,12 @@ export interface SignalBreakdown {
   analyst_interpretation: string
   institutional_interpretation: string
   insider_interpretation: string
+  // Data availability flags (NEW)
+  news_has_data?: boolean
+  earnings_has_data?: boolean
+  analyst_has_data?: boolean
+  institutional_has_data?: boolean
+  insider_has_data?: boolean
   alignment_status: string
   has_divergence: boolean
   divergence_explanation: string
