@@ -153,7 +153,7 @@ export default function ProfessionalAnalysisPage({ params }: ProfessionalAnalysi
             <div className="flex items-center justify-between text-sm text-text-secondary">
               <div>
                 <p className="text-2xl font-semibold text-text-primary">{result.ticker}</p>
-                <p>Analysis Date: {new Date(run.completed_at || run.created_at).toLocaleDateString('en-US', {
+                <p className="text-text-primary">Analysis Date: {new Date(run.completed_at || run.created_at).toLocaleDateString('en-US', {
                   year: 'numeric',
                   month: 'long',
                   day: 'numeric'
@@ -201,7 +201,7 @@ export default function ProfessionalAnalysisPage({ params }: ProfessionalAnalysi
           {/* Disclaimer */}
           <footer className="border-t-2 border-border pt-6 mt-12">
             <p className="text-xs text-text-tertiary leading-relaxed">
-              <strong>Disclaimer:</strong> This analysis is provided for informational purposes only
+              <strong className="text-text-primary">Disclaimer:</strong> This analysis is provided for informational purposes only
               and does not constitute investment advice, financial advice, trading advice, or any
               other sort of advice. The information contained herein is based on sources believed
               to be reliable but is not guaranteed as to accuracy or completeness. Past performance

@@ -145,20 +145,20 @@ export function ProfessionalExecutiveSummary({
                       </Tooltip>
                     </div>
                   </td>
-                  <td className="border border-border px-4 py-3 text-center font-semibold">
+                  <td className="border border-border px-4 py-3 text-center font-semibold text-text-primary">
                     {moatBreakdown.earnings_momentum.toFixed(1)}
                   </td>
-                  <td className="border border-border px-4 py-3 text-center">
+                  <td className="border border-border px-4 py-3 text-center text-text-primary">
                     {getAssessment(moatBreakdown.earnings_momentum)}
                   </td>
                 </tr>
                 <tr>
                   <td className="border border-border px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      <span>Financial Health</span>
+                      <span className="text-text-primary">Financial Health</span>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button className="text-text-tertiary hover:text-text-secondary transition-colors">
+                          <button className="text-text-tertiary hover:text-text-primary transition-colors">
                             <HelpCircle className="h-3.5 w-3.5" />
                           </button>
                         </TooltipTrigger>
@@ -170,20 +170,20 @@ export function ProfessionalExecutiveSummary({
                       </Tooltip>
                     </div>
                   </td>
-                  <td className="border border-border px-4 py-3 text-center font-semibold">
+                  <td className="border border-border px-4 py-3 text-center font-semibold text-text-primary">
                     {moatBreakdown.financial_health.toFixed(1)}
                   </td>
-                  <td className="border border-border px-4 py-3 text-center">
+                  <td className="border border-border px-4 py-3 text-center text-text-primary">
                     {getAssessment(moatBreakdown.financial_health)}
                   </td>
                 </tr>
                 <tr>
                   <td className="border border-border px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      <span>Valuation</span>
+                      <span className="text-text-primary">Valuation</span>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button className="text-text-tertiary hover:text-text-secondary transition-colors">
+                          <button className="text-text-tertiary hover:text-text-primary transition-colors">
                             <HelpCircle className="h-3.5 w-3.5" />
                           </button>
                         </TooltipTrigger>
@@ -195,20 +195,20 @@ export function ProfessionalExecutiveSummary({
                       </Tooltip>
                     </div>
                   </td>
-                  <td className="border border-border px-4 py-3 text-center font-semibold">
+                  <td className="border border-border px-4 py-3 text-center font-semibold text-text-primary">
                     {moatBreakdown.valuation.toFixed(1)}
                   </td>
-                  <td className="border border-border px-4 py-3 text-center">
+                  <td className="border border-border px-4 py-3 text-center text-text-primary">
                     {getAssessment(moatBreakdown.valuation)}
                   </td>
                 </tr>
                 <tr>
                   <td className="border border-border px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      <span>Technical Strength</span>
+                      <span className="text-text-primary">Technical Strength</span>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button className="text-text-tertiary hover:text-text-secondary transition-colors">
+                          <button className="text-text-tertiary hover:text-text-primary transition-colors">
                             <HelpCircle className="h-3.5 w-3.5" />
                           </button>
                         </TooltipTrigger>
@@ -220,20 +220,20 @@ export function ProfessionalExecutiveSummary({
                       </Tooltip>
                     </div>
                   </td>
-                  <td className="border border-border px-4 py-3 text-center font-semibold">
+                  <td className="border border-border px-4 py-3 text-center font-semibold text-text-primary">
                     {moatBreakdown.technical_strength.toFixed(1)}
                   </td>
-                  <td className="border border-border px-4 py-3 text-center">
+                  <td className="border border-border px-4 py-3 text-center text-text-primary">
                     {getAssessment(moatBreakdown.technical_strength)}
                   </td>
                 </tr>
                 <tr>
                   <td className="border border-border px-4 py-3">
                     <div className="flex items-center gap-1.5">
-                      <span>Sentiment & Catalysts</span>
+                      <span className="text-text-primary">Sentiment & Catalysts</span>
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button className="text-text-tertiary hover:text-text-secondary transition-colors">
+                          <button className="text-text-tertiary hover:text-text-primary transition-colors">
                             <HelpCircle className="h-3.5 w-3.5" />
                           </button>
                         </TooltipTrigger>
@@ -245,10 +245,10 @@ export function ProfessionalExecutiveSummary({
                       </Tooltip>
                     </div>
                   </td>
-                  <td className="border border-border px-4 py-3 text-center font-semibold">
+                  <td className="border border-border px-4 py-3 text-center font-semibold text-text-primary">
                     {moatBreakdown.sentiment_catalysts.toFixed(1)}
                   </td>
-                  <td className="border border-border px-4 py-3 text-center">
+                  <td className="border border-border px-4 py-3 text-center text-text-primary">
                     {getAssessment(moatBreakdown.sentiment_catalysts)}
                   </td>
                 </tr>
@@ -268,21 +268,21 @@ export function ProfessionalExecutiveSummary({
                 <tbody>
                   <tr className="border-b border-border">
                     <td className="py-2 font-medium text-text-secondary">Overall Signal</td>
-                    <td className="py-2 text-right font-semibold">
+                    <td className="py-2 text-right font-semibold text-text-primary">
                       {signalBreakdown.overall_score.toFixed(1)}/10
                     </td>
                   </tr>
                   <tr className="border-b border-border">
                     <td className="py-2 font-medium text-text-secondary">Analyst Consensus</td>
-                    <td className="py-2 text-right">{signalBreakdown.analyst_score.toFixed(1)}/10</td>
+                    <td className="py-2 text-right text-text-primary">{signalBreakdown.analyst_score.toFixed(1)}/10</td>
                   </tr>
                   <tr className="border-b border-border">
                     <td className="py-2 font-medium text-text-secondary">Institutional Activity</td>
-                    <td className="py-2 text-right">{signalBreakdown.institutional_score.toFixed(1)}/10</td>
+                    <td className="py-2 text-right text-text-primary">{signalBreakdown.institutional_score.toFixed(1)}/10</td>
                   </tr>
                   <tr>
                     <td className="py-2 font-medium text-text-secondary">Insider Activity</td>
-                    <td className="py-2 text-right">{signalBreakdown.insider_score.toFixed(1)}/10</td>
+                    <td className="py-2 text-right text-text-primary">{signalBreakdown.insider_score.toFixed(1)}/10</td>
                   </tr>
                 </tbody>
               </table>
@@ -292,19 +292,19 @@ export function ProfessionalExecutiveSummary({
                 <tbody>
                   <tr className="border-b border-border">
                     <td className="py-2 font-medium text-text-secondary">News Sentiment</td>
-                    <td className="py-2 text-right">{signalBreakdown.news_score.toFixed(1)}/10</td>
+                    <td className="py-2 text-right text-text-primary">{signalBreakdown.news_score.toFixed(1)}/10</td>
                   </tr>
                   <tr className="border-b border-border">
                     <td className="py-2 font-medium text-text-secondary">Earnings Revisions</td>
-                    <td className="py-2 text-right">{signalBreakdown.earnings_score.toFixed(1)}/10</td>
+                    <td className="py-2 text-right text-text-primary">{signalBreakdown.earnings_score.toFixed(1)}/10</td>
                   </tr>
                   <tr className="border-b border-border">
                     <td className="py-2 font-medium text-text-secondary">Direction Consensus</td>
-                    <td className="py-2 text-right font-semibold">{signalBreakdown.direction_consensus}</td>
+                    <td className="py-2 text-right font-semibold text-text-primary">{signalBreakdown.direction_consensus}</td>
                   </tr>
                   <tr>
                     <td className="py-2 font-medium text-text-secondary">Divergence Status</td>
-                    <td className="py-2 text-right">
+                    <td className="py-2 text-right text-text-primary">
                       {signalBreakdown.has_divergence ? 'Present' : 'Aligned'}
                     </td>
                   </tr>
@@ -315,7 +315,7 @@ export function ProfessionalExecutiveSummary({
           {signalBreakdown.has_divergence && signalBreakdown.divergence_explanation && (
             <div className="bg-warning/10 border border-warning/20 rounded-lg p-4">
               <p className="text-sm font-medium text-warning mb-2">Signal Divergence Detected</p>
-              <p className="text-sm text-text-secondary leading-relaxed">
+              <p className="text-sm text-text-primary leading-relaxed">
                 {signalBreakdown.divergence_explanation}
               </p>
             </div>
@@ -325,7 +325,7 @@ export function ProfessionalExecutiveSummary({
 
       {/* Bottom Line */}
       {full_output.conviction_statement && (
-        <div className="bg-surface-elevated border-l-4 border-l-primary rounded-lg p-6">
+        <div className="bg-primary/10 border-l-4 border-l-primary rounded-lg p-6">
           <h3 className="text-lg font-semibold text-text-primary mb-3">Investment Conviction</h3>
           <p className="text-text-primary font-medium mb-4">
             {full_output.conviction_statement.bottom_line}

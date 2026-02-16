@@ -157,7 +157,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
     key_insights,
     risk_factors,
     signal_breakdown,
-    conviction_statement,
     upgrade_triggers,
     downgrade_triggers,
     decision_intelligence,
@@ -284,8 +283,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
         {/* 10. Bottom Line */}
         <BottomLine
-          conviction={conviction_statement}
-          framework={decision_intelligence?.decision_framework}
           upgradeTriggers={upgrade_triggers}
           downgradeTriggers={downgrade_triggers}
         />
