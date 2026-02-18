@@ -144,11 +144,11 @@ export function WatchlistCard({ item }: WatchlistCardProps) {
 }
 
 // Helper functions for rating badges
-function getRatingVariant(score: number): 'default' | 'secondary' | 'destructive' | 'outline' {
-  if (score >= 7.5) return 'default' // Strong Buy
-  if (score >= 6.0) return 'secondary' // Buy
-  if (score >= 4.0) return 'outline' // Hold
-  return 'destructive' // Sell
+function getRatingVariant(score: number): 'default' | 'secondary' | 'success' | 'warning' | 'error' {
+  if (score >= 7.5) return 'success' // Strong Buy
+  if (score >= 6.0) return 'default' // Buy
+  if (score >= 4.0) return 'warning' // Hold
+  return 'error' // Sell
 }
 
 function getRatingLabel(score: number): string {

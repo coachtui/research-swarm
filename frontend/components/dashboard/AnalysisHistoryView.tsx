@@ -105,12 +105,12 @@ export function AnalysisHistoryView() {
                     <Badge
                       variant={
                         run.status === 'completed'
-                          ? 'default'
+                          ? 'success'
                           : run.status === 'running'
-                          ? 'secondary'
+                          ? 'default'
                           : run.status === 'failed'
-                          ? 'destructive'
-                          : 'outline'
+                          ? 'error'
+                          : 'secondary'
                       }
                     >
                       {run.status}
