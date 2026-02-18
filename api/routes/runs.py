@@ -28,7 +28,18 @@ async def list_runs(
     - `status`: Filter by status (queued, running, completed, failed)
     """
 
-    db = await get_db()
+    # Handle potential connection timeout
+    from api.lib.db import _db_client
+    global _db_client
+
+    try:
+        db = await get_db()
+        if not db.is_connected():
+            await db.disconnect()
+            await db.connect()
+    except Exception:
+        _db_client = None  # Force fresh connection
+        db = await get_db()
 
     # Build query filters
     where_clause = {"userId": user.id}
@@ -81,7 +92,18 @@ async def get_run(
     - Error information (if failed)
     """
 
-    db = await get_db()
+    # Handle potential connection timeout after long-running analysis
+    from api.lib.db import _db_client
+    global _db_client
+
+    try:
+        db = await get_db()
+        if not db.is_connected():
+            await db.disconnect()
+            await db.connect()
+    except Exception:
+        _db_client = None  # Force fresh connection
+        db = await get_db()
 
     # Query database for run with results
     run = await db.run.find_unique(
@@ -92,8 +114,8 @@ async def get_run(
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    # Verify user owns this run
-    if run.userId != user.id:
+    # Verify user owns this run or is an admin
+    if run.userId != user.id and not user.is_admin:
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Format response
@@ -144,7 +166,29 @@ async def delete_run(
     Delete a run and all associated results.
 
     **Note**: This also cancels the job if it's still running.
+    **Admin-only**: Admins can delete any run.
     """
+    # Handle potential connection timeout
+    from api.lib.db import _db_client
+    global _db_client
+
+    try:
+        db = await get_db()
+        if not db.is_connected():
+            await db.disconnect()
+            await db.connect()
+    except Exception:
+        _db_client = None  # Force fresh connection
+        db = await get_db()
+
+    # Check if run exists
+    run = await db.run.find_unique(where={"id": run_id})
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    # Verify user owns this run or is an admin
+    if run.userId != user.id and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # TODO: Cancel Inngest job if running
     # TODO: Delete from database

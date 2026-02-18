@@ -16,6 +16,15 @@ export interface AnalyzeResponse {
   result?: StockResult
 }
 
+export interface InvestmentThesisStructured {
+  company_overview: string
+  recommendation_summary: string
+  investment_highlights: string[]
+  valuation_signal_analysis: string
+  key_risks: string[]
+  entry_strategy: string
+}
+
 export interface StockResult {
   ticker: string
   status: 'pending' | 'running' | 'completed' | 'failed'
@@ -26,7 +35,7 @@ export interface StockResult {
   technical_score: number | null
   supply_chain_score: number | null
   watchlist_candidate: boolean
-  investment_thesis: string | null
+  investment_thesis: InvestmentThesisStructured | null
   full_output: ManagerOutput | null
   tokens_used: number
   cost_usd: number
@@ -52,7 +61,14 @@ export interface ManagerOutput {
   synthesis_narrative: string
   key_insights: string[]
   risk_factors: string[]
-  investment_thesis: string
+  investment_thesis: InvestmentThesisStructured
+  strategic_catalysts?: Array<{
+    title: string
+    description: string
+    category: string
+    potential_impact: 'HIGH' | 'MEDIUM' | 'LOW'
+    timeframe: string
+  }>
 
   // Moat breakdown (v2.0 formula)
   moat_breakdown: {
@@ -72,6 +88,31 @@ export interface ManagerOutput {
 
   // Signal breakdown (divergence analysis)
   signal_breakdown?: SignalBreakdown
+
+  // Investment recommendations (newly exposed)
+  price_targets?: {
+    bull_target: number
+    bull_probability: number
+    bull_assumptions: string
+    base_target: number
+    base_probability: number
+    base_assumptions: string
+    bear_target: number
+    bear_probability: number
+    bear_assumptions: string
+    methodology: string
+  }
+  structured_risks?: Array<{
+    risk: string
+    severity: 'HIGH' | 'MEDIUM' | 'LOW'
+    likelihood: 'High' | 'Medium' | 'Low'
+    impact: string
+    mitigation: string
+  }>
+  recommendation?: 'BUY' | 'HOLD' | 'AVOID'
+  rating?: string
+  rating_score?: number
+  risk_level?: string
 
   // Conviction & triggers
   conviction_statement?: ConvictionStatement
@@ -94,22 +135,32 @@ export interface ManagerOutput {
 
 export interface SignalBreakdown {
   overall_score: number
+  // Original 5 signals
   news_score: number
   earnings_score: number
   analyst_score: number
   institutional_score: number
   insider_score: number
+  // NEW: 2 additional signals (7-signal system)
+  dark_pool_score: number
+  tech_divergence_score: number
+  // Interpretations
   news_interpretation: string
   earnings_interpretation: string
   analyst_interpretation: string
   institutional_interpretation: string
   insider_interpretation: string
-  // Data availability flags (NEW)
+  dark_pool_interpretation: string
+  tech_divergence_interpretation: string
+  // Data availability flags
   news_has_data?: boolean
   earnings_has_data?: boolean
   analyst_has_data?: boolean
   institutional_has_data?: boolean
   insider_has_data?: boolean
+  dark_pool_has_data?: boolean
+  tech_divergence_has_data?: boolean
+  // Divergence analysis
   alignment_status: string
   has_divergence: boolean
   divergence_explanation: string
@@ -249,6 +300,148 @@ export interface RunResponse {
   created_at: string
   completed_at: string | null
   results: StockResult[]
+}
+
+// --- Watchlist Types ---
+
+export interface WatchlistItem {
+  id: string
+  ticker: string
+  company_name: string | null
+  added_at: string
+  last_checked_at: string | null
+  initial_moat_score: number | null
+  latest_moat_score: number | null
+  score_change: number | null
+  latest_analysis_date: string | null
+  notes: string | null
+  days_since_update: number | null
+  can_refresh: boolean
+  initial_analysis_run_id: string | null
+  latest_analysis_run_id: string | null
+}
+
+export interface WatchlistResponse {
+  items: WatchlistItem[]
+  total: number
+}
+
+export interface AddToWatchlistRequest {
+  ticker: string
+  company_name?: string
+  notes?: string
+  analysis_run_id?: string
+}
+
+export interface UpdateNotesRequest {
+  notes: string
+}
+
+export interface RefreshWatchlistResponse {
+  success: boolean
+  new_score: number | null
+  old_score: number | null
+  score_change: number | null
+  run_id: string | null
+}
+
+export interface WatchlistStatsResponse {
+  watchlist_count: number
+  watchlist_limit: number
+  avg_score: number | null
+  divergence_count: number
+  needs_refresh_count: number
+}
+
+// --- Quota Types ---
+
+export interface QuotaData {
+  analyses_used: number
+  analyses_limit: number
+  analyses_remaining: number
+  watchlist_count: number
+  watchlist_limit: number
+  watchlist_remaining: number
+  period_start: string
+  period_end: string
+  tier: string
+}
+
+// --- Admin Types ---
+
+export interface PlatformMetrics {
+  users: {
+    total: number
+    free: number
+    pro: number
+    premium: number
+  }
+  analyses: {
+    total: number
+    today: number
+  }
+  watchlist_adoption_rate: number
+}
+
+export interface UserWithUsage {
+  id: string
+  email: string
+  full_name: string | null
+  tier: string
+  is_active: boolean
+  is_admin: boolean
+  created_at: string
+  watchlist_count: number
+  analyses_used: number
+  analyses_limit: number
+}
+
+export interface UsersListResponse {
+  users: UserWithUsage[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AnalysisRecord {
+  run_id: string
+  user_email: string
+  ticker: string
+  status: string
+  moat_score: number | null
+  created_at: string
+  cost_usd: number
+}
+
+export interface AnalysesListResponse {
+  analyses: AnalysisRecord[]
+  total: number
+}
+
+export interface UpdateTierRequest {
+  new_tier: string
+}
+
+export interface CostSummary {
+  today: number
+  week: number
+  month: number
+  year: number
+  all_time: number
+  analyses_today: number
+  analyses_week: number
+  analyses_month: number
+  analyses_year: number
+  analyses_all_time: number
+}
+
+export interface UserInfo {
+  id: string
+  email: string
+  full_name: string | null
+  tier: string
+  is_active: boolean
+  is_admin: boolean
 }
 
 export class ApiError extends Error {

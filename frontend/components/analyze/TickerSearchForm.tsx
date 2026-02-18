@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useAuth } from '@clerk/nextjs'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -12,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useSubmitAnalysis } from '@/lib/hooks/useAnalysis'
 import { formatTicker, isValidTicker } from '@/lib/utils/formatting'
 import { getErrorMessage } from '@/lib/utils/errors'
+import { apiClient } from '@/lib/api/client'
 
 const formSchema = z.object({
   ticker: z
@@ -22,10 +24,6 @@ const formSchema = z.object({
     .refine((val) => isValidTicker(val), {
       message: 'Please enter a valid ticker symbol (letters only)',
     }),
-  email: z
-    .string()
-    .min(1, 'Email is required')
-    .email('Please enter a valid email address'),
   newsDaysBack: z.number().min(1).max(90).default(30),
 })
 
@@ -33,6 +31,7 @@ type FormData = z.infer<typeof formSchema>
 
 export function TickerSearchForm() {
   const router = useRouter()
+  const { getToken } = useAuth()
   const [serverError, setServerError] = useState<string | null>(null)
   const submitAnalysis = useSubmitAnalysis()
 
@@ -45,7 +44,6 @@ export function TickerSearchForm() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       ticker: '',
-      email: '',
       newsDaysBack: 30,
     },
   })
@@ -56,6 +54,13 @@ export function TickerSearchForm() {
     setServerError(null)
 
     try {
+      // Get auth token from Clerk and set it on API client
+      const token = await getToken()
+      if (!token) {
+        throw new Error('Not authenticated. Please sign in.')
+      }
+      apiClient.setAuthToken(token)
+
       const response = await submitAnalysis.mutateAsync({
         ticker: data.ticker,
         news_days_back: data.newsDaysBack,
@@ -96,27 +101,6 @@ export function TickerSearchForm() {
             )}
             <p className="text-xs text-text-tertiary">
               We support US stocks and foreign ADRs (e.g., TSM, BABA)
-            </p>
-          </div>
-
-          {/* Email Input */}
-          <div className="space-y-2">
-            <Label htmlFor="email">
-              Email <span className="text-error">*</span>
-            </Label>
-            <Input
-              id="email"
-              type="email"
-              placeholder="you@example.com"
-              autoComplete="email"
-              {...register('email')}
-              className={errors.email ? 'border-error focus-visible:ring-error' : ''}
-            />
-            {errors.email && (
-              <p className="text-sm text-error">{errors.email.message}</p>
-            )}
-            <p className="text-xs text-text-tertiary">
-              We'll send your report here when it's ready
             </p>
           </div>
 
@@ -164,7 +148,7 @@ export function TickerSearchForm() {
               </li>
               <li className="flex items-start">
                 <span className="text-primary mr-2">✓</span>
-                <span>DCF-based price targets (Bull/Base/Bear)</span>
+                <span>Price targets with scenarios (Bull/Base/Bear)</span>
               </li>
               <li className="flex items-start">
                 <span className="text-primary mr-2">✓</span>
@@ -209,12 +193,12 @@ export function TickerSearchForm() {
                 Submitting...
               </>
             ) : (
-              <>Analyze {ticker || 'Stock'} - $14.99</>
+              <>Analyze {ticker ? ticker.toUpperCase() : 'Stock'}</>
             )}
           </Button>
 
           <p className="text-xs text-center text-text-tertiary">
-            Analysis typically takes 3-5 minutes • Payment processed by Stripe
+            Analysis typically takes 3-5 minutes
           </p>
         </form>
       </CardContent>

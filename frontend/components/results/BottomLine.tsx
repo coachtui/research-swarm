@@ -17,7 +17,9 @@ export function BottomLine({
 
   return (
     <section className="rating-triggers mt-8">
-      <h2 className="text-2xl font-bold mb-4">📊 Rating Change Triggers</h2>
+      <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+        <span>📊</span> What Would Change This Rating?
+      </h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Upgrade Triggers */}

@@ -1,21 +1,24 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+import { useAuth } from '@clerk/nextjs'
 import Link from 'next/link'
 import { useAnalysis } from '@/lib/hooks/useAnalysis'
+import { apiClient } from '@/lib/api/client'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { SignalDivergenceHero } from '@/components/results/SignalDivergenceHero'
 import { SignalDivergenceSection } from '@/components/results/SignalDivergenceSection'
 import { DecisionAction } from '@/components/results/DecisionAction'
+import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
 import { KeyTakeaways } from '@/components/results/KeyTakeaways'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
 import { TradeSetup } from '@/components/results/TradeSetup'
 import { BottomLine } from '@/components/results/BottomLine'
 import { VerdictSummary } from '@/components/results/VerdictSummary'
-import { RatingTriggers } from '@/components/results/RatingTriggers'
 import { WhatsNew } from '@/components/results/WhatsNew'
 import { WatchCalendar } from '@/components/results/WatchCalendar'
 import { QuickActions } from '@/components/results/QuickActions'
-import { ProfessionalAnalysisSection } from '@/components/results/ProfessionalAnalysisSection'
+// import { ProfessionalAnalysisSection } from '@/components/results/ProfessionalAnalysisSection' // Commented out for future use
 import { PortfolioContext } from '@/components/results/PortfolioContext'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -23,10 +26,10 @@ import { Badge } from '@/components/ui/badge'
 import { formatDateTime } from '@/lib/utils/formatting'
 import { generateVerdictSummary } from '@/lib/analysis/generateVerdictSummary'
 import { simplifyKeyInsights } from '@/lib/analysis/simplifyKeyInsights'
-import { generateRatingTriggers } from '@/lib/analysis/generateRatingTriggers'
 import { extractWhatsNew } from '@/lib/analysis/extractWhatsNew'
 import { extractWatchCalendar } from '@/lib/analysis/extractWatchCalendar'
 import { extractQuickActionsData } from '@/lib/analysis/extractQuickActionsData'
+import { AddToWatchlistButton } from '@/components/dashboard/AddToWatchlistButton'
 
 interface ResultsPageProps {
   params: { run_id: string }
@@ -34,7 +37,40 @@ interface ResultsPageProps {
 
 export default function ResultsPage({ params }: ResultsPageProps) {
   const { run_id } = params
-  const { data: run, isLoading, error } = useAnalysis(run_id)
+  const { getToken } = useAuth()
+  const [tokenReady, setTokenReady] = useState(false)
+
+  // Set auth token before fetching data
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        const token = await getToken()
+        if (token) {
+          apiClient.setAuthToken(token)
+        }
+        setTokenReady(true)
+      } catch (error) {
+        console.error('Failed to set auth token:', error)
+        setTokenReady(true) // Continue anyway
+      }
+    }
+    initAuth()
+  }, [getToken])
+
+  // Wait for token before rendering content
+  if (!tokenReady) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    )
+  }
+
+  return <ResultsContent runId={run_id} />
+}
+
+function ResultsContent({ runId }: { runId: string }) {
+  const { data: run, isLoading, error } = useAnalysis(runId)
 
   // Error state
   if (error) {
@@ -165,7 +201,6 @@ export default function ResultsPage({ params }: ResultsPageProps) {
   // Generate enhanced data using transformation functions
   const verdictData = generateVerdictSummary(full_output, decision_intelligence, moat_score)
   const { strengths, concerns } = simplifyKeyInsights(key_insights || [], risk_factors || [])
-  const ratingTriggersData = generateRatingTriggers(full_output, decision_intelligence)
 
   // Extract data for new components
   const whatsNewItems = extractWhatsNew(full_output)
@@ -178,14 +213,43 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
         {/* 1. Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-text-primary">
-              {result.ticker} Analysis
-            </h1>
-            <p className="text-sm text-text-secondary">
-              Completed {formatDateTime(run.completed_at || run.created_at)}
-            </p>
+          <div className="flex items-center gap-4">
+            {/* Company Logo */}
+            <div className="relative w-16 h-16 rounded-lg bg-surface-elevated overflow-hidden flex-shrink-0 border border-border-subtle">
+              <img
+                src={`https://assets.parqet.com/logos/symbol/${result.ticker}`}
+                alt={`${result.ticker} logo`}
+                className="w-full h-full object-contain p-2"
+                onError={(e) => {
+                  // Fallback to ticker initial if logo fails
+                  const target = e.target as HTMLImageElement
+                  target.style.display = 'none'
+                  const fallback = target.nextElementSibling as HTMLDivElement
+                  if (fallback) fallback.style.display = 'flex'
+                }}
+              />
+              <div className="absolute inset-0 items-center justify-center bg-surface-elevated text-text-secondary text-2xl font-bold hidden">
+                {result.ticker[0]}
+              </div>
+            </div>
+
+            <div>
+              <h1 className="text-2xl font-bold text-text-primary">
+                {result.ticker} Analysis
+              </h1>
+              <div className="flex items-center gap-3 mt-1">
+                {decision_intelligence?.current_price && (
+                  <p className="text-lg font-semibold text-text-primary">
+                    ${decision_intelligence.current_price.toFixed(2)}
+                  </p>
+                )}
+                <p className="text-sm text-text-secondary">
+                  Completed {formatDateTime(run.completed_at || run.created_at)}
+                </p>
+              </div>
+            </div>
           </div>
+
           <div className="flex items-center gap-2">
             {decision_intelligence?.rating && (
               <Badge variant={
@@ -198,6 +262,11 @@ export default function ResultsPage({ params }: ResultsPageProps) {
             {decision_intelligence?.risk_level && (
               <Badge variant="secondary">{decision_intelligence.risk_level} Risk</Badge>
             )}
+            <AddToWatchlistButton
+              ticker={result.ticker}
+              companyName={full_output?.fundamentalist_output?.company_name}
+              runId={run.id}
+            />
           </div>
         </div>
 
@@ -216,6 +285,15 @@ export default function ResultsPage({ params }: ResultsPageProps) {
             ticker={result.ticker}
             rating={decision_intelligence.rating}
             riskLevel={decision_intelligence.risk_level}
+          />
+        )}
+
+        {/* 3.5. Price Targets - 12 month projections */}
+        {decision_intelligence?.current_price && result.full_output?.price_targets && (
+          <PriceTargetsCard
+            priceTargets={result.full_output.price_targets}
+            currentPrice={decision_intelligence.current_price}
+            ticker={result.ticker}
           />
         )}
 
@@ -260,6 +338,7 @@ export default function ResultsPage({ params }: ResultsPageProps) {
             financialHealthScore={moat_breakdown.financial_health}
             sector="Technology" // TODO: Extract from full_output
             currentPrice={decision_intelligence.current_price || 0}
+            convictionPosition={decision_intelligence.conviction_position}
           />
         )}
 
@@ -287,11 +366,8 @@ export default function ResultsPage({ params }: ResultsPageProps) {
           downgradeTriggers={downgrade_triggers}
         />
 
-        {/* 10.5. Enhanced Rating Triggers */}
-        <RatingTriggers {...ratingTriggersData} />
-
-        {/* 11. Professional Analysis Section */}
-        <ProfessionalAnalysisSection
+        {/* 11. Professional Analysis Section - COMMENTED OUT FOR FUTURE USE */}
+        {/* <ProfessionalAnalysisSection
           ticker={result.ticker}
           run_id={run_id}
           onDownloadPDF={async () => {
@@ -314,7 +390,76 @@ export default function ResultsPage({ params }: ResultsPageProps) {
               alert(error instanceof Error ? error.message : 'Failed to download PDF. Please try again.')
             }
           }}
-        />
+        /> */}
+
+        {/* 11. Investment Thesis */}
+        {full_output?.investment_thesis && (
+          <Card className="border border-border-subtle">
+            <CardContent className="pt-6">
+              <h2 className="text-xl font-semibold text-text-primary mb-4">
+                📋 Investment Thesis
+              </h2>
+              {typeof full_output.investment_thesis === 'string' ? (
+                // Old format: plain string
+                <div className="prose prose-sm max-w-none text-text-secondary">
+                  <p className="whitespace-pre-wrap">{full_output.investment_thesis}</p>
+                </div>
+              ) : (
+                // New format: structured object
+                <div className="space-y-6">
+                  {/* Company Overview */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-text-primary mb-2">Company Overview</h3>
+                    <p className="text-text-secondary">{full_output.investment_thesis.company_overview}</p>
+                  </div>
+
+                  {/* Recommendation Summary */}
+                  <div className="bg-surface-elevated rounded-lg p-4 border-l-4 border-primary">
+                    <p className="text-text-primary font-medium">{full_output.investment_thesis.recommendation_summary}</p>
+                  </div>
+
+                  {/* Investment Highlights */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-text-primary mb-2">Investment Highlights</h3>
+                    <ul className="space-y-2">
+                      {full_output.investment_thesis.investment_highlights.map((highlight, idx) => (
+                        <li key={idx} className="flex items-start text-text-secondary">
+                          <span className="text-success mr-2 mt-1">•</span>
+                          <span>{highlight}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Valuation & Signal Analysis */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-text-primary mb-2">Valuation & Signal Analysis</h3>
+                    <p className="text-text-secondary">{full_output.investment_thesis.valuation_signal_analysis}</p>
+                  </div>
+
+                  {/* Key Risks */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-text-primary mb-2">Key Risks</h3>
+                    <ul className="space-y-2">
+                      {full_output.investment_thesis.key_risks.map((risk, idx) => (
+                        <li key={idx} className="flex items-start text-text-secondary">
+                          <span className="text-error mr-2 mt-1">•</span>
+                          <span>{risk}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Entry Strategy & Investor Fit */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-text-primary mb-2">Entry Strategy & Investor Fit</h3>
+                    <p className="text-text-secondary">{full_output.investment_thesis.entry_strategy}</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* 12. Analyze Another Stock */}
         <div className="flex justify-center">

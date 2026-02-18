@@ -5,7 +5,48 @@
 
 {% if stock.rating %}**Rating:** {{ stock.rating }} ({{ "%.1f"|format(stock.rating_score if stock.rating_score else stock.moat_score) }}/10){% if stock.risk_level %} | **Risk Level:** {{ stock.risk_level }}{% endif %} | {% endif %}**Overall Score:** {{ "%.1f"|format(stock.moat_score) }}/10
 
-**Investment Thesis:** {{ stock.investment_thesis }}
+#### 📋 Investment Thesis
+
+**Company Overview**
+
+{{ stock.investment_thesis.company_overview }}
+
+**{{ stock.investment_thesis.recommendation_summary }}**
+
+**Investment Highlights:**
+{% for highlight in stock.investment_thesis.investment_highlights %}
+- {{ highlight }}
+{% endfor %}
+
+**Valuation & Signal Analysis:**
+
+{{ stock.investment_thesis.valuation_signal_analysis }}
+
+**Key Risks:**
+{% for risk in stock.investment_thesis.key_risks %}
+- {{ risk }}
+{% endfor %}
+
+**Entry Strategy & Investor Fit:**
+
+{{ stock.investment_thesis.entry_strategy }}
+
+{% if stock.strategic_catalysts %}
+
+#### 🚀 Strategic Catalysts (Forward-Looking)
+
+*⚠️ These represent potential future developments not yet reflected in current financials. They are inherently speculative and carry execution risk.*
+
+{% for catalyst in stock.strategic_catalysts %}
+**{{ loop.index }}. {{ catalyst.title }}** ({{ catalyst.category }})
+
+{{ catalyst.description }}
+
+- **Potential Impact:** {{ catalyst.potential_impact }}
+- **Timeframe:** {{ catalyst.timeframe }}
+
+{% endfor %}
+{% endif %}
 
 ---
 
@@ -88,6 +129,54 @@
 | **Value** | {{ "%.1f"|format(stock.vgm_scores.value_score) }}/10 | {{ stock.vgm_scores.value_grade }} | {{ stock.vgm_scores.value_rationale }} |
 | **Growth** | {{ "%.1f"|format(stock.vgm_scores.growth_score) }}/10 | {{ stock.vgm_scores.growth_grade }} | {{ stock.vgm_scores.growth_rationale }} |
 | **Momentum** | {{ "%.1f"|format(stock.vgm_scores.momentum_score) }}/10 | {{ stock.vgm_scores.momentum_grade }} | {{ stock.vgm_scores.momentum_rationale }} |
+
+---
+{% endif %}
+
+{% if stock.signal_breakdown and stock.signal_breakdown.has_divergence %}
+#### ⚡ Signal Divergence Analysis (7 Signals)
+
+**Status:** {{ stock.signal_breakdown.alignment_status }} | **Overall Signal Score:** {{ "%.1f"|format(stock.signal_breakdown.overall_score) }}/10
+
+{{ stock.signal_breakdown.divergence_explanation }}
+
+**Divergence Recommendation:**
+{{ stock.signal_breakdown.divergence_recommendation }}
+
+| Signal | Score | Interpretation | Data |
+|--------|-------|----------------|------|
+| 🎯 Earnings Revisions (PRIMARY) | {{ "%.1f"|format(stock.signal_breakdown.earnings_score) }}/10 | {{ stock.signal_breakdown.earnings_interpretation }} | {% if stock.signal_breakdown.earnings_has_data %}✓{% else %}⚠️{% endif %} |
+| 📰 News Sentiment | {{ "%.1f"|format(stock.signal_breakdown.news_score) }}/10 | {{ stock.signal_breakdown.news_interpretation }} | {% if stock.signal_breakdown.news_has_data %}✓{% else %}⚠️{% endif %} |
+| 📊 Analyst Ratings | {{ "%.1f"|format(stock.signal_breakdown.analyst_score) }}/10 | {{ stock.signal_breakdown.analyst_interpretation }} | {% if stock.signal_breakdown.analyst_has_data %}✓{% else %}⚠️{% endif %} |
+| 🏦 Institutional (Blended 13F + Dark Pool) | {{ "%.1f"|format(stock.signal_breakdown.institutional_score) }}/10 | {{ stock.signal_breakdown.institutional_interpretation }} | {% if stock.signal_breakdown.institutional_has_data %}✓{% else %}⚠️{% endif %} |
+| 🌊 Dark Pool Activity | {{ "%.1f"|format(stock.signal_breakdown.dark_pool_score) }}/10 | {{ stock.signal_breakdown.dark_pool_interpretation }} | {% if stock.signal_breakdown.dark_pool_has_data %}✓{% else %}⚠️{% endif %} |
+| 👔 Insider Activity | {{ "%.1f"|format(stock.signal_breakdown.insider_score) }}/10 | {{ stock.signal_breakdown.insider_interpretation }} | {% if stock.signal_breakdown.insider_has_data %}✓{% else %}⚠️{% endif %} |
+| 📈 Technical Divergence | {{ "%.1f"|format(stock.signal_breakdown.tech_divergence_score) }}/10 | {{ stock.signal_breakdown.tech_divergence_interpretation }} | {% if stock.signal_breakdown.tech_divergence_has_data %}✓{% else %}⚠️{% endif %} |
+
+*🎯 = PRIMARY SIGNAL (estimate revisions) | ✓ = Real data | ⚠️ = No data (neutral default)*
+
+**Key Divergence Patterns:**
+- **Fundamental vs Sentiment Gap:** {% if (stock.signal_breakdown.earnings_score - stock.signal_breakdown.news_score)|abs >= 2.0 %}HIGH ({{ "%.1f"|format((stock.signal_breakdown.earnings_score - stock.signal_breakdown.news_score)|abs) }} points){% else %}Low{% endif %}
+- **Smart Money Gap:** {% if (((stock.signal_breakdown.institutional_score + stock.signal_breakdown.insider_score + stock.signal_breakdown.dark_pool_score) / 3) - ((stock.signal_breakdown.news_score + stock.signal_breakdown.analyst_score) / 2))|abs >= 2.0 %}HIGH ({{ "%.1f"|format((((stock.signal_breakdown.institutional_score + stock.signal_breakdown.insider_score + stock.signal_breakdown.dark_pool_score) / 3) - ((stock.signal_breakdown.news_score + stock.signal_breakdown.analyst_score) / 2))|abs) }} points){% else %}Low{% endif %}
+- **Technical vs Fundamental Gap:** {% if (stock.signal_breakdown.tech_divergence_score - ((stock.signal_breakdown.earnings_score + stock.signal_breakdown.analyst_score) / 2))|abs >= 2.0 %}HIGH ({{ "%.1f"|format((stock.signal_breakdown.tech_divergence_score - ((stock.signal_breakdown.earnings_score + stock.signal_breakdown.analyst_score) / 2))|abs) }} points){% else %}Low{% endif %}
+
+---
+{% elif stock.signal_breakdown %}
+#### ⚡ Signal Alignment (7 Signals)
+
+**Status:** {{ stock.signal_breakdown.alignment_status }} | **Consensus:** {{ stock.signal_breakdown.direction_consensus }} | **Overall:** {{ "%.1f"|format(stock.signal_breakdown.overall_score) }}/10
+
+All major signals pointing same direction → high conviction, low uncertainty.
+
+| Signal | Score | Interpretation | Data |
+|--------|-------|----------------|------|
+| 🎯 Earnings Revisions | {{ "%.1f"|format(stock.signal_breakdown.earnings_score) }}/10 | {{ stock.signal_breakdown.earnings_interpretation }} | {% if stock.signal_breakdown.earnings_has_data %}✓{% else %}⚠️{% endif %} |
+| 📰 News Sentiment | {{ "%.1f"|format(stock.signal_breakdown.news_score) }}/10 | {{ stock.signal_breakdown.news_interpretation }} | {% if stock.signal_breakdown.news_has_data %}✓{% else %}⚠️{% endif %} |
+| 📊 Analyst Ratings | {{ "%.1f"|format(stock.signal_breakdown.analyst_score) }}/10 | {{ stock.signal_breakdown.analyst_interpretation }} | {% if stock.signal_breakdown.analyst_has_data %}✓{% else %}⚠️{% endif %} |
+| 🏦 Institutional Activity | {{ "%.1f"|format(stock.signal_breakdown.institutional_score) }}/10 | {{ stock.signal_breakdown.institutional_interpretation }} | {% if stock.signal_breakdown.institutional_has_data %}✓{% else %}⚠️{% endif %} |
+| 🌊 Dark Pool Activity | {{ "%.1f"|format(stock.signal_breakdown.dark_pool_score) }}/10 | {{ stock.signal_breakdown.dark_pool_interpretation }} | {% if stock.signal_breakdown.dark_pool_has_data %}✓{% else %}⚠️{% endif %} |
+| 👔 Insider Activity | {{ "%.1f"|format(stock.signal_breakdown.insider_score) }}/10 | {{ stock.signal_breakdown.insider_interpretation }} | {% if stock.signal_breakdown.insider_has_data %}✓{% else %}⚠️{% endif %} |
+| 📈 Technical Divergence | {{ "%.1f"|format(stock.signal_breakdown.tech_divergence_score) }}/10 | {{ stock.signal_breakdown.tech_divergence_interpretation }} | {% if stock.signal_breakdown.tech_divergence_has_data %}✓{% else %}⚠️{% endif %} |
 
 ---
 {% endif %}

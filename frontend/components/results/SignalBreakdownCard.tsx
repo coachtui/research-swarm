@@ -10,11 +10,13 @@ interface SignalBreakdownCardProps {
 }
 
 const SIGNALS = [
-  { key: 'news' as const, label: 'News Sentiment', icon: 'N' },
-  { key: 'earnings' as const, label: 'Earnings Revisions', icon: 'E' },
-  { key: 'analyst' as const, label: 'Analyst Ratings', icon: 'A' },
-  { key: 'institutional' as const, label: 'Institutional', icon: 'I' },
-  { key: 'insider' as const, label: 'Insider Activity', icon: 'In' },
+  { key: 'earnings' as const, label: 'Earnings Revisions (PRIMARY)', icon: '🎯' },
+  { key: 'news' as const, label: 'News Sentiment', icon: '📰' },
+  { key: 'analyst' as const, label: 'Analyst Ratings', icon: '📊' },
+  { key: 'institutional' as const, label: 'Institutional (Blended)', icon: '🏦' },
+  { key: 'dark_pool' as const, label: 'Dark Pool Activity', icon: '🌊' },
+  { key: 'insider' as const, label: 'Insider Activity', icon: '👔' },
+  { key: 'tech_divergence' as const, label: 'Technical Divergence', icon: '📈' },
 ]
 
 function getColor(score: number, hasData: boolean = true) {

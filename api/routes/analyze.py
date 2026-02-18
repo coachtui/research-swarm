@@ -9,6 +9,7 @@ from api.dependencies import get_current_user
 from api.models.auth import User
 from api.services.analysis_service import run_stock_analysis
 from api.lib.db import save_analysis_result, get_user_monthly_cost, close_db
+from api.services.quota_service import check_can_analyze, increment_analysis_count
 import uuid
 from datetime import datetime
 
@@ -28,23 +29,16 @@ async def analyze_stock(
     **Authentication required**: Bearer token (Clerk JWT)
 
     **Rate limits**:
-    - Free tier: 10 analyses/month
-    - Pro tier: 50 analyses/month
-    - Enterprise: Unlimited
+    - Pro tier: 10 analyses/month
+    - Premium tier: 30 analyses/month
 
     **Returns**: Analysis results with moat score, thesis, and component scores
     """
 
-    # Check user's monthly spending
-    monthly_cost = await get_user_monthly_cost(user.id)
-    estimated_cost = 0.30
-
-    # Simple quota check (based on free tier $50 limit)
-    if monthly_cost + estimated_cost > 50.0:
-        raise HTTPException(
-            status_code=402,
-            detail=f"Monthly budget exceeded. Current: ${monthly_cost:.2f}, Limit: $50.00"
-        )
+    # Check tier-based analysis quota (admins bypass)
+    can_analyze, error_msg = await check_can_analyze(user.id, user.tier, user.email, user.is_admin)
+    if not can_analyze:
+        raise HTTPException(status_code=402, detail=error_msg)
 
     # CRITICAL: Close the database connection BEFORE the long analysis
     # The sync analysis blocks the event loop for 4+ minutes, killing Prisma connections
@@ -72,6 +66,14 @@ async def analyze_stock(
                     result=result
                 )
                 print(f"✅ Saved {request.ticker} to database: run_id={saved['run_id']}")
+
+                # Increment analysis counter
+                try:
+                    await increment_analysis_count(user.id, user.tier)
+                    print(f"📊 Incremented analysis counter for user {user.id}")
+                except Exception as quota_error:
+                    print(f"⚠️  Failed to increment quota: {quota_error}")
+
             except Exception as db_error:
                 print(f"❌ Database save error: {db_error}")
                 import traceback

@@ -5,8 +5,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 import os
+import logging
 
-from api.routes import analyze, runs, health, reports
+from api.routes import analyze, runs, health, reports, watchlist, admin, webhook, auth, stripe
+
+# Configure logging to show INFO level messages
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s:     %(name)s - %(message)s'
+)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -35,9 +42,14 @@ app.add_middleware(
 
 # Register routes
 app.include_router(health.router, prefix="/api", tags=["Health"])
+app.include_router(auth.router, prefix="/api", tags=["Authentication"])
 app.include_router(analyze.router, prefix="/api", tags=["Analysis"])
 app.include_router(runs.router, prefix="/api", tags=["Runs"])
 app.include_router(reports.router, prefix="/api", tags=["Reports"])
+app.include_router(watchlist.router, prefix="/api", tags=["Watchlist"])
+app.include_router(admin.router, prefix="/api", tags=["Admin"])
+app.include_router(stripe.router, prefix="/api", tags=["Stripe"])
+app.include_router(webhook.router, prefix="/api/webhook", tags=["Webhooks"])
 
 # Root endpoint
 @app.get("/")

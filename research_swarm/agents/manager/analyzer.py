@@ -394,14 +394,28 @@ class ManagerAnalyzer:
             logger.debug(f"Response: {response_text[:500]}")
             return {
                 "recommendation": "HOLD",
-                "investment_thesis": "Error: Failed to generate investment thesis",
+                "investment_thesis": {
+                    "company_overview": "Error: Failed to parse investment thesis JSON",
+                    "recommendation_summary": "HOLD - Error in analysis",
+                    "investment_highlights": ["Error parsing thesis"],
+                    "valuation_signal_analysis": "Error parsing thesis",
+                    "key_risks": ["Error parsing thesis"],
+                    "entry_strategy": "Error parsing thesis"
+                },
             }, 0
 
         except Exception as e:
             logger.error(f"Error generating investment thesis: {e}")
             return {
                 "recommendation": "HOLD",
-                "investment_thesis": "Error: Failed to generate investment thesis",
+                "investment_thesis": {
+                    "company_overview": "Error: Failed to generate investment thesis",
+                    "recommendation_summary": "HOLD - Error in analysis",
+                    "investment_highlights": ["Error generating thesis"],
+                    "valuation_signal_analysis": "Error generating thesis",
+                    "key_risks": ["Error generating thesis"],
+                    "entry_strategy": "Error generating thesis"
+                },
             }, 0
 
     # ========================================================================
@@ -442,7 +456,7 @@ class ManagerAnalyzer:
         # Revenue metrics
         revenue = metrics.get("revenue")
         if revenue:
-            summary_parts.append(f"Revenue: ${revenue/1e9:.1f}B")
+            summary_parts.append(f"Revenue: ${revenue/1e3:.1f}B")
 
         # Profit margins (already in percentage form)
         gross_margin = metrics.get("gross_margin")

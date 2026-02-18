@@ -15,11 +15,18 @@ export async function GET(
   const url = `${API_URL}/api/${apiPath}${searchParams ? `?${searchParams}` : ''}`
 
   try {
+    // Forward Authorization header if present
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    }
+    const authHeader = request.headers.get('authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       signal: AbortSignal.timeout(LONG_TIMEOUT_MS),
     })
 
@@ -36,7 +43,30 @@ export async function GET(
       })
     }
 
-    const data = await response.json()
+    // Try to parse as JSON, handle non-JSON responses
+    let data
+    try {
+      const text = await response.text()
+      if (!text) {
+        data = {}
+      } else if (contentType.includes('application/json')) {
+        data = JSON.parse(text)
+      } else {
+        // Non-JSON response (likely HTML error page)
+        console.error('[proxy GET]', apiPath, `Non-JSON response (${response.status}):`, text.substring(0, 200))
+        return NextResponse.json(
+          { error: `Backend returned non-JSON response: ${text.substring(0, 100)}` },
+          { status: response.status || 500 }
+        )
+      }
+    } catch (parseError) {
+      console.error('[proxy GET]', apiPath, 'JSON parse error:', parseError)
+      return NextResponse.json(
+        { error: 'Failed to parse backend response' },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json(data, { status: response.status })
   } catch (error) {
     console.error('[proxy GET]', apiPath, error)
@@ -58,16 +88,46 @@ export async function POST(
   try {
     const body = await request.json()
 
+    // Forward Authorization header if present
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    }
+    const authHeader = request.headers.get('authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
     const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(LONG_TIMEOUT_MS),
     })
 
-    const data = await response.json()
+    // Try to parse as JSON, handle non-JSON responses
+    const contentType = response.headers.get('content-type') || ''
+    let data
+    try {
+      const text = await response.text()
+      if (!text) {
+        data = {}
+      } else if (contentType.includes('application/json')) {
+        data = JSON.parse(text)
+      } else {
+        console.error('[proxy POST]', apiPath, `Non-JSON response (${response.status}):`, text.substring(0, 200))
+        return NextResponse.json(
+          { error: `Backend returned non-JSON response: ${text.substring(0, 100)}` },
+          { status: response.status || 500 }
+        )
+      }
+    } catch (parseError) {
+      console.error('[proxy POST]', apiPath, 'JSON parse error:', parseError)
+      return NextResponse.json(
+        { error: 'Failed to parse backend response' },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json(data, { status: response.status })
   } catch (error) {
     console.error('[proxy POST]', apiPath, error)
@@ -87,18 +147,48 @@ export async function DELETE(
   const url = `${API_URL}/api/${apiPath}`
 
   try {
+    // Forward Authorization header if present
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+    }
+    const authHeader = request.headers.get('authorization')
+    if (authHeader) {
+      headers['Authorization'] = authHeader
+    }
+
     const response = await fetch(url, {
       method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
     })
 
     if (response.status === 204) {
       return new NextResponse(null, { status: 204 })
     }
 
-    const data = await response.json()
+    // Try to parse as JSON, handle non-JSON responses
+    const contentType = response.headers.get('content-type') || ''
+    let data
+    try {
+      const text = await response.text()
+      if (!text) {
+        data = {}
+      } else if (contentType.includes('application/json')) {
+        data = JSON.parse(text)
+      } else {
+        console.error('[proxy DELETE]', apiPath, `Non-JSON response (${response.status}):`, text.substring(0, 200))
+        return NextResponse.json(
+          { error: `Backend returned non-JSON response: ${text.substring(0, 100)}` },
+          { status: response.status || 500 }
+        )
+      }
+    } catch (parseError) {
+      console.error('[proxy DELETE]', apiPath, 'JSON parse error:', parseError)
+      return NextResponse.json(
+        { error: 'Failed to parse backend response' },
+        { status: 500 }
+      )
+    }
+
     return NextResponse.json(data, { status: response.status })
   } catch (error) {
     return NextResponse.json(

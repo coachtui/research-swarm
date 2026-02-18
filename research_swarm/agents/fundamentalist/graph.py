@@ -14,6 +14,7 @@ from research_swarm.agents.fundamentalist.parser import parser
 from research_swarm.agents.fundamentalist.analyzer import analyzer
 from research_swarm.agents.fundamentalist.scorer import scorer
 from research_swarm.agents.fundamentalist.models import FundamentalistOutput
+from research_swarm.agents.fundamentalist.blended_valuation import blended_valuation_calculator
 
 
 # ============================================================================
@@ -813,22 +814,40 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                 if not dcf_inputs.beta and market_data_for_dcf:
                     dcf_inputs.beta = market_data_for_dcf.get("beta")
 
-                # Calculate DCF if we have sufficient inputs
+                # Calculate fair value using blended methodology
                 # current_price already fetched independently above (more reliable)
-                dcf_price = current_price  # from get_current_price() at top of this node
-                if not dcf_price and market_data_for_dcf:
-                    dcf_price = market_data_for_dcf.get("current_price")
+                fair_value_price = current_price  # from get_current_price() at top of this node
+                if not fair_value_price and market_data_for_dcf:
+                    fair_value_price = market_data_for_dcf.get("current_price")
 
-                if dcf_price and dcf_inputs.fcf_history:
-                    dcf_result = dcf_calculator.calculate_dcf(dcf_inputs, dcf_price)
-                    if dcf_result:
-                        state["price_targets"] = dcf_result.dict()
-                        logger.info(f"✓ DCF: Base=${dcf_result.base_target:.2f} "
-                                    f"Bull=${dcf_result.bull_target:.2f} Bear=${dcf_result.bear_target:.2f}")
+                # Get additional stock info for EBITDA, shares, debt, cash
+                stock_info = None
+                try:
+                    from research_swarm.data.market_data_client import market_data_client
+                    import yfinance as yf
+                    stock = yf.Ticker(state["ticker"])
+                    stock_info = stock.info
+                except Exception as e:
+                    logger.debug(f"Could not fetch additional stock info: {e}")
+
+                if fair_value_price and market_data_for_dcf:
+                    # Use blended valuation (P/E + EV/EBITDA + DCF)
+                    blended_result = blended_valuation_calculator.calculate_fair_value(
+                        ticker=state["ticker"],
+                        current_price=fair_value_price,
+                        valuation_metrics=market_data_for_dcf,
+                        dcf_inputs=dcf_inputs if dcf_inputs.fcf_history else None,
+                        stock_info=stock_info
+                    )
+                    if blended_result:
+                        state["price_targets"] = blended_result.dict()
+                        logger.success(f"✓ Blended Fair Value: Base=${blended_result.base_target:.2f} "
+                                    f"Bull=${blended_result.bull_target:.2f} Bear=${blended_result.bear_target:.2f} "
+                                    f"({blended_result.methodology})")
                     else:
-                        logger.warning("DCF calculation returned None (insufficient data)")
+                        logger.warning("Blended valuation returned None (insufficient data)")
                 else:
-                    logger.warning(f"Skipping DCF: {'no current_price' if not dcf_price else 'no fcf_history'}")
+                    logger.warning(f"Skipping valuation: {'no current_price' if not fair_value_price else 'no valuation_metrics'}")
 
                 # Also extract structured filing data
                 filing_type = "10-K"

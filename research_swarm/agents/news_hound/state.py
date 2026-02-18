@@ -43,6 +43,7 @@ class NewsHoundState(TypedDict, total=False):
     earnings_estimates: Optional[Dict[str, Any]]  # Earnings estimate revision analysis
     analyst_consensus: Optional[Dict[str, Any]]  # Analyst ratings and price targets
     institutional_activity: Optional[Dict[str, Any]]  # Smart money / 13F tracking
+    dark_pool_activity: Optional[Dict[str, Any]]  # Dark pool (ATS) trading activity from FINRA
     insider_activity: Optional[Dict[str, Any]]  # Insider trading activity
 
     # Management quality & market dynamics

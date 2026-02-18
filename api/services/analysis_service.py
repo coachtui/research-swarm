@@ -60,8 +60,8 @@ async def run_stock_analysis(
             "sentiment_score": breakdown.sentiment_catalysts,
             "technical_score": breakdown.technical_strength,
 
-            # Analysis outputs
-            "investment_thesis": result.investment_thesis,
+            # Analysis outputs (convert Pydantic models to dicts)
+            "investment_thesis": result.investment_thesis.model_dump(),
             "watchlist_candidate": result.is_watchlist_candidate,
 
             # Metadata
@@ -70,7 +70,7 @@ async def run_stock_analysis(
             "processing_time_seconds": processing_time,
 
             # Full output for database storage (convert Pydantic to dict)
-            "full_output": result.dict()
+            "full_output": result.model_dump()
         }
 
     except Exception as e:

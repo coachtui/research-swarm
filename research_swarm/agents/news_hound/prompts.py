@@ -567,6 +567,92 @@ Return ONLY valid JSON, no other text.
 """
 
 # ============================================================================
+# DARK POOL ACTIVITY PROMPT (Haiku)
+# Purpose: Analyze FINRA dark pool (ATS) activity to track real-time institutional positioning
+# ============================================================================
+
+DARK_POOL_ACTIVITY_PROMPT = """You are analyzing dark pool (Alternative Trading System) activity for {ticker}.
+
+**Company**: {ticker}
+**Analysis Date**: {analysis_date}
+
+**Dark Pool Data** (Last 4 weeks from FINRA):
+{dark_pool_data}
+
+**13F Context** (for cross-reference):
+{institutional_context}
+
+---
+
+**Background**:
+- Dark pools are private exchanges where institutions trade large blocks quietly
+- FINRA reports "off-exchange" volume weekly (ATS % = dark pool + wholesaler activity)
+- Normal ATS %: 20-30% for liquid stocks
+- Elevated ATS %: >35% suggests heavy institutional accumulation/distribution
+- Low ATS %: <20% suggests retail-dominated trading
+
+**Task**: Interpret dark pool activity patterns to assess institutional positioning.
+
+**What to Analyze**:
+
+1. **Volume Metrics**:
+   - Average ATS % over 4 weeks
+   - Trend: Increasing / Stable / Decreasing (compare recent 2 weeks vs prior 2 weeks)
+   - Peak week and ATS %
+   - Contextual interpretation (is this elevated/normal/low for this ticker?)
+
+2. **Venue Analysis**:
+   - Top 3 venues by volume
+   - Venue concentration (high if 1-2 dominant venues, medium if balanced, low if fragmented)
+   - Interpretation: High concentration may indicate coordinated institutional activity
+
+3. **Pattern Detection**:
+   - Sudden spikes or sustained elevation
+   - Divergence from 13F trend (e.g., dark pool increasing but 13F stable = recent accumulation)
+   - Cross-reference with price action if mentioned in data
+
+4. **Sentiment Determination**:
+   - **Bullish** (7.5-9.0): ATS >30% AND increasing trend AND/OR aligns with 13F accumulation
+   - **Neutral** (4.5-5.5): ATS 20-30% with stable trend, normal activity
+   - **Bearish** (2.5-3.5): ATS <20% OR decreasing trend while 13F shows distribution
+
+**Scoring Rubric**:
+- ATS >35% with increasing trend = Strong institutional accumulation signal
+- ATS 30-35% with increasing trend = Moderate accumulation
+- ATS 20-30% stable = Neutral, balanced institutional/retail mix
+- ATS <20% = Low institutional interest, retail-dominated
+- Decreasing trend = Institutions backing away
+
+**Output Format**: Return a JSON object:
+
+{{
+  "avg_ats_pct": <float or null>,
+  "trend": "<increasing/stable/decreasing>",
+  "trend_pct_change": <float or null>,
+  "peak_week": "<YYYY-MM-DD or null>",
+  "peak_ats_pct": <float or null>,
+
+  "major_venues": [
+    "<venue1>",
+    "<venue2>",
+    "<venue3>"
+  ],
+
+  "venue_concentration": "<high/medium/low>",
+
+  "notable_patterns": [
+    "<Description of unusual pattern, e.g., 'Sudden spike to 40% week of 2/14'>",
+    ...
+  ],
+
+  "dark_pool_sentiment": "<bullish/neutral/bearish>",
+  "confidence": "<high/medium/low>"
+}}
+
+Return ONLY valid JSON, no other text.
+"""
+
+# ============================================================================
 # INSIDER ACTIVITY PROMPT (Haiku)
 # Purpose: Track insider buying/selling (6 months)
 # ============================================================================

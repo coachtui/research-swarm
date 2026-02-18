@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { HelpCircle } from 'lucide-react'
@@ -85,7 +84,6 @@ export function ScoreBreakdownBars({ breakdown, overallScore }: ScoreBreakdownBa
           </CardTitle>
         </CardHeader>
         <CardContent>
-        <TooltipProvider>
           <div className="space-y-4">
             {COMPONENTS.map(({ key, label, primary, tooltip }) => {
               const score = breakdown[key]
@@ -127,7 +125,6 @@ export function ScoreBreakdownBars({ breakdown, overallScore }: ScoreBreakdownBa
               )
             })}
           </div>
-        </TooltipProvider>
 
         {/* Legend */}
         <div className="flex items-center justify-center gap-5 text-xs text-text-tertiary pt-4 mt-4 border-t border-surface-elevated">

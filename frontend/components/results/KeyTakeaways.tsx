@@ -1,3 +1,4 @@
+import React from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { CheckCircle, AlertTriangle } from 'lucide-react'
 
@@ -5,6 +6,23 @@ export interface TakeawayItem {
   headline: string      // Short, punchy (5-8 words)
   context: string       // Explanation (10-15 words)
   metric?: string       // Optional data point
+}
+
+// Utility function to bold key metrics in text
+function highlightMetrics(text: string): React.ReactNode {
+  // Pattern: numbers with units like %, $, x, M, B, or standalone numbers
+  const metricPattern = /(\$[\d,]+\.?\d*[KMB]?|\d+\.?\d*%|\d+\.?\d*x|\d+\.?\d*[KMB]|\d{2,}%? of [\w\s-]+(?:volume|average|avg))/gi
+
+  const parts = text.split(metricPattern)
+
+  return parts.map((part, i) => {
+    // Check if this part matches the metric pattern
+    if (metricPattern.test(part)) {
+      metricPattern.lastIndex = 0 // Reset regex state
+      return <strong key={i} className="font-semibold text-text-primary">{part}</strong>
+    }
+    return part
+  })
 }
 
 interface KeyTakeawaysProps {
@@ -48,7 +66,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
                         {strength.headline}
                       </p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        {strength.context}
+                        {highlightMetrics(strength.context)}
                       </p>
                       {strength.metric && (
                         <span className="inline-block mt-1 text-xs font-mono bg-success/10 px-2 py-0.5 rounded">
@@ -83,7 +101,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
                         {concern.headline}
                       </p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        {concern.context}
+                        {highlightMetrics(concern.context)}
                       </p>
                       {concern.metric && (
                         <span className="inline-block mt-1 text-xs font-mono bg-warning/10 px-2 py-0.5 rounded">

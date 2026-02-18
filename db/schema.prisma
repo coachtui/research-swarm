@@ -19,8 +19,15 @@ model User {
   fullName  String?  @map("full_name")
 
   // Subscription tier
-  tier             String  @default("free")  // free, pro, enterprise
+  tier             String  @default("free")  // free, pro, premium
   monthlyBudgetUsd Float   @default(200.0) @map("monthly_budget_usd")
+
+  // Stripe subscription (new fields for paid plans)
+  stripeCustomerId        String?   @unique @map("stripe_customer_id")
+  stripeSubscriptionId    String?   @map("stripe_subscription_id")
+  stripeSubscriptionStatus String?  @map("stripe_subscription_status")  // active, canceled, past_due, trialing, incomplete
+  stripePriceId           String?   @map("stripe_price_id")  // Which plan they're on
+  subscriptionEndDate     DateTime? @map("subscription_end_date")  // When subscription period ends
 
   // Account status
   isActive  Boolean  @default(true) @map("is_active")
@@ -31,8 +38,12 @@ model User {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  runs      Run[]
-  costLogs  CostLog[]
+  runs            Run[]
+  costLogs        CostLog[]
+  watchlist       Watchlist[]
+  usageQuotas     UsageQuota[]
+  alertRules      AlertRule[]
+  preferences     UserPreferences?
 
   @@index([email])
   @@index([clerkId])
@@ -89,6 +100,9 @@ model StockResult {
 
   ticker String
 
+  // Direct user reference (denormalized for query performance)
+  userId  String? @map("user_id")
+
   // Status
   status      String @default("pending")  // pending, running, completed, failed
   retryCount  Int    @default(0) @map("retry_count")
@@ -126,6 +140,7 @@ model StockResult {
   @@unique([runId, ticker])
   @@index([ticker])
   @@index([moatScore(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
   @@map("stock_results")
 }
 
@@ -206,4 +221,126 @@ model ReportSnapshot {
   @@unique([ticker, analysisDate])
   @@index([ticker])
   @@map("report_snapshots")
+}
+
+// Watchlist - user's tracked stocks
+model Watchlist {
+  id      String   @id @default(uuid())
+  userId  String   @map("user_id")
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  ticker       String
+  companyName  String? @map("company_name")
+
+  // Tracking metadata
+  addedAt        DateTime  @default(now()) @map("added_at")
+  lastCheckedAt  DateTime? @map("last_checked_at")
+
+  // Score tracking (for change detection)
+  initialMoatScore      Float?    @map("initial_moat_score")
+  initialAnalysisRunId  String?   @map("initial_analysis_run_id")
+  latestMoatScore       Float?    @map("latest_moat_score")
+  latestAnalysisRunId   String?   @map("latest_analysis_run_id")
+  latestAnalysisDate    DateTime? @map("latest_analysis_date")
+  scoreChange           Float?    @default(0) @map("score_change")
+
+  // User customization
+  notes         String?  @db.Text
+  enableAlerts  Boolean  @default(true) @map("enable_alerts")
+
+  @@unique([userId, ticker])
+  @@index([userId, addedAt(sort: Desc)])
+  @@index([ticker])
+  @@map("watchlist")
+}
+
+// Usage quota tracking (for enforcing plan limits)
+model UsageQuota {
+  id      String   @id @default(uuid())
+  userId  String   @map("user_id")
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Monthly period (calendar month UTC)
+  periodStart  DateTime @map("period_start")
+  periodEnd    DateTime @map("period_end")
+
+  // Usage counters
+  analysesUsed    Int @default(0) @map("analyses_used")
+  watchlistCount  Int @default(0) @map("watchlist_count")
+
+  // Limits (copied from tier at period start)
+  analysesLimit   Int @map("analyses_limit")
+  watchlistLimit  Int @map("watchlist_limit")
+
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, periodStart])
+  @@index([userId, periodEnd])
+  @@map("usage_quotas")
+}
+
+// Alert rules - user-defined alert conditions
+model AlertRule {
+  id      String   @id @default(uuid())
+  userId  String   @map("user_id")
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  ticker     String
+  alertType  String  @map("alert_type")  // score_change, rating_change, divergence_detected
+
+  // Threshold (e.g., score change > 1.0 points)
+  threshold  Float?
+
+  isActive  Boolean @default(true) @map("is_active")
+
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, isActive])
+  @@index([ticker, isActive])
+  @@map("alert_rules")
+}
+
+// Alert history - track what alerts were sent
+model AlertHistory {
+  id      String   @id @default(uuid())
+  userId  String   @map("user_id")
+
+  ticker     String
+  alertType  String  @map("alert_type")
+  message    String  @db.Text
+
+  // Reference to the run that triggered the alert
+  runId  String? @map("run_id")
+
+  // Email delivery status
+  emailSent   Boolean @default(false) @map("email_sent")
+  emailError  String? @map("email_error") @db.Text
+
+  triggeredAt  DateTime @default(now()) @map("triggered_at")
+
+  @@index([userId, triggeredAt(sort: Desc)])
+  @@index([ticker])
+  @@map("alert_history")
+}
+
+// User preferences - dashboard settings
+model UserPreferences {
+  id      String   @id @default(uuid())
+  userId  String   @unique @map("user_id")
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Dashboard settings
+  defaultView         String  @default("watchlist") @map("default_view")
+  hideOnboardingTips  Boolean @default(false) @map("hide_onboarding_tips")
+
+  // Alert preferences
+  emailAlerts   Boolean @default(true) @map("email_alerts")
+  weeklyDigest  Boolean @default(true) @map("weekly_digest")
+
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("user_preferences")
 }

@@ -4,9 +4,11 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
+import { UserButton, useUser } from '@clerk/nextjs'
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const { isSignedIn, user } = useUser()
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-surface-elevated bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -24,6 +26,12 @@ export function Header() {
 
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-6">
+          <Link
+            href="/dashboard"
+            className="text-sm text-text-secondary hover:text-text-primary transition-colors"
+          >
+            Dashboard
+          </Link>
           <Link
             href="/#how-it-works"
             className="text-sm text-text-secondary hover:text-text-primary transition-colors"
@@ -44,11 +52,32 @@ export function Header() {
           </Link>
         </nav>
 
-        {/* Desktop CTA Button */}
-        <div className="hidden md:block ml-6">
-          <Link href="/analyze">
-            <Button size="sm">Analyze Stock</Button>
-          </Link>
+        {/* Desktop Auth */}
+        <div className="hidden md:flex items-center gap-3 ml-6">
+          {isSignedIn ? (
+            <>
+              <Link href="/analyze">
+                <Button size="sm">Analyze Stock</Button>
+              </Link>
+              <UserButton
+                afterSignOutUrl="/"
+                appearance={{
+                  elements: {
+                    avatarBox: "w-8 h-8",
+                  },
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <Link href="/sign-in">
+                <Button variant="ghost" size="sm">Sign In</Button>
+              </Link>
+              <Link href="/sign-up">
+                <Button size="sm">Get Started</Button>
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile Menu Button */}
@@ -65,6 +94,13 @@ export function Header() {
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-surface-elevated bg-surface">
           <nav className="container mx-auto px-4 py-4 flex flex-col space-y-4">
+            <Link
+              href="/dashboard"
+              className="text-sm text-text-secondary hover:text-text-primary transition-colors py-2"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              Dashboard
+            </Link>
             <Link
               href="/#how-it-works"
               className="text-sm text-text-secondary hover:text-text-primary transition-colors py-2"
@@ -86,9 +122,37 @@ export function Header() {
             >
               FAQ
             </Link>
-            <Link href="/analyze" onClick={() => setMobileMenuOpen(false)}>
-              <Button size="sm" className="w-full">Analyze Stock</Button>
-            </Link>
+            <div className="flex flex-col gap-2 pt-2 border-t border-surface-elevated">
+              {isSignedIn ? (
+                <>
+                  <Link href="/analyze" onClick={() => setMobileMenuOpen(false)}>
+                    <Button size="sm" className="w-full">Analyze Stock</Button>
+                  </Link>
+                  <div className="flex items-center justify-between py-2 px-2">
+                    <span className="text-sm text-text-secondary">
+                      {user?.primaryEmailAddress?.emailAddress}
+                    </span>
+                    <UserButton
+                      afterSignOutUrl="/"
+                      appearance={{
+                        elements: {
+                          avatarBox: "w-8 h-8",
+                        },
+                      }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Link href="/sign-in" onClick={() => setMobileMenuOpen(false)}>
+                    <Button variant="ghost" size="sm" className="w-full">Sign In</Button>
+                  </Link>
+                  <Link href="/sign-up" onClick={() => setMobileMenuOpen(false)}>
+                    <Button size="sm" className="w-full">Get Started</Button>
+                  </Link>
+                </>
+              )}
+            </div>
           </nav>
         </div>
       )}

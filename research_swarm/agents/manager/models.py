@@ -97,6 +97,43 @@ class MoatScoreBreakdown(BaseModel):
         )
 
 
+class InvestmentThesisStructured(BaseModel):
+    """Structured investment thesis with clear sections for readability."""
+
+    company_overview: str = Field(
+        ...,
+        min_length=20,
+        description="1-2 sentence company description"
+    )
+    recommendation_summary: str = Field(
+        ...,
+        min_length=20,
+        description="Recommendation + price + overall score with context"
+    )
+    investment_highlights: List[str] = Field(
+        ...,
+        min_length=2,
+        max_length=4,
+        description="2-4 key strengths with specific data"
+    )
+    valuation_signal_analysis: str = Field(
+        ...,
+        min_length=50,
+        description="2-3 sentences explaining scores and signal convergence/divergence"
+    )
+    key_risks: List[str] = Field(
+        ...,
+        min_length=2,
+        max_length=3,
+        description="2-3 most significant risks with data"
+    )
+    entry_strategy: str = Field(
+        ...,
+        min_length=50,
+        description="2-3 sentences on tactical guidance and investor fit"
+    )
+
+
 class ManagerOutput(BaseModel):
     """Final validated output from the Manager agent."""
 
@@ -142,10 +179,13 @@ class ManagerOutput(BaseModel):
         max_length=10,
         description="Top 3-5 risk factors"
     )
-    investment_thesis: str = Field(
+    investment_thesis: InvestmentThesisStructured = Field(
         ...,
-        min_length=50,
-        description="One-paragraph investment thesis with buy/hold/avoid recommendation"
+        description="Structured investment thesis with clear sections for readability"
+    )
+    strategic_catalysts: Optional[List[Dict[str, str]]] = Field(
+        None,
+        description="2-3 forward-looking strategic developments not yet reflected in financials (labeled as speculative)"
     )
 
     # Moat scoring
@@ -176,6 +216,40 @@ class ManagerOutput(BaseModel):
     vgm_scores: Optional[Dict[str, Any]] = Field(
         None,
         description="VGM (Value/Growth/Momentum) scores from Fundamentalist"
+    )
+
+    # Investment recommendations (v2.0)
+    price_targets: Optional[Dict[str, Any]] = Field(
+        None,
+        description="12-month price targets (bull/base/bear scenarios with probabilities)"
+    )
+    structured_risks: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Structured risk breakdown with severity/likelihood/impact"
+    )
+    upgrade_triggers: Optional[List[Dict[str, str]]] = Field(
+        None,
+        description="Specific metrics/thresholds that would trigger rating upgrade"
+    )
+    downgrade_triggers: Optional[List[Dict[str, str]]] = Field(
+        None,
+        description="Specific metrics/thresholds that would trigger rating downgrade"
+    )
+    recommendation: Optional[str] = Field(
+        None,
+        description="Explicit BUY/HOLD/AVOID recommendation from investment thesis"
+    )
+    rating: Optional[str] = Field(
+        None,
+        description="5-tier rating (STRONG BUY/BUY/HOLD/SELL/STRONG SELL)"
+    )
+    rating_score: Optional[float] = Field(
+        None,
+        description="Numeric rating score (0-100)"
+    )
+    risk_level: Optional[str] = Field(
+        None,
+        description="Risk level assessment (Low/Medium/High)"
     )
 
     # Watchlist eligibility

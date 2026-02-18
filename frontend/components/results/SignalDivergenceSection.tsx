@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { HelpCircle } from 'lucide-react'
@@ -144,7 +143,6 @@ export function SignalDivergenceSection({
       {/* Main Card */}
       <Card className={`border-2 ${severityColors[severity]}`}>
         <CardContent className="pt-6">
-          <TooltipProvider>
           {/* Signal Comparison */}
           <div className="space-y-4 mb-6">
             {signals.map((signal, idx) => {
@@ -204,7 +202,6 @@ export function SignalDivergenceSection({
               )
             })}
           </div>
-          </TooltipProvider>
 
           {/* Interpretation */}
           {breakdown.has_divergence && (

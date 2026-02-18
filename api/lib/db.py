@@ -24,7 +24,10 @@ async def get_db() -> Prisma:
     global _db_client
 
     if _db_client is None:
-        _db_client = Prisma()
+        # Create Prisma client with extended timeouts (60s connect, 120s query)
+        _db_client = Prisma(
+            http={'timeout': 120.0}  # 120 second timeout for long queries
+        )
         await _db_client.connect()
     else:
         # Check if connection is still alive
@@ -34,8 +37,13 @@ async def get_db() -> Prisma:
                 await _db_client.connect()
         except Exception:
             # Connection is stale, recreate client
-            _db_client = None
-            _db_client = Prisma()
+            try:
+                await _db_client.disconnect()
+            except:
+                pass
+            _db_client = Prisma(
+                http={'timeout': 120.0}
+            )
             await _db_client.connect()
 
     return _db_client
@@ -93,7 +101,7 @@ async def create_test_user(email: str = "test@example.com", full_name: str = "Te
             "clerkId": f"test_{email.split('@')[0]}",
             "email": email,
             "fullName": full_name,
-            "tier": "free",
+            "tier": "pro",
             "monthlyBudgetUsd": 200.0,
             "isActive": True
         }
@@ -174,6 +182,16 @@ async def save_analysis_result(
             if full_output and isinstance(full_output, dict):
                 full_output = json.dumps(full_output)
 
+            # Serialize investment_thesis if it's a Pydantic model
+            investment_thesis = result.get('investment_thesis')
+            if investment_thesis is not None:
+                # Check if it's a Pydantic model (has model_dump method)
+                if hasattr(investment_thesis, 'model_dump'):
+                    investment_thesis = json.dumps(investment_thesis.model_dump())
+                elif isinstance(investment_thesis, dict):
+                    investment_thesis = json.dumps(investment_thesis)
+                # If it's already a string, leave it as is
+
             stock_result = await db.stockresult.create(
                 data={
                     "runId": run_id,
@@ -186,7 +204,7 @@ async def save_analysis_result(
                     "technicalScore": result.get('technical_score'),
                     # supplyChainScore excluded - not used
                     "isWatchlistCandidate": result.get('watchlist_candidate', False),
-                    "investmentThesis": result.get('investment_thesis'),
+                    "investmentThesis": investment_thesis,
                     "fullOutput": full_output,
                     "tokensUsed": result.get('tokens_used', 0),
                     "costUsd": result.get('cost_usd', 0.0),

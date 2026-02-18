@@ -438,9 +438,66 @@ def analyze_institutional_activity_node(state: NewsHoundState) -> NewsHoundState
     return state
 
 
+def analyze_dark_pool_activity_node(state: NewsHoundState) -> NewsHoundState:
+    """
+    Node 7b: Analyze dark pool (ATS) activity from FINRA data.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with dark_pool_activity
+    """
+    logger.info(f"[Node 7b] Analyzing dark pool activity for {state['ticker']}")
+
+    state["status"] = "analyzing_dark_pool"
+
+    from research_swarm.data.finra_client import finra_client
+
+    try:
+        # Check for pre-fetched data from Manager's fetch_swarm_data_node
+        shared_data = state.get("shared_swarm_data", {})
+        dark_pool_data = shared_data.get("dark_pool_data")
+
+        # Fallback: Fetch directly if not in shared data
+        if dark_pool_data is None:
+            logger.debug("Fetching dark pool data directly from FINRA (no shared data)")
+            dark_pool_data = finra_client.get_dark_pool_activity(state["ticker"], weeks_back=4)
+
+        # Get institutional context for cross-reference
+        institutional_context = None
+        if state.get("institutional_activity"):
+            inst_data = state["institutional_activity"]
+            institutional_context = (
+                f"Institutional ownership: {inst_data.get('institutional_ownership_pct', 'N/A')}%, "
+                f"Trend: {inst_data.get('trend', 'unknown')}, "
+                f"Sentiment: {inst_data.get('institutional_sentiment', 'neutral')}"
+            )
+
+        # Analyze with LLM
+        result, tokens = analyzer.analyze_dark_pool_activity(
+            dark_pool_data,
+            institutional_context,
+            state["ticker"],
+            state.get("analysis_date", "")
+        )
+
+        # Store in state
+        state["dark_pool_activity"] = result
+        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+
+        logger.success(f"✓ Dark pool activity analyzed")
+
+    except Exception as e:
+        logger.error(f"Error in dark pool activity node: {e}")
+        state["dark_pool_activity"] = None
+
+    return state
+
+
 def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
     """
-    Node 8: Analyze insider trading activity.
+    Node 8: Analyze insider trading activity using OpenInsider.
 
     Args:
         state: Current workflow state
@@ -452,66 +509,60 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_insider"
 
-    from research_swarm.data.market_data_client import market_data_client
-    from research_swarm.data.insider_activity_calculator import calculate_insider_metrics
+    from research_swarm.data.openinsider_client import openinsider_client
 
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
-        shared_data = state.get("shared_swarm_data", {})
-        insider_data = shared_data.get("insider_transactions")
-
-        # Fallback if not in shared data
-        if insider_data is None:
-            logger.debug("Fetching insider transactions directly (no shared data)")
-            insider_data = market_data_client.get_insider_transactions(state["ticker"])
-
-        # Get market cap for context-aware sentiment analysis
-        market_cap = None
-        try:
-            import yfinance as yf
-            ticker_obj = yf.Ticker(state["ticker"])
-            market_cap = ticker_obj.info.get('marketCap')
-            if market_cap:
-                logger.debug(f"Market cap: ${market_cap/1e9:.1f}B")
-        except Exception as e:
-            logger.warning(f"Could not fetch market cap: {e}")
-
-        # CRITICAL FIX: Calculate insider metrics directly from transaction data
-        # Use market cap for context-aware sentiment (mega-caps need bigger trades to matter)
-        insider_metrics = calculate_insider_metrics(
-            insider_data,
-            days_back=365,  # 1 year for meaningful patterns
-            market_cap=market_cap
-        )
-
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_insider_activity(
-            insider_data,
+        # Fetch insider transactions from OpenInsider (more reliable than yfinance)
+        transactions = openinsider_client.get_insider_transactions(
             state["ticker"],
-            state.get("analysis_date", "")
+            days_back=365  # 1 year lookback
         )
 
-        # CRITICAL: Override LLM-calculated values with accurate calculated metrics
-        result["buy_transactions"] = insider_metrics["buy_transactions"]
-        result["sell_transactions"] = insider_metrics["sell_transactions"]
-        result["buy_shares"] = insider_metrics["buy_shares"]
-        result["sell_shares"] = insider_metrics["sell_shares"]
-        result["net_shares"] = insider_metrics["net_shares"]
-        result["buy_value_usd"] = insider_metrics["buy_value_usd"]
-        result["sell_value_usd"] = insider_metrics["sell_value_usd"]
-        result["net_value_usd"] = insider_metrics["net_value_usd"]
-        result["insider_sentiment"] = insider_metrics["insider_sentiment"]
-        result["ownership_trend"] = insider_metrics["ownership_trend"]
+        # Calculate insider score using new scoring system
+        insider_result = openinsider_client.calculate_insider_score(
+            transactions,
+            state["ticker"]
+        )
+
+        # Format result to match expected structure
+        result = {
+            "buy_transactions": insider_result["buy_transactions"],
+            "sell_transactions": insider_result["sell_transactions"],
+            "net_value_usd": insider_result["net_value"],
+            "insider_sentiment": insider_result["sentiment"],
+            "key_transactions": insider_result["key_transactions"],
+            "insider_score": insider_result["score"],  # NEW: Direct score (0-10)
+            "has_data": insider_result["has_data"]
+        }
 
         # Store in state
         state["insider_activity"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
+        # No LLM tokens used - pure calculation
+        state["tokens_used"] = state.get("tokens_used", 0)
 
-        logger.success(f"✓ Insider activity analyzed (net: ${insider_metrics['net_value_usd']:,.0f})")
+        if result["has_data"]:
+            logger.success(
+                f"✓ Insider activity analyzed: {result['insider_score']:.1f}/10 "
+                f"({result['buy_transactions']} buys, {result['sell_transactions']} sells, "
+                f"net ${result['net_value_usd']:,.0f})"
+            )
+        else:
+            logger.info(f"No insider data available for {state['ticker']}")
 
     except Exception as e:
         logger.error(f"Error in insider activity node: {e}")
-        state["insider_activity"] = None
+        import traceback
+        traceback.print_exc()
+        # Return neutral default
+        state["insider_activity"] = {
+            "buy_transactions": 0,
+            "sell_transactions": 0,
+            "net_value_usd": 0.0,
+            "insider_sentiment": "neutral",
+            "key_transactions": [],
+            "insider_score": 5.0,
+            "has_data": False
+        }
 
     return state
 
@@ -813,6 +864,7 @@ def build_news_hound_graph() -> StateGraph:
     workflow.add_node("analyze_earnings", analyze_earnings_estimates_node)
     workflow.add_node("analyze_consensus", analyze_analyst_consensus_node)
     workflow.add_node("analyze_institutional", analyze_institutional_activity_node)
+    workflow.add_node("analyze_dark_pool", analyze_dark_pool_activity_node)  # NEW: Dark pool node
     workflow.add_node("analyze_insider", analyze_insider_activity_node)
     workflow.add_node("analyze_short", analyze_short_interest_node)
     workflow.add_node("analyze_catalysts", analyze_upcoming_catalysts_node)
@@ -833,7 +885,8 @@ def build_news_hound_graph() -> StateGraph:
     workflow.add_edge("extract_8k_events", "analyze_earnings")
     workflow.add_edge("analyze_earnings", "analyze_consensus")
     workflow.add_edge("analyze_consensus", "analyze_institutional")
-    workflow.add_edge("analyze_institutional", "analyze_insider")
+    workflow.add_edge("analyze_institutional", "analyze_dark_pool")  # NEW: Wire dark pool after institutional
+    workflow.add_edge("analyze_dark_pool", "analyze_insider")  # NEW: Connect dark pool to insider
     workflow.add_edge("analyze_insider", "analyze_short")
     workflow.add_edge("analyze_short", "analyze_catalysts")
     workflow.add_edge("analyze_catalysts", "analyze_management")
@@ -954,6 +1007,11 @@ def analyze_company_news(ticker: str, days_back: int = 30, shared_swarm_data: di
     if final_state.get("institutional_activity"):
         institutional_activity = InstitutionalActivity(**final_state["institutional_activity"])
 
+    dark_pool_activity = None
+    if final_state.get("dark_pool_activity"):
+        from research_swarm.agents.news_hound.models import DarkPoolActivity
+        dark_pool_activity = DarkPoolActivity(**final_state["dark_pool_activity"])
+
     insider_activity = None
     if final_state.get("insider_activity"):
         insider_activity = InsiderActivity(**final_state["insider_activity"])
@@ -984,6 +1042,7 @@ def analyze_company_news(ticker: str, days_back: int = 30, shared_swarm_data: di
         earnings_estimates=earnings_estimates,
         analyst_consensus=analyst_consensus,
         institutional_activity=institutional_activity,
+        dark_pool_activity=dark_pool_activity,
         insider_activity=insider_activity,
         management_commentary=management_commentary,
         short_interest=short_interest,

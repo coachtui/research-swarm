@@ -954,6 +954,376 @@ class TechnicalAnalyzer:
                 interpretation=f"Error generating signals: {str(e)}",
             )
 
+    # ========================================================================
+    # DIVERGENCE DETECTION METHODS (NEW)
+    # ========================================================================
+
+    def _find_local_minima(self, series: pd.Series, window: int = 5) -> list:
+        """
+        Find indices where value is minimum within window.
+
+        Args:
+            series: Price or indicator series
+            window: Window size for local minimum detection
+
+        Returns:
+            List of indices where local minima occur
+        """
+        minima = []
+        for i in range(window, len(series) - window):
+            if series.iloc[i] == series.iloc[i-window:i+window+1].min():
+                minima.append(i)
+        return minima
+
+    def _find_local_maxima(self, series: pd.Series, window: int = 5) -> list:
+        """
+        Find indices where value is maximum within window.
+
+        Args:
+            series: Price or indicator series
+            window: Window size for local maximum detection
+
+        Returns:
+            List of indices where local maxima occur
+        """
+        maxima = []
+        for i in range(window, len(series) - window):
+            if series.iloc[i] == series.iloc[i-window:i+window+1].max():
+                maxima.append(i)
+        return maxima
+
+    def _calculate_divergence_strength(
+        self,
+        val1_m1: float,
+        val2_m1: float,
+        val1_m2: float,
+        val2_m2: float
+    ) -> float:
+        """
+        Calculate divergence strength from % change mismatch.
+
+        Args:
+            val1_m1, val2_m1: Most recent values (price, indicator)
+            val1_m2, val2_m2: Previous comparison values
+
+        Returns:
+            Strength (0-1), where 1.0 = maximum divergence (50%+ mismatch)
+        """
+        if val1_m2 == 0 or val2_m2 == 0:
+            return 0.0
+
+        pct_change_1 = (val1_m1 - val1_m2) / abs(val1_m2)
+        pct_change_2 = (val2_m1 - val2_m2) / abs(val2_m2)
+        divergence_gap = abs(pct_change_1 - pct_change_2)
+        strength = min(1.0, divergence_gap / 0.5)  # 50% gap = max strength
+        return strength
+
+    def detect_rsi_divergence(
+        self,
+        df: pd.DataFrame,
+        lookback_days: int = 60
+    ) -> tuple:
+        """
+        Detect RSI divergence over lookback period.
+
+        Bullish Divergence: Price makes lower low, RSI makes higher low (oversold bounce setup)
+        Bearish Divergence: Price makes higher high, RSI makes lower high (overbought reversal)
+
+        Args:
+            df: DataFrame with OHLCV data
+            lookback_days: Days to look back (default 60)
+
+        Returns:
+            Tuple of (divergence_type, pattern_description, strength)
+        """
+        from research_swarm.agents.quant.models import DivergenceType
+
+        try:
+            # Calculate RSI
+            rsi = calculate_rsi(df['Close'])
+
+            # Focus on recent period
+            recent_df = df.tail(lookback_days)
+            recent_rsi = rsi.tail(lookback_days)
+
+            # Find local minima and maxima
+            price_lows_idx = self._find_local_minima(recent_df['Close'].reset_index(drop=True))
+            price_highs_idx = self._find_local_maxima(recent_df['Close'].reset_index(drop=True))
+
+            # Reset index for consistent indexing
+            recent_close = recent_df['Close'].reset_index(drop=True)
+            recent_rsi_reset = recent_rsi.reset_index(drop=True)
+
+            # Check for bullish divergence (need at least 2 lows)
+            if len(price_lows_idx) >= 2:
+                latest_low_idx = price_lows_idx[-1]
+                prev_low_idx = price_lows_idx[-2]
+
+                latest_price_low = recent_close.iloc[latest_low_idx]
+                prev_price_low = recent_close.iloc[prev_low_idx]
+                latest_rsi_low = recent_rsi_reset.iloc[latest_low_idx]
+                prev_rsi_low = recent_rsi_reset.iloc[prev_low_idx]
+
+                if latest_price_low < prev_price_low and latest_rsi_low > prev_rsi_low:
+                    # Bullish divergence detected
+                    strength = self._calculate_divergence_strength(
+                        latest_price_low, latest_rsi_low, prev_price_low, prev_rsi_low
+                    )
+                    pattern = f"Price lower low at ${latest_price_low:.2f}, RSI higher low at {latest_rsi_low:.1f}"
+                    return DivergenceType.BULLISH, pattern, strength
+
+            # Check for bearish divergence (need at least 2 highs)
+            if len(price_highs_idx) >= 2:
+                latest_high_idx = price_highs_idx[-1]
+                prev_high_idx = price_highs_idx[-2]
+
+                latest_price_high = recent_close.iloc[latest_high_idx]
+                prev_price_high = recent_close.iloc[prev_high_idx]
+                latest_rsi_high = recent_rsi_reset.iloc[latest_high_idx]
+                prev_rsi_high = recent_rsi_reset.iloc[prev_high_idx]
+
+                if latest_price_high > prev_price_high and latest_rsi_high < prev_rsi_high:
+                    # Bearish divergence detected
+                    strength = self._calculate_divergence_strength(
+                        latest_price_high, latest_rsi_high, prev_price_high, prev_rsi_high
+                    )
+                    pattern = f"Price higher high at ${latest_price_high:.2f}, RSI lower high at {latest_rsi_high:.1f}"
+                    return DivergenceType.BEARISH, pattern, strength
+
+            return DivergenceType.NONE, "No divergence detected", 0.0
+
+        except Exception as e:
+            logger.error(f"Error detecting RSI divergence: {e}")
+            return DivergenceType.NONE, f"Error: {str(e)}", 0.0
+
+    def detect_macd_divergence(
+        self,
+        df: pd.DataFrame,
+        lookback_days: int = 60
+    ) -> tuple:
+        """
+        Detect MACD histogram divergence.
+
+        Bullish: Price declining, histogram rising (momentum improving)
+        Bearish: Price rising, histogram falling (momentum weakening)
+
+        Args:
+            df: DataFrame with OHLCV data
+            lookback_days: Days to look back (default 60)
+
+        Returns:
+            Tuple of (divergence_type, pattern_description, strength)
+        """
+        from research_swarm.agents.quant.models import DivergenceType
+
+        try:
+            # Calculate MACD
+            macd_line, signal_line, histogram = calculate_macd(df['Close'])
+
+            # Focus on recent period
+            recent_df = df.tail(lookback_days)
+            recent_histogram = histogram.tail(lookback_days)
+
+            # Calculate price and histogram trends
+            price_trend = (recent_df['Close'].iloc[-1] - recent_df['Close'].iloc[0]) / recent_df['Close'].iloc[0]
+
+            # Handle zero histogram values
+            if abs(recent_histogram.iloc[0]) < 0.001:
+                return DivergenceType.NONE, "No divergence detected", 0.0
+
+            histogram_trend = (recent_histogram.iloc[-1] - recent_histogram.iloc[0]) / abs(recent_histogram.iloc[0])
+
+            # Divergence if trends opposite (threshold: 5% trend)
+            if price_trend < -0.05 and histogram_trend > 0.05:
+                # Bullish divergence
+                strength = min(1.0, abs(price_trend - histogram_trend) / 0.2)
+                pattern = f"Price declined {price_trend*100:.1f}%, MACD histogram improving"
+                return DivergenceType.BULLISH, pattern, strength
+            elif price_trend > 0.05 and histogram_trend < -0.05:
+                # Bearish divergence
+                strength = min(1.0, abs(price_trend - histogram_trend) / 0.2)
+                pattern = f"Price rose {price_trend*100:.1f}%, MACD histogram weakening"
+                return DivergenceType.BEARISH, pattern, strength
+
+            return DivergenceType.NONE, "No divergence detected", 0.0
+
+        except Exception as e:
+            logger.error(f"Error detecting MACD divergence: {e}")
+            return DivergenceType.NONE, f"Error: {str(e)}", 0.0
+
+    def detect_volume_divergence(
+        self,
+        df: pd.DataFrame,
+        lookback_days: int = 60
+    ) -> tuple:
+        """
+        Detect volume divergence.
+
+        Bearish: Price rising on declining volume (weak rally)
+        Bullish: Price falling on declining volume (weak selloff)
+
+        Args:
+            df: DataFrame with OHLCV data
+            lookback_days: Days to look back (default 60)
+
+        Returns:
+            Tuple of (divergence_type, pattern_description, strength)
+        """
+        from research_swarm.agents.quant.models import DivergenceType
+
+        try:
+            recent_df = df.tail(lookback_days)
+
+            # Calculate 20-day volume moving average trend
+            volume_ma = recent_df['Volume'].rolling(window=20).mean()
+            price_trend = (recent_df['Close'].iloc[-1] - recent_df['Close'].iloc[0]) / recent_df['Close'].iloc[0]
+
+            # Handle NaN or zero volume
+            if volume_ma.iloc[0] == 0 or pd.isna(volume_ma.iloc[0]):
+                return DivergenceType.NONE, "No divergence detected", 0.0
+
+            volume_trend = (volume_ma.iloc[-1] - volume_ma.iloc[0]) / volume_ma.iloc[0]
+
+            # Divergence if trends opposite (threshold: 5%)
+            if price_trend > 0.05 and volume_trend < -0.05:
+                # Bearish divergence (price up, volume down)
+                strength = min(1.0, abs(price_trend - volume_trend) / 0.2)
+                pattern = f"Price rose {price_trend*100:.1f}%, volume declined {volume_trend*100:.1f}%"
+                return DivergenceType.BEARISH, pattern, strength
+            elif price_trend < -0.05 and volume_trend < -0.05:
+                # Bullish divergence (price down, volume down = weak selloff)
+                strength = min(1.0, abs(volume_trend) / 0.2)
+                pattern = f"Price fell {price_trend*100:.1f}%, volume declined {volume_trend*100:.1f}%"
+                return DivergenceType.BULLISH, pattern, strength
+
+            return DivergenceType.NONE, "No divergence detected", 0.0
+
+        except Exception as e:
+            logger.error(f"Error detecting volume divergence: {e}")
+            return DivergenceType.NONE, f"Error: {str(e)}", 0.0
+
+    def get_technical_divergence(
+        self,
+        ticker: str,
+        df: pd.DataFrame,
+        lookback_days: int = 60
+    ):
+        """
+        Detect all technical divergences and generate overall score.
+
+        Args:
+            ticker: Stock ticker
+            df: DataFrame with OHLCV data
+            lookback_days: Days to look back (default 60)
+
+        Returns:
+            TechnicalDivergence model with all patterns + overall score
+        """
+        from research_swarm.agents.quant.models import (
+            TechnicalDivergence,
+            DivergencePattern,
+            DivergenceType
+        )
+
+        try:
+            # Detect all three types
+            rsi_div, rsi_pattern, rsi_strength = self.detect_rsi_divergence(df, lookback_days)
+            macd_div, macd_pattern, macd_strength = self.detect_macd_divergence(df, lookback_days)
+            volume_div, volume_pattern, volume_strength = self.detect_volume_divergence(df, lookback_days)
+
+            # Collect patterns
+            patterns = []
+            if rsi_div != DivergenceType.NONE:
+                patterns.append(DivergencePattern(
+                    indicator="RSI",
+                    divergence_type=rsi_div,
+                    description=rsi_pattern,
+                    lookback_days=lookback_days,
+                    strength=rsi_strength
+                ))
+            if macd_div != DivergenceType.NONE:
+                patterns.append(DivergencePattern(
+                    indicator="MACD",
+                    divergence_type=macd_div,
+                    description=macd_pattern,
+                    lookback_days=lookback_days,
+                    strength=macd_strength
+                ))
+            if volume_div != DivergenceType.NONE:
+                patterns.append(DivergencePattern(
+                    indicator="Volume",
+                    divergence_type=volume_div,
+                    description=volume_pattern,
+                    lookback_days=lookback_days,
+                    strength=volume_strength
+                ))
+
+            # Calculate overall bias (bullish vs bearish count)
+            bullish_count = sum(1 for p in patterns if p.divergence_type == DivergenceType.BULLISH)
+            bearish_count = sum(1 for p in patterns if p.divergence_type == DivergenceType.BEARISH)
+
+            if bullish_count > bearish_count:
+                overall_bias = DivergenceType.BULLISH
+                divergence_score = 7.0 + (bullish_count * 0.5)  # 7.0-8.5 range
+            elif bearish_count > bullish_count:
+                overall_bias = DivergenceType.BEARISH
+                divergence_score = 3.0 - (bearish_count * 0.5)  # 1.5-3.0 range
+            else:
+                overall_bias = DivergenceType.NONE
+                divergence_score = 5.0  # Neutral
+
+            # Calculate confidence (more patterns = higher confidence)
+            confidence = min(1.0, len(patterns) * 0.33)  # Max confidence at 3 patterns
+
+            # Generate interpretation
+            if overall_bias == DivergenceType.BULLISH:
+                bullish_indicators = ', '.join(p.indicator for p in patterns if p.divergence_type == DivergenceType.BULLISH)
+                interpretation = f"Bullish divergence detected ({bullish_count} indicator(s)): {bullish_indicators}. Bottom likely forming."
+            elif overall_bias == DivergenceType.BEARISH:
+                bearish_indicators = ', '.join(p.indicator for p in patterns if p.divergence_type == DivergenceType.BEARISH)
+                interpretation = f"Bearish divergence detected ({bearish_count} indicator(s)): {bearish_indicators}. Top likely forming."
+            else:
+                interpretation = "No significant technical divergences detected. Price and momentum aligned."
+
+            return TechnicalDivergence(
+                rsi_divergence=rsi_div,
+                rsi_pattern=rsi_pattern,
+                rsi_strength=rsi_strength,
+                macd_divergence=macd_div,
+                macd_pattern=macd_pattern,
+                macd_strength=macd_strength,
+                volume_divergence=volume_div,
+                volume_pattern=volume_pattern,
+                volume_strength=volume_strength,
+                patterns=patterns,
+                has_divergence=len(patterns) > 0,
+                overall_bias=overall_bias,
+                divergence_score=divergence_score,
+                confidence=confidence,
+                interpretation=interpretation
+            )
+
+        except Exception as e:
+            logger.error(f"Error calculating technical divergence for {ticker}: {e}")
+            # Return neutral divergence on error
+            return TechnicalDivergence(
+                rsi_divergence=DivergenceType.NONE,
+                rsi_pattern="Error calculating",
+                rsi_strength=0.0,
+                macd_divergence=DivergenceType.NONE,
+                macd_pattern="Error calculating",
+                macd_strength=0.0,
+                volume_divergence=DivergenceType.NONE,
+                volume_pattern="Error calculating",
+                volume_strength=0.0,
+                patterns=[],
+                has_divergence=False,
+                overall_bias=DivergenceType.NONE,
+                divergence_score=5.0,
+                confidence=0.0,
+                interpretation=f"Error calculating divergence: {str(e)}"
+            )
+
     def analyze_ticker(
         self,
         ticker: str,
@@ -994,6 +1364,9 @@ class TechnicalAnalyzer:
             bollinger_bands, stochastic, volume_profile
         )
 
+        # NEW: Detect technical divergences (RSI/MACD/Volume)
+        technical_divergence = self.get_technical_divergence(ticker, df, lookback_days=60)
+
         return TechnicalIndicators(
             ticker=ticker,
             moving_averages=moving_averages,
@@ -1005,4 +1378,5 @@ class TechnicalAnalyzer:
             stochastic=stochastic,
             volume_profile=volume_profile,
             entry_exit_signals=entry_exit_signals,
+            technical_divergence=technical_divergence,  # NEW
         )

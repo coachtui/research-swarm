@@ -585,6 +585,80 @@ class NewsAnalyzer:
                 "institutional_sentiment": "neutral"
             }, 0
 
+    def analyze_dark_pool_activity(
+        self,
+        dark_pool_data: Optional[List[Dict]],
+        institutional_context: Optional[str],
+        ticker: str,
+        analysis_date: str
+    ) -> Tuple[Dict[str, Any], int]:
+        """
+        Analyze dark pool (ATS) activity from FINRA data.
+
+        Args:
+            dark_pool_data: List of weekly dark pool records from FINRA
+            institutional_context: Context from 13F data (for cross-reference)
+            ticker: Stock ticker
+            analysis_date: Analysis date
+
+        Returns:
+            Tuple of (dark_pool_activity_dict, tokens_used)
+        """
+        from research_swarm.agents.news_hound.prompts import DARK_POOL_ACTIVITY_PROMPT
+
+        logger.info(f"Analyzing dark pool activity for {ticker}")
+
+        # Format dark pool data for prompt
+        if dark_pool_data:
+            dark_pool_text = "Weekly Dark Pool Data (FINRA):\n"
+            for week in dark_pool_data:
+                dark_pool_text += f"- Week ending {week.get('week_ending', 'N/A')}: "
+                dark_pool_text += f"{week.get('ats_pct', 0):.1f}% off-exchange "
+                dark_pool_text += f"({week.get('ats_shares', 0):,} shares), "
+                venues = week.get('venues', [])
+                if venues:
+                    dark_pool_text += f"Top venues: {', '.join(venues[:3])}\n"
+                else:
+                    dark_pool_text += "\n"
+        else:
+            dark_pool_text = "No dark pool data available from FINRA"
+
+        # Build prompt
+        prompt = DARK_POOL_ACTIVITY_PROMPT.format(
+            ticker=ticker,
+            analysis_date=analysis_date,
+            dark_pool_data=dark_pool_text,
+            institutional_context=institutional_context or "No 13F context available"
+        )
+
+        try:
+            # Use Haiku for cost-effective analysis
+            response = self.haiku.invoke(prompt)
+            response_text = response.content.strip()
+            tokens_used = extract_token_usage(response.response_metadata)
+
+            # Extract JSON from response
+            json_text = self._extract_json(response_text)
+            result = json.loads(json_text)
+
+            logger.info(f"✓ Dark pool activity analyzed ({tokens_used} tokens)")
+            return result, tokens_used
+
+        except Exception as e:
+            logger.error(f"Error analyzing dark pool activity: {e}")
+            return {
+                "avg_ats_pct": None,
+                "trend": "stable",
+                "trend_pct_change": None,
+                "peak_week": None,
+                "peak_ats_pct": None,
+                "major_venues": [],
+                "venue_concentration": "medium",
+                "notable_patterns": [],
+                "dark_pool_sentiment": "neutral",
+                "confidence": "low"
+            }, 0
+
     def analyze_insider_activity(
         self,
         insider_data: Optional[pd.DataFrame],

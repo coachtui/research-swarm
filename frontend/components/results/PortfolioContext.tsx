@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Briefcase, AlertTriangle } from 'lucide-react'
+import type { ConvictionPosition } from '@/types/api'
 
 interface PortfolioContextProps {
   ticker: string
@@ -9,7 +11,10 @@ interface PortfolioContextProps {
   financialHealthScore?: number
   sector?: string
   currentPrice: number
+  convictionPosition?: ConvictionPosition | null
 }
+
+type RiskProfile = 'conservative' | 'moderate' | 'aggressive'
 
 export function PortfolioContext({
   ticker,
@@ -18,21 +23,66 @@ export function PortfolioContext({
   financialHealthScore = 5.0,
   sector = 'Technology',
   currentPrice,
+  convictionPosition,
 }: PortfolioContextProps) {
-  // Calculate suggested allocation based on rating and quality
-  const getSuggestedAllocation = () => {
-    if (moatScore >= 8.0 && rating.includes('BUY')) {
-      return { min: 3, max: 5, type: 'Core Holding' }
-    } else if (moatScore >= 7.0 && rating.includes('BUY')) {
-      return { min: 2, max: 4, type: 'Core Holding' }
-    } else if (moatScore >= 6.0 || rating === 'HOLD') {
-      return { min: 1, max: 2, type: 'Satellite Position' }
+  const [riskProfile, setRiskProfile] = useState<RiskProfile>('moderate')
+
+  // Calculate suggested allocation based on rating, quality, and risk profile
+  const getSuggestedAllocation = (profile: RiskProfile) => {
+    let baseAllocation: { min: number; max: number; type: string }
+
+    // If we have backend conviction data, use that as the base
+    if (convictionPosition) {
+      const convictionLevel = convictionPosition.conviction_level.toLowerCase()
+
+      // Determine position type from conviction level
+      let positionType = 'Satellite Position'
+      if (convictionLevel.includes('high') || convictionPosition.recommended_pct >= 5) {
+        positionType = 'Core Holding'
+      } else if (convictionLevel.includes('low') || convictionPosition.recommended_pct <= 2) {
+        positionType = 'Speculative / Avoid'
+      }
+
+      // Use backend's recommended_pct as the base max, derive min
+      const backendMax = convictionPosition.recommended_pct
+      const backendMin = Math.max(0.5, backendMax * 0.5) // Min is roughly 50% of max
+
+      baseAllocation = {
+        min: backendMin,
+        max: backendMax,
+        type: positionType,
+      }
     } else {
-      return { min: 0, max: 1, type: 'Speculative / Avoid' }
+      // Fallback: Calculate from quality/rating if no backend data
+      if (moatScore >= 8.0 && rating.includes('BUY')) {
+        baseAllocation = { min: 3, max: 5, type: 'Core Holding' }
+      } else if (moatScore >= 7.0 && rating.includes('BUY')) {
+        baseAllocation = { min: 2, max: 4, type: 'Core Holding' }
+      } else if (moatScore >= 6.0 || rating === 'HOLD') {
+        baseAllocation = { min: 1, max: 2, type: 'Satellite Position' }
+      } else {
+        baseAllocation = { min: 0, max: 1, type: 'Speculative / Avoid' }
+      }
+    }
+
+    // Adjust for risk profile
+    const multipliers = {
+      conservative: 0.7,  // 70% of base allocation (less aggressive than before)
+      moderate: 1.0,      // 100% of base allocation
+      aggressive: 1.3,    // 130% of base allocation (less aggressive than before)
+    }
+
+    const multiplier = multipliers[profile]
+    const absoluteMax = convictionPosition?.max_pct || 10 // Use backend's risk-adjusted cap if available
+
+    return {
+      min: Math.max(0, Math.round(baseAllocation.min * multiplier * 10) / 10),
+      max: Math.min(absoluteMax, Math.round(baseAllocation.max * multiplier * 10) / 10),
+      type: baseAllocation.type,
     }
   }
 
-  const allocation = getSuggestedAllocation()
+  const allocation = getSuggestedAllocation(riskProfile)
   const portfolioExamples = [
     { size: 10000, position: (10000 * allocation.max) / 100 },
     { size: 50000, position: (50000 * allocation.max) / 100 },
@@ -45,10 +95,46 @@ export function PortfolioContext({
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
       <CardContent className="pt-6 space-y-4">
-        <div className="flex items-center gap-2">
-          <Briefcase className="h-5 w-5 text-primary" />
-          <h3 className="text-lg font-semibold text-text-primary">Portfolio Context</h3>
-          <Badge variant="secondary">{ticker}</Badge>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Briefcase className="h-5 w-5 text-primary" />
+            <h3 className="text-lg font-semibold text-text-primary">Portfolio Context</h3>
+            <Badge variant="secondary">{ticker}</Badge>
+          </div>
+
+          {/* Risk Profile Selector */}
+          <div className="flex items-center gap-1 bg-surface rounded-lg p-1 border border-border">
+            {(['conservative', 'moderate', 'aggressive'] as const).map((profile) => (
+              <button
+                key={profile}
+                onClick={() => setRiskProfile(profile)}
+                className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                  riskProfile === profile
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'text-text-tertiary hover:text-text-primary'
+                }`}
+              >
+                {profile.charAt(0).toUpperCase() + profile.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Risk Profile Description */}
+        <div className="bg-surface/50 rounded-lg p-3 border border-border">
+          <p className="text-xs text-text-secondary">
+            <span className="font-medium text-text-primary">
+              {riskProfile === 'conservative' && 'Conservative: '}
+              {riskProfile === 'moderate' && 'Moderate: '}
+              {riskProfile === 'aggressive' && 'Aggressive: '}
+            </span>
+            {riskProfile === 'conservative' &&
+              'Lower position sizes with tighter risk controls - prioritizes capital preservation'}
+            {riskProfile === 'moderate' &&
+              'Balanced position sizing based on company quality and market signals - standard approach'}
+            {riskProfile === 'aggressive' &&
+              'Larger positions for high-conviction ideas - accepts higher volatility for greater upside potential'}
+          </p>
         </div>
 
         {/* Position Sizing Guidance */}

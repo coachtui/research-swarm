@@ -1,11 +1,19 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
 import './globals.css'
+import { ClerkProvider } from '@clerk/nextjs'
 import { QueryProvider } from '@/lib/providers/query-provider'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { Header } from '@/components/layout/Header'
 import { Footer } from '@/components/layout/Footer'
 
-const inter = Inter({ subsets: ['latin'] })
+// Using system fonts as fallback due to Google Fonts timeout
+const fontClass = 'font-sans'
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+}
 
 export const metadata: Metadata = {
   title: 'DVRG - AI Stock Analysis That Detects Divergences',
@@ -13,11 +21,6 @@ export const metadata: Metadata = {
   keywords: ['stock analysis', 'AI investing', 'moat score', 'divergence detection', 'investment research'],
   authors: [{ name: 'DVRG' }],
   creator: 'DVRG',
-  viewport: {
-    width: 'device-width',
-    initialScale: 1,
-    maximumScale: 5,
-  },
   openGraph: {
     type: 'website',
     locale: 'en_US',
@@ -40,14 +43,18 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${inter.className} flex min-h-screen flex-col`}>
-        <QueryProvider>
-          <Header />
-          <main className="flex-1">{children}</main>
-          <Footer />
-        </QueryProvider>
-      </body>
-    </html>
+    <ClerkProvider dynamic>
+      <html lang="en" className="dark">
+        <body className={`${fontClass} flex min-h-screen flex-col`}>
+          <QueryProvider>
+            <TooltipProvider delayDuration={200}>
+              <Header />
+              <main className="flex-1">{children}</main>
+              <Footer />
+            </TooltipProvider>
+          </QueryProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   )
 }

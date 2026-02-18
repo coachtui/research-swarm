@@ -263,16 +263,41 @@ INVESTMENT_THESIS_PROMPT = """You are a senior investment analyst writing a fina
 
 ## YOUR TASK
 
-Write a concise, data-driven investment thesis (250-350 words) that:
+Write a structured, data-driven investment thesis organized into these sections:
 
-1. **Opens with a 1-2 sentence company description**: What the company does, its sector, and why it matters — so a new investor immediately understands the business
-2. **States a clear recommendation**: BUY, HOLD, or AVOID
-3. **Explains every score that stands out**: If any component score is notably high (≥8) or low (≤4), explicitly explain WHY in plain language. For example, if Valuation is 3.5/10 while Financial Health is 9.2/10, explain the disconnect (e.g., "The low valuation score reflects a P/E of 35x vs the sector median of 28x, meaning the stock trades at a premium despite strong fundamentals")
-4. **Justifies with SPECIFIC data**: Reference moat score, key signals (earnings revisions, institutional flow, technical setup), and price targets
-5. **Addresses signal convergence/divergence**: Are fundamentals, technicals, and sentiment aligned or conflicting?
-6. **Acknowledges key risks with specificity**: Cite actual risk factors with data
-7. **Provides tactical guidance**: Entry levels, catalysts to watch, position sizing considerations
-8. **Defines investor fit**: Value/Growth/Momentum profile, time horizon, risk tolerance
+### 1. COMPANY OVERVIEW (1-2 sentences)
+- What the company does, its sector/market position, and why it matters
+- Make it immediately clear to new investors what this business is
+
+### 2. RECOMMENDATION & OVERALL SCORE
+- State clear recommendation: BUY, HOLD, or AVOID
+- Current price and overall score with context
+
+### 3. INVESTMENT HIGHLIGHTS (2-4 bullet points)
+- Key strengths backed by specific data
+- Reference standout component scores (if any score ≥8, explain WHY with data)
+- Cite moat score, key signals (earnings revisions, institutional flow, technical setup)
+- Note signal convergence if fundamentals/technicals/sentiment align powerfully
+
+### 4. VALUATION & SIGNAL ANALYSIS (2-3 sentences)
+- **CRITICAL**: Explain every score that stands out (≥8 or ≤4) in plain language
+- Example: If Valuation is 3.5/10 while Financial Health is 9.2/10, explain: "The low valuation score reflects a P/E of 35x vs sector median of 28x—stock trades at premium despite strong fundamentals"
+- Address signal convergence/divergence: Are metrics aligned or conflicting?
+- Reference price targets if compelling
+
+### 5. KEY RISKS (2-3 bullet points)
+- Most significant risks with specific data
+- Cite actual risk factors with numbers/scenarios
+
+### 6. ENTRY STRATEGY & INVESTOR FIT (2-3 sentences)
+- Tactical guidance: Entry levels, catalysts to watch, position sizing
+- Define investor profile: Value/Growth/Momentum, time horizon, risk tolerance
+
+ADDITIONALLY, identify 2-3 **Strategic Catalysts** — forward-looking developments not yet reflected in current financials:
+- **Strategic investments/partnerships** that could unlock new revenue streams (e.g., Amazon's investment in Anthropic, potential IPO value creation)
+- **Emerging business lines approaching inflection** points (new product lines, geographic expansions, business model shifts)
+- **Competitive positioning shifts** (market share gains, new technology adoption, regulatory changes favoring the company)
+- Label these clearly as **forward-looking and speculative** — they represent potential upside but carry execution risk
 
 **Enhanced Guidelines for Recommendation**:
 - **BUY (moat_score >= 8.0)**:
@@ -310,11 +335,36 @@ Write a concise, data-driven investment thesis (250-350 words) that:
 - AVOID: "corrected", "pulled back" (loaded terms)
 - Just state facts: "down 7.5%" without drama
 
-Return your response as a JSON object:
+Return your response as a JSON object with STRUCTURED sections:
 
 {{
   "recommendation": "<BUY|HOLD|AVOID>",
-  "investment_thesis": "<200-300 word data-driven thesis leveraging enhanced signals>"
+  "investment_thesis": {{
+    "company_overview": "<1-2 sentences describing the business>",
+    "recommendation_summary": "<Recommendation + price + overall score with brief context>",
+    "investment_highlights": [
+      "<Highlight 1 with specific data>",
+      "<Highlight 2 with specific data>",
+      "<Highlight 3 with specific data>",
+      "<Highlight 4 (optional)>"
+    ],
+    "valuation_signal_analysis": "<2-3 sentences explaining standout scores and signal convergence/divergence>",
+    "key_risks": [
+      "<Risk 1 with specifics>",
+      "<Risk 2 with specifics>",
+      "<Risk 3 with specifics>"
+    ],
+    "entry_strategy": "<2-3 sentences on tactical guidance and investor fit>"
+  }},
+  "strategic_catalysts": [
+    {{
+      "title": "<Catalyst title>",
+      "description": "<1-2 sentence description of the forward-looking opportunity>",
+      "category": "<Strategic Investment|Emerging Business Line|Competitive Positioning>",
+      "potential_impact": "<HIGH|MEDIUM|LOW>",
+      "timeframe": "<Near-term (0-6mo)|Medium-term (6-18mo)|Long-term (18mo+)>"
+    }}
+  ]
 }}
 
 Return ONLY valid JSON, no other text.

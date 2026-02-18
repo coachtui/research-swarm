@@ -351,6 +351,53 @@ class EntryExitSignals(BaseModel):
     )
 
 
+class DivergenceType(str, Enum):
+    """Type of technical divergence detected."""
+    BULLISH = "bullish"
+    BEARISH = "bearish"
+    NONE = "none"
+
+
+class DivergencePattern(BaseModel):
+    """Individual divergence pattern detected."""
+
+    indicator: str = Field(..., description="Indicator name (RSI/MACD/Volume)")
+    divergence_type: DivergenceType = Field(..., description="Type of divergence")
+    description: str = Field(..., description="Human-readable pattern description")
+    lookback_days: int = Field(..., description="Days analyzed for divergence")
+    strength: float = Field(..., ge=0, le=1, description="Divergence strength (0-1)")
+
+
+class TechnicalDivergence(BaseModel):
+    """Technical divergence analysis across multiple indicators."""
+
+    # RSI Divergence
+    rsi_divergence: DivergenceType = Field(DivergenceType.NONE, description="RSI divergence type")
+    rsi_pattern: Optional[str] = Field(None, description="RSI divergence pattern description")
+    rsi_strength: float = Field(0.0, ge=0, le=1, description="RSI divergence strength")
+
+    # MACD Divergence
+    macd_divergence: DivergenceType = Field(DivergenceType.NONE, description="MACD divergence type")
+    macd_pattern: Optional[str] = Field(None, description="MACD divergence pattern description")
+    macd_strength: float = Field(0.0, ge=0, le=1, description="MACD divergence strength")
+
+    # Volume Divergence
+    volume_divergence: DivergenceType = Field(DivergenceType.NONE, description="Volume divergence type")
+    volume_pattern: Optional[str] = Field(None, description="Volume divergence pattern description")
+    volume_strength: float = Field(0.0, ge=0, le=1, description="Volume divergence strength")
+
+    # Overall Summary
+    patterns: List[DivergencePattern] = Field(
+        default_factory=list,
+        description="List of detected divergence patterns"
+    )
+    has_divergence: bool = Field(False, description="Whether any divergence was detected")
+    overall_bias: DivergenceType = Field(DivergenceType.NONE, description="Overall divergence bias")
+    divergence_score: float = Field(5.0, ge=0, le=10, description="Divergence score (0-10 scale)")
+    confidence: float = Field(0.5, ge=0, le=1, description="Confidence in divergence assessment")
+    interpretation: str = Field("", description="Human-readable interpretation")
+
+
 class TechnicalIndicators(BaseModel):
     """Combined technical indicators output."""
 
@@ -364,6 +411,7 @@ class TechnicalIndicators(BaseModel):
     stochastic: StochasticData = Field(..., description="Stochastic Oscillator analysis")
     volume_profile: VolumeProfile = Field(..., description="Volume Profile analysis")
     entry_exit_signals: EntryExitSignals = Field(..., description="Entry/exit trading signals")
+    technical_divergence: Optional[TechnicalDivergence] = Field(None, description="Technical divergence analysis (RSI/MACD/Volume)")
 
 
 class SupplyChainNode(BaseModel):

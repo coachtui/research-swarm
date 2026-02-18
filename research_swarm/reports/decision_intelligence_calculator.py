@@ -107,7 +107,8 @@ class DecisionIntelligenceCalculator:
             buyer_urgency = "High"
             buyer_detail = (
                 f"Significant discount ({discount_to_target_pct:.0f}%) to fair value. "
-                f"Enter at current ${current_price:.2f} or set limit near ${entry_zone_high:.2f}."
+                f"Enter at current ${current_price:.2f} (market order for immediate entry) or set a buy limit at "
+                f"${entry_zone_low:.2f} to get an even better entry if the stock dips further."
             )
         elif discount_to_target_pct >= 5 and conviction_level == "High":
             buyer_action = "BUY NOW"
@@ -129,7 +130,8 @@ class DecisionIntelligenceCalculator:
             buyer_urgency = "Low"
             buyer_detail = (
                 f"Trading {abs(discount_to_target_pct):.0f}% above fair value. "
-                f"Set alerts for ${entry_zone_high:.2f} (ideal entry zone)."
+                f"Wait for pullback to ${entry_zone_high:.2f} (ideal entry zone). "
+                f"Set a buy limit at ${entry_zone_low:.2f} to automatically enter if price dips to attractive levels."
             )
 
         # Divergence override: HIGH severity forces WAIT for new buyers
@@ -235,9 +237,10 @@ class DecisionIntelligenceCalculator:
         aggressive_stop = current_price * (1 - aggressive_stop_pct)
 
         # 3 aggressive targets (progressively higher)
-        aggressive_t1 = base_target
+        # T1 must be above entry (use base_target but ensure it's higher)
+        aggressive_t1 = max(base_target, aggressive_entry * 1.05)
 
-        # T2 must be above T1
+        # T2 must be above T1 (use bull_target but ensure it's higher)
         aggressive_t2 = max(bull_target, aggressive_t1 * 1.07)
 
         # T3 must be above T2 (10% beyond T2)

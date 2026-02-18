@@ -72,7 +72,7 @@ def fetch_swarm_data_node(state: ManagerState) -> ManagerState:
     return state
 
 
-def call_fundamentalist_node(state: ManagerState) -> ManagerState:
+def call_fundamentalist_node(state: ManagerState) -> dict:
     """
     Node 1: Call Fundamentalist agent.
 
@@ -80,12 +80,9 @@ def call_fundamentalist_node(state: ManagerState) -> ManagerState:
         state: Current workflow state
 
     Returns:
-        Updated state with fundamentalist_output and financial_health_score
+        Partial state update (only modified fields to avoid parallel update conflicts)
     """
     logger.info(f"[Node 1] Calling Fundamentalist agent for {state['ticker']}")
-
-    state["status"] = "calling_fundamentalist"
-    state["node_timestamps"] = {**state.get("node_timestamps", {}), "call_fundamentalist": time.time()}
 
     try:
         # Call Fundamentalist agent with TTM parameters
@@ -96,48 +93,36 @@ def call_fundamentalist_node(state: ManagerState) -> ManagerState:
             shared_swarm_data=state.get("shared_swarm_data")  # NEW: Pass pre-fetched data
         )
 
-        # Store output as dict
-        state["fundamentalist_output"] = fundamentalist_output.dict()
-        state["financial_health_score"] = fundamentalist_output.financial_health_score
-
-        # Track tokens and time
-        state["tokens_used"] = state.get("tokens_used", 0) + fundamentalist_output.tokens_used
-        state["agent_processing_times"] = {
-            **state.get("agent_processing_times", {}),
-            "fundamentalist": fundamentalist_output.processing_time
-        }
-
         logger.success(
             f"✓ Fundamentalist complete: {state['ticker']} "
             f"(Score: {fundamentalist_output.financial_health_score:.2f})"
         )
 
+        # Return only the fields this node modifies (avoid parallel update conflicts)
+        # Note: tokens_used, node_timestamps, agent_processing_times handled in sync node
+        return {
+            "fundamentalist_output": fundamentalist_output.dict(),
+            "financial_health_score": fundamentalist_output.financial_health_score,
+        }
+
     except Exception as e:
         logger.error(f"Fundamentalist agent failed: {e}")
-        state["status"] = "error"
-        state["error"] = f"Fundamentalist agent failed: {str(e)}"
+        return {
+            "error": f"Fundamentalist agent failed: {str(e)}",
+        }
 
-    return state
 
-
-def call_news_hound_node(state: ManagerState) -> ManagerState:
+def call_news_hound_node(state: ManagerState) -> dict:
     """
-    Node 2: Call News Hound agent.
+    Node 2: Call News Hound agent (PARALLEL).
 
     Args:
         state: Current workflow state
 
     Returns:
-        Updated state with news_hound_output and sentiment_score
+        Partial state update (only modified fields to avoid parallel update conflicts)
     """
     logger.info(f"[Node 2] Calling News Hound agent for {state['ticker']}")
-
-    # Skip if fundamentalist failed (check BEFORE updating status)
-    if state.get("status") == "error":
-        return state
-
-    state["status"] = "calling_news_hound"
-    state["node_timestamps"] = {**state.get("node_timestamps", {}), "call_news_hound": time.time()}
 
     try:
         # Call News Hound agent
@@ -147,48 +132,39 @@ def call_news_hound_node(state: ManagerState) -> ManagerState:
             shared_swarm_data=state.get("shared_swarm_data")  # NEW: Pass pre-fetched data
         )
 
-        # Store output as dict
-        state["news_hound_output"] = news_hound_output.dict()
-        state["sentiment_score"] = news_hound_output.sentiment_score
-
-        # Track tokens and time
-        state["tokens_used"] = state.get("tokens_used", 0) + news_hound_output.tokens_used
-        state["agent_processing_times"] = {
-            **state.get("agent_processing_times", {}),
-            "news_hound": news_hound_output.processing_time
-        }
-
         logger.success(
             f"✓ News Hound complete: {state['ticker']} "
             f"(Score: {news_hound_output.sentiment_score:.2f})"
         )
 
+        # Return only the fields this node modifies (avoid parallel update conflicts)
+        # Note: tokens_used, node_timestamps, agent_processing_times handled in sync node
+        return {
+            "news_hound_output": news_hound_output.dict(),
+            "sentiment_score": news_hound_output.sentiment_score,
+        }
+
     except Exception as e:
         logger.error(f"News Hound agent failed: {e}")
-        state["status"] = "error"
-        state["error"] = f"News Hound agent failed: {str(e)}"
+        return {
+            "error": f"News Hound agent failed: {str(e)}",
+        }
 
-    return state
 
-
-def call_quant_node(state: ManagerState) -> ManagerState:
+def call_quant_node(state: ManagerState) -> dict:
     """
-    Node 3: Call Quant agent (with supply chain data from Fundamentalist).
+    Node 3: Call Quant agent (PARALLEL).
+
+    Note: Supply chain analysis is disabled. If re-enabled, would need
+    to run after Fundamentalist instead of in parallel.
 
     Args:
         state: Current workflow state
 
     Returns:
-        Updated state with quant_output, technical_score, and supply_chain_score
+        Partial state update (only modified fields to avoid parallel update conflicts)
     """
     logger.info(f"[Node 3] Calling Quant agent for {state['ticker']}")
-
-    # Skip if previous agents failed (check BEFORE updating status)
-    if state.get("status") == "error":
-        return state
-
-    state["status"] = "calling_quant"
-    state["node_timestamps"] = {**state.get("node_timestamps", {}), "call_quant": time.time()}
 
     try:
         # Get supply chain data from Fundamentalist output
@@ -210,35 +186,106 @@ def call_quant_node(state: ManagerState) -> ManagerState:
             shared_swarm_data=state.get("shared_swarm_data")  # NEW: Pass pre-fetched data
         )
 
-        # Store output as dict
-        state["quant_output"] = quant_output.dict()
-        state["technical_score"] = quant_output.technical_score
-        # Supply chain disabled per user request
-        state["supply_chain_score"] = 0.0  # Always 0 since supply chain is disabled
-
-        # Track tokens and time
-        state["tokens_used"] = state.get("tokens_used", 0) + quant_output.tokens_used
-        state["agent_processing_times"] = {
-            **state.get("agent_processing_times", {}),
-            "quant": quant_output.processing_time
-        }
-
         logger.success(
             f"✓ Quant complete: {state['ticker']} "
             f"(Technical Score: {quant_output.technical_score:.2f})"
         )
 
+        # Return only the fields this node modifies (avoid parallel update conflicts)
+        # Note: tokens_used, node_timestamps, agent_processing_times handled in sync node
+        return {
+            "quant_output": quant_output.dict(),
+            "technical_score": quant_output.technical_score,
+            "supply_chain_score": 0.0,  # Always 0 since supply chain is disabled
+        }
+
     except Exception as e:
         logger.error(f"Quant agent failed: {e}")
+        return {
+            "error": f"Quant agent failed: {str(e)}",
+        }
+
+
+def check_agents_complete_node(state: ManagerState) -> ManagerState:
+    """
+    Node 4: Check that all three agents completed successfully.
+
+    This synchronization node waits for all parallel agents to complete
+    and verifies no errors occurred before proceeding to synthesis.
+
+    Args:
+        state: Current workflow state
+
+    Returns:
+        Updated state with error status if any agent failed
+    """
+    logger.info(f"[Node 4] Checking agent completion for {state['ticker']}")
+
+    state["node_timestamps"] = {**state.get("node_timestamps", {}), "check_agents_complete": time.time()}
+
+    # Check that all agent outputs exist
+    missing_agents = []
+    if not state.get("fundamentalist_output"):
+        missing_agents.append("Fundamentalist")
+    if not state.get("news_hound_output"):
+        missing_agents.append("News Hound")
+    if not state.get("quant_output"):
+        missing_agents.append("Quant")
+
+    if missing_agents:
         state["status"] = "error"
-        state["error"] = f"Quant agent failed: {str(e)}"
+        state["error"] = f"Missing agent outputs: {', '.join(missing_agents)}"
+        logger.error(state["error"])
+        return state
+
+    # Check if any agent reported an error
+    errors = []
+    if state.get("fundamentalist_output", {}).get("error"):
+        errors.append(f"Fundamentalist: {state['fundamentalist_output']['error']}")
+    if state.get("news_hound_output", {}).get("error"):
+        errors.append(f"News Hound: {state['news_hound_output']['error']}")
+    if state.get("quant_output", {}).get("error"):
+        errors.append(f"Quant: {state['quant_output']['error']}")
+
+    if errors:
+        state["status"] = "error"
+        state["error"] = "Agent errors: " + "; ".join(errors)
+        logger.error(state["error"])
+        return state
+
+    # All agents completed successfully
+    state["status"] = "agents_complete"
+
+    # Aggregate tokens from all agents
+    total_tokens = state.get("tokens_used", 0)
+    if state.get("fundamentalist_output"):
+        total_tokens += state["fundamentalist_output"].get("tokens_used", 0)
+    if state.get("news_hound_output"):
+        total_tokens += state["news_hound_output"].get("tokens_used", 0)
+    if state.get("quant_output"):
+        total_tokens += state["quant_output"].get("tokens_used", 0)
+
+    state["tokens_used"] = total_tokens
+
+    # Aggregate agent processing times
+    agent_times = state.get("agent_processing_times", {})
+    if state.get("fundamentalist_output"):
+        agent_times["fundamentalist"] = state["fundamentalist_output"].get("processing_time", 0)
+    if state.get("news_hound_output"):
+        agent_times["news_hound"] = state["news_hound_output"].get("processing_time", 0)
+    if state.get("quant_output"):
+        agent_times["quant"] = state["quant_output"].get("processing_time", 0)
+
+    state["agent_processing_times"] = agent_times
+
+    logger.success(f"✓ All agents complete for {state['ticker']} (Total tokens: {total_tokens})")
 
     return state
 
 
 def synthesize_findings_node(state: ManagerState) -> ManagerState:
     """
-    Node 4: Synthesize findings from all agents using LLM (Sonnet).
+    Node 5: Synthesize findings from all agents using LLM (Sonnet).
 
     Args:
         state: Current workflow state
@@ -246,17 +293,10 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
     Returns:
         Updated state with synthesis_narrative, key_insights, and risk_factors
     """
-    logger.info(f"[Node 4] Synthesizing findings for {state['ticker']}")
+    logger.info(f"[Node 5] Synthesizing findings for {state['ticker']}")
 
-    # Skip if previous agents failed (check BEFORE updating status)
+    # Skip if previous check failed
     if state.get("status") == "error":
-        return state
-
-    # Check that all agent outputs exist
-    if not state.get("fundamentalist_output") or not state.get("news_hound_output") or not state.get("quant_output"):
-        state["status"] = "error"
-        state["error"] = "Missing agent outputs - one or more agents failed"
-        logger.error(state["error"])
         return state
 
     state["status"] = "synthesizing"
@@ -348,7 +388,7 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
 
 def calculate_moat_score_node(state: ManagerState) -> ManagerState:
     """
-    Node 5: Calculate moat score using weighted formula.
+    Node 6: Calculate moat score using weighted formula.
 
     Args:
         state: Current workflow state
@@ -356,7 +396,7 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
     Returns:
         Updated state with moat_score, moat_breakdown, confidence, and is_watchlist_candidate
     """
-    logger.info(f"[Node 5] Calculating moat score for {state['ticker']}")
+    logger.info(f"[Node 6] Calculating moat score for {state['ticker']}")
 
     # Skip if previous step failed (check BEFORE updating status)
     if state.get("status") == "error":
@@ -470,7 +510,7 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
 
 def generate_thesis_node(state: ManagerState) -> ManagerState:
     """
-    Node 6: Generate investment thesis using LLM (Sonnet).
+    Node 7: Generate investment thesis using LLM (Sonnet).
 
     Args:
         state: Current workflow state
@@ -478,7 +518,7 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
     Returns:
         Updated state with investment_thesis
     """
-    logger.info(f"[Node 6] Generating investment thesis for {state['ticker']}")
+    logger.info(f"[Node 7] Generating investment thesis for {state['ticker']}")
 
     # Skip if previous step failed (check BEFORE updating status)
     if state.get("status") == "error":
@@ -522,7 +562,16 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
         )
 
         # Update state
-        state["investment_thesis"] = thesis.get("investment_thesis", "")
+        state["investment_thesis"] = thesis.get("investment_thesis", {
+            "company_overview": "Error",
+            "recommendation_summary": "HOLD",
+            "investment_highlights": ["Error generating thesis"],
+            "valuation_signal_analysis": "Error",
+            "key_risks": ["Error generating thesis"],
+            "entry_strategy": "Error"
+        })
+        state["recommendation"] = thesis.get("recommendation", "HOLD")
+        state["strategic_catalysts"] = thesis.get("strategic_catalysts", None)
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
         state["status"] = "completed"
 
@@ -544,12 +593,16 @@ def build_manager_graph() -> StateGraph:
     """
     Build the LangGraph workflow for Manager agent.
 
-    7-Node Sequential Workflow (NEW: Data pre-fetching):
-    0. fetch_swarm_data → 1. call_fundamentalist → 2. call_news_hound → 3. call_quant
-                                                                          ↓
-    7. generate_thesis ← 6. calculate_moat ← 5. synthesize_findings ← 4. (from quant)
+    8-Node Parallel Workflow (NEW: Parallel agent execution):
 
-    Node 0 (NEW) fetches ALL data once, eliminating redundant API calls across agents.
+                                    ┌→ call_fundamentalist ─┐
+    0. fetch_swarm_data ─────────┼→ call_news_hound ──────┤→ 4. check_agents_complete
+                                    └→ call_quant ──────────┘
+                                                               ↓
+    8. generate_thesis ← 7. calculate_moat ← 6. synthesize_findings ← 5. (from check)
+
+    Node 0 fetches ALL data once, then all three research agents run in parallel.
+    Node 4 synchronizes and verifies all agents completed successfully.
 
     Returns:
         Compiled StateGraph
@@ -557,22 +610,30 @@ def build_manager_graph() -> StateGraph:
     workflow = StateGraph(ManagerState)
 
     # Add nodes
-    workflow.add_node("fetch_swarm_data", fetch_swarm_data_node)  # NEW: Pre-fetch data
-    workflow.add_node("call_fundamentalist", call_fundamentalist_node)
-    workflow.add_node("call_news_hound", call_news_hound_node)
-    workflow.add_node("call_quant", call_quant_node)
-    workflow.add_node("synthesize_findings", synthesize_findings_node)
-    workflow.add_node("calculate_moat_score", calculate_moat_score_node)
-    workflow.add_node("generate_thesis", generate_thesis_node)
+    workflow.add_node("fetch_swarm_data", fetch_swarm_data_node)  # Node 0: Pre-fetch data
+    workflow.add_node("call_fundamentalist", call_fundamentalist_node)  # Node 1: Parallel
+    workflow.add_node("call_news_hound", call_news_hound_node)  # Node 2: Parallel
+    workflow.add_node("call_quant", call_quant_node)  # Node 3: Parallel
+    workflow.add_node("check_agents_complete", check_agents_complete_node)  # Node 4: Sync point
+    workflow.add_node("synthesize_findings", synthesize_findings_node)  # Node 5
+    workflow.add_node("calculate_moat_score", calculate_moat_score_node)  # Node 6
+    workflow.add_node("generate_thesis", generate_thesis_node)  # Node 7
 
-    # Set entry point (NEW: Start with data fetch)
+    # Set entry point
     workflow.set_entry_point("fetch_swarm_data")
 
-    # Add edges - sequential flow
-    workflow.add_edge("fetch_swarm_data", "call_fundamentalist")  # NEW edge
-    workflow.add_edge("call_fundamentalist", "call_news_hound")
-    workflow.add_edge("call_news_hound", "call_quant")
-    workflow.add_edge("call_quant", "synthesize_findings")
+    # Add edges - parallel fan-out from fetch_swarm_data
+    workflow.add_edge("fetch_swarm_data", "call_fundamentalist")
+    workflow.add_edge("fetch_swarm_data", "call_news_hound")
+    workflow.add_edge("fetch_swarm_data", "call_quant")
+
+    # Add edges - fan-in to check_agents_complete (synchronization point)
+    workflow.add_edge("call_fundamentalist", "check_agents_complete")
+    workflow.add_edge("call_news_hound", "check_agents_complete")
+    workflow.add_edge("call_quant", "check_agents_complete")
+
+    # Add edges - sequential flow after synchronization
+    workflow.add_edge("check_agents_complete", "synthesize_findings")
     workflow.add_edge("synthesize_findings", "calculate_moat_score")
     workflow.add_edge("calculate_moat_score", "generate_thesis")
 
@@ -596,7 +657,8 @@ def analyze_swarm(
     Perform full swarm analysis on a company.
 
     This orchestrates all three research agents (Fundamentalist, News Hound, Quant)
-    and synthesizes their findings into a unified investment analysis with moat scoring.
+    in parallel, then synthesizes their findings into a unified investment analysis
+    with moat scoring.
 
     Args:
         ticker: Stock ticker (e.g., "NVDA")
@@ -652,6 +714,7 @@ def analyze_swarm(
         "confidence": None,
         "is_watchlist_candidate": None,
         "investment_thesis": None,
+        "recommendation": None,
         "tokens_used": 0,
         "processing_time": None,
         "node_timestamps": {},
@@ -726,11 +789,6 @@ def analyze_swarm(
         tokens_out = int(manager_only_tokens * 0.7)
         cost_by_agent["manager"] = cost_tracker.calculate_cost(tokens_in, tokens_out, "sonnet")
 
-    # Inject LLM-generated price_targets into fundamentalist_output
-    # so data_extractor picks it up from fundamentalist.get("price_targets")
-    if final_state.get("price_targets") and final_state.get("fundamentalist_output"):
-        final_state["fundamentalist_output"]["price_targets"] = final_state["price_targets"]
-
     # Extract VGM scores from fundamentalist_output
     vgm_scores = None
     if final_state.get("fundamentalist_output"):
@@ -751,12 +809,22 @@ def analyze_swarm(
         key_insights=final_state["key_insights"],
         risk_factors=final_state["risk_factors"],
         investment_thesis=final_state["investment_thesis"],
+        strategic_catalysts=final_state.get("strategic_catalysts"),
         moat_score=final_state["moat_score"],
         moat_breakdown=MoatScoreBreakdown(**final_state["moat_breakdown"]),
         confidence=final_state["confidence"],
         is_watchlist_candidate=final_state["is_watchlist_candidate"],
         signal_breakdown=final_state.get("signal_breakdown"),  # v2.0
         vgm_scores=vgm_scores,  # Extract from fundamentalist output
+        # Investment recommendations (v2.0)
+        price_targets=final_state.get("price_targets"),
+        structured_risks=final_state.get("structured_risks"),
+        upgrade_triggers=final_state.get("upgrade_triggers"),
+        downgrade_triggers=final_state.get("downgrade_triggers"),
+        recommendation=final_state.get("recommendation"),
+        rating=final_state.get("rating"),
+        rating_score=final_state.get("rating_score"),
+        risk_level=final_state.get("risk_level"),
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time,
         agent_processing_times=final_state.get("agent_processing_times"),

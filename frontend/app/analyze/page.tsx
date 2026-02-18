@@ -2,7 +2,7 @@ import { TickerSearchForm } from '@/components/analyze/TickerSearchForm'
 
 export const metadata = {
   title: 'Analyze Stock - DVRG',
-  description: 'Get institutional-quality AI stock analysis in 4 minutes. $14.99 per report.',
+  description: 'Get institutional-quality AI stock analysis in 4 minutes.',
 }
 
 export default function AnalyzePage() {
@@ -48,7 +48,7 @@ export default function AnalyzePage() {
         </div>
 
         {/* Trust Indicators */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center max-w-xl mx-auto">
           <div className="space-y-1">
             <div className="text-2xl font-bold text-primary">~4 min</div>
             <div className="text-sm text-text-secondary">Average analysis time</div>
@@ -56,10 +56,6 @@ export default function AnalyzePage() {
           <div className="space-y-1">
             <div className="text-2xl font-bold text-primary">13+</div>
             <div className="text-sm text-text-secondary">Data sources analyzed</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-2xl font-bold text-primary">$14.99</div>
-            <div className="text-sm text-text-secondary">One-time payment</div>
           </div>
         </div>
       </div>

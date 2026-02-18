@@ -11,7 +11,7 @@ class UserTier(str, Enum):
     """User subscription tier."""
     FREE = "free"
     PRO = "pro"
-    ENTERPRISE = "enterprise"
+    PREMIUM = "premium"
 
 class User(BaseModel):
     """
@@ -26,6 +26,7 @@ class User(BaseModel):
     monthly_budget_usd: float = Field(default=200.0, description="Monthly API budget in USD")
 
     is_active: bool = Field(default=True, description="Account active status")
+    is_admin: bool = Field(default=False, description="Admin access for dashboard")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
@@ -38,6 +39,7 @@ class User(BaseModel):
                 "tier": "pro",
                 "monthly_budget_usd": 200.0,
                 "is_active": True,
+                "is_admin": False,
                 "created_at": "2026-01-01T00:00:00Z"
             }
         }

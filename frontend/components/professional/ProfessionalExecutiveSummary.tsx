@@ -2,7 +2,6 @@ import { ManagerOutput, DecisionIntelligence } from '@/types/api'
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { HelpCircle } from 'lucide-react'
@@ -99,20 +98,74 @@ export function ProfessionalExecutiveSummary({
 
       {/* Investment Thesis */}
       <div className="space-y-3">
-        <h3 className="text-lg font-semibold text-text-primary">Investment Thesis</h3>
-        <div className="bg-surface-elevated rounded-lg p-6">
-          <p className="text-text-primary leading-relaxed whitespace-pre-wrap">
-            {full_output.investment_thesis || 'Investment thesis not available.'}
-          </p>
-        </div>
+        <h3 className="text-lg font-semibold text-text-primary">📋 Investment Thesis</h3>
+        {full_output.investment_thesis ? (
+          typeof full_output.investment_thesis === 'string' ? (
+            // Old format: plain string
+            <div className="bg-surface-elevated rounded-lg p-6">
+              <p className="text-text-primary leading-relaxed whitespace-pre-wrap text-sm">
+                {full_output.investment_thesis}
+              </p>
+            </div>
+          ) : (
+            // New format: structured object
+            <div className="bg-surface-elevated rounded-lg p-6 space-y-4">
+              <div>
+                <p className="text-text-primary font-medium mb-2">Company Overview</p>
+                <p className="text-text-secondary text-sm">{full_output.investment_thesis.company_overview}</p>
+              </div>
+
+              <div className="bg-primary/10 rounded-lg p-3 border-l-4 border-primary">
+                <p className="text-text-primary text-sm font-medium">{full_output.investment_thesis.recommendation_summary}</p>
+              </div>
+
+              <div>
+                <p className="text-text-primary font-medium mb-2">Investment Highlights</p>
+                <ul className="space-y-1 text-sm">
+                  {full_output.investment_thesis.investment_highlights.map((highlight, idx) => (
+                    <li key={idx} className="flex items-start text-text-secondary">
+                      <span className="text-success mr-2">•</span>
+                      <span>{highlight}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <p className="text-text-primary font-medium mb-2">Valuation & Signal Analysis</p>
+                <p className="text-text-secondary text-sm">{full_output.investment_thesis.valuation_signal_analysis}</p>
+              </div>
+
+              <div>
+                <p className="text-text-primary font-medium mb-2">Key Risks</p>
+                <ul className="space-y-1 text-sm">
+                  {full_output.investment_thesis.key_risks.map((risk, idx) => (
+                    <li key={idx} className="flex items-start text-text-secondary">
+                      <span className="text-error mr-2">•</span>
+                      <span>{risk}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <p className="text-text-primary font-medium mb-2">Entry Strategy & Investor Fit</p>
+                <p className="text-text-secondary text-sm">{full_output.investment_thesis.entry_strategy}</p>
+              </div>
+            </div>
+          )
+        ) : (
+          <div className="bg-surface-elevated rounded-lg p-6">
+            <p className="text-text-secondary">Investment thesis not available.</p>
+          </div>
+        )}
       </div>
 
       {/* Moat Component Analysis */}
       {moatBreakdown && (
         <div className="space-y-3">
           <h3 className="text-lg font-semibold text-text-primary">Competitive Moat Analysis</h3>
-          <TooltipProvider>
-            <table className="w-full border-collapse">
+          <table className="w-full border-collapse">
               <thead>
                 <tr className="bg-surface-elevated">
                   <th className="border border-border px-4 py-3 text-left text-sm font-semibold">
@@ -254,7 +307,6 @@ export function ProfessionalExecutiveSummary({
                 </tr>
               </tbody>
             </table>
-          </TooltipProvider>
         </div>
       )}
 

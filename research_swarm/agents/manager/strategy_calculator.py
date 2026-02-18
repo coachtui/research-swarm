@@ -43,12 +43,23 @@ class StrategyCalculator:
         base_target = valuation_targets.get("base_target", current_price)
         bear_target = valuation_targets.get("bear_target", current_price * 0.85)
 
-        # Calculate ideal entry zone (bear to slightly below base)
-        ideal_low = bear_target
-        ideal_high = base_target * 0.95  # 5% below base target
-
         # Determine recommendation
         discount_pct = ((base_target - current_price) / base_target) * 100
+
+        # Calculate ideal entry zone based on current price position
+        # CRITICAL: ideal_zone should be at or BELOW current price for new buyers
+        if current_price < bear_target:
+            # Stock is trading below bear case - ideal zone is around current price
+            ideal_low = current_price * 0.92   # 8% below current (on deeper dip)
+            ideal_high = current_price * 0.97  # 3% below current (slight pullback)
+        elif current_price < base_target:
+            # Stock is between bear and base - ideal zone is below current
+            ideal_low = bear_target
+            ideal_high = min(base_target * 0.95, current_price * 0.97)  # 5% below base OR 3% below current
+        else:
+            # Stock is above base target - ideal zone is the bear-to-base range
+            ideal_low = bear_target
+            ideal_high = base_target * 0.95  # 5% below base target
 
         if discount_pct >= 15:
             recommendation = "Buy now - significant discount"

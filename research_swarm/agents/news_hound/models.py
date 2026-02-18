@@ -295,6 +295,50 @@ class InstitutionalActivity(BaseModel):
     institutional_sentiment: str = Field("neutral", description="Strongly Bullish/Bullish/Neutral/Bearish")
 
 
+class DarkPoolActivity(BaseModel):
+    """Dark pool (ATS) trading activity from FINRA OTC Transparency Portal."""
+
+    # Volume metrics
+    avg_ats_pct: Optional[float] = Field(None, description="Average % traded off-exchange (last 30 days)")
+    trend: str = Field("stable", description="increasing/stable/decreasing")
+    trend_pct_change: Optional[float] = Field(None, description="% change in ATS volume (recent vs prior 15 days)")
+    peak_week: Optional[str] = Field(None, description="Week with highest ATS % (YYYY-MM-DD)")
+    peak_ats_pct: Optional[float] = Field(None, description="Peak ATS % value")
+
+    # Venue analysis
+    major_venues: List[str] = Field(
+        default_factory=list,
+        description="Top 3 dark pool venues by volume"
+    )
+    venue_concentration: str = Field("medium", description="high/medium/low - concentration in top venues")
+
+    # Pattern detection
+    notable_patterns: List[str] = Field(
+        default_factory=list,
+        description="Unusual patterns (e.g., 'Sudden spike to 40% week of 2/14', 'Sustained elevated activity')"
+    )
+
+    # Sentiment
+    dark_pool_sentiment: str = Field("neutral", description="bullish/neutral/bearish")
+    confidence: str = Field("medium", description="high/medium/low - LLM confidence")
+
+    @model_validator(mode='before')
+    @classmethod
+    def replace_none_with_defaults(cls, data):
+        """Replace None values with defaults for LLM-generated nulls."""
+        if isinstance(data, dict):
+            # String fields
+            if data.get('trend') is None:
+                data['trend'] = "stable"
+            if data.get('venue_concentration') is None:
+                data['venue_concentration'] = "medium"
+            if data.get('dark_pool_sentiment') is None:
+                data['dark_pool_sentiment'] = "neutral"
+            if data.get('confidence') is None:
+                data['confidence'] = "medium"
+        return data
+
+
 class InsiderActivity(BaseModel):
     """Insider trading activity (6 months)."""
 
@@ -561,6 +605,7 @@ class NewsHoundOutput(BaseModel):
     earnings_estimates: Optional[EarningsEstimateRevision] = Field(None, description="Earnings estimate revisions (PRIMARY SIGNAL)")
     analyst_consensus: Optional[AnalystConsensus] = Field(None, description="Analyst ratings and price targets")
     institutional_activity: Optional[InstitutionalActivity] = Field(None, description="Smart money / 13F activity")
+    dark_pool_activity: Optional[DarkPoolActivity] = Field(None, description="Dark pool (ATS) trading activity from FINRA")
     insider_activity: Optional[InsiderActivity] = Field(None, description="Insider trading activity (6 months)")
 
     # NEW: Management Quality & Market Dynamics
