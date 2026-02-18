@@ -28,7 +28,7 @@ app = FastAPI(
 # CORS middleware
 allowed_origins = os.getenv(
     "CORS_ORIGINS",
-    "https://research-swarm-frontend.vercel.app"
+    "https://www.dvrg.io,https://dvrg.io,https://research-swarm-frontend.vercel.app"
 ).split(",")
 
 app.add_middleware(
