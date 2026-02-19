@@ -23,6 +23,7 @@ import type {
 class ApiClient {
   private baseUrl: string
   private authToken?: string
+  private tokenGetter?: () => Promise<string | null>
   private useProxy: boolean = false
 
   constructor(baseUrl?: string) {
@@ -40,13 +41,23 @@ class ApiClient {
     this.authToken = token
   }
 
+  // Preferred: store Clerk's getToken function so each request gets a fresh token
+  setTokenGetter(getter: () => Promise<string | null>) {
+    this.tokenGetter = getter
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
+    // Always fetch a fresh token if a getter is available (Clerk auto-refreshes)
+    const token = this.tokenGetter
+      ? (await this.tokenGetter()) ?? this.authToken
+      : this.authToken
+
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
-      ...(this.authToken && { Authorization: `Bearer ${this.authToken}` }),
+      ...(token && { Authorization: `Bearer ${token}` }),
       ...options.headers,
     }
 

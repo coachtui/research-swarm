@@ -19,32 +19,20 @@ export default function DashboardPage() {
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        console.log('🔑 Getting Clerk token...')
-        const token = await getToken()
-        if (token) {
-          console.log('✅ Token received, setting on API client')
-          apiClient.setAuthToken(token)
+        // Register token getter so every API request gets a fresh Clerk token
+        apiClient.setTokenGetter(getToken)
 
-          // Check if user is admin and redirect
-          console.log('📞 Calling getCurrentUser()...')
-          const user = await apiClient.getCurrentUser()
-          console.log('📦 User data received:', { email: user.email, is_admin: user.is_admin })
+        // Check if user is admin and redirect
+        const user = await apiClient.getCurrentUser()
 
-          if (user.is_admin) {
-            console.log('👑 User is admin, redirecting to /admin...')
-            router.replace('/admin')
-            return
-          }
-
-          console.log('👤 User is not admin, rendering dashboard')
-          setTokenReady(true)
-        } else {
-          console.log('⚠️  No token received from Clerk')
-          setTokenReady(true)
+        if (user.is_admin) {
+          router.replace('/admin')
+          return
         }
+
+        setTokenReady(true)
       } catch (error) {
-        console.error('❌ Failed to initialize auth:', error)
-        console.error('Error details:', JSON.stringify(error, null, 2))
+        console.error('Failed to initialize auth:', error)
         setTokenReady(true) // Still render dashboard even if check fails
       }
     }

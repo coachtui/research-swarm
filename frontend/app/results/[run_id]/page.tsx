@@ -42,19 +42,8 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
   // Set auth token before fetching data
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        const token = await getToken()
-        if (token) {
-          apiClient.setAuthToken(token)
-        }
-        setTokenReady(true)
-      } catch (error) {
-        console.error('Failed to set auth token:', error)
-        setTokenReady(true) // Continue anyway
-      }
-    }
-    initAuth()
+    apiClient.setTokenGetter(getToken)
+    setTokenReady(true)
   }, [getToken])
 
   // Wait for token before rendering content

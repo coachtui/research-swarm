@@ -16,21 +16,10 @@ export default function AdminPage() {
   const { getToken } = useAuth()
   const [tokenReady, setTokenReady] = useState(false)
 
-  // Set auth token on API client before rendering admin content
+  // Register token getter so each request gets a fresh Clerk token (auto-refreshed)
   useEffect(() => {
-    const setAuthToken = async () => {
-      try {
-        const token = await getToken()
-        if (token) {
-          apiClient.setAuthToken(token)
-          setTokenReady(true)
-        }
-      } catch (error) {
-        console.error('Failed to get auth token:', error)
-      }
-    }
-
-    setAuthToken()
+    apiClient.setTokenGetter(getToken)
+    setTokenReady(true)
   }, [getToken])
 
   // Wait for token to be set before rendering admin hooks
