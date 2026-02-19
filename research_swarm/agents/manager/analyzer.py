@@ -39,14 +39,14 @@ class ManagerAnalyzer:
         """Initialize analyzer with LLM models."""
         # Haiku for cost-effective score validation
         self.haiku = ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
+            model="claude-haiku-4-5-20251001",
             api_key=ANTHROPIC_API_KEY,
             temperature=0.0,
         )
 
         # Sonnet for synthesis and thesis generation
         self.sonnet = ChatAnthropic(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             api_key=ANTHROPIC_API_KEY,
             temperature=0.3,
         )

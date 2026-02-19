@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # LLM Settings
-    default_model: str = "claude-3-5-haiku-20241022"  # Cheap for Phase 1
+    default_model: str = "claude-haiku-4-5-20251001"  # Cheap for Phase 1
     max_tokens: int = 4000
     temperature: float = 0.1
 

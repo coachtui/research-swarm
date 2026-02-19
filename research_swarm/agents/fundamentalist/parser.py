@@ -109,7 +109,7 @@ class FilingParser:
         """Initialize the parser with LLM for extraction."""
         # Use Haiku for cost-effective section extraction
         self.llm = ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
+            model="claude-haiku-4-5-20251001",
             api_key=settings.anthropic_api_key,
             temperature=0.0,
         )

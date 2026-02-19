@@ -32,14 +32,14 @@ class FinancialAnalyzer:
         """Initialize analyzer with LLM models."""
         # Haiku for cost-effective extraction
         self.haiku = ChatAnthropic(
-            model="claude-3-5-haiku-20241022",
+            model="claude-haiku-4-5-20251001",
             api_key=settings.anthropic_api_key,
             temperature=0.0,
         )
 
         # Sonnet for deeper qualitative analysis
         self.sonnet = ChatAnthropic(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             api_key=settings.anthropic_api_key,
             temperature=0.3,
         )
