@@ -580,13 +580,13 @@ def _generate_divergence_explanation_v2(
 
     # Generate explanation
     if gap_size >= 2.0:
-        higher = _get_sentiment(max(score1, score2))
-        lower = _get_sentiment(min(score1, score2))
+        # CRITICAL: preserve original order — score1 = gap_parts[0], score2 = gap_parts[1]
+        # Do NOT use max/min here — that would swap labels when score2 > score1
         gap_parts = gap_type.split(' vs ')
         explanation = (
             f"Significant {gap_type} divergence detected ({gap_size:.1f}-point gap). "
-            f"{gap_parts[0]} is {higher} ({max(score1, score2):.1f}/10) while "
-            f"{gap_parts[1]} is {lower} ({min(score1, score2):.1f}/10). "
+            f"{gap_parts[0]} is {_get_sentiment(score1)} ({score1:.1f}/10) while "
+            f"{gap_parts[1]} is {_get_sentiment(score2)} ({score2:.1f}/10). "
             f"{_interpret_gap_type(gap_type, score1, score2)}"
         )
     else:

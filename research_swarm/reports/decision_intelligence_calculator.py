@@ -187,6 +187,21 @@ class DecisionIntelligenceCalculator:
         base_target = price_targets.get("base_target", current_price * 1.15)
         bull_target = price_targets.get("bull_target", current_price * 1.30)
 
+        # Sanity gate: reject targets wildly out of range (broken valuation / stale cache data)
+        if base_target > current_price * 3.0 or base_target < current_price * 0.20:
+            logger.warning(
+                f"base_target ${base_target:.2f} is unreasonable vs current_price ${current_price:.2f} "
+                f"(ratio={base_target/current_price:.1f}x) — using percentage fallback"
+            )
+            base_target = current_price * 1.15
+            bull_target = current_price * 1.30  # reset bull too since it was derived from bad base
+        elif bull_target > current_price * 4.0 or bull_target < current_price * 0.25:
+            logger.warning(
+                f"bull_target ${bull_target:.2f} is unreasonable vs current_price ${current_price:.2f} "
+                f"— using percentage fallback"
+            )
+            bull_target = current_price * 1.30
+
         tech_entry = technical_levels.get("entry")
         tech_stop = technical_levels.get("stop_loss")
         tech_take_profit = technical_levels.get("take_profit")
