@@ -15,6 +15,14 @@ from .prompts import (
     INVESTMENT_THESIS_PROMPT,
     MOAT_SCORING_PROMPT,
 )
+from .signal_divergence import (
+    _extract_news_score,
+    _extract_earnings_score,
+    _extract_analyst_score,
+    _extract_institutional_score,
+    _extract_insider_score,
+    _extract_dark_pool_score,
+)
 
 try:
     from research_swarm.config import settings
@@ -99,6 +107,44 @@ class ManagerAnalyzer:
         logger.info(f"Deduplicated {len(all_insights)} insights → {len(unique_insights[:max_results])} unique")
         return unique_insights[:max_results]
 
+    def _compute_divergence_scores(self, news_hound_output: Dict[str, Any]) -> Tuple[float, str]:
+        """
+        Compute smart money composite score and divergence pattern label.
+
+        Smart Money = avg(institutional, insider, dark_pool) — signals driven by
+        informed, capital-committed actors rather than public opinion.
+
+        Returns:
+            Tuple of (smart_money_score, divergence_pattern_label)
+        """
+        institutional_score, _ = _extract_institutional_score(news_hound_output)
+        insider_score, _ = _extract_insider_score(news_hound_output)
+        dark_pool_score, _ = _extract_dark_pool_score(news_hound_output)
+
+        smart_money_score = round((institutional_score + insider_score + dark_pool_score) / 3, 1)
+
+        news_score, _ = _extract_news_score(news_hound_output)
+        analyst_score, _ = _extract_analyst_score(news_hound_output)
+        earnings_score, _ = _extract_earnings_score(news_hound_output)
+        public_score = round((news_score + analyst_score + earnings_score) / 3, 1)
+
+        if smart_money_score > 7 and public_score < 5:
+            pattern = f"Strong Bullish Divergence — Smart Money ({smart_money_score:.1f}) bullish while Public Sentiment ({public_score:.1f}) is bearish → Use 15/40/45 Bear/Base/Bull split"
+        elif smart_money_score < 4 and public_score > 6:
+            pattern = f"Strong Bearish Divergence — Smart Money ({smart_money_score:.1f}) bearish while Public Sentiment ({public_score:.1f}) is bullish → Use 40/45/15 Bear/Base/Bull split"
+        else:
+            pattern = f"No Clear Divergence — Smart Money ({smart_money_score:.1f}) and Public Sentiment ({public_score:.1f}) within 2 points → Use default 25/50/25 Bear/Base/Bull split"
+
+        logger.info(f"Signal divergence for price targets: {pattern}")
+        return smart_money_score, pattern
+
+    def _compute_public_sentiment_score(self, news_hound_output: Dict[str, Any]) -> float:
+        """Compute public sentiment composite score (news + analyst + earnings revisions)."""
+        news_score, _ = _extract_news_score(news_hound_output)
+        analyst_score, _ = _extract_analyst_score(news_hound_output)
+        earnings_score, _ = _extract_earnings_score(news_hound_output)
+        return round((news_score + analyst_score + earnings_score) / 3, 1)
+
     def synthesize_findings(
         self,
         ticker: str,
@@ -130,6 +176,9 @@ class ManagerAnalyzer:
         sentiment_score = news_hound_output.get("sentiment_score", 0)
         technical_score = quant_output.get("technical_score", 0)
 
+        # Compute smart money vs public sentiment scores for probability calibration
+        smart_money_score, divergence_pattern = self._compute_divergence_scores(news_hound_output)
+
         # Format Fundamentalist data
         vgm_summary = self._format_vgm_summary(fundamentalist_output)
         moat_breakdown = self._format_moat_breakdown(fundamentalist_output)
@@ -159,6 +208,8 @@ class ManagerAnalyzer:
         relative_strength = self._format_relative_strength(quant_output)
         entry_exit_signal = self._format_entry_exit_signal(quant_output)
         quant_narrative = quant_output.get("technical_analysis", "N/A")
+
+        public_sentiment_score = self._compute_public_sentiment_score(news_hound_output)
 
         prompt = SYNTHESIS_PROMPT.format(
             ticker=ticker,
@@ -194,6 +245,10 @@ class ManagerAnalyzer:
             relative_strength=relative_strength,
             entry_exit_signal=entry_exit_signal,
             quant_narrative=quant_narrative,
+            # Signal divergence context
+            smart_money_score=smart_money_score,
+            public_sentiment_score=public_sentiment_score,
+            divergence_pattern=divergence_pattern,
         )
 
         try:

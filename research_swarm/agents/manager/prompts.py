@@ -99,6 +99,20 @@ NOTE: Events prefixed with [SEC 8-K] are official SEC filings — these are lega
 
 ---
 
+## SIGNAL DIVERGENCE INTELLIGENCE
+
+**Smart Money Score** (Institutional + Insider + Dark Pool): {smart_money_score:.1f}/10
+**Public Sentiment Score** (News + Analyst Ratings + Earnings Revisions): {public_sentiment_score:.1f}/10
+**Divergence Pattern**: {divergence_pattern}
+
+**Probability Calibration Rules for Price Target Scenarios**:
+- Strong Bullish Divergence (Smart Money >7, Public <5): Use 15% Bear / 40% Base / 45% Bull
+- Strong Bearish Divergence (Smart Money <4, Public >6): Use 40% Bear / 45% Base / 15% Bull
+- No Clear Divergence (scores within 2 points of each other, or both aligned): Use default 25% Bear / 50% Base / 25% Bull
+- Apply the rule that matches this stock's divergence pattern above.
+
+---
+
 ## YOUR TASK
 
 Synthesize these three comprehensive perspectives into a unified investment analysis that leverages ALL the enhanced data. Generate:
@@ -201,14 +215,24 @@ Return your response as a JSON object:
   ],
   "price_targets": {{
     "bull_target": <12-month bull case price as float>,
-    "bull_probability": <0.15 to 0.35>,
+    "bull_probability": <apply calibration rules above — 0.15 to 0.45>,
     "bull_assumptions": "<key bull case assumptions>",
+    "bull_growth_assumption": "<revenue/earnings projection, e.g. '25% revenue growth, EPS of $X'>",
+    "bull_valuation_multiple": "<P/E or P/S multiple driving this price, e.g. '28x forward P/E'>",
+    "bull_technical_level": "<key resistance level with timeframe, e.g. '$185 breakout target within 6 months'>",
     "base_target": <12-month base case price as float>,
-    "base_probability": <0.40 to 0.60>,
+    "base_probability": <apply calibration rules above — 0.40 to 0.50>,
     "base_assumptions": "<key base case assumptions>",
+    "base_growth_assumption": "<revenue/earnings projection, e.g. '12% revenue growth, EPS of $X'>",
+    "base_valuation_multiple": "<P/E or P/S multiple driving this price, e.g. '22x forward P/E'>",
+    "base_technical_level": "<fair value range / consolidation zone, e.g. '$145–$155 range'>",
     "bear_target": <12-month bear case price as float>,
-    "bear_probability": <0.15 to 0.35>,
+    "bear_probability": <apply calibration rules above — 0.15 to 0.40>,
     "bear_assumptions": "<key bear case assumptions>",
+    "bear_growth_assumption": "<revenue/earnings projection, e.g. 'Revenue contraction 5%, EPS of $X'>",
+    "bear_valuation_multiple": "<P/E or P/S multiple driving this price, e.g. '15x forward P/E'>",
+    "bear_technical_level": "<key support level with timeframe, e.g. '$120 support, breakdown risk within 3 months'>",
+    "probability_rationale": "<1-2 sentences explaining why these probabilities were chosen based on signal divergence>",
     "methodology": "<DCF / P/E Multiple / Comparable / Blended>"
   }}
 }}
