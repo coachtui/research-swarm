@@ -23,6 +23,28 @@ function formatAnchor(price: number): string {
   return `~$${Math.round(price).toLocaleString()}`
 }
 
+// Derive approximate time horizon from the target label (backend-supplied).
+// Returns a short string for display. This is interpretive only — no calculation.
+function inferTargetHorizon(label: string, index: number): string {
+  const l = label.toLowerCase()
+  if (l.includes('near') || l.includes('short') || l.includes('t1')) return '1–3 mo'
+  if (l.includes('base') || l.includes('t2') || l.includes('mid')) return '6–12 mo'
+  if (l.includes('bull') || l.includes('t3') || l.includes('stretch') || l.includes('extended') || l.includes('upside')) return '12–24 mo'
+  // Fallback by position
+  if (index === 0) return '1–3 mo'
+  if (index === 1) return '6–12 mo'
+  return '12–24 mo'
+}
+
+// Determine whether a target is within the primary holding period window.
+// Targets beyond ~12 months are labelled as scenario extensions.
+function isExtendedTarget(label: string, index: number): boolean {
+  const l = label.toLowerCase()
+  if (l.includes('bull') || l.includes('stretch') || l.includes('extended') || l.includes('upside')) return true
+  if (index >= 2) return true
+  return false
+}
+
 // Issue 6: R/R realism qualifier — high ratios are modeled projections,
 // not realized outcome guarantees.
 function getRRRealism(
@@ -84,11 +106,13 @@ function SetupColumn({
   variant,
   signalBreakdown,
   rating,
+  holdingPeriod,
 }: {
   side: TradeSetupSide
   variant: 'conservative' | 'aggressive'
   signalBreakdown?: SignalBreakdown | null
   rating?: string | null
+  holdingPeriod?: string | null
 }) {
   const borderColor = variant === 'conservative' ? 'border-success/30' : 'border-warning/30'
   const headerBg = variant === 'conservative' ? 'bg-success/5' : 'bg-warning/5'
@@ -150,18 +174,49 @@ function SetupColumn({
           </div>
         </div>
 
-        {/* Targets — kept precise as they are defined objectives, not estimates */}
+        {/* Targets — kept precise as they are defined objectives, not estimates.
+            Time horizons are inferred from label keywords for trade framing context. */}
         <div className="space-y-2">
-          <span className="text-xs text-text-tertiary block">Profit Targets</span>
-          {side.targets.map((t, i) => (
-            <div key={i} className="flex items-center justify-between text-sm">
-              <span className="text-text-secondary">{t.label}</span>
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-success">{formatCurrency(t.price)}</span>
-                <span className="text-xs text-text-tertiary">Sell {t.sell_pct}%</span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-text-tertiary">Profit Targets</span>
+            {holdingPeriod && (
+              <span className="text-xs text-text-tertiary">
+                Holding period: <span className="font-medium text-text-secondary">{holdingPeriod}</span>
+              </span>
+            )}
+          </div>
+          {side.targets.map((t, i) => {
+            const horizon = inferTargetHorizon(t.label, i)
+            const extended = isExtendedTarget(t.label, i)
+            return (
+              <div key={i} className={`flex items-center justify-between text-sm rounded px-2 py-1 ${extended ? 'bg-surface-elevated/60' : ''}`}>
+                <div className="flex items-center gap-2">
+                  <span className={extended ? 'text-text-tertiary' : 'text-text-secondary'}>{t.label}</span>
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${
+                    extended
+                      ? 'bg-surface-elevated text-text-tertiary'
+                      : 'bg-primary/10 text-primary/70'
+                  }`}>
+                    {horizon}
+                  </span>
+                  {extended && (
+                    <span className="text-xs text-text-tertiary italic">scenario</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`font-medium ${extended ? 'text-success/60' : 'text-success'}`}>
+                    {formatCurrency(t.price)}
+                  </span>
+                  <span className="text-xs text-text-tertiary">Sell {t.sell_pct}%</span>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
+          {side.targets.some((t, i) => isExtendedTarget(t.label, i)) && (
+            <p className="text-xs text-text-tertiary pt-1 leading-relaxed">
+              Scenario targets (muted) extend beyond the primary holding window — applicable only if the bull case materializes.
+            </p>
+          )}
         </div>
 
         {/* Risk metrics */}
@@ -302,12 +357,14 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             variant="conservative"
             signalBreakdown={signalBreakdown}
             rating={rating}
+            holdingPeriod={strategy?.exit?.holding_period}
           />
           <SetupColumn
             side={setup.aggressive}
             variant="aggressive"
             signalBreakdown={signalBreakdown}
             rating={rating}
+            holdingPeriod={strategy?.exit?.holding_period}
           />
         </div>
       </CardContent>
