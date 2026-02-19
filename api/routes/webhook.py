@@ -84,10 +84,9 @@ async def clerk_webhook(
         "svix-signature": svix_signature,
     }
 
-    # Only verify in production
-    if os.getenv("ENVIRONMENT") == "production":
-        if not await verify_clerk_signature(body, headers):
-            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+    # Always verify webhook signature
+    if not await verify_clerk_signature(body, headers):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     # Parse event
     try:

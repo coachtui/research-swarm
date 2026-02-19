@@ -16,7 +16,8 @@ from api.models.auth import User
 logger = logging.getLogger(__name__)
 
 # HTTP Bearer token security (optional in development)
-USE_MOCK_AUTH = os.getenv("USE_MOCK_AUTH", "false").lower() == "true"
+_is_development = os.getenv("ENVIRONMENT", "development").lower() not in ("production", "prod")
+USE_MOCK_AUTH = _is_development and os.getenv("USE_MOCK_AUTH", "false").lower() == "true"
 security = HTTPBearer(auto_error=not USE_MOCK_AUTH)
 
 
@@ -165,8 +166,6 @@ async def get_current_user(
             algorithms=["RS256"],
             options={"verify_aud": False}  # Clerk tokens don't use standard aud claim
         )
-
-        logger.info(f"🔑 JWT Payload: {payload}")  # Debug: see full JWT payload
 
         clerk_user_id = payload.get("sub")
         if not clerk_user_id:

@@ -89,11 +89,6 @@ async def check_can_analyze(user_id: str, tier: str, user_email: str = "", is_ad
         print(f"✅ Bypassing quota check for admin user: {user_email}")
         return True, ""
 
-    # Bypass payment wall for test account
-    if user_email and user_email.lower() == "test@example.com":
-        print(f"✅ Bypassing quota check for test account: {user_email}")
-        return True, ""
-
     quota = await get_or_create_current_quota(user_id, tier)
 
     if quota.analysesUsed >= quota.analysesLimit:
