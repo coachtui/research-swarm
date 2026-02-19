@@ -794,6 +794,7 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
         try:
             from research_swarm.agents.fundamentalist.sec_edgar_parser import enhanced_parser
             from research_swarm.agents.fundamentalist.dcf_calculator import dcf_calculator
+            import statistics as _statistics
 
             if state.get("parsed_sections_by_quarter"):
                 # Use most recent quarter's filing for DCF inputs
@@ -810,40 +811,104 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                 )
                 state["tokens_used"] = state.get("tokens_used", 0) + dcf_tokens
 
-                # Supplement with yfinance beta if not extracted from filing
-                if not dcf_inputs.beta and market_data_for_dcf:
-                    dcf_inputs.beta = market_data_for_dcf.get("beta")
+                # Supplement DCF inputs with yfinance data not in filing
+                if market_data_for_dcf:
+                    if not dcf_inputs.beta:
+                        dcf_inputs.beta = market_data_for_dcf.get("beta")
+                    if not dcf_inputs.market_cap_millions and market_data_for_dcf.get("market_cap_millions"):
+                        dcf_inputs.market_cap_millions = market_data_for_dcf.get("market_cap_millions")
+
+                # Supplement operating_margin_history from quarterly_metrics for margin stability
+                if not dcf_inputs.operating_margin_history and state.get("quarterly_metrics"):
+                    qm_list = state["quarterly_metrics"]
+                    margin_history = []
+                    for qm in qm_list:
+                        rev = qm.get("revenue")
+                        op_inc = qm.get("operating_income")
+                        if rev and op_inc and rev > 0:
+                            margin_history.append((op_inc / rev) * 100)
+                    if len(margin_history) >= 2:
+                        dcf_inputs.operating_margin_history = margin_history
 
                 # Calculate fair value using blended methodology
-                # current_price already fetched independently above (more reliable)
                 fair_value_price = current_price  # from get_current_price() at top of this node
                 if not fair_value_price and market_data_for_dcf:
                     fair_value_price = market_data_for_dcf.get("current_price")
 
-                # Get additional stock info for EBITDA, shares, debt, cash
+                # Fetch extended stock data: base info + historical financials for EPS normalization
                 stock_info = None
+                historical_eps = None
+                sbc_ratio = None
                 try:
-                    from research_swarm.data.market_data_client import market_data_client
                     import yfinance as yf
                     stock = yf.Ticker(state["ticker"])
                     stock_info = stock.info
+
+                    # Historical EPS: derive from annual income statement / shares outstanding
+                    try:
+                        income_stmt = stock.income_stmt  # columns = dates, rows = metrics
+                        shares = stock_info.get("sharesOutstanding", 0) if stock_info else 0
+                        if income_stmt is not None and not income_stmt.empty and shares and shares > 0:
+                            for row_name in ["Net Income", "Net Income Common Stockholders"]:
+                                if row_name in income_stmt.index:
+                                    net_incomes = income_stmt.loc[row_name].dropna().tolist()
+                                    historical_eps = [ni / shares for ni in net_incomes if ni is not None]
+                                    break
+                    except Exception as e:
+                        logger.debug(f"Could not compute historical EPS: {e}")
+
+                    # SBC ratio: SBC / EBITDA to penalize high-SBC businesses
+                    try:
+                        cashflow_stmt = stock.cashflow
+                        ebitda = stock_info.get("ebitda", 0) if stock_info else 0
+                        if cashflow_stmt is not None and not cashflow_stmt.empty and ebitda and ebitda > 0:
+                            for sbc_label in ["Stock Based Compensation", "Share Based Compensation Expense",
+                                              "Stock-based Compensation", "Share-based Compensation"]:
+                                if sbc_label in cashflow_stmt.index:
+                                    sbc_val = cashflow_stmt.loc[sbc_label].iloc[0]
+                                    if sbc_val is not None:
+                                        sbc_ratio = abs(float(sbc_val)) / ebitda
+                                    break
+                    except Exception as e:
+                        logger.debug(f"Could not compute SBC ratio: {e}")
+
                 except Exception as e:
-                    logger.debug(f"Could not fetch additional stock info: {e}")
+                    logger.debug(f"Could not fetch extended stock info: {e}")
+
+                # Quarterly margin std dev: measures earnings volatility for spread calculation
+                quarterly_margin_std = None
+                try:
+                    qm_list = state.get("quarterly_metrics", [])
+                    margins = []
+                    for qm in qm_list:
+                        rev = qm.get("revenue")
+                        op_inc = qm.get("operating_income")
+                        if rev and op_inc and rev > 0:
+                            margins.append((op_inc / rev) * 100)
+                    if len(margins) >= 2:
+                        quarterly_margin_std = _statistics.stdev(margins)
+                except Exception as e:
+                    logger.debug(f"Could not compute quarterly margin std: {e}")
 
                 if fair_value_price and market_data_for_dcf:
-                    # Use blended valuation (P/E + EV/EBITDA + DCF)
+                    # Use blended valuation (normalized P/E + quality-adj. EV/EBITDA + DCF)
                     blended_result = blended_valuation_calculator.calculate_fair_value(
                         ticker=state["ticker"],
                         current_price=fair_value_price,
                         valuation_metrics=market_data_for_dcf,
                         dcf_inputs=dcf_inputs if dcf_inputs.fcf_history else None,
-                        stock_info=stock_info
+                        stock_info=stock_info,
+                        historical_eps=historical_eps,
+                        sbc_ratio=sbc_ratio,
+                        quarterly_margin_std=quarterly_margin_std,
                     )
                     if blended_result:
                         state["price_targets"] = blended_result.dict()
-                        logger.success(f"✓ Blended Fair Value: Base=${blended_result.base_target:.2f} "
-                                    f"Bull=${blended_result.bull_target:.2f} Bear=${blended_result.bear_target:.2f} "
-                                    f"({blended_result.methodology})")
+                        logger.success(
+                            f"✓ Blended Fair Value: Base=${blended_result.base_target:.2f} "
+                            f"Bull=${blended_result.bull_target:.2f} Bear=${blended_result.bear_target:.2f} "
+                            f"({blended_result.methodology})"
+                        )
                     else:
                         logger.warning("Blended valuation returned None (insufficient data)")
                 else:
