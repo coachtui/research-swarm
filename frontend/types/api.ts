@@ -91,6 +91,20 @@ export interface ManagerOutput {
 
   // Investment recommendations (newly exposed)
   price_targets?: {
+    // Intrinsic Value Range
+    fair_value_low: number
+    fair_value_mid: number
+    fair_value_high: number
+    fair_value_zone_label: string
+    // Confidence
+    confidence_score: number  // 0–100
+    confidence: 'High' | 'Moderate' | 'Low'
+    uncertainty_drivers: string[]
+    // Price vs. zone
+    premium_vs_mid?: number   // (price − mid) / mid
+    deviation_vs_price?: number  // (price − mid) / price
+    price_vs_zone: string
+    // Scenario targets (backward-compatible)
     bull_target: number
     bull_probability: number
     bull_assumptions: string

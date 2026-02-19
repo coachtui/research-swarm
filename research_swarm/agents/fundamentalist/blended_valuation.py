@@ -49,7 +49,8 @@ class BlendedValuationCalculator:
             quarterly_margin_std: Optional operating margin std dev (%) across recent quarters
 
         Returns:
-            PriceTargetScenarios with bull/base/bear cases, or None if insufficient data
+            PriceTargetScenarios with fair value range, confidence, and scenario targets.
+            None if insufficient data to produce any estimate.
         """
         if not valuation_metrics:
             logger.warning(f"No valuation metrics available for {ticker}")
@@ -60,13 +61,15 @@ class BlendedValuationCalculator:
         market_cap = market_cap_millions * 1_000_000 if market_cap_millions else 0
         is_mega_cap = market_cap > 50_000_000_000
 
-        # Sector multiples
+        # Sector multiples — track whether they were defaulted
         sector_pe = valuation_metrics.get("sector_avg_pe", 18.0)
         sector_ev_ebitda = valuation_metrics.get("sector_avg_ev_ebitda", 12.0)
         enterprise_value_millions = valuation_metrics.get("enterprise_value_millions")
+        sector_multiples_defaulted = not valuation_metrics.get("sector_avg_pe")
 
         # Raw data from stock_info
         ttm_eps = None
+        ttm_eps_from_stock = False
         ebitda = None
         shares_outstanding = None
         total_debt = 0
@@ -77,6 +80,8 @@ class BlendedValuationCalculator:
 
         if stock_info:
             ttm_eps = stock_info.get("trailingEps")
+            if ttm_eps:
+                ttm_eps_from_stock = True
             ebitda = stock_info.get("ebitda")
             shares_outstanding = stock_info.get("sharesOutstanding")
             total_debt = stock_info.get("totalDebt", 0) or 0
@@ -85,20 +90,30 @@ class BlendedValuationCalculator:
             revenue_growth = stock_info.get("revenueGrowth")
             beta = stock_info.get("beta")
 
-        # Fallback EPS from P/E ratio
+        # Fallback EPS from P/E ratio — track this as a synthetic fallback
+        eps_from_fallback = False
         if not ttm_eps and valuation_metrics.get("pe_ratio") and current_price:
             pe = valuation_metrics.get("pe_ratio")
             ttm_eps = current_price / pe if pe and pe > 0 else None
+            if ttm_eps:
+                eps_from_fallback = True
 
         # Revenue growth fallback from dcf_inputs
         if revenue_growth is None and dcf_inputs:
             revenue_growth = (dcf_inputs.revenue_growth_rate or 10.0) / 100.0
+
+        # Debt/cash validity
+        debt_cash_valid = (total_debt is not None) and (cash is not None)
 
         # Debt ratio for archetype detection
         debt_ratio = (total_debt / market_cap) if market_cap > 0 and total_debt else 0.0
 
         # Operating margin trend (for archetype + spread)
         margin_trend = dcf_inputs.operating_margin_trend if dcf_inputs else None
+
+        # DCF data quality: real FCF inputs present
+        dcf_has_real_fcf = bool(dcf_inputs and dcf_inputs.fcf_history and len(dcf_inputs.fcf_history) >= 2)
+        dcf_mostly_defaults = not dcf_has_real_fcf
 
         # --- 1. Normalize EPS ---
         normalized_eps = self._normalize_eps(ttm_eps, historical_eps, stock_info)
@@ -126,7 +141,7 @@ class BlendedValuationCalculator:
             f"weights=P/E:{pe_weight:.0%}/EV:{ev_weight:.0%}/DCF:{dcf_weight:.0%}"
         )
 
-        # Calculate three fair value estimates
+        # --- 4. Calculate three fair value point estimates ---
         fv_pe = self._calculate_pe_fair_value(normalized_eps, sector_pe)
         fv_ev_ebitda = self._calculate_ev_ebitda_fair_value(
             ebitda, enterprise_value_millions, sector_ev_ebitda,
@@ -134,16 +149,16 @@ class BlendedValuationCalculator:
         )
         fv_dcf = self._calculate_dcf_fair_value(dcf_inputs, current_price) if dcf_inputs else None
 
-        # Blend with dynamic weights
-        base_target = self._blend_estimates(fv_pe, fv_ev_ebitda, fv_dcf, pe_weight, ev_weight, dcf_weight)
+        # --- 5. Blend midpoints ---
+        fair_value_mid = self._blend_estimates(fv_pe, fv_ev_ebitda, fv_dcf, pe_weight, ev_weight, dcf_weight)
 
-        if base_target is None:
+        if fair_value_mid is None:
             logger.warning(f"Insufficient data for blended valuation of {ticker}")
             return None
 
-        deviation = abs(base_target - current_price) / current_price
+        deviation = abs(fair_value_mid - current_price) / current_price
 
-        # Hard gate: extreme deviations are almost always calculation errors
+        # Hard gate: deviation > 100% is almost certainly a calculation error
         if deviation > 1.0:
             logger.warning(
                 f"Extreme deviation ({deviation:.0%}) for {ticker} — calculation error suspected, "
@@ -151,28 +166,41 @@ class BlendedValuationCalculator:
             )
             return self._create_uncertainty_scenarios(current_price)
 
-        if is_mega_cap and deviation > 0.45:
-            logger.warning(f"High Valuation Uncertainty flagged for {ticker} (mega-cap, {deviation:.0%} deviation)")
-            return self._create_uncertainty_scenarios(current_price)
-
-        # --- 4. Confidence-weighted compression (replaces blind price averaging) ---
-        # Preserves analytical signal — deviation remains visible in methodology notes
-        model_confidence = self._calculate_model_confidence(
-            fv_pe, fv_ev_ebitda, fv_dcf, deviation, is_mega_cap
+        # --- 6. Confidence scoring (0–100) ---
+        confidence_score, confidence_label, uncertainty_drivers = self._calculate_confidence_score(
+            fv_pe=fv_pe,
+            fv_ev_ebitda=fv_ev_ebitda,
+            fv_dcf=fv_dcf,
+            fair_value_mid=fair_value_mid,
+            current_price=current_price,
+            is_mega_cap=is_mega_cap,
+            eps_from_fallback=eps_from_fallback,
+            sector_multiples_defaulted=sector_multiples_defaulted,
+            missing_ebitda=(ebitda is None or ebitda <= 0),
+            missing_shares=(shares_outstanding is None or shares_outstanding <= 0),
+            debt_cash_valid=debt_cash_valid,
+            dcf_mostly_defaults=dcf_mostly_defaults,
+            ttm_eps_direct=ttm_eps_from_stock,
         )
 
-        hard_deviation_threshold = 0.35 if is_mega_cap else 0.50
-        if deviation > hard_deviation_threshold:
-            compressed_target = (
-                base_target * model_confidence + current_price * (1 - model_confidence)
+        # Mega-cap with large deviation: do not error out — widen the band instead
+        # (deviation ≠ error; market may be pricing in factors the model doesn't capture)
+        if is_mega_cap and deviation > 0.45:
+            logger.warning(
+                f"High deviation ({deviation:.0%}) for mega-cap {ticker} — widening band, not discarding model signal"
             )
-            logger.info(
-                f"Confidence-weighted compression: model=${base_target:.2f} → ${compressed_target:.2f} "
-                f"(confidence={model_confidence:.0%}, deviation={deviation:.0%})"
-            )
-            base_target = compressed_target
+            # Confidence already penalised by deviation; proceed to band construction
 
-        # --- 5. Dynamic bull/bear spread ---
+        # --- 7. Fair value band construction ---
+        fair_value_low, fair_value_high = self._calculate_fair_value_band(
+            fair_value_mid=fair_value_mid,
+            confidence_score=confidence_score,
+            fv_pe=fv_pe,
+            fv_ev_ebitda=fv_ev_ebitda,
+            fv_dcf=fv_dcf,
+        )
+
+        # --- 8. Dynamic bull/bear scenario spread (macro uncertainty) ---
         spread_factor = self._calculate_spread_factor(
             revenue_growth=revenue_growth,
             debt_ratio=debt_ratio,
@@ -186,13 +214,17 @@ class BlendedValuationCalculator:
         )
 
         return self._create_scenarios(
-            base_target=base_target,
+            fair_value_mid=fair_value_mid,
+            fair_value_low=fair_value_low,
+            fair_value_high=fair_value_high,
             current_price=current_price,
             sector_pe=sector_pe,
             normalized_eps=normalized_eps,
             ttm_eps=ttm_eps,
             spread_factor=spread_factor,
-            model_confidence=model_confidence,
+            confidence_score=confidence_score,
+            confidence_label=confidence_label,
+            uncertainty_drivers=uncertainty_drivers,
             deviation_pct=deviation,
             methodology_used=methodology,
         )
@@ -365,56 +397,147 @@ class BlendedValuationCalculator:
         return weights
 
     # ============================================================
-    # Improvement 4: Confidence-Weighted Compression
+    # Improvement 4: Confidence Scoring (0–100)
     # ============================================================
 
-    def _calculate_model_confidence(
+    def _calculate_confidence_score(
         self,
         fv_pe: Optional[float],
         fv_ev_ebitda: Optional[float],
         fv_dcf: Optional[float],
-        deviation: float,
+        fair_value_mid: float,
+        current_price: float,
         is_mega_cap: bool,
-    ) -> float:
+        eps_from_fallback: bool,
+        sector_multiples_defaulted: bool,
+        missing_ebitda: bool,
+        missing_shares: bool,
+        debt_cash_valid: bool,
+        dcf_mostly_defaults: bool,
+        ttm_eps_direct: bool,
+    ) -> Tuple[int, str, List[str]]:
         """
-        Calculate confidence in the model's fair value vs the market price.
+        Score valuation reliability on a 0–100 scale.
 
-        Higher confidence → preserve model value (less compression toward market).
-        Lower confidence → compress toward market price.
+        Starts at 100, adds bonuses for high-quality inputs and available methods,
+        then subtracts penalties for missing data, fallbacks, divergence, and
+        extreme price deviation.
 
-        Signals:
-        - Method convergence: all 3 methods agree → higher confidence
-        - Method divergence: methods spread widely → lower confidence
-        - Mega-cap: market is highly efficient → model less likely to be right
-        - Large deviation: bigger gap from market → more skepticism warranted
-
-        Returns: float 0.30 - 0.80
+        Returns:
+            (confidence_score: int, confidence_label: str, uncertainty_drivers: List[str])
         """
-        # Base confidence by number of methods available
-        available = sum(1 for fv in [fv_pe, fv_ev_ebitda, fv_dcf] if fv is not None)
-        base_confidence = {1: 0.40, 2: 0.55, 3: 0.65}.get(available, 0.40)
+        score = 100
+        drivers: List[str] = []
 
-        # Method convergence bonus/penalty
-        values = [fv for fv in [fv_pe, fv_ev_ebitda, fv_dcf] if fv is not None]
-        if len(values) >= 2:
-            avg = sum(values) / len(values)
-            max_spread = max(abs(v - avg) / avg for v in values)
-            if max_spread < 0.10:    # Methods converge within 10%
-                base_confidence = min(0.80, base_confidence + 0.15)
-            elif max_spread > 0.30:  # Methods diverge widely
-                base_confidence = max(0.30, base_confidence - 0.15)
+        # ── Method availability bonuses (+10 per valid method, max +30) ──────────
+        methods_available = sum(1 for fv in [fv_pe, fv_ev_ebitda, fv_dcf] if fv is not None)
+        score += methods_available * 10
 
-        # Mega-cap penalty: price discovery is efficient for $50B+ companies
+        # ── Input quality bonuses (+5 per condition, max +25) ────────────────────
+        if ttm_eps_direct:
+            score += 5   # EPS from filing/yfinance directly
+        if not missing_ebitda:
+            score += 5   # EBITDA positive and present
+        if not missing_shares:
+            score += 5   # Shares outstanding valid
+        if debt_cash_valid:
+            score += 5   # Debt and cash figures present
+        if not dcf_mostly_defaults:
+            score += 5   # DCF uses real FCF history
+
+        # ── Missing method penalties ──────────────────────────────────────────────
+        missing_methods = 3 - methods_available
+        if missing_methods == 1:
+            score -= 10
+            drivers.append("One valuation method unavailable (limited data coverage)")
+        elif missing_methods == 2:
+            score -= 25
+            drivers.append("Two of three valuation methods unavailable — single-method estimate")
+        elif missing_methods == 3:
+            score -= 50
+            drivers.append("No valid valuation methods computed")
+
+        # ── Fallback / synthetic data penalties (-8 per condition) ───────────────
+        if eps_from_fallback:
+            score -= 8
+            drivers.append("EPS derived from P/E ratio (direct earnings figure unavailable)")
+        if sector_multiples_defaulted:
+            score -= 8
+            drivers.append("Sector multiples defaulted — no peer data to calibrate multiples")
+        if missing_shares:
+            score -= 8
+            drivers.append("Shares outstanding unavailable — equity value per share is estimated")
+        if missing_ebitda:
+            score -= 8
+            drivers.append("EBITDA unavailable — EV/EBITDA method excluded")
+        if dcf_mostly_defaults:
+            score -= 8
+            drivers.append("DCF inputs largely defaulted — limited FCF history from filings")
+
+        # ── Cross-method dispersion penalty ──────────────────────────────────────
+        valid_fvs = [fv for fv in [fv_pe, fv_ev_ebitda, fv_dcf] if fv is not None]
+        if len(valid_fvs) >= 2 and fair_value_mid > 0:
+            dispersion = (max(valid_fvs) - min(valid_fvs)) / fair_value_mid
+            if dispersion >= 0.70:
+                score -= 35
+                drivers.append(
+                    f"High cross-method dispersion ({dispersion:.0%}) — methods disagree significantly on intrinsic value"
+                )
+            elif dispersion >= 0.40:
+                score -= 20
+                drivers.append(
+                    f"Moderate cross-method dispersion ({dispersion:.0%}) — some disagreement between valuation methods"
+                )
+            elif dispersion >= 0.20:
+                score -= 10
+                drivers.append(
+                    f"Minor cross-method dispersion ({dispersion:.0%}) — methods broadly aligned"
+                )
+            # dispersion < 0.20 → no penalty (methods converge)
+
+        # ── Extreme price deviation penalty ──────────────────────────────────────
+        deviation = abs(current_price - fair_value_mid) / current_price if current_price > 0 else 0.0
+        threshold = 0.35 if is_mega_cap else 0.50
+        if deviation >= threshold * 2:
+            score -= 20
+            drivers.append(
+                f"Price deviates {deviation:.0%} from intrinsic midpoint — market may be pricing in factors not captured by the model"
+            )
+        elif deviation >= threshold:
+            score -= 10
+            drivers.append(
+                f"Price deviates {deviation:.0%} from intrinsic midpoint — model and market diverge"
+            )
+
+        # Mega-cap note (not a penalty — informational)
         if is_mega_cap:
-            base_confidence = max(0.30, base_confidence - 0.10)
+            drivers.append("Large-cap with highly liquid market — model estimates carry wider uncertainty vs. smaller companies")
 
-        # Large deviation penalty: model likely missing something
-        if deviation > 0.60:
-            base_confidence = max(0.30, base_confidence - 0.15)
-        elif deviation > 0.40:
-            base_confidence = max(0.30, base_confidence - 0.08)
+        # ── Clamp and label ───────────────────────────────────────────────────────
+        score = max(5, min(100, score))
 
-        return round(base_confidence, 2)
+        if score >= 75:
+            label = "High"
+        elif score >= 45:
+            label = "Moderate"
+        else:
+            label = "Low"
+
+        # Ensure 3–6 drivers (pad with a generic note if needed)
+        if len(drivers) < 3:
+            if methods_available == 3 and len(drivers) < 3:
+                drivers.append("All three valuation methods produced estimates — blended result is well-supported")
+            if not eps_from_fallback and len(drivers) < 3:
+                drivers.append("EPS sourced directly — earnings-based valuation is well-grounded")
+            if not dcf_mostly_defaults and len(drivers) < 3:
+                drivers.append("DCF supported by real FCF history from SEC filings")
+
+        logger.info(
+            f"Confidence score: {score}/100 ({label}) — "
+            f"methods={methods_available}/3, eps_fallback={eps_from_fallback}, "
+            f"missing_ebitda={missing_ebitda}, deviation={deviation:.0%}"
+        )
+        return score, label, drivers[:6]  # cap at 6 drivers
 
     # ============================================================
     # Improvement 5: Dynamic Bull/Bear Spread
@@ -479,6 +602,61 @@ class BlendedValuationCalculator:
             f"margin_std={quarterly_margin_std}, beta={beta})"
         )
         return spread
+
+    # ============================================================
+    # Fair Value Band Construction
+    # ============================================================
+
+    def _calculate_fair_value_band(
+        self,
+        fair_value_mid: float,
+        confidence_score: int,
+        fv_pe: Optional[float],
+        fv_ev_ebitda: Optional[float],
+        fv_dcf: Optional[float],
+    ) -> Tuple[float, float]:
+        """
+        Build an intrinsic value range (low, high) around the blended midpoint.
+
+        Band width is driven by:
+        1. Confidence score → base band (high=±15%, moderate=±25%, low=±40%)
+        2. Cross-method dispersion → additional widening
+
+        This is distinct from the bull/bear scenario spread, which reflects
+        macro/business uncertainty. The fair value band reflects valuation
+        model uncertainty.
+
+        Returns: (fair_value_low, fair_value_high)
+        """
+        # Base band width from confidence tier
+        if confidence_score >= 75:
+            base_half_width = 0.15
+        elif confidence_score >= 45:
+            base_half_width = 0.25
+        else:
+            base_half_width = 0.40
+
+        # Additional widening from cross-method dispersion
+        valid_fvs = [fv for fv in [fv_pe, fv_ev_ebitda, fv_dcf] if fv is not None]
+        dispersion_extra = 0.0
+        if len(valid_fvs) >= 2 and fair_value_mid > 0:
+            dispersion = (max(valid_fvs) - min(valid_fvs)) / fair_value_mid
+            if dispersion >= 0.70:
+                dispersion_extra = 0.15
+            elif dispersion >= 0.40:
+                dispersion_extra = 0.10
+            elif dispersion >= 0.20:
+                dispersion_extra = 0.05
+
+        half_width = base_half_width + dispersion_extra
+        fair_value_low = round(fair_value_mid * (1.0 - half_width), 2)
+        fair_value_high = round(fair_value_mid * (1.0 + half_width), 2)
+
+        logger.info(
+            f"Fair value band: ${fair_value_low:.2f}–${fair_value_mid:.2f}–${fair_value_high:.2f} "
+            f"(±{half_width:.0%}, confidence={confidence_score})"
+        )
+        return fair_value_low, fair_value_high
 
     # ============================================================
     # Core calculation methods
@@ -602,50 +780,90 @@ class BlendedValuationCalculator:
 
     def _create_scenarios(
         self,
-        base_target: float,
+        fair_value_mid: float,
+        fair_value_low: float,
+        fair_value_high: float,
         current_price: float,
         sector_pe: float,
         normalized_eps: Optional[float],
         ttm_eps: Optional[float],
         spread_factor: float,
-        model_confidence: float,
+        confidence_score: int,
+        confidence_label: str,
+        uncertainty_drivers: List[str],
         deviation_pct: float,
         methodology_used: str,
     ) -> PriceTargetScenarios:
-        """Create bull/base/bear scenarios with dynamic spread tied to uncertainty."""
-        bull_target = base_target * (1 + spread_factor)
-        bear_target = base_target * (1 - spread_factor)
+        """
+        Build the final PriceTargetScenarios output.
 
-        # Ensure proper ordering with minimum buffer
-        bull_target = max(bull_target, base_target * 1.05)
-        bear_target = min(bear_target, base_target * 0.95)
+        The intrinsic value band (fair_value_low/mid/high) represents where the
+        model believes the stock is worth.  The scenario targets (bear/base/bull)
+        reflect expected price outcomes under different macro / business conditions
+        and are spread around the same midpoint using the dynamic spread_factor.
+        """
+        # Scenario targets (macro spread around fair value midpoint)
+        bull_target = fair_value_mid * (1 + spread_factor)
+        bear_target = fair_value_mid * (1 - spread_factor)
+        bull_target = max(bull_target, fair_value_mid * 1.05)
+        bear_target = min(bear_target, fair_value_mid * 0.95)
 
         spread_pct = f"{spread_factor:.0%}"
 
-        # EPS note for transparency
+        # EPS transparency note
         eps_note = ""
         if normalized_eps and ttm_eps and abs(normalized_eps - ttm_eps) > 0.10 * abs(ttm_eps):
             eps_note = f" (normalized EPS ${normalized_eps:.2f} vs TTM ${ttm_eps:.2f})"
         elif normalized_eps:
             eps_note = f", normalized EPS=${normalized_eps:.2f}"
 
-        confidence_note = f"Model confidence: {model_confidence:.0%}"
-        if deviation_pct > 0.25:
-            confidence_note += f" (model deviated {deviation_pct:.0%} from market price — signal preserved)"
+        # Probabilistic framing for assumptions (no deterministic language)
+        premium_vs_mid = (current_price - fair_value_mid) / fair_value_mid if fair_value_mid else 0.0
+        if current_price > fair_value_high:
+            price_context = f"Price Above Intrinsic Value Band — Risk/Reward Unfavorable (+{premium_vs_mid:.0%} vs midpoint)"
+        elif current_price < fair_value_low:
+            price_context = f"Price Below Intrinsic Value Band — Potential Value Opportunity ({premium_vs_mid:.0%} vs midpoint)"
+        else:
+            price_context = f"Price Within Intrinsic Value Band ({premium_vs_mid:+.0%} vs midpoint)"
 
         base_assumptions = (
-            f"Fair value ${base_target:.2f} using {sector_pe:.1f}x sector P/E{eps_note}. "
-            f"{methodology_used}. {confidence_note}."
+            f"Intrinsic value midpoint ${fair_value_mid:.2f} using {sector_pe:.1f}x sector P/E{eps_note}. "
+            f"{methodology_used}. Confidence: {confidence_score}/100 ({confidence_label}). "
+            f"{price_context}."
         )
         bull_assumptions = (
-            f"Bull case +{spread_pct}: {sector_pe*1.1:.1f}x P/E with margin improvement and market share gains."
+            f"Upside scenario +{spread_pct}: {sector_pe*1.1:.1f}x P/E with margin improvement and market share gains."
         )
         bear_assumptions = (
-            f"Bear case −{spread_pct}: {sector_pe*0.9:.1f}x P/E with competitive pressure or margin headwinds."
+            f"Downside scenario −{spread_pct}: {sector_pe*0.9:.1f}x P/E with competitive pressure or margin headwinds."
         )
 
+        # Compute both deviation metrics
+        deviation_vs_price = (current_price - fair_value_mid) / current_price if current_price else 0.0
+
+        if current_price > fair_value_high:
+            price_vs_zone = "Price Above Intrinsic Value Band"
+        elif current_price < fair_value_low:
+            price_vs_zone = "Price Below Intrinsic Value Band"
+        else:
+            price_vs_zone = "Within Intrinsic Value Band"
+
         return PriceTargetScenarios(
-            base_target=round(base_target, 2),
+            # Intrinsic value range
+            fair_value_low=fair_value_low,
+            fair_value_mid=round(fair_value_mid, 2),
+            fair_value_high=fair_value_high,
+            fair_value_zone_label="Intrinsic Value Zone",
+            # Confidence
+            confidence_score=confidence_score,
+            confidence=confidence_label,
+            uncertainty_drivers=uncertainty_drivers,
+            # Price vs. zone
+            premium_vs_mid=round(premium_vs_mid, 4),
+            deviation_vs_price=round(deviation_vs_price, 4),
+            price_vs_zone=price_vs_zone,
+            # Scenario targets (backward-compatible)
+            base_target=round(fair_value_mid, 2),
             base_assumptions=base_assumptions,
             base_probability=0.50,
             bull_target=round(bull_target, 2),
@@ -659,20 +877,40 @@ class BlendedValuationCalculator:
 
     def _create_uncertainty_scenarios(self, current_price: float) -> PriceTargetScenarios:
         """Create scenarios when valuation uncertainty is too high to model reliably."""
+        # Band is wide (±40%) reflecting low confidence; midpoint anchored at current price
+        # because the model deviation was too extreme to trust
+        fv_mid = round(current_price, 2)
+        fv_low = round(current_price * 0.60, 2)
+        fv_high = round(current_price * 1.40, 2)
         return PriceTargetScenarios(
-            base_target=round(current_price, 2),
+            fair_value_low=fv_low,
+            fair_value_mid=fv_mid,
+            fair_value_high=fv_high,
+            fair_value_zone_label="Intrinsic Value Zone",
+            confidence_score=10,
+            confidence="Low",
+            uncertainty_drivers=[
+                "Calculated intrinsic value deviated more than 100% from market price — likely a data quality issue",
+                "Model inputs may be missing or unreliable (EPS, EBITDA, FCF)",
+                "Wide band (±40%) reflects near-complete valuation uncertainty",
+                "Use analyst consensus or comparable company analysis as primary reference",
+            ],
+            premium_vs_mid=0.0,
+            deviation_vs_price=0.0,
+            price_vs_zone="Within Intrinsic Value Band",
+            base_target=fv_mid,
             base_assumptions=(
-                "High Valuation Uncertainty — calculated fair value deviated >45% from market price. "
-                "Using market price as base case."
+                "High Valuation Uncertainty — model deviation exceeded reliability threshold. "
+                "Intrinsic midpoint anchored to current price; wide band reflects model uncertainty."
             ),
             base_probability=0.50,
             bull_target=round(current_price * 1.10, 2),
-            bull_assumptions="Bull case: +10% from current price",
+            bull_assumptions="Upside scenario: +10% from current price",
             bull_probability=0.25,
             bear_target=round(current_price * 0.90, 2),
-            bear_assumptions="Bear case: −10% from current price",
+            bear_assumptions="Downside scenario: −10% from current price",
             bear_probability=0.25,
-            methodology="Market Price (High Uncertainty)",
+            methodology="Market Price (High Uncertainty — model unreliable)",
         )
 
     def _get_methodology_description(

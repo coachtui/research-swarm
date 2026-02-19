@@ -345,7 +345,28 @@ class DataExtractor:
                 avg_target = analyst_consensus["avg_price_target"]
                 high_target = analyst_consensus.get("high_price_target", avg_target * 1.15)
                 low_target = analyst_consensus.get("low_price_target", avg_target * 0.85)
+                premium_vs_mid = (current_price - avg_target) / avg_target if avg_target else 0.0
+                if current_price > high_target:
+                    price_vs_zone = "Price Above Intrinsic Value Band"
+                elif current_price < low_target:
+                    price_vs_zone = "Price Below Intrinsic Value Band"
+                else:
+                    price_vs_zone = "Within Intrinsic Value Band"
                 price_targets = {
+                    "fair_value_low": round(low_target, 2),
+                    "fair_value_mid": round(avg_target, 2),
+                    "fair_value_high": round(high_target, 2),
+                    "fair_value_zone_label": "Intrinsic Value Zone",
+                    "confidence_score": 45,
+                    "confidence": "Moderate",
+                    "uncertainty_drivers": [
+                        "Derived from analyst consensus — not a first-principles valuation",
+                        "Analyst estimates may reflect different time horizons and methodologies",
+                        "No cross-method dispersion analysis available for this fallback",
+                    ],
+                    "premium_vs_mid": round(premium_vs_mid, 4),
+                    "deviation_vs_price": round((current_price - avg_target) / current_price, 4) if current_price else 0.0,
+                    "price_vs_zone": price_vs_zone,
                     "base_target": avg_target,
                     "bull_target": high_target,
                     "bear_target": low_target,
@@ -353,7 +374,7 @@ class DataExtractor:
                     "bull_probability": 0.25,
                     "bear_probability": 0.25,
                     "methodology": "Analyst consensus (fallback)",
-                    "base_assumptions": "Analyst average target",
+                    "base_assumptions": "Analyst average target — used as intrinsic value proxy",
                     "bull_assumptions": "Analyst high target",
                     "bear_assumptions": "Analyst low target",
                     "expected_value": avg_target * 0.50 + high_target * 0.25 + low_target * 0.25,
@@ -362,21 +383,36 @@ class DataExtractor:
                 # Last resort: percentage-based targets from current price
                 moat = result.moat_score or 5.0
                 upside_mult = 1.10 + (moat - 5.0) * 0.02  # 10-20% upside based on moat
+                fv_mid = round(current_price * upside_mult, 2)
+                fv_low = round(current_price * 0.85, 2)
+                fv_high = round(current_price * (upside_mult + 0.15), 2)
                 price_targets = {
-                    "base_target": round(current_price * upside_mult, 2),
-                    "bull_target": round(current_price * (upside_mult + 0.15), 2),
-                    "bear_target": round(current_price * 0.85, 2),
+                    "fair_value_low": fv_low,
+                    "fair_value_mid": fv_mid,
+                    "fair_value_high": fv_high,
+                    "fair_value_zone_label": "Intrinsic Value Zone",
+                    "confidence_score": 20,
+                    "confidence": "Low",
+                    "uncertainty_drivers": [
+                        "Percentage-based fallback — no fundamental valuation performed",
+                        "Estimate relies on moat score heuristic, not financial inputs",
+                        "Wide uncertainty band; treat as directional only",
+                    ],
+                    "premium_vs_mid": round((current_price - fv_mid) / fv_mid, 4) if fv_mid else 0.0,
+                    "deviation_vs_price": round((current_price - fv_mid) / current_price, 4) if current_price else 0.0,
+                    "price_vs_zone": "Within Intrinsic Value Band",
+                    "base_target": fv_mid,
+                    "bull_target": fv_high,
+                    "bear_target": fv_low,
                     "base_probability": 0.50,
                     "bull_probability": 0.25,
                     "bear_probability": 0.25,
-                    "methodology": "Percentage-based estimate (fallback)",
-                    "base_assumptions": f"Moat-adjusted {(upside_mult - 1) * 100:.0f}% upside",
+                    "methodology": "Percentage-based estimate (fallback — low confidence)",
+                    "base_assumptions": f"Moat-adjusted {(upside_mult - 1) * 100:.0f}% upside — no financial model",
                     "bull_assumptions": f"{(upside_mult + 0.14) * 100:.0f}% upside scenario",
                     "bear_assumptions": "15% downside scenario",
                     "expected_value": round(
-                        current_price * upside_mult * 0.50
-                        + current_price * (upside_mult + 0.15) * 0.25
-                        + current_price * 0.85 * 0.25, 2
+                        fv_mid * 0.50 + fv_high * 0.25 + fv_low * 0.25, 2
                     ),
                 }
 

@@ -905,8 +905,10 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                     if blended_result:
                         state["price_targets"] = blended_result.dict()
                         logger.success(
-                            f"✓ Blended Fair Value: Base=${blended_result.base_target:.2f} "
-                            f"Bull=${blended_result.bull_target:.2f} Bear=${blended_result.bear_target:.2f} "
+                            f"✓ Blended Fair Value: "
+                            f"Band ${blended_result.fair_value_low:.2f}–${blended_result.fair_value_mid:.2f}–${blended_result.fair_value_high:.2f} "
+                            f"| Confidence {blended_result.confidence_score}/100 ({blended_result.confidence}) "
+                            f"| {blended_result.price_vs_zone} "
                             f"({blended_result.methodology})"
                         )
                     else:

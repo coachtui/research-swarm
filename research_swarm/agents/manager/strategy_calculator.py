@@ -62,15 +62,15 @@ class StrategyCalculator:
             ideal_high = base_target * 0.95  # 5% below base target
 
         if discount_pct >= 15:
-            recommendation = "Buy now - significant discount"
+            recommendation = "Price Below Intrinsic Value Band — Risk/Reward Favorable"
         elif discount_pct >= 5:
-            recommendation = "Buy now - moderate discount"
+            recommendation = "Price Approaching Intrinsic Value Zone — Moderate Discount"
         elif discount_pct >= -5:
-            recommendation = "Scale in - near fair value"
+            recommendation = "Price Within Intrinsic Value Band — Scale In"
         elif discount_pct >= -15:
-            recommendation = "Wait for pullback - slightly overvalued"
+            recommendation = "Price Above Intrinsic Value Band — Await Pullback"
         else:
-            recommendation = "Avoid - significantly overvalued"
+            recommendation = "Price Above Intrinsic Value Band — Risk/Reward Unfavorable"
 
         # Calculate tranched buying plan
         if discount_pct >= 0:  # At or below fair value
@@ -93,6 +93,12 @@ class StrategyCalculator:
             final_price = ideal_low  # Best price
 
         return {
+            "preferred_entry_zone": {
+                "low": round(ideal_low, 2),
+                "high": round(ideal_high, 2),
+                "label": "Preferred Entry Zone: Low–Mid Band"
+            },
+            # Keep ideal_zone for backward-compatibility with downstream consumers
             "ideal_zone": {
                 "low": round(ideal_low, 2),
                 "high": round(ideal_high, 2)
@@ -107,7 +113,7 @@ class StrategyCalculator:
                 "add_price": round(add_price, 2),
                 "final_percent": final_percent,
                 "final_price": round(final_price, 2),
-                "rationale": f"{'Aggressive' if discount_pct >= 0 else 'Conservative'} entry based on valuation"
+                "rationale": f"{'Aggressive' if discount_pct >= 0 else 'Conservative'} entry based on intrinsic value estimate"
             }
         }
 
@@ -219,15 +225,15 @@ class StrategyCalculator:
         base_target = price_targets.get("base_target", current_price * 1.15)
         bull_target = price_targets.get("bull_target", current_price * 1.30)
 
-        # Target 1: Base case (sell 50%)
+        # Target 1: Intrinsic value midpoint reached (sell 50%)
         target_1_price = base_target
         target_1_percent = 50
-        target_1_rationale = "Base case achieved - take profits on half"
+        target_1_rationale = "Price reached intrinsic value midpoint — reduce position, reassess thesis"
 
-        # Target 2: Bull case (sell remaining)
+        # Target 2: Upside scenario (sell remaining)
         target_2_price = bull_target
         target_2_percent = 50
-        target_2_rationale = "Bull case achieved - exit remaining position"
+        target_2_rationale = "Price reached upside scenario — exit remaining position"
 
         # Stop loss based on risk level
         if risk_level == "Low":
@@ -358,6 +364,7 @@ class StrategyCalculator:
     def _default_entry_strategy(self) -> Dict[str, Any]:
         """Return default entry strategy when data insufficient."""
         return {
+            "preferred_entry_zone": {"low": 0.0, "high": 0.0, "label": "Preferred Entry Zone: Low–Mid Band"},
             "ideal_zone": {"low": 0.0, "high": 0.0},
             "current_price": 0.0,
             "discount_to_target_pct": 0.0,

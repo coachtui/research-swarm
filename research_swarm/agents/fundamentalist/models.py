@@ -328,27 +328,58 @@ class VGMScoreBreakdown(BaseModel):
 
 
 class PriceTargetScenarios(BaseModel):
-    """Price target scenarios with bull/base/bear cases."""
+    """Price target scenarios with bull/base/bear cases and intrinsic value range."""
 
-    # Base case (most likely)
+    # ── Intrinsic Value Range (uncertainty-aware) ──────────────────────────────
+    fair_value_low: float = Field(..., description="Lower bound of intrinsic value range")
+    fair_value_mid: float = Field(..., description="Midpoint of intrinsic value range (blended fair value)")
+    fair_value_high: float = Field(..., description="Upper bound of intrinsic value range")
+    fair_value_zone_label: str = Field("Intrinsic Value Zone", description="Label for the fair value band")
+
+    # ── Confidence ─────────────────────────────────────────────────────────────
+    confidence_score: int = Field(
+        50, ge=5, le=100,
+        description="Valuation reliability score 0–100 (not bullish/bearish sentiment)"
+    )
+    confidence: str = Field(
+        "Moderate",
+        description="High (≥75) / Moderate (≥45) / Low (<45)"
+    )
+    uncertainty_drivers: List[str] = Field(
+        default_factory=list,
+        description="3–6 bullets explaining key sources of valuation uncertainty"
+    )
+
+    # ── Price vs. Zone ─────────────────────────────────────────────────────────
+    premium_vs_mid: Optional[float] = Field(
+        None,
+        description="(price − mid) / mid — positive = trading above intrinsic midpoint"
+    )
+    deviation_vs_price: Optional[float] = Field(
+        None,
+        description="(price − mid) / price — price-relative deviation"
+    )
+    price_vs_zone: str = Field(
+        "Within Intrinsic Value Band",
+        description="Within Intrinsic Value Band / Price Above Intrinsic Value Band / Price Below Intrinsic Value Band"
+    )
+
+    # ── Scenario Targets (backward-compatible) ────────────────────────────────
     base_target: float = Field(..., description="Base case 12-month price target")
     base_assumptions: str = Field(..., description="Key assumptions for base case")
     base_probability: float = Field(0.5, ge=0, le=1, description="Probability of base case")
 
-    # Bull case (optimistic)
     bull_target: float = Field(..., description="Bull case 12-month price target")
     bull_assumptions: str = Field(..., description="Key assumptions for bull case")
     bull_probability: float = Field(0.25, ge=0, le=1, description="Probability of bull case")
 
-    # Bear case (pessimistic)
     bear_target: float = Field(..., description="Bear case 12-month price target")
     bear_assumptions: str = Field(..., description="Key assumptions for bear case")
     bear_probability: float = Field(0.25, ge=0, le=1, description="Probability of bear case")
 
-    # Valuation methodology
+    # ── Valuation methodology ──────────────────────────────────────────────────
     methodology: str = Field(..., description="DCF/P/E Multiple/Sum-of-parts/Comparable")
 
-    # Expected value
     def expected_value(self) -> float:
         """Calculate probability-weighted expected value."""
         return (
