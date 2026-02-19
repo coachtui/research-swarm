@@ -227,6 +227,10 @@ class BlendedValuationCalculator:
             uncertainty_drivers=uncertainty_drivers,
             deviation_pct=deviation,
             methodology_used=methodology,
+            fv_pe=fv_pe,
+            fv_ev_ebitda=fv_ev_ebitda,
+            fv_dcf=fv_dcf,
+            revenue_growth=revenue_growth,
         )
 
     # ============================================================
@@ -778,6 +782,124 @@ class BlendedValuationCalculator:
         logger.info(f"Blended fair value: ${blended:.2f} ({', '.join(methods)})")
         return blended
 
+    # ============================================================
+    # Valuation chain validator (P0)
+    # ============================================================
+
+    def _validate_valuation_chain(
+        self,
+        fair_value_mid: float,
+        bear_target: float,
+        base_target: float,
+        bull_target: float,
+    ) -> tuple:
+        """
+        Enforce structural ordering: bear < FV ≈ base < bull.
+
+        Returns:
+            (bear_target, base_target, bull_target, violations: list[str])
+        """
+        violations: List[str] = []
+
+        # Rule 1: bear must be strictly below fair value
+        if bear_target >= fair_value_mid:
+            bear_target = round(fair_value_mid * 0.85, 2)
+            violations.append("Bear case anchored to FV −15% (constraint enforcement)")
+
+        # Rule 2: bull must be strictly above fair value
+        if bull_target <= fair_value_mid:
+            bull_target = round(fair_value_mid * 1.20, 2)
+            violations.append("Bull case anchored to FV +20% (constraint enforcement)")
+
+        # Rule 3: base must not embed optimism bias — within ±8% of FV midpoint
+        if fair_value_mid > 0:
+            drift = abs(base_target - fair_value_mid) / fair_value_mid
+            if drift > 0.08:
+                violations.append(
+                    f"Base case re-anchored to FV midpoint (drift was {drift:.1%})"
+                )
+                base_target = round(fair_value_mid, 2)
+
+        # Rule 4: scenarios must be monotonically ordered
+        if not (bear_target < base_target < bull_target):
+            bear_target = round(min(bear_target, base_target * 0.88), 2)
+            bull_target = round(max(bull_target, base_target * 1.15), 2)
+            violations.append("Scenario monotonic ordering corrected (bear < base < bull)")
+
+        return bear_target, base_target, bull_target, violations
+
+    # ============================================================
+    # Premium justification engine (P2)
+    # ============================================================
+
+    def _justify_premium(
+        self,
+        current_pe: Optional[float],
+        sector_pe: float,
+        revenue_growth: Optional[float],
+    ) -> Optional[Dict]:
+        """
+        Classify P/E premium as Justified, Execution-Dependent, or Speculative.
+
+        Uses an implied PEG ratio (P/E ÷ growth %) to differentiate premium quality.
+        Returns None if current P/E unavailable.
+        """
+        if not current_pe or current_pe <= 0 or sector_pe <= 0:
+            return None
+
+        premium_pct = (current_pe - sector_pe) / sector_pe
+
+        # No meaningful premium — skip classification
+        if premium_pct <= 0.05:
+            return {
+                "classification": "NO_PREMIUM",
+                "label": "At or Below Sector Multiple",
+                "rationale": (
+                    f"Current P/E ({current_pe:.1f}x) is at or below sector average "
+                    f"({sector_pe:.1f}x). No premium discount to justify."
+                ),
+                "premium_pct_vs_sector": round(premium_pct, 4),
+                "implied_peg": None,
+            }
+
+        # Use revenue growth as EPS growth proxy when direct EPS growth unavailable
+        growth_pct = max((revenue_growth or 0.10) * 100, 1.0)  # floor at 1% to avoid div/0
+        implied_peg = current_pe / growth_pct
+
+        if implied_peg < 1.5 and premium_pct < 0.50:
+            classification = "JUSTIFIED_PREMIUM"
+            label = "Justified Premium"
+            rationale = (
+                f"Implied PEG of {implied_peg:.2f}x is within acceptable range for "
+                f"{growth_pct:.0f}% growth. Premium of {premium_pct:.0%} to sector "
+                f"({sector_pe:.1f}x) appears earnings-supported rather than speculative."
+            )
+        elif implied_peg < 2.5 and premium_pct < 0.80:
+            classification = "EXECUTION_DEPENDENT_PREMIUM"
+            label = "Execution-Dependent Premium"
+            rationale = (
+                f"Premium of {premium_pct:.0%} over sector P/E ({sector_pe:.1f}x) requires "
+                f"sustained {growth_pct:.0f}% growth to remain justified "
+                f"(implied PEG: {implied_peg:.2f}x). "
+                "Deceleration in growth or margin compression would compress multiple."
+            )
+        else:
+            classification = "SPECULATIVE_PREMIUM"
+            label = "Speculative Premium"
+            rationale = (
+                f"Implied PEG of {implied_peg:.2f}x at {growth_pct:.0f}% growth implies "
+                "premium is not fully supported by current fundamentals. "
+                "Re-rating risk is elevated if growth disappoints."
+            )
+
+        return {
+            "classification": classification,
+            "label": label,
+            "implied_peg": round(implied_peg, 2),
+            "rationale": rationale,
+            "premium_pct_vs_sector": round(premium_pct, 4),
+        }
+
     def _create_scenarios(
         self,
         fair_value_mid: float,
@@ -793,6 +915,10 @@ class BlendedValuationCalculator:
         uncertainty_drivers: List[str],
         deviation_pct: float,
         methodology_used: str,
+        fv_pe: Optional[float] = None,
+        fv_ev_ebitda: Optional[float] = None,
+        fv_dcf: Optional[float] = None,
+        revenue_growth: Optional[float] = None,
     ) -> PriceTargetScenarios:
         """
         Build the final PriceTargetScenarios output.
@@ -808,7 +934,43 @@ class BlendedValuationCalculator:
         bull_target = max(bull_target, fair_value_mid * 1.05)
         bear_target = min(bear_target, fair_value_mid * 0.95)
 
+        # P0: Enforce structural ordering bear < base < bull
+        bear_target, base_target_final, bull_target, chain_violations = self._validate_valuation_chain(
+            fair_value_mid=fair_value_mid,
+            bear_target=bear_target,
+            base_target=fair_value_mid,
+            bull_target=bull_target,
+        )
+        # Append any chain violations to uncertainty drivers
+        if chain_violations:
+            uncertainty_drivers = list(uncertainty_drivers) + chain_violations
+            logger.warning(f"Valuation chain violations corrected: {chain_violations}")
+
         spread_pct = f"{spread_factor:.0%}"
+
+        # P2: Compute cross-method dispersion
+        valid_fvs = {k: v for k, v in [("pe", fv_pe), ("ev_ebitda", fv_ev_ebitda), ("dcf", fv_dcf)] if v is not None}
+        valuation_dispersion_pct = None
+        valuation_dispersion_label = None
+        if len(valid_fvs) >= 2 and fair_value_mid > 0:
+            vals = list(valid_fvs.values())
+            valuation_dispersion_pct = round((max(vals) - min(vals)) / fair_value_mid, 4)
+            if valuation_dispersion_pct < 0.15:
+                valuation_dispersion_label = "Low"
+            elif valuation_dispersion_pct < 0.35:
+                valuation_dispersion_label = "Moderate"
+            else:
+                valuation_dispersion_label = "High"
+
+        # P2: Compute premium justification (if we have EPS to derive current P/E)
+        premium_justification = None
+        if current_price and ttm_eps and ttm_eps > 0:
+            current_pe = current_price / ttm_eps
+            premium_justification = self._justify_premium(
+                current_pe=current_pe,
+                sector_pe=sector_pe,
+                revenue_growth=revenue_growth,
+            )
 
         # EPS transparency note
         eps_note = ""
@@ -848,6 +1010,10 @@ class BlendedValuationCalculator:
         else:
             price_vs_zone = "Within Intrinsic Value Band"
 
+        prob_weighted_ev = round(
+            bear_target * 0.25 + base_target_final * 0.50 + bull_target * 0.25, 2
+        )
+
         return PriceTargetScenarios(
             # Intrinsic value range
             fair_value_low=fair_value_low,
@@ -857,13 +1023,13 @@ class BlendedValuationCalculator:
             # Confidence
             confidence_score=confidence_score,
             confidence=confidence_label,
-            uncertainty_drivers=uncertainty_drivers,
+            uncertainty_drivers=uncertainty_drivers[:6],
             # Price vs. zone
             premium_vs_mid=round(premium_vs_mid, 4),
             deviation_vs_price=round(deviation_vs_price, 4),
             price_vs_zone=price_vs_zone,
-            # Scenario targets (backward-compatible)
-            base_target=round(fair_value_mid, 2),
+            # Scenario targets (validated chain: bear < base < bull)
+            base_target=round(base_target_final, 2),
             base_assumptions=base_assumptions,
             base_probability=0.50,
             bull_target=round(bull_target, 2),
@@ -873,6 +1039,16 @@ class BlendedValuationCalculator:
             bear_assumptions=bear_assumptions,
             bear_probability=0.25,
             methodology=methodology_used,
+            # P2: Cross-method dispersion
+            valuation_dispersion_pct=valuation_dispersion_pct,
+            valuation_dispersion_label=valuation_dispersion_label,
+            method_values={k: round(v, 2) for k, v in valid_fvs.items()} if valid_fvs else None,
+            # P2: Probability-weighted expected value
+            probability_weighted_ev=prob_weighted_ev,
+            # P2: Premium justification
+            premium_justification=premium_justification,
+            # P0: Chain validation notes
+            chain_validation_notes=chain_violations if chain_violations else None,
         )
 
     def _create_uncertainty_scenarios(self, current_price: float) -> PriceTargetScenarios:

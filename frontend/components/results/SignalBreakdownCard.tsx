@@ -5,6 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import type { SignalBreakdown } from '@/types/api'
 
+// Stop quality badge colors
+const STOP_QUALITY_VARIANT: Record<string, 'success' | 'warning' | 'default'> = {
+  ALIGNED: 'success',
+  WIDE: 'warning',
+  ADJUSTED: 'default',
+}
+
 interface SignalBreakdownCardProps {
   breakdown: SignalBreakdown
 }
@@ -55,6 +62,33 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
         </div>
       </CardHeader>
       <CardContent>
+        {/* P0: Data integrity summary */}
+        {breakdown.missing_signal_count !== undefined && breakdown.missing_signal_count > 0 && (
+          <div className="mb-3 p-2.5 rounded-md bg-warning/10 border border-warning/20 flex items-start gap-2">
+            <span className="text-warning text-sm mt-0.5">⚠</span>
+            <div>
+              <span className="text-xs font-semibold text-warning">
+                {breakdown.valid_signal_count}/{(breakdown.valid_signal_count ?? 0) + (breakdown.missing_signal_count ?? 0)} signals confirmed
+              </span>
+              <span className="text-xs text-text-tertiary ml-1">
+                — {breakdown.missing_signal_count} excluded from overall score. Missing data ≠ Neutral.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* P1: RSI extreme condition flag */}
+        {breakdown.rsi_extreme_flag && (
+          <div className="mb-3 p-2.5 rounded-md bg-warning/10 border border-warning/20">
+            <p className="text-xs font-semibold text-warning mb-1">
+              {breakdown.rsi_extreme_flag.label}
+            </p>
+            <p className="text-xs text-text-tertiary leading-relaxed">
+              {breakdown.rsi_extreme_flag.interpretation}
+            </p>
+          </div>
+        )}
+
         {/* Compact signal bars */}
         <div className="space-y-3">
           {SIGNALS.map(({ key, label }) => {
@@ -70,25 +104,81 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
               <div key={key}>
                 <div className="flex items-center gap-3">
                   <span className="w-28 text-sm text-text-secondary truncate">{label}</span>
-                  <div className="flex-1 h-2.5 bg-surface-elevated rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${colors.bar}`}
-                      style={{ width: hasData ? `${(score / 10) * 100}%` : '100%' }}
-                    />
-                  </div>
-                  <span className={`w-8 text-right text-sm font-semibold ${colors.text}`}>
-                    {hasData ? score.toFixed(1) : 'N/A'}
-                  </span>
+                  {hasData ? (
+                    <>
+                      <div className="flex-1 h-2.5 bg-surface-elevated rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${colors.bar}`}
+                          style={{ width: `${(score / 10) * 100}%` }}
+                        />
+                      </div>
+                      <span className={`w-8 text-right text-sm font-semibold ${colors.text}`}>
+                        {score.toFixed(1)}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex-1">
+                        <span className="text-xs text-warning bg-warning/10 border border-warning/20 rounded px-2 py-0.5">
+                          No Data — Score Excluded
+                        </span>
+                      </div>
+                      <span className="w-8 text-right text-xs text-text-tertiary">—</span>
+                    </>
+                  )}
                 </div>
                 {expanded && (
                   <p className="ml-[7.75rem] text-xs text-text-tertiary mt-0.5">
-                    {interpretation}
+                    {hasData
+                      ? interpretation
+                      : 'Data unavailable. This signal was excluded from the overall score rather than defaulted to neutral.'}
                   </p>
                 )}
               </div>
             )
           })}
         </div>
+
+        {/* P3: Model confidence dimensions (collapsed by default, shown in expanded) */}
+        {expanded && (breakdown.signal_strength !== undefined || breakdown.signal_stability !== undefined) && (
+          <div className="mt-4 pt-3 border-t border-surface-elevated space-y-2">
+            <p className="text-xs font-semibold text-text-secondary">Model Confidence</p>
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div>
+                <span className="text-text-tertiary block">Signal Strength</span>
+                <span className={`font-semibold ${
+                  (breakdown.signal_strength ?? 5) >= 7 ? 'text-success' :
+                  (breakdown.signal_strength ?? 5) >= 4 ? 'text-warning' : 'text-error'
+                }`}>
+                  {breakdown.signal_strength_label ?? '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-text-tertiary block">Signal Stability</span>
+                <span className={`font-semibold ${
+                  (breakdown.signal_stability ?? 5) >= 7 ? 'text-success' :
+                  (breakdown.signal_stability ?? 5) >= 4 ? 'text-warning' : 'text-error'
+                }`}>
+                  {breakdown.signal_stability_label ?? '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-text-tertiary block">Data Integrity</span>
+                <span className={`font-semibold ${
+                  breakdown.data_integrity_label === 'Complete' ? 'text-success' :
+                  breakdown.data_integrity_label === 'Partial' ? 'text-warning' : 'text-error'
+                }`}>
+                  {breakdown.data_integrity_label ?? '—'}
+                  {breakdown.data_integrity_pct !== undefined && (
+                    <span className="text-text-tertiary font-normal ml-1">
+                      ({breakdown.data_integrity_pct}%)
+                    </span>
+                  )}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Expand toggle */}
         <button

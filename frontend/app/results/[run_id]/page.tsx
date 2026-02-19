@@ -336,6 +336,7 @@ function ResultsContent({ runId }: { runId: string }) {
           <TradeSetup
             setup={decision_intelligence.enhanced_trade_setup}
             ticker={result.ticker}
+            strategy={decision_intelligence.recommended_strategy}
           />
         )}
 

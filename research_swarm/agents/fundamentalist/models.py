@@ -381,6 +381,38 @@ class PriceTargetScenarios(BaseModel):
     # ── Valuation methodology ──────────────────────────────────────────────────
     methodology: str = Field(..., description="DCF/P/E Multiple/Sum-of-parts/Comparable")
 
+    # ── Cross-method dispersion ────────────────────────────────────────────────
+    valuation_dispersion_pct: Optional[float] = Field(
+        None,
+        description="Cross-method dispersion: (max_method - min_method) / fair_value_mid"
+    )
+    valuation_dispersion_label: Optional[str] = Field(
+        None,
+        description="Low (<15%) / Moderate (15-35%) / High (>35%)"
+    )
+    method_values: Optional[Dict[str, float]] = Field(
+        None,
+        description="Individual method estimates: {'pe': ..., 'ev_ebitda': ..., 'dcf': ...}"
+    )
+
+    # ── Probability-weighted expected value ───────────────────────────────────
+    probability_weighted_ev: Optional[float] = Field(
+        None,
+        description="Probability-weighted expected value: bear*P_bear + base*P_base + bull*P_bull"
+    )
+
+    # ── Premium justification ─────────────────────────────────────────────────
+    premium_justification: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Premium classification: JUSTIFIED / EXECUTION_DEPENDENT / SPECULATIVE + rationale"
+    )
+
+    # ── Chain validation warnings ─────────────────────────────────────────────
+    chain_validation_notes: Optional[List[str]] = Field(
+        None,
+        description="Warnings if scenario ordering was auto-corrected (bear < base < bull)"
+    )
+
     def expected_value(self) -> float:
         """Calculate probability-weighted expected value."""
         return (

@@ -8,6 +8,17 @@ from typing import Dict, Any, Optional, Tuple
 from research_swarm.logger import logger
 
 
+def _to_price_zone(price: float, zone_width_pct: float = 0.02) -> Tuple[float, float]:
+    """
+    Convert a single price estimate to a volatility-aware zone.
+
+    Prevents false precision: $228.16 → $223–$233 (±2% band).
+    Width is intentionally modest; callers can widen for ATR-driven contexts.
+    """
+    half = price * zone_width_pct
+    return round(price - half, 2), round(price + half, 2)
+
+
 class StrategyCalculator:
     """Calculates investment strategy recommendations."""
 
@@ -63,14 +74,38 @@ class StrategyCalculator:
 
         if discount_pct >= 15:
             recommendation = "Price Below Intrinsic Value Band — Risk/Reward Favorable"
+            entry_methodology = (
+                f"Entry zone derived from intrinsic value discount band. "
+                f"Current price is {discount_pct:.1f}% below base-case fair value — "
+                "risk/reward meets minimum threshold. Zone anchored at ±3% around current price."
+            )
         elif discount_pct >= 5:
             recommendation = "Price Approaching Intrinsic Value Zone — Moderate Discount"
+            entry_methodology = (
+                f"Entry zone derived from bear-to-base range. "
+                f"Current price is {discount_pct:.1f}% below base case (${base_target:.2f}). "
+                f"Ideal entry: bear scenario (${bear_target:.2f}) to base ×95%."
+            )
         elif discount_pct >= -5:
             recommendation = "Price Within Intrinsic Value Band — Scale In"
+            entry_methodology = (
+                "Entry zone reflects current trading range — price is near intrinsic value midpoint. "
+                "Scale-in approach appropriate; avoid large single-tranche entry at full valuation."
+            )
         elif discount_pct >= -15:
             recommendation = "Price Above Intrinsic Value Band — Await Pullback"
+            entry_methodology = (
+                f"Entry zone derived from bear-to-base discount range. "
+                f"Current price trades {abs(discount_pct):.1f}% above base case (${base_target:.2f}). "
+                f"Ideal zone: ${ideal_low:.2f}–${ideal_high:.2f} represents reversion toward intrinsic value."
+            )
         else:
             recommendation = "Price Above Intrinsic Value Band — Risk/Reward Unfavorable"
+            entry_methodology = (
+                f"Price significantly elevated vs intrinsic value. "
+                f"Entry zone (${ideal_low:.2f}–${ideal_high:.2f}) requires meaningful pullback. "
+                "Derived from bear scenario floor as minimum acceptable discount."
+            )
 
         # Calculate tranched buying plan
         if discount_pct >= 0:  # At or below fair value
@@ -92,6 +127,11 @@ class StrategyCalculator:
             add_price = (ideal_high + ideal_low) / 2  # Mid-range
             final_price = ideal_low  # Best price
 
+        # P2: Precision normalization — express entry as a zone, not a point
+        entry_zone_low, entry_zone_high = _to_price_zone(
+            (ideal_low + ideal_high) / 2, zone_width_pct=0.015
+        )
+
         return {
             "preferred_entry_zone": {
                 "low": round(ideal_low, 2),
@@ -103,6 +143,14 @@ class StrategyCalculator:
                 "low": round(ideal_low, 2),
                 "high": round(ideal_high, 2)
             },
+            # P2: Normalized zone (replaces single-point display)
+            "entry_zone_display": {
+                "low": entry_zone_low,
+                "high": entry_zone_high,
+                "label": f"${entry_zone_low}–${entry_zone_high}"
+            },
+            # P1: Provenance label — every displayed price maps to a methodology
+            "entry_methodology": entry_methodology,
             "current_price": round(current_price, 2),
             "discount_to_target_pct": round(discount_pct, 1),
             "recommendation": recommendation,
@@ -224,6 +272,7 @@ class StrategyCalculator:
 
         base_target = price_targets.get("base_target", current_price * 1.15)
         bull_target = price_targets.get("bull_target", current_price * 1.30)
+        bear_target = price_targets.get("bear_target", current_price * 0.85)
 
         # Target 1: Intrinsic value midpoint reached (sell 50%)
         target_1_price = base_target
@@ -244,6 +293,46 @@ class StrategyCalculator:
             stop_loss_pct = 15  # Standard stop
 
         stop_loss = current_price * (1 - stop_loss_pct / 100)
+
+        # P0: Stop ≤ Bear constraint — stop must not exceed bear case
+        stop_quality = "ALIGNED"
+        stop_alignment_note = ""
+        if bear_target > 0 and stop_loss > bear_target:
+            # Stop is above bear case — logically inconsistent: triggers before bear plays out
+            stop_loss = round(bear_target * 0.97, 2)
+            stop_quality = "ADJUSTED"
+            stop_alignment_note = (
+                f"Stop adjusted to ${stop_loss:.2f} — original stop exceeded bear case "
+                f"(${bear_target:.2f}), which would trigger exit before the downside scenario "
+                "fully played out. Re-anchored 3% below bear case threshold."
+            )
+        elif bear_target > 0 and stop_loss < bear_target * 0.80:
+            stop_quality = "WIDE"
+            gap_pct = ((bear_target - stop_loss) / bear_target) * 100
+            stop_alignment_note = (
+                f"Stop (${stop_loss:.2f}) is {gap_pct:.0f}% below bear case "
+                f"(${bear_target:.2f}). Allows for temporary breach of bear scenario — "
+                "appropriate only for long-horizon conviction positions."
+            )
+        else:
+            if bear_target > 0:
+                gap_pct = ((bear_target - stop_loss) / bear_target) * 100
+                stop_alignment_note = (
+                    f"Stop structurally aligned — positioned {gap_pct:.0f}% below bear case "
+                    f"(${bear_target:.2f})."
+                )
+            else:
+                stop_alignment_note = f"Stop derived from {stop_loss_pct}% risk-level rule."
+
+        # P1: Stop provenance label
+        stop_methodology = (
+            f"Stop derived from {risk_level.lower()} risk profile: {stop_loss_pct}% below entry price. "
+            "Rule: Low risk = 20% (wider tolerance), Medium = 15% (standard), High = 10% (tight). "
+            f"Bear case constraint applied: stop ≤ ${bear_target:.2f}."
+        )
+
+        # P2: Precision normalization — express stop as a zone, not a point
+        stop_zone_low, stop_zone_high = _to_price_zone(stop_loss, zone_width_pct=0.015)
 
         # Trailing stop
         trailing_stop_pct = 15
@@ -299,6 +388,17 @@ class StrategyCalculator:
             },
             "stop_loss": round(stop_loss, 2),
             "stop_loss_pct": stop_loss_pct,
+            # P0: Stop/bear alignment
+            "stop_quality": stop_quality,
+            "stop_alignment_note": stop_alignment_note,
+            # P1: Stop provenance
+            "stop_methodology": stop_methodology,
+            # P2: Stop zone (precision normalization)
+            "stop_zone": {
+                "low": stop_zone_low,
+                "high": stop_zone_high,
+                "label": f"${stop_zone_low}–${stop_zone_high}"
+            },
             "trailing_stop": trailing_stop,
             "risk_reward_ratio": round(risk_reward_ratio, 1),
             "holding_period": holding_period,

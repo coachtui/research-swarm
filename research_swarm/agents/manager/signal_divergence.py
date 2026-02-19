@@ -14,6 +14,7 @@ Divergence occurs when these signals disagree - often the best opportunities (or
 hide in these misalignments.
 """
 import math
+import statistics as _stats
 from typing import Dict, Any, Optional, List, Tuple
 from loguru import logger
 
@@ -41,15 +42,51 @@ def calculate_signal_divergence(
         analyst_score, analyst_has_data = _extract_analyst_score(news_hound_output)
         institutional_score, institutional_has_data = _extract_institutional_score(news_hound_output)
         insider_score, insider_has_data = _extract_insider_score(news_hound_output)
-        dark_pool_score, dark_pool_has_data = _extract_dark_pool_score(news_hound_output)  # NEW
-        tech_div_score, tech_div_has_data = _extract_technical_divergence_score(quant_output)  # NEW
+        dark_pool_score, dark_pool_has_data = _extract_dark_pool_score(news_hound_output)
+        tech_div_score, tech_div_has_data = _extract_technical_divergence_score(quant_output)
 
-        # Calculate overall signal score (average of 7)
-        scores = [news_score, earnings_score, analyst_score, institutional_score, insider_score, dark_pool_score, tech_div_score]
-        overall_score = sum(scores) / len(scores)
+        all_scores = [news_score, earnings_score, analyst_score, institutional_score, insider_score, dark_pool_score, tech_div_score]
+        all_has_data = [news_has_data, earnings_has_data, analyst_has_data, institutional_has_data, insider_has_data, dark_pool_has_data, tech_div_has_data]
 
-        # Check for divergence (high standard deviation)
-        has_divergence, std_dev = _check_divergence(scores)
+        # P0: Calculate overall score using ONLY signals with confirmed data
+        # Missing data ≠ Neutral — exclude rather than default to 5.0
+        valid_scores = [s for s, has_d in zip(all_scores, all_has_data) if has_d]
+        valid_signal_count = len(valid_scores)
+        missing_signal_count = len(all_scores) - valid_signal_count
+
+        if valid_scores:
+            overall_score = sum(valid_scores) / len(valid_scores)
+        else:
+            # All data missing — fall back to flat average but flag heavily
+            overall_score = sum(all_scores) / len(all_scores)
+
+        # P3: Data integrity metrics
+        data_integrity_pct = round((valid_signal_count / len(all_scores)) * 100, 1)
+        # Confidence reduction: 8% per missing signal, capped at 35%
+        data_integrity_confidence_factor = max(0.65, 1.0 - (missing_signal_count * 0.08))
+
+        # P3: Signal strength (magnitude of directional conviction across valid signals)
+        if valid_scores:
+            avg_deviation = sum(abs(s - 5.0) for s in valid_scores) / len(valid_scores)
+            signal_strength = round(min(10.0, (avg_deviation / 5.0) * 10), 1)
+        else:
+            signal_strength = 5.0
+
+        # P3: Signal stability (inverse of variance — high variance = unstable)
+        if len(valid_scores) >= 2:
+            signal_std_dev = _stats.stdev(valid_scores)
+            signal_stability = round(max(0.0, 10.0 - (signal_std_dev * 1.5)), 1)
+        else:
+            signal_stability = 5.0
+
+        # P1: RSI extreme condition flag
+        rsi_extreme_flag = _extract_rsi_extreme_flag(quant_output)
+        # RSI extreme reduces signal stability
+        if rsi_extreme_flag:
+            signal_stability = round(max(0.0, signal_stability - 1.5), 1)
+
+        # Check for divergence (high standard deviation) — use all_scores for divergence check
+        has_divergence, std_dev = _check_divergence(all_scores)
 
         # Generate interpretations for all 7 signals
         news_interp = _interpret_score(news_score, "News Sentiment", news_has_data)
@@ -100,33 +137,55 @@ def calculate_signal_divergence(
 
         signal_breakdown = {
             "overall_score": round(overall_score, 1),
-            # Existing 5 signals
+            # Signal scores
             "news_score": round(news_score, 1),
             "earnings_score": round(earnings_score, 1),
             "analyst_score": round(analyst_score, 1),
             "institutional_score": round(institutional_score, 1),
             "insider_score": round(insider_score, 1),
-            # NEW 2 signals
             "dark_pool_score": round(dark_pool_score, 1),
             "tech_divergence_score": round(tech_div_score, 1),
-            # Interpretations (existing 5)
+            # Interpretations
             "news_interpretation": news_interp,
             "earnings_interpretation": earnings_interp,
             "analyst_interpretation": analyst_interp,
             "institutional_interpretation": institutional_interp,
             "insider_interpretation": insider_interp,
-            # NEW interpretations
             "dark_pool_interpretation": dark_pool_interp,
             "tech_divergence_interpretation": tech_div_interp,
-            # Data availability flags (existing 5)
+            # Data availability flags
             "news_has_data": news_has_data,
             "earnings_has_data": earnings_has_data,
             "analyst_has_data": analyst_has_data,
             "institutional_has_data": institutional_has_data,
             "insider_has_data": insider_has_data,
-            # NEW data flags
             "dark_pool_has_data": dark_pool_has_data,
             "tech_divergence_has_data": tech_div_has_data,
+            # P0: Data integrity — score computed from confirmed signals only
+            "valid_signal_count": valid_signal_count,
+            "missing_signal_count": missing_signal_count,
+            "data_integrity_pct": data_integrity_pct,
+            "data_integrity_label": (
+                "Complete" if missing_signal_count == 0 else
+                "Partial" if missing_signal_count <= 2 else
+                "Incomplete"
+            ),
+            "data_integrity_confidence_factor": round(data_integrity_confidence_factor, 3),
+            # P3: Model confidence dimensions
+            "signal_strength": signal_strength,
+            "signal_strength_label": (
+                "Strong" if signal_strength >= 7.0 else
+                "Moderate" if signal_strength >= 4.0 else
+                "Weak"
+            ),
+            "signal_stability": signal_stability,
+            "signal_stability_label": (
+                "Stable" if signal_stability >= 7.0 else
+                "Mixed" if signal_stability >= 4.0 else
+                "Unstable"
+            ),
+            # P1: RSI extreme condition flag
+            "rsi_extreme_flag": rsi_extreme_flag,
             # Divergence analysis
             "alignment_status": alignment_status,
             "has_divergence": has_divergence,
@@ -437,6 +496,63 @@ def _extract_dark_pool_score(news_hound_output: Dict[str, Any]) -> Tuple[float, 
         base_score = min(base_score, 3.0)
 
     return base_score, has_data
+
+
+def _extract_rsi_extreme_flag(quant_output: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    P1: Flag RSI readings below 20 or above 80 as statistically extreme.
+
+    Extreme RSI does NOT imply a direction — it implies ambiguity.
+    Both oversold bounces and accelerating downtrends occur at RSI < 20.
+
+    Returns:
+        Dict with rsi_value, direction, interpretation, confidence_penalty
+        or None if RSI is in normal range.
+    """
+    tech_indicators = quant_output.get("technical_indicators")
+    if not tech_indicators or not isinstance(tech_indicators, dict):
+        return None
+
+    rsi_data = tech_indicators.get("rsi")
+    if not rsi_data or not isinstance(rsi_data, dict):
+        return None
+
+    rsi_value = rsi_data.get("rsi_14")
+    if rsi_value is None:
+        return None
+
+    EXTREME_LOW = 20
+    EXTREME_HIGH = 80
+
+    if rsi_value >= EXTREME_LOW and rsi_value <= EXTREME_HIGH:
+        return None  # Normal range — no flag
+
+    direction = "oversold" if rsi_value < EXTREME_LOW else "overbought"
+
+    if direction == "oversold":
+        interpretation = (
+            f"RSI at {rsi_value:.1f} — extreme oversold territory. "
+            "This reading is statistically rare for large-cap stocks (< 2% of sessions). "
+            "Historically associated with BOTH mean-reversion bounces AND accelerating downtrends. "
+            "High volume during oversold conditions may indicate institutional distribution, not capitulation. "
+            "Treat directional RSI interpretation as low-confidence until confirmed by volume and trend."
+        )
+    else:
+        interpretation = (
+            f"RSI at {rsi_value:.1f} — extreme overbought territory. "
+            "This reading is statistically rare. "
+            "Historically associated with BOTH momentum continuation AND sharp mean-reversion pullbacks. "
+            "Overbought conditions can persist in strong trend regimes. "
+            "Treat directional RSI interpretation as low-confidence until confirmed by other signals."
+        )
+
+    return {
+        "rsi_value": round(rsi_value, 1),
+        "direction": direction,
+        "interpretation": interpretation,
+        "confidence_penalty": 0.10,
+        "label": f"⚠ Extreme RSI ({rsi_value:.1f}) — Ambiguous Signal",
+    }
 
 
 def _extract_technical_divergence_score(quant_output: Dict[str, Any]) -> Tuple[float, bool]:

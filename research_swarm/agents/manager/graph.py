@@ -469,6 +469,30 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
             },
         )
 
+        # P0: Apply data integrity confidence penalty from signal_breakdown
+        # Missing data signals silently inflated confidence — now we penalize explicitly
+        signal_breakdown = state.get("signal_breakdown", {})
+        data_integrity_factor = signal_breakdown.get("data_integrity_confidence_factor", 1.0)
+        if data_integrity_factor < 1.0:
+            original_confidence = confidence
+            confidence = round(confidence * data_integrity_factor, 4)
+            missing_count = signal_breakdown.get("missing_signal_count", 0)
+            logger.info(
+                f"Confidence adjusted for data integrity: {original_confidence:.3f} → {confidence:.3f} "
+                f"({missing_count} missing signals, factor={data_integrity_factor:.3f})"
+            )
+
+        # P1: Apply RSI extreme condition penalty if present
+        rsi_flag = signal_breakdown.get("rsi_extreme_flag")
+        if rsi_flag:
+            rsi_penalty = rsi_flag.get("confidence_penalty", 0.10)
+            original_confidence = confidence
+            confidence = round(max(0.0, confidence * (1.0 - rsi_penalty)), 4)
+            logger.info(
+                f"Confidence adjusted for RSI extreme ({rsi_flag['rsi_value']}): "
+                f"{original_confidence:.3f} → {confidence:.3f}"
+            )
+
         # Determine watchlist eligibility
         is_watchlist = manager_scorer.determine_watchlist(moat_score)
 

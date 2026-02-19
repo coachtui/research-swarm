@@ -104,7 +104,7 @@ export interface ManagerOutput {
     premium_vs_mid?: number   // (price − mid) / mid
     deviation_vs_price?: number  // (price − mid) / price
     price_vs_zone: string
-    // Scenario targets (backward-compatible)
+    // Scenario targets (validated chain: bear < base < bull)
     bull_target: number
     bull_probability: number
     bull_assumptions: string
@@ -115,6 +115,22 @@ export interface ManagerOutput {
     bear_probability: number
     bear_assumptions: string
     methodology: string
+    // P2: Cross-method dispersion (valuation model agreement)
+    valuation_dispersion_pct?: number
+    valuation_dispersion_label?: 'Low' | 'Moderate' | 'High'
+    method_values?: { pe?: number; ev_ebitda?: number; dcf?: number }
+    // P2: Probability-weighted expected value
+    probability_weighted_ev?: number
+    // P2: Premium justification
+    premium_justification?: {
+      classification: 'JUSTIFIED_PREMIUM' | 'EXECUTION_DEPENDENT_PREMIUM' | 'SPECULATIVE_PREMIUM' | 'NO_PREMIUM'
+      label: string
+      rationale: string
+      premium_pct_vs_sector: number
+      implied_peg: number | null
+    }
+    // P0: Chain validation (auto-correction notes)
+    chain_validation_notes?: string[]
   }
   structured_risks?: Array<{
     risk: string
@@ -147,15 +163,22 @@ export interface ManagerOutput {
 
 // --- Signal Breakdown Types ---
 
+export interface RsiExtremeFlag {
+  rsi_value: number
+  direction: 'oversold' | 'overbought'
+  interpretation: string
+  confidence_penalty: number
+  label: string
+}
+
 export interface SignalBreakdown {
   overall_score: number
-  // Original 5 signals
+  // Signal scores
   news_score: number
   earnings_score: number
   analyst_score: number
   institutional_score: number
   insider_score: number
-  // NEW: 2 additional signals (7-signal system)
   dark_pool_score: number
   tech_divergence_score: number
   // Interpretations
@@ -174,6 +197,19 @@ export interface SignalBreakdown {
   insider_has_data?: boolean
   dark_pool_has_data?: boolean
   tech_divergence_has_data?: boolean
+  // P0: Data integrity (scores computed from confirmed signals only)
+  valid_signal_count?: number
+  missing_signal_count?: number
+  data_integrity_pct?: number
+  data_integrity_label?: 'Complete' | 'Partial' | 'Incomplete'
+  data_integrity_confidence_factor?: number
+  // P3: Model confidence dimensions
+  signal_strength?: number
+  signal_strength_label?: 'Strong' | 'Moderate' | 'Weak'
+  signal_stability?: number
+  signal_stability_label?: 'Stable' | 'Mixed' | 'Unstable'
+  // P1: RSI extreme flag
+  rsi_extreme_flag?: RsiExtremeFlag | null
   // Divergence analysis
   alignment_status: string
   has_divergence: boolean
@@ -273,6 +309,10 @@ export interface RecommendedStrategy {
   entry: {
     ideal_zone: { low: number; high: number }
     discount_to_target_pct: number
+    // P1: Provenance
+    entry_methodology?: string
+    // P2: Zone display
+    entry_zone_display?: { low: number; high: number; label: string }
   }
   exit: {
     stop_loss: number
@@ -281,6 +321,13 @@ export interface RecommendedStrategy {
     holding_period: string
     expected_return_total: number
     expected_return_annualized: number
+    // P0: Stop/bear alignment
+    stop_quality?: 'ALIGNED' | 'WIDE' | 'ADJUSTED'
+    stop_alignment_note?: string
+    // P1: Stop provenance
+    stop_methodology?: string
+    // P2: Stop zone
+    stop_zone?: { low: number; high: number; label: string }
   }
   position_sizing: {
     recommended_pct: number
