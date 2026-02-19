@@ -172,6 +172,18 @@ Synthesize these three comprehensive perspectives into a unified investment anal
 - For <10% moves: State the fact plainly: "down 7.5%" without characterization
 - 5-10% monthly moves in tech stocks are routine volatility, NOT events worth emphasizing
 
+**SOURCE STANDARDS (strict)**:
+- Do NOT cite financial media personalities (Jim Cramer, CNBC commentators, Twitter/X analysts, podcast hosts) as evidence.
+- Only cite structural sources: SEC filings, earnings transcripts, institutional analyst research, regulatory announcements, Bloomberg/Reuters/WSJ factual reporting.
+- When citing analyst consensus, reference the consensus itself (e.g., "12 of 15 analysts rate Buy"), not any individual named analyst opinion.
+
+**LANGUAGE PRECISION RULES**:
+- Never write "the stock will reach $X" — use "the model projects a base-case target in the range of $X–$Y"
+- Never write "guaranteed entry" or "certain to" — use "within the preferred entry zone" or "probability-weighted scenario"
+- Use probabilistic language: "likely", "probable", "elevated risk of", "historically associated with" — not "will", "is going to", "definitely"
+- Avoid time precision for price targets (e.g., "will break out this week") — use "if price holds above $X over the coming sessions"
+- When discussing scenarios, frame as probabilities: "bear case (25% probability)" not "the stock will fall to $X"
+
 Return your response as a JSON object:
 
 {{
@@ -358,6 +370,18 @@ ADDITIONALLY, identify 2-3 **Strategic Catalysts** — forward-looking developme
 - "Dipped" = 2-5% drops
 - AVOID: "corrected", "pulled back" (loaded terms)
 - Just state facts: "down 7.5%" without drama
+
+**SOURCE & EVIDENCE STANDARDS**:
+- Never cite financial media personalities (Jim Cramer, CNBC commentators, named TV/podcast analysts) as evidence
+- Only cite primary sources: SEC filings, earnings transcripts, analyst consensus data, regulatory announcements
+- When referencing analyst views, cite the consensus (e.g., "14 of 18 analysts rate Buy"), not individual names
+
+**PROBABILISTIC LANGUAGE REQUIREMENTS**:
+- Write "the model projects a base-case target in the range of $X–$Y" not "the stock will reach $X"
+- Use "in the preferred entry zone of $X–$Y" not "buy at exactly $X"
+- Frame scenarios as probabilities: "bear case (~25% probability)" not "the stock will fall"
+- Use "historically associated with", "probability-weighted", "if sustained" — not "will", "definitely", "is going to"
+- Avoid time precision for price movements (e.g., not "will break out this week") — use "if conditions hold"
 
 Return your response as a JSON object with STRUCTURED sections:
 

@@ -60,6 +60,22 @@ def calculate_signal_divergence(
             # All data missing — fall back to flat average but flag heavily
             overall_score = sum(all_scores) / len(all_scores)
 
+        # Volume data quality — check before data integrity calculation so suspect volume
+        # signals can be excluded and reflected in the missing_signal_count
+        volume_data_quality, volume_data_flag = _extract_volume_quality(quant_output)
+        if volume_data_quality == "SUSPECT":
+            # Treat dark pool and tech_divergence (volume-dependent) as missing data
+            # Override their has_data flags so they're excluded from scoring
+            dark_pool_has_data = False
+            tech_div_has_data = False
+            # Re-compute valid/missing counts with updated flags
+            all_has_data = [news_has_data, earnings_has_data, analyst_has_data, institutional_has_data, insider_has_data, dark_pool_has_data, tech_div_has_data]
+            valid_scores = [s for s, has_d in zip(all_scores, all_has_data) if has_d]
+            valid_signal_count = len(valid_scores)
+            missing_signal_count = len(all_scores) - valid_signal_count
+            if valid_scores:
+                overall_score = sum(valid_scores) / len(valid_scores)
+
         # P3: Data integrity metrics
         data_integrity_pct = round((valid_signal_count / len(all_scores)) * 100, 1)
         # Confidence reduction: 8% per missing signal, capped at 35%
@@ -85,8 +101,20 @@ def calculate_signal_divergence(
         if rsi_extreme_flag:
             signal_stability = round(max(0.0, signal_stability - 1.5), 1)
 
-        # Check for divergence (high standard deviation) — use all_scores for divergence check
+        # P0: Divergence metric labeling — three distinct constructs, each labeled clearly
+        # 1. signal_spread (σ): standard deviation across all 7 signal scores
+        #    Drives the headline has_divergence flag — measures disagreement breadth
         has_divergence, std_dev = _check_divergence(all_scores)
+        signal_spread = round(std_dev, 2)
+        signal_spread_label = (
+            "High" if std_dev >= 2.5 else
+            "Moderate" if std_dev >= 1.5 else
+            "Low"
+        )
+
+        # 2. component_gap: raw absolute gap between fundamentalist valuation score and quant
+        #    technical score — captures the value-vs-momentum divergence construct
+        # (computed separately below in _check_component_divergence)
 
         # Generate interpretations for all 7 signals
         news_interp = _interpret_score(news_score, "News Sentiment", news_has_data)
@@ -99,7 +127,7 @@ def calculate_signal_divergence(
 
         # Also check for component score divergence (Valuation vs Technical Strength gap)
         # This catches the case where sentiment signals are all neutral but component scores diverge
-        comp_divergence, comp_explanation, comp_recommendation = _check_component_divergence(
+        comp_divergence, comp_explanation, comp_recommendation, component_gap, component_gap_label = _check_component_divergence(
             fundamentalist_output, quant_output
         )
 
@@ -135,6 +163,54 @@ def calculate_signal_divergence(
                     institutional_score, insider_score, dark_pool_score, tech_div_score, overall_score
                 )
 
+        # P1: Confidence reduction log — explicit audit trail of every penalty applied
+        confidence_reduction_log = []
+        if missing_signal_count > 0:
+            penalty_pct = round((1.0 - data_integrity_confidence_factor) * 100, 1)
+            confidence_reduction_log.append({
+                "trigger": f"Missing signals ({missing_signal_count} of {len(all_scores)})",
+                "penalty_pct": penalty_pct,
+                "resulting_factor": round(data_integrity_confidence_factor, 3),
+                "detail": "8% penalty per missing signal, capped at 35% total. Missing data ≠ neutral.",
+            })
+        if rsi_extreme_flag:
+            rsi_penalty_pct = round(rsi_extreme_flag.get("confidence_penalty", 0.10) * 100, 1)
+            confidence_reduction_log.append({
+                "trigger": f"RSI at statistical extreme ({rsi_extreme_flag['rsi_value']})",
+                "penalty_pct": rsi_penalty_pct,
+                "resulting_factor": round(1.0 - rsi_extreme_flag.get("confidence_penalty", 0.10), 3),
+                "detail": "Extreme RSI readings (< 20 or > 80) introduce directional ambiguity.",
+            })
+        if volume_data_quality == "SUSPECT":
+            confidence_reduction_log.append({
+                "trigger": "Volume data flagged as suspect",
+                "penalty_pct": 8.0,
+                "resulting_factor": 0.92,
+                "detail": volume_data_flag or "Volume reading below plausible threshold — data feed may be incomplete.",
+            })
+
+        # P2: Insider anomaly flag — flag when insider score is at strong extreme (may reflect recent transactions)
+        insider_anomaly_note = None
+        if insider_has_data:
+            if insider_score <= 2.5:
+                insider_anomaly_note = (
+                    f"Insider activity score ({insider_score:.1f}/10) is in strongly bearish territory. "
+                    "Review Form 4 filings dated within the past 30 days for cluster selling transactions. "
+                    "CEO/CFO selling carries higher signal weight than routine officer disposals."
+                )
+            elif insider_score >= 8.0:
+                insider_anomaly_note = (
+                    f"Insider activity score ({insider_score:.1f}/10) is in strongly bullish territory. "
+                    "Review Form 4 filings for recent cluster buying by senior executives. "
+                    "Open-market purchases by C-suite officers carry highest signal weight."
+                )
+
+        data_integrity_label = (
+            "Complete" if missing_signal_count == 0 else
+            "Partial" if missing_signal_count <= 2 else
+            "Incomplete"
+        )
+
         signal_breakdown = {
             "overall_score": round(overall_score, 1),
             # Signal scores
@@ -165,11 +241,7 @@ def calculate_signal_divergence(
             "valid_signal_count": valid_signal_count,
             "missing_signal_count": missing_signal_count,
             "data_integrity_pct": data_integrity_pct,
-            "data_integrity_label": (
-                "Complete" if missing_signal_count == 0 else
-                "Partial" if missing_signal_count <= 2 else
-                "Incomplete"
-            ),
+            "data_integrity_label": data_integrity_label,
             "data_integrity_confidence_factor": round(data_integrity_confidence_factor, 3),
             # P3: Model confidence dimensions
             "signal_strength": signal_strength,
@@ -186,6 +258,20 @@ def calculate_signal_divergence(
             ),
             # P1: RSI extreme condition flag
             "rsi_extreme_flag": rsi_extreme_flag,
+            # P0: Divergence metric labeling — three clearly named constructs
+            # signal_spread (σ): standard deviation across all 7 signal scores — drives headline divergence
+            "signal_spread": signal_spread,
+            "signal_spread_label": signal_spread_label,
+            # component_gap: fundamentalist valuation score vs quant technical score gap
+            "component_gap": component_gap,
+            "component_gap_label": component_gap_label,
+            # P0: Volume data quality
+            "volume_data_quality": volume_data_quality,
+            "volume_data_flag": volume_data_flag,
+            # P1: Confidence reduction audit trail
+            "confidence_reduction_log": confidence_reduction_log,
+            # P2: Insider anomaly note
+            "insider_anomaly_note": insider_anomaly_note,
             # Divergence analysis
             "alignment_status": alignment_status,
             "has_divergence": has_divergence,
@@ -194,7 +280,10 @@ def calculate_signal_divergence(
             "direction_consensus": direction_consensus,
         }
 
-        logger.info(f"Signal divergence calculated (7 signals): {alignment_status} (σ={std_dev:.2f})")
+        logger.info(
+            f"Signal divergence calculated (7 signals): {alignment_status} "
+            f"(σ={std_dev:.2f} [{signal_spread_label}], component_gap={component_gap:.1f} [{component_gap_label}])"
+        )
         return signal_breakdown
 
     except Exception as e:
@@ -531,19 +620,25 @@ def _extract_rsi_extreme_flag(quant_output: Dict[str, Any]) -> Optional[Dict[str
 
     if direction == "oversold":
         interpretation = (
-            f"RSI at {rsi_value:.1f} — extreme oversold territory. "
-            "This reading is statistically rare for large-cap stocks (< 2% of sessions). "
-            "Historically associated with BOTH mean-reversion bounces AND accelerating downtrends. "
-            "High volume during oversold conditions may indicate institutional distribution, not capitulation. "
-            "Treat directional RSI interpretation as low-confidence until confirmed by volume and trend."
+            f"RSI at {rsi_value:.1f} is in extreme oversold territory. "
+            "This reading has two competing interpretations: "
+            "(1) Price has disconnected from fundamentals and may be coiling for a technical rebound — "
+            "oversold conditions historically precede sharp counter-trend rallies. "
+            "(2) Sustained selling pressure at this velocity often signals regime deterioration, "
+            "where RSI remains depressed for weeks or months before further downside. "
+            "No directional bias is assigned to extreme RSI readings. "
+            "Treat as elevated ambiguity, not a buy signal, until volume and trend confirm direction."
         )
     else:
         interpretation = (
-            f"RSI at {rsi_value:.1f} — extreme overbought territory. "
-            "This reading is statistically rare. "
-            "Historically associated with BOTH momentum continuation AND sharp mean-reversion pullbacks. "
-            "Overbought conditions can persist in strong trend regimes. "
-            "Treat directional RSI interpretation as low-confidence until confirmed by other signals."
+            f"RSI at {rsi_value:.1f} is in extreme overbought territory. "
+            "This reading has two competing interpretations: "
+            "(1) Momentum is accelerating and overbought conditions can persist for weeks in strong trend regimes — "
+            "momentum continuation is statistically common in high-RSI environments. "
+            "(2) Extreme overbought readings often precede sharp mean-reversion pullbacks, "
+            "particularly when accompanied by declining volume or bearish divergence in other indicators. "
+            "No directional bias is assigned to extreme RSI readings. "
+            "Treat as elevated ambiguity, not a sell signal, until other signals confirm."
         )
 
     return {
@@ -553,6 +648,27 @@ def _extract_rsi_extreme_flag(quant_output: Dict[str, Any]) -> Optional[Dict[str
         "confidence_penalty": 0.10,
         "label": f"⚠ Extreme RSI ({rsi_value:.1f}) — Ambiguous Signal",
     }
+
+
+def _extract_volume_quality(quant_output: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+    """
+    Extract volume data quality assessment from quant output.
+
+    Returns:
+        Tuple of (quality_label, flag_message_or_None)
+        quality_label: "NORMAL" | "SUSPECT" | "ELEVATED"
+    """
+    tech_indicators = quant_output.get("technical_indicators")
+    if not tech_indicators or not isinstance(tech_indicators, dict):
+        return "NORMAL", None
+
+    volume_data = tech_indicators.get("volume")
+    if not volume_data or not isinstance(volume_data, dict):
+        return "NORMAL", None
+
+    quality = volume_data.get("volume_quality", "NORMAL")
+    flag = volume_data.get("volume_quality_flag")
+    return quality or "NORMAL", flag
 
 
 def _extract_technical_divergence_score(quant_output: Dict[str, Any]) -> Tuple[float, bool]:
@@ -581,7 +697,7 @@ def _check_component_divergence(
     fundamentalist_output: Dict[str, Any],
     quant_output: Dict[str, Any],
     threshold: float = 3.0
-) -> Tuple[bool, str, str]:
+) -> Tuple[bool, str, str, float, str]:
     """
     Check for divergence between key component scores (Valuation vs Technical Strength).
 
@@ -591,17 +707,19 @@ def _check_component_divergence(
     describe without the widget flagging it.
 
     Returns:
-        Tuple of (has_divergence, explanation, recommendation)
+        Tuple of (has_divergence, explanation, recommendation, gap_value, gap_label)
     """
     valuation_score = fundamentalist_output.get("valuation_score")
     technical_score = quant_output.get("technical_score")
 
     if valuation_score is None or technical_score is None:
-        return False, "", ""
+        return False, "", "", 0.0, "None"
 
     gap = abs(float(valuation_score) - float(technical_score))
+    gap_label = "High" if gap >= 5.0 else "Moderate" if gap >= 3.0 else "Low"
+
     if gap < threshold:
-        return False, "", ""
+        return False, "", "", round(gap, 1), gap_label
 
     if valuation_score > technical_score:
         explanation = (
@@ -633,9 +751,9 @@ def _check_component_divergence(
 
     logger.info(
         f"Component divergence detected: Valuation={valuation_score:.1f}, "
-        f"Technical={technical_score:.1f}, gap={gap:.1f}"
+        f"Technical={technical_score:.1f}, gap={gap:.1f} [{gap_label}]"
     )
-    return True, explanation, recommendation
+    return True, explanation, recommendation, round(gap, 1), gap_label
 
 
 def _check_divergence(scores: List[float], threshold: float = 2.0) -> Tuple[bool, float]:

@@ -5,13 +5,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import type { SignalBreakdown } from '@/types/api'
 
-// Stop quality badge colors
-const STOP_QUALITY_VARIANT: Record<string, 'success' | 'warning' | 'default'> = {
-  ALIGNED: 'success',
-  WIDE: 'warning',
-  ADJUSTED: 'default',
-}
-
 interface SignalBreakdownCardProps {
   breakdown: SignalBreakdown
 }
@@ -27,13 +20,16 @@ const SIGNALS = [
 ]
 
 function getColor(score: number, hasData: boolean = true) {
-  // Missing data - show muted gray
   if (!hasData) return { bar: 'bg-surface-elevated', text: 'text-text-tertiary', dot: 'bg-surface-elevated' }
-
-  // Normal coloring when data is available
   if (score >= 7.0) return { bar: 'bg-success', text: 'text-success', dot: 'bg-success' }
   if (score >= 4.0) return { bar: 'bg-warning', text: 'text-warning', dot: 'bg-warning' }
   return { bar: 'bg-error', text: 'text-error', dot: 'bg-error' }
+}
+
+function spreadLabelColor(label?: string) {
+  if (label === 'High') return 'text-error'
+  if (label === 'Moderate') return 'text-warning'
+  return 'text-success'
 }
 
 export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
@@ -77,6 +73,28 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
           </div>
         )}
 
+        {/* P0: Volume data suspect flag */}
+        {breakdown.volume_data_quality === 'SUSPECT' && breakdown.volume_data_flag && (
+          <div className="mb-3 p-2.5 rounded-md bg-error/10 border border-error/20 flex items-start gap-2">
+            <span className="text-error text-sm mt-0.5">⚠</span>
+            <div>
+              <span className="text-xs font-semibold text-error block mb-0.5">Volume Data — Suspect Reading</span>
+              <p className="text-xs text-text-tertiary leading-relaxed">{breakdown.volume_data_flag}</p>
+            </div>
+          </div>
+        )}
+
+        {/* P0: Volume elevated flag (softer warning) */}
+        {breakdown.volume_data_quality === 'ELEVATED' && breakdown.volume_data_flag && (
+          <div className="mb-3 p-2.5 rounded-md bg-warning/10 border border-warning/20 flex items-start gap-2">
+            <span className="text-warning text-sm mt-0.5">↑</span>
+            <div>
+              <span className="text-xs font-semibold text-warning block mb-0.5">Volume — Elevated</span>
+              <p className="text-xs text-text-tertiary leading-relaxed">{breakdown.volume_data_flag}</p>
+            </div>
+          </div>
+        )}
+
         {/* P1: RSI extreme condition flag */}
         {breakdown.rsi_extreme_flag && (
           <div className="mb-3 p-2.5 rounded-md bg-warning/10 border border-warning/20">
@@ -89,6 +107,14 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
           </div>
         )}
 
+        {/* P2: Insider anomaly note */}
+        {breakdown.insider_anomaly_note && (
+          <div className="mb-3 p-2.5 rounded-md bg-primary/10 border border-primary/20">
+            <p className="text-xs font-semibold text-primary mb-1">Insider Activity — Notable Signal</p>
+            <p className="text-xs text-text-tertiary leading-relaxed">{breakdown.insider_anomaly_note}</p>
+          </div>
+        )}
+
         {/* Compact signal bars */}
         <div className="space-y-3">
           {SIGNALS.map(({ key, label }) => {
@@ -97,7 +123,7 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
             const hasDataKey = `${key}_has_data` as keyof SignalBreakdown
             const score = breakdown[scoreKey] as number
             const interpretation = breakdown[interpKey] as string
-            const hasData = breakdown[hasDataKey] !== false // Default to true if not present (backward compat)
+            const hasData = breakdown[hasDataKey] !== false
             const colors = getColor(score, hasData)
 
             return (
@@ -139,7 +165,40 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
           })}
         </div>
 
-        {/* P3: Model confidence dimensions (collapsed by default, shown in expanded) */}
+        {/* Expanded: Divergence metrics panel */}
+        {expanded && (breakdown.signal_spread !== undefined || breakdown.component_gap !== undefined) && (
+          <div className="mt-4 pt-3 border-t border-surface-elevated space-y-2">
+            <p className="text-xs font-semibold text-text-secondary">Divergence Metrics</p>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              {breakdown.signal_spread !== undefined && (
+                <div>
+                  <span className="text-text-tertiary block">Signal Spread (σ)</span>
+                  <span className={`font-semibold ${spreadLabelColor(breakdown.signal_spread_label)}`}>
+                    {breakdown.signal_spread.toFixed(2)}
+                  </span>
+                  <span className="text-text-tertiary ml-1">{breakdown.signal_spread_label ?? ''}</span>
+                  <p className="text-text-tertiary mt-0.5 leading-relaxed">
+                    Std deviation across all 7 signals — drives the headline Divergent/Aligned badge.
+                  </p>
+                </div>
+              )}
+              {breakdown.component_gap !== undefined && (
+                <div>
+                  <span className="text-text-tertiary block">Fund / Tech Gap</span>
+                  <span className={`font-semibold ${spreadLabelColor(breakdown.component_gap_label)}`}>
+                    {breakdown.component_gap.toFixed(1)} pts
+                  </span>
+                  <span className="text-text-tertiary ml-1">{breakdown.component_gap_label ?? ''}</span>
+                  <p className="text-text-tertiary mt-0.5 leading-relaxed">
+                    Raw gap between fundamental valuation score and technical score — value-vs-momentum construct.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* P3: Model confidence dimensions */}
         {expanded && (breakdown.signal_strength !== undefined || breakdown.signal_stability !== undefined) && (
           <div className="mt-4 pt-3 border-t border-surface-elevated space-y-2">
             <p className="text-xs font-semibold text-text-secondary">Model Confidence</p>
@@ -176,6 +235,24 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
                   )}
                 </span>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* P1: Confidence reduction log */}
+        {expanded && breakdown.confidence_reduction_log && breakdown.confidence_reduction_log.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-surface-elevated space-y-2">
+            <p className="text-xs font-semibold text-text-secondary">Confidence Reduction Log</p>
+            <div className="space-y-2">
+              {breakdown.confidence_reduction_log.map((entry, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs">
+                  <span className="text-error font-semibold w-10 shrink-0">−{entry.penalty_pct}%</span>
+                  <div>
+                    <span className="text-text-secondary font-medium">{entry.trigger}</span>
+                    <p className="text-text-tertiary leading-relaxed mt-0.5">{entry.detail}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

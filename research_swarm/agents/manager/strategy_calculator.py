@@ -60,7 +60,8 @@ class StrategyCalculator:
         # Calculate ideal entry zone based on current price position
         # CRITICAL: ideal_zone should be at or BELOW current price for new buyers
         if current_price < bear_target:
-            # Stock is trading below bear case - ideal zone is around current price
+            # Stock is trading below bear case — anchor entry 3-8% below current,
+            # but apply a floor: do not go more than 5% below bear_target without disclosure.
             ideal_low = current_price * 0.92   # 8% below current (on deeper dip)
             ideal_high = current_price * 0.97  # 3% below current (slight pullback)
         elif current_price < base_target:
@@ -71,6 +72,47 @@ class StrategyCalculator:
             # Stock is above base target - ideal zone is the bear-to-base range
             ideal_low = bear_target
             ideal_high = base_target * 0.95  # 5% below base target
+
+        # P0: Entry / Bear case relationship classification
+        # Determine whether entry zone dips below the model's own bear case estimate
+        entry_below_bear = ideal_low < bear_target
+        entry_below_bear_pct = max(0.0, round((bear_target - ideal_low) / bear_target * 100, 1))
+        below_bear_justification = None
+
+        if entry_below_bear:
+            if entry_below_bear_pct <= 5.0:
+                below_bear_classification = "TAIL_RISK_DISCOUNT"
+                below_bear_justification = (
+                    f"Entry lower bound (${ideal_low:.2f}) sits {entry_below_bear_pct:.1f}% below the bear-case "
+                    f"valuation estimate (${bear_target:.2f}). "
+                    "This reflects a tail-risk discount — suitable for staged accumulation strategies that assume "
+                    "temporary overshoot beyond the worst-case valuation scenario. "
+                    "A sustained breach of the bear case should be treated as a thesis invalidation signal, "
+                    "not an additional entry opportunity."
+                )
+            elif entry_below_bear_pct <= 10.0:
+                below_bear_classification = "DISTRESSED_ENTRY"
+                below_bear_justification = (
+                    f"Entry lower bound (${ideal_low:.2f}) sits {entry_below_bear_pct:.1f}% below the bear-case "
+                    f"valuation estimate (${bear_target:.2f}). "
+                    "This is a distressed entry zone — only appropriate for investors explicitly targeting "
+                    "maximum-drawdown scenarios. The model's own worst-case valuation does not support prices "
+                    "at this level under normal conditions."
+                )
+            else:
+                # Override: floor the entry_low at bear_target × 0.95 to prevent absurd entries
+                below_bear_classification = "CLAMPED"
+                clamped_low = round(bear_target * 0.95, 2)
+                below_bear_justification = (
+                    f"Entry lower bound clamped to ${clamped_low:.2f} — original calculation of ${ideal_low:.2f} "
+                    f"was {entry_below_bear_pct:.1f}% below the bear-case estimate (${bear_target:.2f}), "
+                    "which exceeds the maximum defensible tail-risk discount (10%). "
+                    "Entry zone re-anchored at bear case −5%."
+                )
+                ideal_low = clamped_low
+                entry_below_bear_pct = 5.0
+        else:
+            below_bear_classification = "ABOVE_BEAR"
 
         if discount_pct >= 15:
             recommendation = "Price Below Intrinsic Value Band — Risk/Reward Favorable"
@@ -151,6 +193,11 @@ class StrategyCalculator:
             },
             # P1: Provenance label — every displayed price maps to a methodology
             "entry_methodology": entry_methodology,
+            # P0: Entry / Bear case relationship
+            "entry_below_bear": entry_below_bear,
+            "entry_below_bear_pct": entry_below_bear_pct,
+            "below_bear_classification": below_bear_classification,
+            "below_bear_justification": below_bear_justification,
             "current_price": round(current_price, 2),
             "discount_to_target_pct": round(discount_pct, 1),
             "recommendation": recommendation,

@@ -141,6 +141,19 @@ class VolumeAnalysis(BaseModel):
         VolumeTrend.STABLE,
         description="Volume trend direction"
     )
+    # Volume data quality fields (sanity gate)
+    volume_quality: Optional[str] = Field(
+        None,
+        description="NORMAL | SUSPECT | ELEVATED — quality assessment of volume ratio"
+    )
+    volume_quality_flag: Optional[str] = Field(
+        None,
+        description="Human-readable flag explaining why volume reading was flagged, or None if normal"
+    )
+    volume_exclude_from_scoring: bool = Field(
+        False,
+        description="When True, volume-dependent signals should be excluded from scoring"
+    )
 
     @field_validator("avg_volume_20d", "current_volume", mode="before")
     @classmethod

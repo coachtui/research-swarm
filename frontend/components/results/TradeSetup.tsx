@@ -86,6 +86,10 @@ export function TradeSetup({ setup, ticker, strategy }: TradeSetupProps) {
   const stopMethodology = strategy?.exit?.stop_methodology
   const entryMethodology = strategy?.entry?.entry_methodology
   const entryZoneDisplay = strategy?.entry?.entry_zone_display
+  const entryBelowBear = strategy?.entry?.entry_below_bear
+  const entryBelowBearPct = strategy?.entry?.entry_below_bear_pct
+  const belowBearClassification = strategy?.entry?.below_bear_classification
+  const belowBearJustification = strategy?.entry?.below_bear_justification
 
   const stopStyle = stopQuality ? STOP_QUALITY_STYLES[stopQuality] : undefined
 
@@ -95,6 +99,27 @@ export function TradeSetup({ setup, ticker, strategy }: TradeSetupProps) {
         <CardTitle>Trade Setup Options</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* P0: Entry below bear case disclosure */}
+        {entryBelowBear && belowBearJustification && (
+          <div className={`p-3 rounded-md border text-xs leading-relaxed ${
+            belowBearClassification === 'DISTRESSED_ENTRY' || belowBearClassification === 'CLAMPED'
+              ? 'bg-error/10 border-error/30 text-error'
+              : 'bg-warning/10 border-warning/30 text-warning'
+          }`}>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-bold">
+                {belowBearClassification === 'DISTRESSED_ENTRY' ? 'Distressed Entry Zone' :
+                 belowBearClassification === 'CLAMPED' ? 'Entry Clamped' :
+                 'Entry Below Bear Case'}
+              </span>
+              {entryBelowBearPct !== undefined && entryBelowBearPct > 0 && (
+                <span className="font-normal opacity-80">({entryBelowBearPct.toFixed(1)}% below bear)</span>
+              )}
+            </div>
+            <p className="text-text-secondary">{belowBearJustification}</p>
+          </div>
+        )}
+
         {/* P1: Entry provenance */}
         {entryMethodology && (
           <div className="p-3 rounded-md bg-surface-elevated border border-border text-xs text-text-tertiary leading-relaxed">

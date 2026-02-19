@@ -210,6 +210,23 @@ export interface SignalBreakdown {
   signal_stability_label?: 'Stable' | 'Mixed' | 'Unstable'
   // P1: RSI extreme flag
   rsi_extreme_flag?: RsiExtremeFlag | null
+  // P0: Divergence metric labeling — three distinct constructs
+  signal_spread?: number           // σ across all 7 signals — drives headline has_divergence
+  signal_spread_label?: 'Low' | 'Moderate' | 'High'
+  component_gap?: number           // Fundamentalist valuation score vs quant technical score gap
+  component_gap_label?: 'Low' | 'Moderate' | 'High' | 'None'
+  // P0: Volume data quality
+  volume_data_quality?: 'NORMAL' | 'SUSPECT' | 'ELEVATED'
+  volume_data_flag?: string | null
+  // P1: Confidence reduction audit trail
+  confidence_reduction_log?: Array<{
+    trigger: string
+    penalty_pct: number
+    resulting_factor: number
+    detail: string
+  }>
+  // P2: Insider anomaly note
+  insider_anomaly_note?: string | null
   // Divergence analysis
   alignment_status: string
   has_divergence: boolean
@@ -313,6 +330,11 @@ export interface RecommendedStrategy {
     entry_methodology?: string
     // P2: Zone display
     entry_zone_display?: { low: number; high: number; label: string }
+    // P0: Entry / Bear case relationship
+    entry_below_bear?: boolean
+    entry_below_bear_pct?: number
+    below_bear_classification?: 'ABOVE_BEAR' | 'TAIL_RISK_DISCOUNT' | 'DISTRESSED_ENTRY' | 'CLAMPED'
+    below_bear_justification?: string | null
   }
   exit: {
     stop_loss: number

@@ -362,11 +362,40 @@ class TechnicalAnalyzer:
                     elif change_pct < -10:
                         volume_trend = VolumeTrend.DECREASING
 
+            # Volume data quality sanity gate
+            # Rationale: volume_ratio < 10% is statistically implausible for any listed equity
+            # on a normal trading day — almost always a data feed gap or partial-session artifact.
+            # volume_ratio > 10x is elevated and warrants catalyst verification.
+            volume_quality = "NORMAL"
+            volume_quality_flag = None
+            volume_exclude_from_scoring = False
+
+            if volume_ratio is not None:
+                if volume_ratio < 0.10:
+                    volume_quality = "SUSPECT"
+                    volume_quality_flag = (
+                        f"Volume at {volume_ratio:.0%} of 20-day average — below minimum plausible "
+                        "threshold for a listed equity on a normal trading session. "
+                        "Likely cause: data feed gap, partial session, or pre/after-market-only data. "
+                        "Volume-dependent signals excluded from scoring until verified."
+                    )
+                    volume_exclude_from_scoring = True
+                elif volume_ratio > 10.0:
+                    volume_quality = "ELEVATED"
+                    volume_quality_flag = (
+                        f"Volume at {volume_ratio:.0%} of 20-day average — unusually elevated. "
+                        "Verify against a catalyst (earnings, major news, index rebalance) "
+                        "before interpreting as a directional signal."
+                    )
+
             return VolumeAnalysis(
                 avg_volume_20d=avg_volume_20d,
                 current_volume=current_volume,
                 volume_ratio=volume_ratio,
                 volume_trend=volume_trend,
+                volume_quality=volume_quality,
+                volume_quality_flag=volume_quality_flag,
+                volume_exclude_from_scoring=volume_exclude_from_scoring,
             )
 
         except Exception as e:

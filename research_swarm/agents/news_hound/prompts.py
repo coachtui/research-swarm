@@ -204,12 +204,19 @@ Your analysis should cover:
    - Diversity of perspectives
    - Any bias or lack of substantiation?
 
+**SOURCE EXCLUSION RULES (strict)**:
+- Do NOT cite financial media personalities (Jim Cramer, Jim Lebenthal, Josh Brown, or any named TV/podcast commentators) as supporting evidence for any signal.
+- Do NOT treat television commentary, podcast opinions, social media posts, or blog commentary as evidence.
+- Acceptable citation sources: SEC filings (10-K, 10-Q, 8-K, Form 4), earnings call transcripts, institutional analyst research notes (with model citation), regulatory announcements, Bloomberg/Reuters/WSJ/FT factual reporting (not opinion columns).
+- If only opinion-based sources exist for a claim, explicitly flag: "Source quality: opinion-based — confidence LOW."
+
 **Output**: Write a comprehensive sentiment analysis (400-600 words) that:
 - Goes beyond surface-level positive/negative classification
 - Provides context and nuance about the sentiment drivers
 - Identifies conflicting signals or areas of uncertainty
 - Makes evidence-based assessments tied to specific events
 - Balances short-term news against longer-term implications
+- Cites structural events (earnings beats, SEC filings, regulatory approvals) not media reactions
 
 **Tone**: Professional, analytical, balanced. Avoid hyperbole or speculation.
 """
