@@ -267,17 +267,17 @@ class ManagerAnalyzer:
             logger.error(f"Failed to parse synthesis JSON: {e}")
             logger.debug(f"Response: {response_text[:500]}")
             return {
-                "synthesis_narrative": "Error: Failed to generate synthesis",
-                "key_insights": ["Error parsing synthesis"],
-                "risk_factors": ["Error parsing synthesis"],
+                "synthesis_narrative": "Error: Failed to generate synthesis narrative. The analysis pipeline encountered a JSON parsing error and could not produce a complete synthesis. Please retry the analysis.",
+                "key_insights": ["Error parsing synthesis — retry required", "Analysis pipeline failed to generate insights", "Please rerun the analysis for this ticker"],
+                "risk_factors": ["Analysis pipeline error — results unreliable", "Synthesis generation failed", "Retry required before making investment decisions"],
             }, 0
 
         except Exception as e:
             logger.error(f"Error synthesizing findings: {e}")
             return {
-                "synthesis_narrative": "Error: Failed to generate synthesis",
-                "key_insights": ["Error in synthesis"],
-                "risk_factors": ["Error in synthesis"],
+                "synthesis_narrative": "Error: Failed to generate synthesis narrative. The analysis pipeline encountered an unexpected error and could not produce a complete synthesis. Please retry the analysis.",
+                "key_insights": ["Error in synthesis — retry required", "Analysis pipeline failed to generate insights", "Please rerun the analysis for this ticker"],
+                "risk_factors": ["Analysis pipeline error — results unreliable", "Synthesis generation failed", "Retry required before making investment decisions"],
             }, 0
 
     def generate_investment_thesis(
