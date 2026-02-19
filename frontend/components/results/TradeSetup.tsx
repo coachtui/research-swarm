@@ -96,7 +96,7 @@ export function TradeSetup({ setup, ticker, strategy }: TradeSetupProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Trade Setup Options</CardTitle>
+        <CardTitle>Entry / Exit Setup</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* P0: Entry below bear case disclosure */}

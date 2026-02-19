@@ -38,11 +38,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
   return (
     <section className="key-takeaways">
       <div className="flex items-center gap-2 mb-6">
-        <span className="text-2xl">⚡</span>
-        <h2 className="text-2xl font-bold">What You Need to Know</h2>
-        <span className="text-sm text-muted-foreground ml-2">
-          • The 60-second version
-        </span>
+        <h2 className="text-xl font-semibold">Key Takeaways</h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -53,7 +49,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
               <div className="h-8 w-8 rounded-full bg-success/10 flex items-center justify-center">
                 <CheckCircle className="h-5 w-5 text-success" />
               </div>
-              <h3 className="font-semibold text-lg">What's Working</h3>
+              <h3 className="font-semibold text-lg">Strengths</h3>
             </div>
 
             <ul className="space-y-4">
@@ -88,7 +84,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
               <div className="h-8 w-8 rounded-full bg-warning/10 flex items-center justify-center">
                 <AlertTriangle className="h-5 w-5 text-warning" />
               </div>
-              <h3 className="font-semibold text-lg">What's Concerning</h3>
+              <h3 className="font-semibold text-lg">Risks</h3>
             </div>
 
             <ul className="space-y-4">

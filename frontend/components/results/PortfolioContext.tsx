@@ -98,7 +98,7 @@ export function PortfolioContext({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Briefcase className="h-5 w-5 text-primary" />
-            <h3 className="text-lg font-semibold text-text-primary">Portfolio Context</h3>
+            <h3 className="text-lg font-semibold text-text-primary">Position Sizing</h3>
             <Badge variant="secondary">{ticker}</Badge>
           </div>
 
