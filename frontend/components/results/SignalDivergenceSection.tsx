@@ -8,7 +8,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { HelpCircle, AlertTriangle, CheckCircle } from 'lucide-react'
+import { HelpCircle, AlertTriangle, CheckCircle, Info } from 'lucide-react'
 import type { SignalBreakdown } from '@/types/api'
 
 interface SignalDivergenceSectionProps {
@@ -47,6 +47,93 @@ function getSeverity(breakdown: SignalBreakdown): 'low' | 'medium' | 'high' {
   if (stdDev >= 3.0) return 'high'
   if (stdDev >= 2.0) return 'medium'
   return 'low'
+}
+
+// Issue 8: Signal credibility — derived from existing signal data, no new backend required.
+// Measures three independent axes of signal quality.
+interface SignalCredibility {
+  strength: number   // 0–10: how far signals deviate from neutral (5.0)
+  stability: number  // 0–10: inverse of inter-signal variance
+  agreement: number  // 0–10: fraction of signals pointing same direction
+}
+
+function deriveCredibility(breakdown: SignalBreakdown): SignalCredibility {
+  const scores = [
+    breakdown.news_score,
+    breakdown.earnings_score,
+    breakdown.analyst_score,
+    breakdown.institutional_score,
+    breakdown.insider_score,
+  ].filter(s => typeof s === 'number' && !isNaN(s))
+
+  if (scores.length === 0) return { strength: 5, stability: 5, agreement: 5 }
+
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length
+  const deviation = scores.reduce((sum, s) => sum + Math.abs(s - 5), 0) / scores.length
+  const stdDev = Math.sqrt(scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length)
+
+  const bullish = scores.filter(s => s > 6).length
+  const bearish = scores.filter(s => s < 4).length
+  const directionalAgreement = Math.max(bullish, bearish) / scores.length
+
+  return {
+    strength: Math.min(10, deviation * 2),
+    stability: Math.max(0, 10 - stdDev * 2),
+    agreement: directionalAgreement * 10,
+  }
+}
+
+function CredibilityBar({ label, value, tooltip }: { label: string; value: number; tooltip: string }) {
+  const color =
+    value >= 7 ? 'bg-success' :
+    value >= 4 ? 'bg-warning' :
+    'bg-error/70'
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-2 cursor-default">
+          <span className="text-xs text-text-tertiary w-20 shrink-0">{label}</span>
+          <div className="flex-1 h-1 bg-surface-elevated rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${color}`}
+              style={{ width: `${(value / 10) * 100}%` }}
+            />
+          </div>
+          <span className="text-xs font-mono text-text-tertiary w-6 text-right">{value.toFixed(1)}</span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">
+        <p className="text-xs leading-relaxed">{tooltip}</p>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+// Issue 5: Reconciliation statements — when specific signal combinations contradict each other,
+// surface an interpretive bridge rather than leaving the user to resolve the conflict.
+function buildReconciliationStatement(breakdown: SignalBreakdown): string | null {
+  const hasBullishTech = (breakdown.tech_divergence_score ?? 5) > 6
+  const hasBearishInst = breakdown.institutional_score < 4
+  const hasBullishAnalyst = breakdown.analyst_score > 6
+  const hasBearishInsider = breakdown.insider_score < 4
+  const hasBearishDarkPool = (breakdown.dark_pool_score ?? 5) < 4
+  const hasBullishNews = breakdown.news_score > 6
+
+  // Priority order: most analytically significant conflict first
+  if (hasBullishTech && hasBearishInst)
+    return 'Technical improvement is occurring under institutional distribution — price structure strengthens while smart money reduces exposure. This increases setup fragility.'
+
+  if (hasBullishAnalyst && hasBearishInsider)
+    return 'Analysts are bullish while insiders are selling. Insiders operate with material non-public context that sell-side coverage does not reflect. This asymmetry historically resolves toward insider direction.'
+
+  if (hasBullishTech && hasBearishDarkPool)
+    return 'Bullish price structure is forming amid elevated dark pool selling. Momentum may be technically valid but lacks institutional conviction.'
+
+  if (hasBullishNews && hasBearishInst)
+    return 'Positive news flow is occurring alongside institutional distribution. Headlines may reflect forward guidance while institutions position ahead of deterioration.'
+
+  return null
 }
 
 export function SignalDivergenceSection({
@@ -140,6 +227,13 @@ export function SignalDivergenceSection({
   const bearishSignals = signals.filter(s => s.hasData && getDirection(s.interpretation) === 'BEARISH')
   const bullishSignals = signals.filter(s => s.hasData && getDirection(s.interpretation) === 'BULLISH')
 
+  // Issue 8: Credibility metrics
+  const credibility = deriveCredibility(breakdown)
+  const allHighCredibility = credibility.strength >= 7 && credibility.stability >= 7 && credibility.agreement >= 7
+
+  // Issue 5: Reconciliation statement
+  const reconciliation = hasDivergence ? buildReconciliationStatement(breakdown) : null
+
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
@@ -170,7 +264,42 @@ export function SignalDivergenceSection({
       }`}>
         <CardContent className="pt-5 pb-4">
 
-          {/* Signal matrix — scoreboard first */}
+          {/* Issue 8: Signal Credibility Strip — compact 3-axis quality indicator.
+              Derived entirely from existing signal data. Shown above the matrix so
+              users calibrate their reading before interpreting individual signals. */}
+          <div className="mb-5 p-3 rounded-md bg-surface-elevated border border-border">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-medium text-text-secondary">Signal Credibility</span>
+              {allHighCredibility && (
+                <span className="text-xs text-success font-medium">✓ High signal conviction</span>
+              )}
+              {!allHighCredibility && credibility.stability < 4 && hasDivergence && (
+                <span className="text-xs text-warning font-medium">⚠ Unstable — divergence may be transient</span>
+              )}
+              {!allHighCredibility && credibility.agreement < 5 && (
+                <span className="text-xs text-text-tertiary">Low directional agreement</span>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <CredibilityBar
+                label="Strength"
+                value={credibility.strength}
+                tooltip="How decisively signals deviate from neutral. High = signals are making strong directional statements. Low = all signals near 5.0 (neutral)."
+              />
+              <CredibilityBar
+                label="Stability"
+                value={credibility.stability}
+                tooltip="How consistent signals are with each other. High = signals cluster together. Low = wide spread between highest and lowest signal (chaotic reading)."
+              />
+              <CredibilityBar
+                label="Agreement"
+                value={credibility.agreement}
+                tooltip="What fraction of signals point the same direction. High = clear majority consensus. Low = signals are split between bullish and bearish."
+              />
+            </div>
+          </div>
+
+          {/* Signal matrix — scoreboard */}
           <div className="space-y-3 mb-5">
             {signals.map((signal, idx) => {
               const direction = signal.hasData ? getDirection(signal.interpretation) : null
@@ -236,7 +365,7 @@ export function SignalDivergenceSection({
             })}
           </div>
 
-          {/* Signal Conflict Summary — one block, shown only when divergence exists */}
+          {/* Signal Conflict Summary */}
           {hasDivergence && breakdown.divergence_explanation && (
             <div className={`rounded-lg border p-4 ${
               severity === 'high'
@@ -254,6 +383,16 @@ export function SignalDivergenceSection({
                   <p className="text-sm text-text-secondary leading-relaxed">
                     {breakdown.divergence_explanation}
                   </p>
+
+                  {/* Issue 5: Reconciliation statement — bridges the specific conflict
+                      between pairs of signals rather than generic conflict language. */}
+                  {reconciliation && (
+                    <div className="flex items-start gap-2 p-2.5 rounded-md bg-primary/5 border border-primary/15">
+                      <Info className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-primary/70" />
+                      <p className="text-xs text-text-secondary leading-relaxed">{reconciliation}</p>
+                    </div>
+                  )}
+
                   {divergenceMagnitude >= 4 && (
                     <p className="text-xs text-text-tertiary">
                       Divergence magnitude: {divergenceMagnitude.toFixed(1)} pts ·{' '}

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { ChevronDown, ChevronUp, Settings } from 'lucide-react'
 import { TradeSetup } from './TradeSetup'
 import { PortfolioContext } from './PortfolioContext'
-import type { EnhancedTradeSetup, RecommendedStrategy, ConvictionPosition } from '@/types/api'
+import type { EnhancedTradeSetup, RecommendedStrategy, ConvictionPosition, SignalBreakdown } from '@/types/api'
 
 const STORAGE_KEY = 'dvrg_execution_layer_expanded'
 
@@ -18,6 +18,7 @@ interface ExecutionLayerProps {
   convictionPosition?: ConvictionPosition | null
   enhancedTradeSetup?: EnhancedTradeSetup | null
   strategy?: RecommendedStrategy | null
+  signalBreakdown?: SignalBreakdown | null
 }
 
 type ActiveTab = 'sizing' | 'setup'
@@ -32,6 +33,7 @@ export function ExecutionLayer({
   convictionPosition,
   enhancedTradeSetup,
   strategy,
+  signalBreakdown,
 }: ExecutionLayerProps) {
   const [expanded, setExpanded] = useState(false)
   const [activeTab, setActiveTab] = useState<ActiveTab>('sizing')
@@ -112,6 +114,8 @@ export function ExecutionLayer({
                 setup={enhancedTradeSetup}
                 ticker={ticker}
                 strategy={strategy}
+                signalBreakdown={signalBreakdown}
+                rating={rating}
               />
             )}
           </div>

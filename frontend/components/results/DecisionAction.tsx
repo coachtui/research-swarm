@@ -11,6 +11,7 @@ interface DecisionActionProps {
   ticker: string
   rating: string | null
   riskLevel: string | null
+  currentPrice?: number | null
   strategy?: RecommendedStrategy | null
   signalBreakdown?: SignalBreakdown | null
   fundTechDivergence?: FundTechDivergence | null
@@ -50,10 +51,23 @@ function formatZone(low: number | undefined, high: number | undefined): string |
   return null
 }
 
+// Issue 3: Proximity detection — when current price is close to the avoid threshold,
+// surface a contextual warning instead of letting the tiles appear contradictory.
+type ProximityStatus = 'CRITICAL' | 'ELEVATED' | null
+
+function getAvoidProximity(currentPrice: number | null | undefined, avoidAbovePrice: number | null | undefined): ProximityStatus {
+  if (!currentPrice || !avoidAbovePrice || avoidAbovePrice <= currentPrice) return null
+  const buffer = (avoidAbovePrice - currentPrice) / currentPrice
+  if (buffer < 0.03) return 'CRITICAL'
+  if (buffer < 0.07) return 'ELEVATED'
+  return null
+}
+
 export function DecisionAction({
   framework,
   rating,
   riskLevel,
+  currentPrice,
   strategy,
   signalBreakdown,
   fundTechDivergence,
@@ -63,7 +77,9 @@ export function DecisionAction({
   const { current_holders, new_buyers, one_liner } = framework
 
   // Build price zones from strategy
-  const entryZone = strategy?.entry?.ideal_zone
+  // Issue 2: Rename "Entry Zone" → "Opportunity Envelope" at the decision-stack level.
+  // The broad ideal_zone is the opportunity envelope, not a specific execution price.
+  const opportunityEnvelope = strategy?.entry?.ideal_zone
     ? formatZone(strategy.entry.ideal_zone.low, strategy.entry.ideal_zone.high)
     : strategy?.entry?.entry_zone_display?.label ?? null
 
@@ -74,9 +90,16 @@ export function DecisionAction({
     ? formatZone(strategy.exit.target_1?.price, strategy.exit.target_2?.price)
     : strategy?.exit?.target_1?.price ? `~$${Math.round(strategy.exit.target_1.price).toLocaleString()}` : null
 
-  const avoidAbove = strategy?.entry?.ideal_zone?.high
-    ? `$${Math.round(strategy.entry.ideal_zone.high * 1.05).toLocaleString()}+`
+  // Avoid threshold: 5% above the top of the opportunity envelope
+  const avoidAbovePrice = strategy?.entry?.ideal_zone?.high
+    ? strategy.entry.ideal_zone.high * 1.05
     : null
+  const avoidAbove = avoidAbovePrice
+    ? `$${Math.round(avoidAbovePrice).toLocaleString()}+`
+    : null
+
+  // Issue 3: Proximity status
+  const proximityStatus = getAvoidProximity(currentPrice, avoidAbovePrice)
 
   // Signal status strip
   const hasDivergence = signalBreakdown?.has_divergence
@@ -135,21 +158,64 @@ export function DecisionAction({
           </div>
         )}
 
-        {/* Key Price Zones Grid */}
-        {(entryZone || stopZone || targetZone || avoidAbove) && (
+        {/* Issue 3: Proximity warning — shown when price is approaching avoid threshold */}
+        {proximityStatus && (
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs ${
+            proximityStatus === 'CRITICAL'
+              ? 'bg-error/8 border border-error/25 text-error'
+              : 'bg-warning/8 border border-warning/25 text-warning'
+          }`}>
+            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="font-medium">
+              {proximityStatus === 'CRITICAL'
+                ? 'Price approaching Avoid Zone'
+                : 'Limited buffer before Avoid Threshold'}
+            </span>
+            <span className="text-text-secondary mx-1">·</span>
+            <span className="text-text-secondary">
+              {proximityStatus === 'CRITICAL'
+                ? 'Execution sensitivity elevated — verify current price before entering'
+                : 'Consider limit orders to avoid chasing above threshold'}
+            </span>
+          </div>
+        )}
+
+        {/* Key Price Zones Grid
+            Issue 2: "Entry Zone" → "Opportunity Envelope" to distinguish from the
+            Tactical Band and Execution Anchor shown in the TradeSetup detail view. */}
+        {(opportunityEnvelope || stopZone || targetZone || avoidAbove) && (
           <div>
             <p className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-2">Key Price Zones</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {entryZone && (
+              {opportunityEnvelope && (
                 <div className="rounded-md bg-surface-elevated border border-border p-3 text-center">
-                  <p className="text-xs text-text-tertiary mb-1">Entry Zone</p>
-                  <p className="text-sm font-semibold text-success">{entryZone}</p>
+                  <p className="text-xs text-text-tertiary mb-1">
+                    Opportunity Envelope
+                    <span
+                      className="ml-1 text-text-tertiary cursor-help"
+                      title="Broad price range where the investment thesis is favorably priced. The model-optimized Tactical Band and Execution Anchor are in the Trade Setup section below."
+                    >
+                      ⓘ
+                    </span>
+                  </p>
+                  <p className="text-sm font-semibold text-success">{opportunityEnvelope}</p>
                 </div>
               )}
               {avoidAbove && (
-                <div className="rounded-md bg-surface-elevated border border-border p-3 text-center">
+                <div className={`rounded-md bg-surface-elevated p-3 text-center border ${
+                  proximityStatus === 'CRITICAL'
+                    ? 'border-error/50 ring-1 ring-error/20'
+                    : proximityStatus === 'ELEVATED'
+                    ? 'border-warning/40'
+                    : 'border-border'
+                }`}>
                   <p className="text-xs text-text-tertiary mb-1">Avoid Above</p>
-                  <p className="text-sm font-semibold text-error">{avoidAbove}</p>
+                  <p className={`text-sm font-semibold ${
+                    proximityStatus ? 'text-error' : 'text-error'
+                  }`}>{avoidAbove}</p>
+                  {proximityStatus === 'CRITICAL' && (
+                    <p className="text-xs text-error/70 mt-1">Near threshold</p>
+                  )}
                 </div>
               )}
               {stopZone && (
@@ -218,12 +284,23 @@ export function DecisionAction({
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-text-tertiary">Entry Urgency</span>
-                    <span className="font-medium text-text-primary">{new_buyers.urgency}</span>
+                    <span className={`font-medium ${
+                      proximityStatus === 'CRITICAL' && new_buyers.action === 'BUY NOW'
+                        ? 'text-warning'
+                        : 'text-text-primary'
+                    }`}>
+                      {/* Issue 3: Dampen urgency display when price is near avoid threshold */}
+                      {proximityStatus === 'CRITICAL' && new_buyers.action === 'BUY NOW'
+                        ? 'Elevated — Near Threshold'
+                        : new_buyers.urgency}
+                    </span>
                   </div>
                   <div className="relative h-1.5 bg-surface-elevated rounded-full overflow-hidden">
                     <div
                       className={`absolute inset-y-0 left-0 rounded-full ${
-                        new_buyers.urgency.toLowerCase().includes('high')
+                        proximityStatus === 'CRITICAL'
+                          ? 'bg-warning w-[55%]'
+                          : new_buyers.urgency.toLowerCase().includes('high')
                           ? 'bg-error w-[85%]'
                           : new_buyers.urgency.toLowerCase().includes('medium')
                           ? 'bg-warning w-[55%]'

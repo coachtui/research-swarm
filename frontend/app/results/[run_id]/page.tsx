@@ -221,6 +221,7 @@ function ResultsContent({ runId }: { runId: string }) {
             ticker={result.ticker}
             rating={decision_intelligence.rating}
             riskLevel={decision_intelligence.risk_level}
+            currentPrice={decision_intelligence.current_price}
             strategy={decision_intelligence.recommended_strategy}
             signalBreakdown={signal_breakdown}
             fundTechDivergence={decision_intelligence.fund_tech_divergence}
@@ -296,6 +297,7 @@ function ResultsContent({ runId }: { runId: string }) {
             convictionPosition={decision_intelligence.conviction_position}
             enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
             strategy={decision_intelligence.recommended_strategy}
+            signalBreakdown={signal_breakdown}
           />
         )}
 
