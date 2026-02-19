@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@clerk/nextjs'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -31,7 +30,6 @@ type FormData = z.infer<typeof formSchema>
 
 export function TickerSearchForm() {
   const router = useRouter()
-  const { getToken } = useAuth()
   const [serverError, setServerError] = useState<string | null>(null)
   const submitAnalysis = useSubmitAnalysis()
 
@@ -54,13 +52,6 @@ export function TickerSearchForm() {
     setServerError(null)
 
     try {
-      // Get auth token from Clerk and set it on API client
-      const token = await getToken()
-      if (!token) {
-        throw new Error('Not authenticated. Please sign in.')
-      }
-      apiClient.setAuthToken(token)
-
       const response = await submitAnalysis.mutateAsync({
         ticker: data.ticker,
         news_days_back: data.newsDaysBack,

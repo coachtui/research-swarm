@@ -5,6 +5,7 @@ import { QueryProvider } from '@/lib/providers/query-provider'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Header } from '@/components/layout/Header'
 import { Footer } from '@/components/layout/Footer'
+import { TokenProvider } from '@/components/auth/TokenProvider'
 
 // Using system fonts as fallback due to Google Fonts timeout
 const fontClass = 'font-sans'
@@ -48,6 +49,7 @@ export default function RootLayout({
         <body className={`${fontClass} flex min-h-screen flex-col`}>
           <QueryProvider>
             <TooltipProvider delayDuration={200}>
+              <TokenProvider />
               <Header />
               <main className="flex-1">{children}</main>
               <Footer />

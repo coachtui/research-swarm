@@ -8,7 +8,7 @@ import { CheckCircle2 } from 'lucide-react'
 import { apiClient } from '@/lib/api/client'
 
 export function PricingCards() {
-  const { isSignedIn, getToken } = useAuth()
+  const { isSignedIn } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState<string | null>(null)
 
@@ -29,11 +29,6 @@ export function PricingCards() {
 
     try {
       setLoading(plan)
-      const token = await getToken()
-      if (token) {
-        apiClient.setAuthToken(token)
-      }
-
       const { checkout_url } = await apiClient.createCheckoutSession(priceId)
       window.location.href = checkout_url
     } catch (error) {
