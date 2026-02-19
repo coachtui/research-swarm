@@ -35,25 +35,50 @@ function spreadLabelColor(label?: string) {
 export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
   const [expanded, setExpanded] = useState(false)
 
+  // Req 3: Separate directional bias from signal agreement — two distinct concepts
+  const directionalBias = (() => {
+    const d = (breakdown.direction_consensus ?? '').toLowerCase()
+    if (d.includes('bull')) return 'Bullish'
+    if (d.includes('bear')) return 'Bearish'
+    return 'Neutral'
+  })()
+
+  const agreementLabel = breakdown.has_divergence
+    ? (breakdown.signal_spread_label === 'High' || breakdown.alignment_status.includes('HIGH')
+        ? 'High Conflict'
+        : 'Moderate Conflict')
+    : 'Aligned'
+
   const alignmentVariant = breakdown.has_divergence
     ? 'error'
     : breakdown.alignment_status.includes('STRONG')
       ? 'success'
       : 'warning'
 
+  const biasTextColor = directionalBias === 'Bullish' ? 'text-success' : directionalBias === 'Bearish' ? 'text-error' : 'text-warning'
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Signal Analysis</CardTitle>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-text-secondary">Overall:</span>
-            <span className={`text-lg font-bold ${getColor(breakdown.overall_score).text}`}>
-              {breakdown.overall_score.toFixed(1)}
-            </span>
-            <Badge variant={alignmentVariant}>
-              {breakdown.has_divergence ? 'DIVERGENT' : 'ALIGNED'}
-            </Badge>
+          <div className="flex flex-col items-end gap-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-text-tertiary">Overall:</span>
+              <span className={`text-base font-bold ${getColor(breakdown.overall_score).text}`}>
+                {breakdown.overall_score.toFixed(1)}
+              </span>
+            </div>
+            {/* Req 3: Directional Bias + Signal Agreement as separate concepts */}
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-text-tertiary">
+                Bias: <span className={`font-medium ${biasTextColor}`}>{directionalBias}</span>
+              </span>
+              <span className="text-text-tertiary">·</span>
+              <Badge variant={alignmentVariant} className="text-xs font-normal py-0">
+                {agreementLabel}
+              </Badge>
+            </div>
           </div>
         </div>
       </CardHeader>
@@ -265,10 +290,7 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
           {expanded ? 'Hide details' : 'Show interpretations'}
         </button>
 
-        {/* Direction consensus */}
-        <p className="text-xs text-text-tertiary mt-3 pt-3 border-t border-surface-elevated">
-          Direction: {breakdown.direction_consensus.charAt(0).toUpperCase() + breakdown.direction_consensus.slice(1)}
-        </p>
+        {/* Direction consensus — surfaced in header as Directional Bias */}
       </CardContent>
     </Card>
   )

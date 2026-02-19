@@ -105,6 +105,19 @@ export function DecisionAction({
   const hasDivergence = signalBreakdown?.has_divergence
   const divergenceSeverity = fundTechDivergence?.severity || (hasDivergence ? 'MODERATE' : null)
 
+  // Req 3: Separate directional bias from signal agreement
+  const directionalBias = (() => {
+    const d = (signalBreakdown?.direction_consensus ?? '').toLowerCase()
+    if (d.includes('bull')) return 'Bullish'
+    if (d.includes('bear')) return 'Bearish'
+    return 'Neutral'
+  })()
+
+  const agreementLabel = (() => {
+    if (!hasDivergence) return 'Aligned'
+    return divergenceSeverity === 'HIGH' ? 'High Conflict' : 'Moderate Conflict'
+  })()
+
   return (
     <Card className="border-primary/30 bg-surface">
       <CardContent className="pt-6 space-y-5">
@@ -136,22 +149,21 @@ export function DecisionAction({
                 : 'bg-warning/5 border border-warning/20 text-warning'
               : 'bg-success/5 border border-success/20 text-success'
           }`}>
+            {/* Req 3: Unified strip — Directional Bias + Signal Agreement as separate concepts */}
             {hasDivergence ? (
               <>
                 <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="font-medium">Signal Conflict</span>
+                <span className="font-medium">Directional Bias: {directionalBias}</span>
                 <span className="text-text-secondary mx-1">·</span>
-                <span className="text-text-secondary truncate">
-                  {signalBreakdown.divergence_explanation?.split('.')[0]}
-                </span>
+                <span className="text-text-secondary">Signal Agreement: {agreementLabel}</span>
                 <span className="ml-auto whitespace-nowrap text-text-tertiary pl-2">See signals ↓</span>
               </>
             ) : (
               <>
                 <CheckCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="font-medium">Signals Aligned</span>
+                <span className="font-medium">Directional Bias: {directionalBias}</span>
                 <span className="text-text-secondary mx-1">·</span>
-                <span className="text-text-secondary">{signalBreakdown.alignment_status}</span>
+                <span className="text-text-secondary">Signal Agreement: {agreementLabel}</span>
                 <span className="ml-auto whitespace-nowrap text-text-tertiary pl-2">See signals ↓</span>
               </>
             )}

@@ -45,6 +45,18 @@ function isExtendedTarget(label: string, index: number): boolean {
   return false
 }
 
+// Classify target by analytical type for institutional-grade labeling.
+function inferTargetType(label: string, index: number): string {
+  const l = label.toLowerCase()
+  if (l.includes('bull') || l.includes('stretch') || l.includes('extended') || l.includes('upside') || index >= 2)
+    return 'Scenario'
+  if (l.includes('near') || l.includes('t1') || l.includes('short') || index === 0)
+    return 'Tactical Reversion'
+  if (l.includes('base') || l.includes('t2') || l.includes('mid') || index === 1)
+    return 'Momentum Continuation'
+  return 'Thesis'
+}
+
 // Issue 6: R/R realism qualifier — high ratios are modeled projections,
 // not realized outcome guarantees.
 function getRRRealism(
@@ -133,15 +145,28 @@ function SetupColumn({
   const displayQualifier = conditionalLabel ?? realismQualifier
   const displayFootnote = conditionalFootnote ?? realismFootnote
 
+  // Req 1 + 6: Soften R/R badge under HOLD or signal conflict — prevents promotional read
+  const isHoldRating = rating === 'HOLD'
+  const showSoftRR = isHoldRating || conditionalLabel !== null
+  const rrLabel = showSoftRR
+    ? `Modeled Asymmetry (${side.risk_reward}:1)`
+    : `${side.risk_reward}:1 R/R`
+  const rrVariant = showSoftRR
+    ? 'secondary' as const
+    : (variant === 'conservative' ? 'success' as const : 'warning' as const)
+
   return (
     <div className={`rounded-lg border ${borderColor} overflow-hidden`}>
       {/* Header */}
       <div className={`px-4 py-3 ${headerBg}`}>
         <div className="flex items-center justify-between flex-wrap gap-1.5">
-          <span className="text-sm font-semibold text-text-primary">{side.label}</span>
+          {/* Req 2: Replace "Recommended" with "Model-Optimal" — eliminates execution tension */}
+          <span className="text-sm font-semibold text-text-primary">
+            {side.label.replace('Recommended', 'Model-Optimal')}
+          </span>
           <div className="flex items-center gap-1.5 flex-wrap">
-            <Badge variant={variant === 'conservative' ? 'success' : 'warning'}>
-              {side.risk_reward}:1 R/R
+            <Badge variant={rrVariant} className={showSoftRR ? 'opacity-75 font-normal' : ''}>
+              {rrLabel}
             </Badge>
             {displayQualifier && (
               <Badge variant="secondary" className="text-xs font-normal opacity-80">
@@ -164,7 +189,8 @@ function SetupColumn({
             <span className="text-sm font-semibold text-text-primary">
               {formatAnchor(side.entry)}
             </span>
-            <span className="text-xs text-text-tertiary block mt-0.5">Within Tactical Band</span>
+            {/* Req 5: Clarify modeled vs actionable fill */}
+            <span className="text-xs text-text-tertiary block mt-0.5">Modeled entry — scale in or wait for pullback</span>
           </div>
           <div>
             <span className="text-xs text-text-tertiary block">Stop Loss</span>
@@ -188,10 +214,16 @@ function SetupColumn({
           {side.targets.map((t, i) => {
             const horizon = inferTargetHorizon(t.label, i)
             const extended = isExtendedTarget(t.label, i)
+            const targetType = inferTargetType(t.label, i)
+            // Req 6: HOLD + extended targets get extra visual downgrade
+            const dimExtra = rating === 'HOLD' && extended
             return (
-              <div key={i} className={`flex items-center justify-between text-sm rounded px-2 py-1 ${extended ? 'bg-surface-elevated/60' : ''}`}>
+              <div key={i} className={`flex items-center justify-between text-sm rounded px-2 py-1 ${extended ? 'bg-surface-elevated/60' : ''} ${dimExtra ? 'opacity-50' : ''}`}>
                 <div className="flex items-center gap-2">
-                  <span className={extended ? 'text-text-tertiary' : 'text-text-secondary'}>{t.label}</span>
+                  {/* Req 4: Full target classification label */}
+                  <span className={extended ? 'text-text-tertiary' : 'text-text-secondary'}>
+                    {t.label} – {targetType} Target
+                  </span>
                   <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${
                     extended
                       ? 'bg-surface-elevated text-text-tertiary'
@@ -199,9 +231,6 @@ function SetupColumn({
                   }`}>
                     {horizon}
                   </span>
-                  {extended && (
-                    <span className="text-xs text-text-tertiary italic">scenario</span>
-                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={`font-medium ${extended ? 'text-success/60' : 'text-success'}`}>
@@ -308,7 +337,8 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-text-secondary font-medium">Execution Anchor</span>
-                <span className="block text-text-tertiary">Representative fill price</span>
+                {/* Req 5: Clarify modeled vs actionable */}
+                <span className="block text-text-tertiary">Modeled optimal entry, not guaranteed fill</span>
               </div>
               <span className="font-medium text-text-secondary font-mono">
                 {formatAnchor(setup.conservative.entry)}
@@ -317,6 +347,10 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             {entryMethodology && (
               <p className="text-text-tertiary leading-relaxed pt-2 border-t border-border">{entryMethodology}</p>
             )}
+            {/* Req 5: Static clarification — prevents actionable misread when anchor ≠ current price */}
+            <p className="text-[11px] text-text-tertiary/60 leading-relaxed pt-1.5 border-t border-border/50 italic">
+              Execution Anchor reflects modeled optimal entry. Current price may require scaling or pullback entry.
+            </p>
           </div>
         )}
 
