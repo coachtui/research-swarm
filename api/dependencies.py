@@ -25,24 +25,33 @@ def get_clerk_jwks():
     """
     Fetch Clerk's JSON Web Key Set (JWKS) for JWT verification.
     Cached to avoid repeated API calls.
+
+    Priority:
+    1. CLERK_JWKS_URL env var (explicit, Railway-friendly)
+    2. Decode from NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY if present
+    3. Hardcoded fallback for the current Clerk instance
     """
-    clerk_domain = os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "").split("_")[2]
-    if not clerk_domain:
-        raise ValueError("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY not configured")
-
-    # Extract the actual domain from the publishable key
-    # Format: pk_test_{domain}$
-    # Example: pk_test_Y2hvaWNlLWRpbm9zYXVyLTgzLmNsZXJrLmFjY291bnRzLmRldiQ
     import base64
-    try:
-        # Decode the base64 part after pk_test_
-        encoded_domain = os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "").replace("pk_test_", "").replace("pk_live_", "")
-        decoded = base64.b64decode(encoded_domain + "==").decode('utf-8').rstrip('$')
-        jwks_url = f"https://{decoded}/.well-known/jwks.json"
-    except Exception:
-        # Fallback: try to construct from environment
-        jwks_url = f"https://choice-dinosaur-83.clerk.accounts.dev/.well-known/jwks.json"
 
+    # 1. Explicit JWKS URL (preferred for Railway — no frontend-style vars needed)
+    jwks_url = os.getenv("CLERK_JWKS_URL", "")
+
+    # 2. Derive from publishable key if available
+    if not jwks_url:
+        pk = os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "")
+        if pk:
+            try:
+                encoded = pk.replace("pk_test_", "").replace("pk_live_", "")
+                decoded = base64.b64decode(encoded + "==").decode("utf-8").rstrip("$")
+                jwks_url = f"https://{decoded}/.well-known/jwks.json"
+            except Exception:
+                pass
+
+    # 3. Hardcoded fallback for the current Clerk instance
+    if not jwks_url:
+        jwks_url = "https://choice-dinosaur-83.clerk.accounts.dev/.well-known/jwks.json"
+
+    logger.info(f"Fetching Clerk JWKS from: {jwks_url}")
     response = requests.get(jwks_url, timeout=5)
     response.raise_for_status()
     return response.json()
