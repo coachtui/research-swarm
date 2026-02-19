@@ -5,11 +5,19 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://research-swarm.verce
 // Analysis can take 4+ minutes — allow up to 10 minutes
 const LONG_TIMEOUT_MS = 600_000
 
+function isSafePath(path: string[]): boolean {
+  const joined = path.join('/')
+  return !joined.includes('..') && !joined.includes('//')
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await params
+  if (!isSafePath(path)) {
+    return NextResponse.json({ error: 'Invalid path' }, { status: 400 })
+  }
   const apiPath = path.join('/')
   const searchParams = request.nextUrl.searchParams.toString()
   const url = `${API_URL}/api/${apiPath}${searchParams ? `?${searchParams}` : ''}`
@@ -55,7 +63,7 @@ export async function GET(
         // Non-JSON response (likely HTML error page)
         console.error('[proxy GET]', apiPath, `Non-JSON response (${response.status}):`, text.substring(0, 200))
         return NextResponse.json(
-          { error: `Backend returned non-JSON response: ${text.substring(0, 100)}` },
+          { error: 'Service temporarily unavailable' },
           { status: response.status || 500 }
         )
       }
@@ -82,6 +90,9 @@ export async function POST(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await params
+  if (!isSafePath(path)) {
+    return NextResponse.json({ error: 'Invalid path' }, { status: 400 })
+  }
   const apiPath = path.join('/')
   const url = `${API_URL}/api/${apiPath}`
 
@@ -116,7 +127,7 @@ export async function POST(
       } else {
         console.error('[proxy POST]', apiPath, `Non-JSON response (${response.status}):`, text.substring(0, 200))
         return NextResponse.json(
-          { error: `Backend returned non-JSON response: ${text.substring(0, 100)}` },
+          { error: 'Service temporarily unavailable' },
           { status: response.status || 500 }
         )
       }
@@ -143,6 +154,9 @@ export async function DELETE(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path } = await params
+  if (!isSafePath(path)) {
+    return NextResponse.json({ error: 'Invalid path' }, { status: 400 })
+  }
   const apiPath = path.join('/')
   const url = `${API_URL}/api/${apiPath}`
 
@@ -177,7 +191,7 @@ export async function DELETE(
       } else {
         console.error('[proxy DELETE]', apiPath, `Non-JSON response (${response.status}):`, text.substring(0, 200))
         return NextResponse.json(
-          { error: `Backend returned non-JSON response: ${text.substring(0, 100)}` },
+          { error: 'Service temporarily unavailable' },
           { status: response.status || 500 }
         )
       }

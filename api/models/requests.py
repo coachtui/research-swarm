@@ -4,6 +4,9 @@ API request schemas using Pydantic for validation.
 
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
+import re
+
+_TICKER_RE = re.compile(r'^[A-Z]{1,5}(\.[A-Z]{1,2})?$')
 
 class AnalyzeRequest(BaseModel):
     """
@@ -33,7 +36,10 @@ class AnalyzeRequest(BaseModel):
     @field_validator('ticker')
     @classmethod
     def ticker_uppercase(cls, v: str) -> str:
-        return v.upper().strip()
+        v = v.upper().strip()
+        if not _TICKER_RE.match(v):
+            raise ValueError("Ticker must be 1-5 uppercase letters, optionally followed by a dot and 1-2 letters (e.g. AAPL, BRK.B)")
+        return v
 
     @field_validator('quarters')
     @classmethod
@@ -87,7 +93,13 @@ class BatchAnalyzeRequest(BaseModel):
     @field_validator('tickers')
     @classmethod
     def tickers_uppercase(cls, v: List[str]) -> List[str]:
-        return [ticker.upper().strip() for ticker in v]
+        result = []
+        for ticker in v:
+            t = ticker.upper().strip()
+            if not _TICKER_RE.match(t):
+                raise ValueError(f"Invalid ticker '{ticker}': must be 1-5 uppercase letters, optionally followed by a dot and 1-2 letters")
+            result.append(t)
+        return result
 
     @field_validator('tickers')
     @classmethod
