@@ -4,6 +4,7 @@ News Analysis Module.
 Extracts catalyst events and performs sentiment analysis on news articles.
 """
 import json
+import math
 import pandas as pd
 from typing import List, Dict, Any, Tuple, Optional
 from langchain_anthropic import ChatAnthropic
@@ -608,12 +609,49 @@ class NewsAnalyzer:
 
         logger.info(f"Analyzing dark pool activity for {ticker}")
 
-        # Format dark pool data for prompt
+        # --- Pre-compute stock-specific baseline before LLM call ---
+        # Requires >= 5 weeks; recent = last 4 weeks, baseline = everything older.
+        baseline_avg_ats_pct: float | None = None
+        baseline_std_ats_pct: float | None = None
+        z_score: float | None = None
+        baseline_context = "No historical baseline available (need >= 5 weeks of data)"
+
+        if dark_pool_data:
+            ats_pcts_all = [w["ats_pct"] for w in dark_pool_data if w.get("ats_pct") is not None]
+            if len(ats_pcts_all) >= 5:
+                recent_window = ats_pcts_all[-4:]
+                baseline_window = ats_pcts_all[:-4]
+                recent_avg = sum(recent_window) / len(recent_window)
+                b_avg = sum(baseline_window) / len(baseline_window)
+                variance = sum((x - b_avg) ** 2 for x in baseline_window) / len(baseline_window)
+                b_std = math.sqrt(variance) if variance > 0 else 1.0
+                baseline_avg_ats_pct = round(b_avg, 2)
+                baseline_std_ats_pct = round(b_std, 2)
+                z_score = round((recent_avg - b_avg) / b_std, 2) if b_std > 0 else 0.0
+                deviation_pp = round(recent_avg - b_avg, 2)
+                direction = "above" if deviation_pp >= 0 else "below"
+                normal_lo = round(b_avg - 2 * b_std, 1)
+                normal_hi = round(b_avg + 2 * b_std, 1)
+                baseline_context = (
+                    f"Historical baseline ({len(baseline_window)} weeks): "
+                    f"avg={baseline_avg_ats_pct}% ATS, std={baseline_std_ats_pct}%. "
+                    f"Current 4-week avg ({recent_avg:.1f}%) is "
+                    f"{abs(deviation_pp):.1f}pp {direction} baseline "
+                    f"(z-score: {z_score:+.2f}). "
+                    f"This stock's normal ATS range is approx {normal_lo}%–{normal_hi}%."
+                )
+                logger.debug(
+                    f"Dark pool baseline for {ticker}: avg={baseline_avg_ats_pct}% "
+                    f"std={baseline_std_ats_pct}% z={z_score:+.2f}"
+                )
+
+        # Format raw weekly data for prompt
         if dark_pool_data:
             dark_pool_text = "Weekly Dark Pool Data (FINRA):\n"
             for week in dark_pool_data:
                 dark_pool_text += f"- Week ending {week.get('week_ending', 'N/A')}: "
-                dark_pool_text += f"{week.get('ats_pct', 0):.1f}% off-exchange "
+                ats_pct = week.get('ats_pct')
+                dark_pool_text += f"{ats_pct:.1f}% off-exchange " if ats_pct is not None else "N/A% off-exchange "
                 dark_pool_text += f"({week.get('ats_shares', 0):,} shares), "
                 venues = week.get('venues', [])
                 if venues:
@@ -628,7 +666,8 @@ class NewsAnalyzer:
             ticker=ticker,
             analysis_date=analysis_date,
             dark_pool_data=dark_pool_text,
-            institutional_context=institutional_context or "No 13F context available"
+            institutional_context=institutional_context or "No 13F context available",
+            baseline_context=baseline_context
         )
 
         try:
@@ -640,6 +679,11 @@ class NewsAnalyzer:
             # Extract JSON from response
             json_text = self._extract_json(response_text)
             result = json.loads(json_text)
+
+            # Inject pre-computed baseline stats so signal_divergence can use them
+            result["baseline_avg_ats_pct"] = baseline_avg_ats_pct
+            result["baseline_std_ats_pct"] = baseline_std_ats_pct
+            result["z_score"] = z_score
 
             logger.info(f"✓ Dark pool activity analyzed ({tokens_used} tokens)")
             return result, tokens_used
@@ -656,7 +700,10 @@ class NewsAnalyzer:
                 "venue_concentration": "medium",
                 "notable_patterns": [],
                 "dark_pool_sentiment": "neutral",
-                "confidence": "low"
+                "confidence": "low",
+                "baseline_avg_ats_pct": baseline_avg_ats_pct,
+                "baseline_std_ats_pct": baseline_std_ats_pct,
+                "z_score": z_score,
             }, 0
 
     def analyze_insider_activity(

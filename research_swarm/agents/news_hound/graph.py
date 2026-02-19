@@ -462,7 +462,7 @@ def analyze_dark_pool_activity_node(state: NewsHoundState) -> NewsHoundState:
         # Fallback: Fetch directly if not in shared data
         if dark_pool_data is None:
             logger.debug("Fetching dark pool data directly from FINRA (no shared data)")
-            dark_pool_data = finra_client.get_dark_pool_activity(state["ticker"], weeks_back=4)
+            dark_pool_data = finra_client.get_dark_pool_activity(state["ticker"], weeks_back=13)
 
         # Get institutional context for cross-reference
         institutional_context = None

@@ -391,8 +391,9 @@ def _extract_dark_pool_score(news_hound_output: Dict[str, Any]) -> Tuple[float, 
     has_data = True
     sentiment = dark_pool_data.get("dark_pool_sentiment", "neutral").lower()
     trend = dark_pool_data.get("trend", "stable").lower()
+    z_score = dark_pool_data.get("z_score")  # Relative deviation from stock's own baseline
 
-    # Base score from sentiment
+    # Step 1: Base score from LLM sentiment judgment
     if "bullish" in sentiment:
         base_score = 7.5
     elif "bearish" in sentiment:
@@ -400,17 +401,40 @@ def _extract_dark_pool_score(news_hound_output: Dict[str, Any]) -> Tuple[float, 
     else:
         base_score = 5.0
 
-    # Adjust for trend
+    # Step 2: Adjust for trend direction
     if "increasing" in trend and base_score >= 5.0:
-        base_score += 0.5  # Bullish trend boost
+        base_score += 0.5
     elif "decreasing" in trend and base_score <= 5.0:
-        base_score -= 0.5  # Bearish trend intensification
+        base_score -= 0.5
 
-    # Adjust for ATS % level
-    if avg_ats_pct > 35:  # Elevated dark pool activity
-        base_score = max(base_score, 7.0)  # Floor at 7.0 (bullish)
-    elif avg_ats_pct < 20:  # Low dark pool activity
-        base_score = min(base_score, 4.0)  # Cap at 4.0 (retail-dominated)
+    # Step 3: Refine using z-score (how far current ATS% is from this stock's own baseline).
+    # This replaces the old absolute-threshold overrides and prevents penalising stocks
+    # whose natural ATS% happens to sit below the arbitrary 20% or 35% cutoffs.
+    if z_score is not None:
+        if z_score > 1.5:
+            # Well above own baseline → strong accumulation signal
+            base_score = max(base_score, 7.5)
+        elif z_score > 0.75:
+            # Moderately above baseline → accumulation underway
+            base_score = max(base_score, 6.5)
+        elif z_score < -1.5:
+            # Well below own baseline → institutions clearly backing away
+            base_score = min(base_score, 3.0)
+        elif z_score < -0.75:
+            # Moderately below baseline → mild distribution
+            base_score = min(base_score, 4.0)
+        # z between -0.75 and +0.75 → near-normal for this stock; trust the sentiment score
+    else:
+        # No baseline available (< 5 weeks of history): fall back to conservative absolute thresholds
+        if avg_ats_pct > 35:
+            base_score = max(base_score, 7.0)
+        elif avg_ats_pct < 20:
+            base_score = min(base_score, 4.0)
+
+    # Step 4: Hard floor for truly retail-dominated stocks.
+    # Sub-12% ATS is anomalously low regardless of the stock's own baseline.
+    if avg_ats_pct < 12:
+        base_score = min(base_score, 3.0)
 
     return base_score, has_data
 

@@ -6,6 +6,7 @@ positioning through dark pool activity.
 
 Data Source: https://otctransparency.finra.org/otctransparency/AtsIssueData
 """
+import math
 import requests
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
@@ -33,7 +34,7 @@ class FINRAClient:
         if "finra" not in rate_limiter.limits:
             rate_limiter.limits["finra"] = {"calls": 1, "period": 2}  # 1 call per 2 seconds
 
-    def get_dark_pool_activity(self, ticker: str, weeks_back: int = 4) -> Optional[List[Dict[str, Any]]]:
+    def get_dark_pool_activity(self, ticker: str, weeks_back: int = 13) -> Optional[List[Dict[str, Any]]]:
         """
         Fetch dark pool activity for a ticker over the last N weeks.
 
@@ -412,6 +413,30 @@ class FINRAClient:
                 peak_ats_pct = peak_week_data.get("ats_pct", 0.0)
                 peak_week = peak_week_data.get("week_ending", "")
 
+                # --- Stock-specific baseline (requires >= 5 weeks) ---
+                # Split: recent = last 4 weeks, baseline = everything older
+                if len(ats_pcts) >= 5:
+                    recent_window = ats_pcts[-4:]
+                    baseline_window = ats_pcts[:-4]
+                    recent_avg_pct = sum(recent_window) / len(recent_window)
+                    b_avg = sum(baseline_window) / len(baseline_window)
+                    variance = sum((x - b_avg) ** 2 for x in baseline_window) / len(baseline_window)
+                    b_std = math.sqrt(variance) if variance > 0 else 1.0
+                    baseline_avg_ats_pct = round(b_avg, 2)
+                    baseline_std_ats_pct = round(b_std, 2)
+                    z_score = round((recent_avg_pct - b_avg) / b_std, 2) if b_std > 0 else 0.0
+                    if z_score > 1.0:
+                        relative_level = "elevated"
+                    elif z_score < -1.0:
+                        relative_level = "depressed"
+                    else:
+                        relative_level = "normal"
+                else:
+                    baseline_avg_ats_pct = None
+                    baseline_std_ats_pct = None
+                    z_score = None
+                    relative_level = "unknown"
+
             else:
                 # Fallback: Use absolute ATS volume trends
                 ats_volumes = [week["ats_shares"] for week in dark_pool_data if week.get("ats_shares", 0) > 0]
@@ -437,6 +462,12 @@ class FINRAClient:
                     trend_pct_change = 0.0
                     peak_ats_pct = None
                     peak_week = ""
+
+                # No ATS % → baseline stats unavailable
+                baseline_avg_ats_pct = None
+                baseline_std_ats_pct = None
+                z_score = None
+                relative_level = "unknown"
 
             # Determine trend direction
             if trend_pct_change > 5.0:
@@ -477,6 +508,11 @@ class FINRAClient:
                 "peak_ats_pct": round(peak_ats_pct, 2) if peak_ats_pct is not None else None,
                 "major_venues": major_venues,
                 "venue_concentration": venue_concentration,
+                # Stock-specific baseline (populated when >= 5 weeks of ATS % data available)
+                "baseline_avg_ats_pct": baseline_avg_ats_pct,
+                "baseline_std_ats_pct": baseline_std_ats_pct,
+                "z_score": z_score,
+                "relative_level": relative_level,
             }
 
             logger.debug(f"Calculated dark pool metrics for {ticker}: {metrics}")
