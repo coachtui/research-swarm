@@ -26,6 +26,11 @@ class ApiClient {
   private tokenGetter?: () => Promise<string | null>
   private useProxy: boolean = false
 
+  // Token cache — avoid hammering Clerk on every poll request
+  private _cachedToken: string | null = null
+  private _cachedTokenExp: number = 0
+  private _tokenPromise: Promise<string | null> | null = null
+
   constructor(baseUrl?: string) {
     // Use local proxy in development to avoid CORS issues
     if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
@@ -44,16 +49,63 @@ class ApiClient {
   // Preferred: store Clerk's getToken function so each request gets a fresh token
   setTokenGetter(getter: () => Promise<string | null>) {
     this.tokenGetter = getter
+    // Invalidate cache when a new getter is registered (e.g. user switches)
+    this._cachedToken = null
+    this._cachedTokenExp = 0
+    this._tokenPromise = null
+  }
+
+  /**
+   * Returns a valid JWT, using a client-side cache keyed on the JWT `exp` claim.
+   * Only one in-flight refresh request is allowed at a time (deduplication).
+   * This prevents the thundering-herd of Clerk 429s when many concurrent API
+   * calls (e.g. polling + multiple components) all trigger getToken simultaneously.
+   */
+  private async _resolveToken(): Promise<string | null> {
+    const now = Date.now()
+    // Return cached token if it has >30 s of life left
+    if (this._cachedToken && now < this._cachedTokenExp - 30_000) {
+      return this._cachedToken
+    }
+
+    // Deduplicate: reuse an in-flight refresh promise if one already exists
+    if (!this._tokenPromise) {
+      this._tokenPromise = this._fetchFreshToken().finally(() => {
+        this._tokenPromise = null
+      })
+    }
+    return this._tokenPromise
+  }
+
+  private async _fetchFreshToken(): Promise<string | null> {
+    const token = this.tokenGetter
+      ? (await this.tokenGetter()) ?? this.authToken
+      : this.authToken
+
+    if (token) {
+      // Parse JWT exp claim (second segment, base64url-encoded JSON)
+      try {
+        const parts = token.split('.')
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+          if (payload.exp) {
+            this._cachedToken = token
+            this._cachedTokenExp = payload.exp * 1000 // seconds → ms
+          }
+        }
+      } catch {
+        // Non-standard token or SSR env — skip caching, still return token
+      }
+    }
+
+    return token ?? null
   }
 
   private async request<T>(
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    // Always fetch a fresh token if a getter is available (Clerk auto-refreshes)
-    const token = this.tokenGetter
-      ? (await this.tokenGetter()) ?? this.authToken
-      : this.authToken
+    const token = await this._resolveToken()
 
     const headers: HeadersInit = {
       'Content-Type': 'application/json',

@@ -146,19 +146,19 @@ export function ProfessionalTradeSetup({
                       </td>
                     </tr>
                   )}
-                  {typeof recommended_strategy.exit.target_1 === 'number' && (
+                  {typeof recommended_strategy.exit.target_1?.price === 'number' && (
                     <tr className="border-b border-border">
                       <td className="py-3 font-medium text-text-secondary">Primary Target</td>
                       <td className="py-3 text-right font-semibold text-success">
-                        ${recommended_strategy.exit.target_1.toFixed(2)}
+                        ${recommended_strategy.exit.target_1.price.toFixed(2)}
                       </td>
                     </tr>
                   )}
-                  {typeof recommended_strategy.exit.target_2 === 'number' && (
+                  {typeof recommended_strategy.exit.target_2?.price === 'number' && (
                     <tr className="border-b border-border">
                       <td className="py-3 font-medium text-text-secondary">Extended Target</td>
                       <td className="py-3 text-right font-semibold text-success">
-                        ${recommended_strategy.exit.target_2.toFixed(2)}
+                        ${recommended_strategy.exit.target_2.price.toFixed(2)}
                       </td>
                     </tr>
                   )}

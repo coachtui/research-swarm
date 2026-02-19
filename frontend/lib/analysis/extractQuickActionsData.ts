@@ -39,7 +39,7 @@ export function extractQuickActionsData(data: any, ticker: string): QuickActions
               tradeSetup.conservative_stop ||
               tradeSetup.stop_loss ||
               undefined,
-    resistance: recommendedStrategy?.exit?.target_1 ||
+    resistance: recommendedStrategy?.exit?.target_1?.price ||
                tradeSetup.targets?.conservative ||
                tradeSetup.resistance ||
                undefined,

@@ -81,15 +81,13 @@ function generateUpgradeTriggers(
   }
 
   // 2. Technical Breakout
-  if (decisionIntelligence?.recommended_strategy?.exit?.target_1) {
-    const target1 = decisionIntelligence.recommended_strategy.exit.target_1
-    if (typeof target1 === 'number') {
-      triggers.push({
-        condition: `Stock breaks above $${target1.toFixed(2)} resistance with volume`,
-        threshold: `>$${target1.toFixed(2)}`,
-        metric: 'price',
-      })
-    }
+  if (decisionIntelligence?.recommended_strategy?.exit?.target_1?.price) {
+    const target1Price = decisionIntelligence.recommended_strategy.exit.target_1.price
+    triggers.push({
+      condition: `Stock breaks above $${target1Price.toFixed(2)} resistance with volume`,
+      threshold: `>$${target1Price.toFixed(2)}`,
+      metric: 'price',
+    })
   }
 
   // 3. Weak Components Improving

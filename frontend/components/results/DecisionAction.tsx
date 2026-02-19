@@ -70,9 +70,9 @@ export function DecisionAction({
   const stopZone = strategy?.exit?.stop_zone?.label
     ?? (strategy?.exit?.stop_loss ? `~$${Math.round(strategy.exit.stop_loss).toLocaleString()}` : null)
 
-  const targetZone = strategy?.exit?.target_2
-    ? formatZone(strategy.exit.target_1, strategy.exit.target_2)
-    : strategy?.exit?.target_1 ? `~$${Math.round(strategy.exit.target_1).toLocaleString()}` : null
+  const targetZone = strategy?.exit?.target_2?.price
+    ? formatZone(strategy.exit.target_1?.price, strategy.exit.target_2?.price)
+    : strategy?.exit?.target_1?.price ? `~$${Math.round(strategy.exit.target_1.price).toLocaleString()}` : null
 
   const avoidAbove = strategy?.entry?.ideal_zone?.high
     ? `$${Math.round(strategy.entry.ideal_zone.high * 1.05).toLocaleString()}+`
@@ -160,8 +160,21 @@ export function DecisionAction({
               )}
               {targetZone && (
                 <div className="rounded-md bg-surface-elevated border border-border p-3 text-center">
-                  <p className="text-xs text-text-tertiary mb-1">Target Band</p>
+                  <p className="text-xs text-text-tertiary mb-1">
+                    Target Band
+                    <span
+                      className="ml-1 text-text-tertiary cursor-help"
+                      title="Base-case to bull-case price target range. T1 (50% exit) = intrinsic value midpoint. T2 (50% exit) = upside scenario. Both derived from the model's valuation output."
+                    >
+                      ⓘ
+                    </span>
+                  </p>
                   <p className="text-sm font-semibold text-primary">{targetZone}</p>
+                  {strategy?.exit?.target_1?.rationale && (
+                    <p className="text-xs text-text-tertiary mt-1 leading-relaxed">
+                      T1 {strategy.exit.target_1.percent}% · T2 {strategy.exit.target_2?.percent}%
+                    </p>
+                  )}
                 </div>
               )}
             </div>

@@ -338,8 +338,8 @@ export interface RecommendedStrategy {
   }
   exit: {
     stop_loss: number
-    target_1: number
-    target_2: number
+    target_1: { price: number; percent: number; rationale: string }
+    target_2: { price: number; percent: number; rationale: string }
     holding_period: string
     expected_return_total: number
     expected_return_annualized: number
