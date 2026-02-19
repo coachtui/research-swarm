@@ -35,7 +35,7 @@ export function PriceTargetsCard({ priceTargets, currentPrice, ticker }: PriceTa
         {/* Bear Case */}
         <div className="border-l-4 border-red-500 bg-surface-elevated p-4 rounded">
           <div className="text-sm text-text-secondary mb-1">
-            Bear Case ({(priceTargets.bear_probability * 100).toFixed(0)}%)
+            Bear Case
           </div>
           <div className="text-2xl font-bold text-red-500">
             ${priceTargets.bear_target.toFixed(2)}
@@ -51,7 +51,7 @@ export function PriceTargetsCard({ priceTargets, currentPrice, ticker }: PriceTa
         {/* Base Case */}
         <div className="border-l-4 border-blue-500 bg-surface-elevated p-4 rounded">
           <div className="text-sm text-text-secondary mb-1">
-            Base Case ({(priceTargets.base_probability * 100).toFixed(0)}%)
+            Base Case
           </div>
           <div className="text-2xl font-bold text-blue-500">
             ${priceTargets.base_target.toFixed(2)}
@@ -67,7 +67,7 @@ export function PriceTargetsCard({ priceTargets, currentPrice, ticker }: PriceTa
         {/* Bull Case */}
         <div className="border-l-4 border-green-500 bg-surface-elevated p-4 rounded">
           <div className="text-sm text-text-secondary mb-1">
-            Bull Case ({(priceTargets.bull_probability * 100).toFixed(0)}%)
+            Bull Case
           </div>
           <div className="text-2xl font-bold text-green-500">
             ${priceTargets.bull_target.toFixed(2)}
