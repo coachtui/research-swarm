@@ -5,6 +5,7 @@ These models ensure type safety and validation for all extracted data.
 """
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Dict, Any
+from research_swarm.logger import logger
 
 
 # Stub for backward compatibility with Quant agent
