@@ -234,7 +234,11 @@ def check_agents_complete_node(state: ManagerState) -> ManagerState:
 
     if missing_agents:
         state["status"] = "error"
+        # Preserve the underlying agent error so the root cause is visible in logs
+        underlying = state.get("error", "")
         state["error"] = f"Missing agent outputs: {', '.join(missing_agents)}"
+        if underlying:
+            state["error"] += f" | Root cause: {underlying}"
         logger.error(state["error"])
         return state
 
