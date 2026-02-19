@@ -60,12 +60,23 @@ def calculate_signal_divergence(
         dark_pool_interp = _interpret_score(dark_pool_score, "Dark Pool Activity", dark_pool_has_data)  # NEW
         tech_div_interp = _interpret_score(tech_div_score, "Technical Divergence", tech_div_has_data)  # NEW
 
-        # Determine alignment status
-        if not has_divergence:
+        # Also check for component score divergence (Valuation vs Technical Strength gap)
+        # This catches the case where sentiment signals are all neutral but component scores diverge
+        comp_divergence, comp_explanation, comp_recommendation = _check_component_divergence(
+            fundamentalist_output, quant_output
+        )
+
+        # Determine alignment status — either sentiment signals OR component scores can trigger divergence
+        if not has_divergence and not comp_divergence:
             alignment_status = "All Signals Aligned"
             direction_consensus = _get_direction(overall_score)
-        else:
+        elif has_divergence:
             alignment_status = "Signal Divergence Detected"
+            direction_consensus = "Mixed"
+        else:
+            # Component score divergence only
+            has_divergence = True
+            alignment_status = "Valuation-Technical Divergence"
             direction_consensus = "Mixed"
 
         # Generate divergence explanation and recommendation (ENHANCED v2)
@@ -73,14 +84,19 @@ def calculate_signal_divergence(
         divergence_recommendation = ""
 
         if has_divergence:
-            divergence_explanation = _generate_divergence_explanation_v2(
-                news_score, earnings_score, analyst_score,
-                institutional_score, insider_score, dark_pool_score, tech_div_score
-            )
-            divergence_recommendation = _generate_divergence_recommendation_v2(
-                news_score, earnings_score, analyst_score,
-                institutional_score, insider_score, dark_pool_score, tech_div_score, overall_score
-            )
+            if comp_divergence and alignment_status == "Valuation-Technical Divergence":
+                # Use component divergence narrative (sentiment signals were aligned)
+                divergence_explanation = comp_explanation
+                divergence_recommendation = comp_recommendation
+            else:
+                divergence_explanation = _generate_divergence_explanation_v2(
+                    news_score, earnings_score, analyst_score,
+                    institutional_score, insider_score, dark_pool_score, tech_div_score
+                )
+                divergence_recommendation = _generate_divergence_recommendation_v2(
+                    news_score, earnings_score, analyst_score,
+                    institutional_score, insider_score, dark_pool_score, tech_div_score, overall_score
+                )
 
         signal_breakdown = {
             "overall_score": round(overall_score, 1),
@@ -419,6 +435,67 @@ def _extract_technical_divergence_score(quant_output: Dict[str, Any]) -> Tuple[f
     has_data = tech_div.get("has_divergence", False) or True  # Has data if divergence object exists
 
     return divergence_score, has_data
+
+
+def _check_component_divergence(
+    fundamentalist_output: Dict[str, Any],
+    quant_output: Dict[str, Any],
+    threshold: float = 3.0
+) -> Tuple[bool, str, str]:
+    """
+    Check for divergence between key component scores (Valuation vs Technical Strength).
+
+    This catches the common case where sentiment signals are all neutral but the
+    fundamental valuation score and technical score point in opposite directions —
+    the classic "value-vs-momentum" setup that the thesis LLM would otherwise
+    describe without the widget flagging it.
+
+    Returns:
+        Tuple of (has_divergence, explanation, recommendation)
+    """
+    valuation_score = fundamentalist_output.get("valuation_score")
+    technical_score = quant_output.get("technical_score")
+
+    if valuation_score is None or technical_score is None:
+        return False, "", ""
+
+    gap = abs(float(valuation_score) - float(technical_score))
+    if gap < threshold:
+        return False, "", ""
+
+    if valuation_score > technical_score:
+        explanation = (
+            f"Valuation-Technical divergence detected ({gap:.1f}-point gap). "
+            f"Valuation score ({valuation_score:.1f}/10) signals the stock trades at a discount "
+            f"while Technical Strength ({technical_score:.1f}/10) reflects bearish price momentum. "
+            "Classic value-vs-momentum setup — fundamentals support a long thesis but technicals "
+            "require tactical patience for entry timing."
+        )
+        recommendation = (
+            f"🔍 VALUE-MOMENTUM DIVERGENCE: Strong fundamental value (Valuation: {valuation_score:.1f}/10) "
+            f"is at odds with weak technical momentum (Technical: {technical_score:.1f}/10). "
+            "Wait for technical stabilization — look for RSI recovery above 30 and volume confirmation "
+            "before initiating or adding to positions. This is a patient buyer's setup, not a momentum trade."
+        )
+    else:
+        explanation = (
+            f"Valuation-Technical divergence detected ({gap:.1f}-point gap). "
+            f"Technical Strength ({technical_score:.1f}/10) signals strong price momentum "
+            f"while Valuation score ({valuation_score:.1f}/10) reflects elevated valuation multiples. "
+            "Momentum trade exceeding fundamental value — strong trend but limited margin of safety."
+        )
+        recommendation = (
+            f"📈 MOMENTUM-AHEAD-OF-VALUE: Technicals ({technical_score:.1f}/10) are running well ahead "
+            f"of fundamental value (Valuation: {valuation_score:.1f}/10). "
+            "Momentum traders can ride the trend with tight stops, but avoid building a large position "
+            "at current levels — wait for a valuation reset before making a full-size long-term bet."
+        )
+
+    logger.info(
+        f"Component divergence detected: Valuation={valuation_score:.1f}, "
+        f"Technical={technical_score:.1f}, gap={gap:.1f}"
+    )
+    return True, explanation, recommendation
 
 
 def _check_divergence(scores: List[float], threshold: float = 2.0) -> Tuple[bool, float]:

@@ -56,8 +56,8 @@ export function SignalDivergenceHero({ signalBreakdown, fundTechDivergence }: Si
               No Signal Divergence Detected
             </p>
             <p className="text-sm text-text-secondary">
-              All signals (fundamentals, technicals, news, analyst sentiment, and insider activity)
-              are aligned in the same direction. {signalBreakdown.direction_consensus.charAt(0).toUpperCase() +
+              All sentiment signals (news, analyst ratings, earnings revisions, institutional activity,
+              and insider activity) are aligned in the same direction. {signalBreakdown.direction_consensus.charAt(0).toUpperCase() +
               signalBreakdown.direction_consensus.slice(1)}.
             </p>
             <p className="text-xs text-text-tertiary italic">
