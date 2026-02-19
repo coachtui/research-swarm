@@ -55,7 +55,7 @@ export function Footer() {
             <ul className="space-y-2">
               <li>
                 <Link
-                  href="#"
+                  href="/about"
                   className="text-sm text-text-secondary hover:text-primary transition-colors"
                 >
                   About
@@ -63,7 +63,7 @@ export function Footer() {
               </li>
               <li>
                 <Link
-                  href="#"
+                  href="/blog"
                   className="text-sm text-text-secondary hover:text-primary transition-colors"
                 >
                   Blog
@@ -86,7 +86,7 @@ export function Footer() {
             <ul className="space-y-2">
               <li>
                 <Link
-                  href="#"
+                  href="/privacy-policy"
                   className="text-sm text-text-secondary hover:text-primary transition-colors"
                 >
                   Privacy Policy
@@ -94,7 +94,7 @@ export function Footer() {
               </li>
               <li>
                 <Link
-                  href="#"
+                  href="/terms-of-service"
                   className="text-sm text-text-secondary hover:text-primary transition-colors"
                 >
                   Terms of Service
