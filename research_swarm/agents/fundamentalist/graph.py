@@ -388,66 +388,81 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
     """
     state["status"] = "fetching"
 
-    # NEW: Check for pre-fetched data from Manager
-    complete_data = state.get("shared_swarm_data")
+    try:
+        # NEW: Check for pre-fetched data from Manager
+        complete_data = state.get("shared_swarm_data")
 
-    if complete_data:
-        logger.info(f"[Node 1-TTM] Using pre-fetched swarm data for {state['ticker']}")
-    else:
-        # Fallback: Direct fetch (for standalone execution or backward compatibility)
-        logger.info(f"[Node 1-TTM] No shared_swarm_data found, fetching directly for {state['ticker']}")
-        complete_data = hybrid_provider.get_complete_data(state["ticker"])
+        if complete_data:
+            logger.info(f"[Node 1-TTM] Using pre-fetched swarm data for {state['ticker']}")
+        else:
+            # Fallback: Direct fetch (for standalone execution or backward compatibility)
+            logger.info(f"[Node 1-TTM] No shared_swarm_data found, fetching directly for {state['ticker']}")
+            complete_data = hybrid_provider.get_complete_data(state["ticker"])
 
-    # Extract filing data (same format as before)
-    ttm_result = complete_data["filings_raw"]
-    metadata = ttm_result.pop("_metadata", {})
+        if not complete_data or "filings_raw" not in complete_data:
+            state["status"] = "error"
+            state["error"] = f"No data bundle returned for {state['ticker']}"
+            return state
 
-    # Store filings keyed by quarter
-    state["filings_raw"] = ttm_result
-    state["quarters"] = metadata.get("quarters", [])
-    state["analysis_period"] = metadata.get("analysis_period", "")
-    state["data_quality"] = metadata.get("data_quality", {})
-    state["is_foreign"] = complete_data.get("is_foreign", False)
+        # Extract filing data (same format as before)
+        ttm_result = complete_data["filings_raw"]
+        if ttm_result is None:
+            state["status"] = "error"
+            state["error"] = f"filings_raw is None for {state['ticker']}"
+            return state
+        metadata = ttm_result.pop("_metadata", {})
 
-    available = metadata.get("available_quarters", 0)
-    if available == 0:
-        state["status"] = "error"
-        state["error"] = f"No quarterly filings found for {state['ticker']}"
-        return state
+        # Store filings keyed by quarter
+        state["filings_raw"] = ttm_result
+        state["quarters"] = metadata.get("quarters", [])
+        state["analysis_period"] = metadata.get("analysis_period", "")
+        state["data_quality"] = metadata.get("data_quality", {})
+        state["is_foreign"] = complete_data.get("is_foreign", False)
 
-    filer_type = "foreign (20-F/6-K)" if state.get("is_foreign") else "domestic (10-K/10-Q)"
-    logger.success(f"✓ Fetched {available}/4 quarterly filings ({filer_type})")
+        available = metadata.get("available_quarters", 0)
+        if available == 0:
+            state["status"] = "error"
+            state["error"] = f"No quarterly filings found for {state['ticker']}"
+            return state
 
-    # Earnings data from hybrid provider
-    earnings_data = complete_data.get("earnings_data", {})
-    state["earnings_raw_data"] = earnings_data
+        filer_type = "foreign (20-F/6-K)" if state.get("is_foreign") else "domestic (10-K/10-Q)"
+        logger.success(f"✓ Fetched {available}/4 quarterly filings ({filer_type})")
 
-    # Check if we have any meaningful earnings data (handle DataFrames properly)
-    has_data = False
-    if earnings_data:
-        for v in earnings_data.values():
-            if v is not None:
-                if hasattr(v, 'empty'):  # DataFrame
-                    if not v.empty:
+        # Earnings data from hybrid provider
+        earnings_data = complete_data.get("earnings_data", {})
+        state["earnings_raw_data"] = earnings_data
+
+        # Check if we have any meaningful earnings data (handle DataFrames properly)
+        has_data = False
+        if earnings_data:
+            for v in earnings_data.values():
+                if v is not None:
+                    if hasattr(v, 'empty'):  # DataFrame
+                        if not v.empty:
+                            has_data = True
+                            break
+                    else:  # Dict or other
                         has_data = True
                         break
-                else:  # Dict or other
-                    has_data = True
-                    break
 
-    if has_data:
-        logger.info(f"✓ Fetched earnings data for {state['ticker']}")
-    else:
-        logger.warning("No earnings data available (continuing with neutral momentum)")
+        if has_data:
+            logger.info(f"✓ Fetched earnings data for {state['ticker']}")
+        else:
+            logger.warning("No earnings data available (continuing with neutral momentum)")
 
-    # Store valuation metrics from yfinance (used by DCF later)
-    if complete_data.get("valuation_metrics"):
-        state["valuation_metrics"] = complete_data["valuation_metrics"]
+        # Store valuation metrics from yfinance (used by DCF later)
+        if complete_data.get("valuation_metrics"):
+            state["valuation_metrics"] = complete_data["valuation_metrics"]
 
-    # Store quarterly financials from yfinance (fallback for LLM extraction)
-    if complete_data.get("quarterly_financials"):
-        state["yfinance_quarterly_financials"] = complete_data["quarterly_financials"]
-        logger.info(f"✓ yfinance quarterly financials available ({complete_data['quarterly_financials'].get('quarters_available', 0)}Q)")
+        # Store quarterly financials from yfinance (fallback for LLM extraction)
+        if complete_data.get("quarterly_financials"):
+            state["yfinance_quarterly_financials"] = complete_data["quarterly_financials"]
+            logger.info(f"✓ yfinance quarterly financials available ({complete_data['quarterly_financials'].get('quarters_available', 0)}Q)")
+
+    except Exception as e:
+        logger.error(f"Failed to fetch data for {state['ticker']}: {e}")
+        state["status"] = "error"
+        state["error"] = f"Failed to fetch data: {str(e)}"
 
     return state
 
@@ -463,6 +478,10 @@ def parse_quarterly_sections_node(state: FundamentalistState) -> FundamentalistS
         Updated state with parsed_sections_by_quarter
     """
     logger.info(f"[Node 2-TTM] Parsing quarterly sections for {state['ticker']}")
+
+    # Skip if previous node failed
+    if state.get("status") == "error":
+        return state
 
     state["status"] = "parsing"
 
@@ -510,6 +529,10 @@ def extract_metrics_ttm_node(state: FundamentalistState) -> FundamentalistState:
         Updated state with quarterly_metrics, ttm_metrics, and quarterly_trends
     """
     logger.info(f"[Node 3-TTM] Extracting TTM metrics for {state['ticker']}")
+
+    # Skip if previous node failed
+    if state.get("status") == "error":
+        return state
 
     state["status"] = "analyzing"
 
