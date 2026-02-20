@@ -25,21 +25,22 @@ function highlightMetrics(text: string): React.ReactNode {
   })
 }
 
-// Error sentinel patterns — backend fallback strings that must not render as insights.
-// These are set when synthesis fails; we suppress them entirely rather than showing
-// error text in an investment-analysis UI.
-const ERROR_SENTINEL_PATTERNS = [
-  /^Error /i,
-  /retry required/i,
-  /pipeline (error|failed)/i,
-  /rerun the analysis/i,
-  /synthesis generation failed/i,
-  /results unreliable/i,
-]
+// Exact sentinel strings set by the backend when synthesis fails.
+// Must match the exact fallback phrases in analyzer.py — deliberately narrow
+// to avoid false-positive filtering of legitimate investment insights.
+const ERROR_SENTINELS = new Set([
+  'error parsing synthesis — retry required',
+  'analysis pipeline failed to generate insights',
+  'please rerun the analysis for this ticker',
+  'error in synthesis — retry required',
+  'analysis pipeline error — results unreliable',
+  'synthesis generation failed',
+  'retry required before making investment decisions',
+])
 
 function isErrorSentinel(item: TakeawayItem): boolean {
-  const combined = `${item.headline} ${item.context ?? ''}`
-  return ERROR_SENTINEL_PATTERNS.some(p => p.test(combined))
+  const headline = item.headline?.toLowerCase() ?? ''
+  return ERROR_SENTINELS.has(headline)
 }
 
 // Patterns that indicate a bearish signal has been framed as a strength.
