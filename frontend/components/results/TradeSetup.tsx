@@ -410,21 +410,21 @@ function SetupColumn({
           )}
         </div>
 
-        {/* Risk metrics — presented symmetrically to reduce anchoring bias on upside */}
+        {/* Outcome distribution bounds — presented symmetrically to reduce anchoring bias on upside */}
         <div className="border-t border-surface-elevated pt-3">
           <span className="text-[10px] text-text-tertiary/60 block mb-1.5 italic">
-            Modeled extreme outcomes — 100 share position at anchor price
+            Outcome distribution bounds — 100 shares at anchor price. Expected value lies within this range.
           </span>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
-              <span className="text-text-tertiary block">Max Loss / 100 sh</span>
+              <span className="text-text-tertiary block">Stop-Out Exposure / 100 sh</span>
               <span className="font-medium text-error">{formatCurrency(side.max_loss_per_100)}</span>
-              <span className="text-[10px] text-text-tertiary/60 block">Scenario Minimum</span>
+              <span className="text-[10px] text-text-tertiary/60 block">If Stop Triggered</span>
             </div>
             <div>
-              <span className="text-text-tertiary block">Max Gain / 100 sh</span>
+              <span className="text-text-tertiary block">Upside Capture / 100 sh</span>
               <span className="font-medium text-success">{formatCurrency(side.max_gain_per_100)}</span>
-              <span className="text-[10px] text-text-tertiary/60 block">Scenario Maximum</span>
+              <span className="text-[10px] text-text-tertiary/60 block">Regime Expansion Ceiling</span>
             </div>
           </div>
         </div>
@@ -496,7 +496,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
                     <span className="block text-text-tertiary">Broad range where structural thesis remains valid</span>
                     {priceDeepDiscount && (
                       <span className="block text-xs text-success mt-0.5">
-                        Current price below opportunity envelope — deep discount setup
+                        Execution Discount Zone fully active — verify thesis remains intact
                       </span>
                     )}
                   </div>

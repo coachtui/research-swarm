@@ -95,9 +95,10 @@ class StrategyCalculator:
                 below_bear_justification = (
                     f"Entry lower bound (${ideal_low:.2f}) sits {entry_below_bear_pct:.1f}% below the bear-case "
                     f"valuation estimate (${bear_target:.2f}). "
-                    "This is a distressed entry zone — only appropriate for investors explicitly targeting "
-                    "maximum-drawdown scenarios. The model's own worst-case valuation does not support prices "
-                    "at this level under normal conditions."
+                    "This is an elevated-drawdown entry zone — suitable only for investors with explicit "
+                    "drawdown tolerance and long-horizon conviction. The model's own worst-case valuation "
+                    "does not support prices at this level under normal conditions. "
+                    "Manage exposure carefully; do not size up without thesis confirmation."
                 )
             else:
                 # Override: floor the entry_low at bear_target × 0.95 to prevent absurd entries
@@ -148,32 +149,30 @@ class StrategyCalculator:
             entry_methodology = (
                 f"Execution Discount Zone derived from bear-to-base discount range. "
                 f"Current price trades {abs(discount_pct):.1f}% above Intrinsic Value Estimate (${base_target:.2f}). "
-                f"Ideal zone: ${ideal_low:.2f}–${ideal_high:.2f} represents reversion toward intrinsic value. "
-                "The Execution Discount Zone is constrained below current price because price momentum "
-                "and volatility clustering typically sustain premiums above intrinsic value before "
-                "mean-reverting — entry above the Execution Discount Zone reduces margin of safety."
+                f"Execution Discount Zone: ${ideal_low:.2f}–${ideal_high:.2f}. "
+                "Exposure management: reduce or hold current sizing; await compression toward the "
+                "Execution Discount Zone before increasing exposure. "
+                "Entry above this zone materially reduces margin of safety."
             )
         else:
             recommendation = "Price Above Intrinsic Value Band — Risk/Reward Unfavorable"
             entry_methodology = (
                 f"Price significantly elevated above Intrinsic Value Estimate. "
-                f"Execution Discount Zone (${ideal_low:.2f}–${ideal_high:.2f}) requires meaningful reversion. "
-                "Derived from bear scenario floor as minimum acceptable discount. "
-                "Structural premium above intrinsic value increases downside exposure without "
-                "commensurate upside improvement; the Execution Discount Zone is anchored well "
-                "below current price to restore an acceptable risk/reward ratio."
+                f"Execution Discount Zone (${ideal_low:.2f}–${ideal_high:.2f}) anchored at bear scenario floor. "
+                "Structural premium above intrinsic value increases downside exposure without commensurate upside. "
+                "Exposure management: avoid new positions; maintain only existing holdings with defined risk limits."
             )
 
         # Calculate tranched buying plan
         if discount_pct >= 0:  # At or below fair value
-            # Aggressive entry
+            # Staged entry — price already within or below Execution Discount Zone
             initial_percent = 50
             add_percent = 30
             final_percent = 20
 
-            initial_price = current_price * 0.98  # 2% below current
-            add_price = current_price * 0.92  # 8% below current (if it dips)
-            final_price = current_price * 0.88  # 12% below current (deep dip)
+            initial_price = current_price * 0.98  # 2% below current (near-market entry)
+            add_price = current_price * 0.95      # 5% below current (on weakness)
+            final_price = current_price * 0.92    # 8% below current (further dip)
         else:  # Above fair value
             # Conservative entry - wait for pullback
             initial_percent = 30
@@ -224,8 +223,8 @@ class StrategyCalculator:
                 "final_percent": final_percent,
                 "final_price": round(final_price, 2),
                 "rationale": (
-                    "Aggressive accumulation — price at or below Intrinsic Value Estimate; "
-                    "Execution Discount Zone captures discount to fair value."
+                    "Staged exposure build — price at or below Intrinsic Value Estimate. "
+                    "Build initial position and add on weakness within the Execution Discount Zone."
                 ) if discount_pct >= 0 else (
                     "Staged accumulation within Execution Discount Zone — "
                     "waiting for price to approach Intrinsic Value Estimate from above."

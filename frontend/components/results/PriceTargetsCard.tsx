@@ -22,6 +22,13 @@ export function PriceTargetsCard({ priceTargets, currentPrice, ticker }: PriceTa
   const bullUpside = ((priceTargets.bull_target - currentPrice) / currentPrice) * 100
   const bearDownside = ((priceTargets.bear_target - currentPrice) / currentPrice) * 100
 
+  // Probability-weighted expected value across all three scenario paths
+  const bearW  = priceTargets.bear_probability  ?? 0.25
+  const baseW  = priceTargets.base_probability  ?? 0.50
+  const bullW  = priceTargets.bull_probability  ?? 0.25
+  const probWeightedEV = priceTargets.bear_target * bearW + priceTargets.base_target * baseW + priceTargets.bull_target * bullW
+  const evVsCurrent = ((probWeightedEV - currentPrice) / currentPrice) * 100
+
   return (
     <div className="bg-card border rounded-lg p-6">
       <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
@@ -85,8 +92,22 @@ export function PriceTargetsCard({ priceTargets, currentPrice, ticker }: PriceTa
         </div>
       </div>
 
-      <div className="text-sm text-muted-foreground text-center">
-        Current Price: ${currentPrice.toFixed(2)} | Scenario Range: ${priceTargets.bear_target.toFixed(2)} – ${priceTargets.bull_target.toFixed(2)}
+      {/* Probability-weighted expected value summary */}
+      <div className="mt-4 pt-4 border-t border-border flex items-center justify-between flex-wrap gap-2 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-text-tertiary">Probability-Weighted EV</span>
+          <span className="font-semibold text-text-primary">${probWeightedEV.toFixed(2)}</span>
+          <span className={`font-medium ${evVsCurrent >= 0 ? 'text-success' : 'text-error'}`}>
+            {evVsCurrent > 0 ? '+' : ''}{evVsCurrent.toFixed(1)}% vs current
+          </span>
+        </div>
+        <span className="text-text-tertiary">
+          {Math.round(baseW * 100)}% base · {Math.round(bullW * 100)}% re-rating · {Math.round(bearW * 100)}% risk scenario
+        </span>
+      </div>
+
+      <div className="text-xs text-text-tertiary text-center mt-2">
+        Current: ${currentPrice.toFixed(2)} · Scenario range: ${priceTargets.bear_target.toFixed(2)} – ${priceTargets.bull_target.toFixed(2)}
       </div>
     </div>
   )

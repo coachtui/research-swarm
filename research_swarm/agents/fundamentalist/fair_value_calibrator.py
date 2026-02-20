@@ -110,8 +110,20 @@ class FairValueCalibrator:
 
     # Anomaly guardrail thresholds (configurable)
     # These detect likely model input errors, not valuation disagreements.
-    PRICE_DEVIATION_WARNING = 0.70      # flag if |FV / market_price - 1| > 70%
+    PRICE_DEVIATION_WARNING = 0.70      # flag if |FV / market_price - 1| > 70% (mid/small-cap default)
     DISPERSION_WARNING = 50.0           # flag if internal method spread > 50%
+
+    # Scale-aware deviation caps — large-cap equity price structure is far more
+    # institutionally anchored over multi-year windows.  Intrinsic values that
+    # deviate beyond observed institutional bands almost always indicate input
+    # data issues rather than genuine fundamental mispricing at scale.
+    #   Mega-cap  (≥$50B):  ±40%  — tightly-held, deep analyst coverage
+    #   Large-cap (≥$10B):  ±50%  — broad coverage, mean-reversion priced in
+    #   Mid/small-cap:      ±70%  — wider valuation dispersion is expected
+    MEGA_CAP_THRESHOLD  = 50_000_000_000   # $50B market cap
+    LARGE_CAP_THRESHOLD = 10_000_000_000   # $10B market cap
+    MEGA_CAP_DEVIATION  = 0.40
+    LARGE_CAP_DEVIATION = 0.50
 
     def calibrate(
         self,
@@ -137,6 +149,15 @@ class FairValueCalibrator:
             internal_fv = float(blended_result.fair_value_mid)
             if internal_fv <= 0:
                 return None
+
+            # 0. Market-cap scale (used for scale-aware stability guardrail)
+            market_cap: Optional[float] = None
+            try:
+                mc = stock_info.get("marketCap")
+                if mc is not None:
+                    market_cap = float(mc)
+            except (TypeError, ValueError):
+                pass
 
             # 1. Regime classification
             rev_growth = stock_info.get("revenueGrowth") or 0.0
@@ -181,6 +202,7 @@ class FairValueCalibrator:
                 current_price=current_price,
                 internal_dispersion=internal_dispersion,
                 ticker=stock_info.get("symbol", "UNKNOWN"),
+                market_cap=market_cap,
             )
 
             # 6. QA flags
@@ -244,26 +266,54 @@ class FairValueCalibrator:
         else:
             return "Consensus Validated ✓"
 
+    def _scale_deviation_cap(self, market_cap: Optional[float]) -> tuple[float, str]:
+        """
+        Return (threshold, scale_label) for the price-deviation stability check.
+
+        Thresholds are tighter for large-cap equities because their multi-year
+        price structure is institutionally anchored — extreme deviations from
+        current price almost always reflect input data quality issues, not
+        genuine fundamental mispricing at that scale.
+        """
+        if market_cap is None:
+            return self.PRICE_DEVIATION_WARNING, "general"
+        if market_cap >= self.MEGA_CAP_THRESHOLD:
+            return self.MEGA_CAP_DEVIATION, "mega-cap"
+        if market_cap >= self.LARGE_CAP_THRESHOLD:
+            return self.LARGE_CAP_DEVIATION, "large-cap"
+        return self.PRICE_DEVIATION_WARNING, "general"
+
     def _check_stability(
         self,
         internal_fv: float,
         current_price: float,
         internal_dispersion: Optional[float],
         ticker: str,
+        market_cap: Optional[float] = None,
     ) -> tuple[bool, List[str]]:
         """
         Detect anomalous model outputs that suggest input data errors, not just
         valuation disagreement. Returns (warning_flag, reasons_list).
+
+        For large-cap and mega-cap equities a tighter scale-aware threshold is
+        applied because intrinsic values inconsistent with observed institutional
+        price bands almost always indicate bad input data rather than legitimate
+        multi-year re-rating opportunity.
         """
         reasons: List[str] = []
 
         if current_price > 0:
             price_deviation = abs(internal_fv / current_price - 1.0)
-            if price_deviation > self.PRICE_DEVIATION_WARNING:
+            cap_threshold, scale_label = self._scale_deviation_cap(market_cap)
+            if price_deviation > cap_threshold:
                 direction = "below" if internal_fv < current_price else "above"
+                scale_note = (
+                    f" Institutional deviation band for {scale_label} equities: ±{cap_threshold * 100:.0f}%."
+                    if scale_label != "general" else ""
+                )
                 reasons.append(
                     f"Fair value ${internal_fv:.2f} is {price_deviation * 100:.0f}% "
-                    f"{direction} current market price ${current_price:.2f}. "
+                    f"{direction} current market price ${current_price:.2f}.{scale_note} "
                     f"Verify input data quality."
                 )
 
