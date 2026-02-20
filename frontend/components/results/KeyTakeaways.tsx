@@ -25,6 +25,23 @@ function highlightMetrics(text: string): React.ReactNode {
   })
 }
 
+// Error sentinel patterns — backend fallback strings that must not render as insights.
+// These are set when synthesis fails; we suppress them entirely rather than showing
+// error text in an investment-analysis UI.
+const ERROR_SENTINEL_PATTERNS = [
+  /^Error /i,
+  /retry required/i,
+  /pipeline (error|failed)/i,
+  /rerun the analysis/i,
+  /synthesis generation failed/i,
+  /results unreliable/i,
+]
+
+function isErrorSentinel(item: TakeawayItem): boolean {
+  const combined = `${item.headline} ${item.context ?? ''}`
+  return ERROR_SENTINEL_PATTERNS.some(p => p.test(combined))
+}
+
 // Patterns that indicate a bearish signal has been framed as a strength.
 // These items are analytically relevant but should not appear under "Strengths"
 // as that framing creates semantic confusion.
@@ -82,13 +99,18 @@ function TakeawayList({ items, bulletColor }: { items: TakeawayItem[]; bulletCol
 }
 
 export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
-  if ((!strengths || strengths.length === 0) && (!concerns || concerns.length === 0)) {
+  // Strip error sentinel items before any rendering — prevents pipeline error strings
+  // from appearing as investment insights when synthesis fails.
+  const cleanStrengths = (strengths || []).filter(s => !isErrorSentinel(s))
+  const cleanConcerns = (concerns || []).filter(c => !isErrorSentinel(c))
+
+  if (cleanStrengths.length === 0 && cleanConcerns.length === 0) {
     return null
   }
 
   // Split strengths into genuine positives vs bearish-framed items
-  const trueStrengths = (strengths || []).filter(s => classifyStrength(s) === 'STRENGTH')
-  const setupItems = (strengths || []).filter(s => classifyStrength(s) === 'SETUP')
+  const trueStrengths = cleanStrengths.filter(s => classifyStrength(s) === 'STRENGTH')
+  const setupItems = cleanStrengths.filter(s => classifyStrength(s) === 'SETUP')
 
   return (
     <section className="key-takeaways">
@@ -111,7 +133,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
         )}
 
         {/* Risks */}
-        {concerns && concerns.length > 0 && (
+        {cleanConcerns.length > 0 && (
           <Card className="p-6 border-l-4 border-l-warning bg-warning/5">
             <div className="flex items-center gap-2 mb-4">
               <div className="h-8 w-8 rounded-full bg-warning/10 flex items-center justify-center">
@@ -119,7 +141,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
               </div>
               <h3 className="font-semibold text-lg">Risks</h3>
             </div>
-            <TakeawayList items={concerns} bulletColor="text-warning" />
+            <TakeawayList items={cleanConcerns} bulletColor="text-warning" />
           </Card>
         )}
       </div>
