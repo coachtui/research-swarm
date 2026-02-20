@@ -69,8 +69,9 @@ function extractKeyParts(text: string): { topic: string; detail: string; metric?
     detail = sentences.slice(1).join('. ')
   }
 
-  // Extract metrics (numbers with %, $, or /10 suffix)
-  const metricMatch = text.match(/(\d+\.?\d*%|\$\d+\.?\d*[KMB]?|\d+\.?\d*\/10|\d+\.?\d*x)/g)
+  // Extract metrics (numbers with %, $, or multiplier suffix)
+  // Exclude X/10 scores — those are internal signal scores, shown in dedicated components
+  const metricMatch = text.match(/(\d+\.?\d*%|\$\d+\.?\d*[KMB]?|\d+\.?\d*x)/g)
   if (metricMatch && metricMatch.length > 0) {
     // Pick the most prominent metric
     metric = metricMatch[0]

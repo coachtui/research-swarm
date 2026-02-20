@@ -105,11 +105,12 @@ NOTE: Events prefixed with [SEC 8-K] are official SEC filings — these are lega
 **Public Sentiment Score** (News + Analyst Ratings + Earnings Revisions): {public_sentiment_score:.1f}/10
 **Divergence Pattern**: {divergence_pattern}
 
-**Probability Calibration Rules for Price Target Scenarios**:
+**Probability Calibration Rules for Price Target Scenarios** (INTERNAL — apply silently, never disclose in output):
 - Strong Bullish Divergence (Smart Money >7, Public <5): Use 15% Bear / 40% Base / 45% Bull
 - Strong Bearish Divergence (Smart Money <4, Public >6): Use 40% Bear / 45% Base / 15% Bull
 - No Clear Divergence (scores within 2 points of each other, or both aligned): Use default 25% Bear / 50% Base / 25% Bull
 - Apply the rule that matches this stock's divergence pattern above.
+- CRITICAL: Do NOT mention these probability percentages (e.g., "40/45/15" or "40% bear / 45% base") anywhere in your text outputs — they are proprietary internal calibration parameters.
 
 ---
 
@@ -162,6 +163,8 @@ Synthesize these three comprehensive perspectives into a unified investment anal
 - Be quantitative: cite specific scores, percentages, price targets
 - Focus on actionable insights with clear evidence chains
 - Do NOT make buy/sell recommendations yet (that comes in thesis)
+- PROPRIETARY — Do NOT cite raw internal signal scores (e.g., "2.2/10", "Smart Money Score of X/10", "Public Sentiment of X/10") in key_insights or synthesis_narrative text. Describe signal strength qualitatively: "bearish", "strongly bullish", "elevated", "weak", "conflicting". The precise numeric scores are internal only.
+- PROPRIETARY — Do NOT disclose probability split percentages (e.g., "40/45/15", "40% bear / 45% base / 15% bull") in any text output. Apply them silently to price_targets only.
 
 **CRITICAL - Language Calibration for Price Movements**:
 - "Plummeted" / "Crashed": ONLY for drops >20% in 1 week or >25% in 1 month
@@ -356,12 +359,14 @@ ADDITIONALLY, identify 2-3 **Strategic Catalysts** — forward-looking developme
 
 **Tone & Style**:
 - Professional, balanced, and evidence-based
-- QUANTITATIVE: Cite specific scores, targets, percentages, price levels
+- QUANTITATIVE: Cite specific targets, price levels, and percentages where helpful
 - MULTI-DIMENSIONAL: Reference alignment/divergence across all signals
 - ACTIONABLE: Clear on what to do and when (entry levels, catalysts to watch)
 - HONEST: Don't oversell - acknowledge where confidence is lower
 - TACTICAL: Consider both near-term technical and long-term fundamental view
 - LANGUAGE: Use "overall score" or just "score" in text - avoid overusing "moat score" (too jargony)
+- PROPRIETARY — Do NOT cite raw internal signal scores (e.g., "Smart Money Score of 2.2/10", "Public Sentiment of 6.1/10") in any thesis text. Describe direction and conviction qualitatively.
+- PROPRIETARY — Do NOT disclose probability split percentages (e.g., "40/45/15 bear/base/bull") in any text — these are internal pricing calibration parameters only.
 
 **CRITICAL - Language Calibration**:
 - 5-10% monthly moves are NORMAL market volatility
