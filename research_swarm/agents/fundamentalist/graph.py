@@ -422,12 +422,18 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
 
         available = metadata.get("available_quarters", 0)
         if available == 0:
-            state["status"] = "error"
-            state["error"] = f"No quarterly filings found for {state['ticker']}"
-            return state
-
-        filer_type = "foreign (20-F/6-K)" if state.get("is_foreign") else "domestic (10-K/10-Q)"
-        logger.success(f"✓ Fetched {available}/4 quarterly filings ({filer_type})")
+            # Check if yfinance financial data is available as fallback
+            has_yf_data = bool(complete_data.get("quarterly_financials")) or bool(complete_data.get("valuation_metrics"))
+            if not has_yf_data:
+                state["status"] = "error"
+                state["error"] = f"No quarterly filings or financial data found for {state['ticker']}"
+                return state
+            logger.warning(
+                f"No SEC filings found for {state['ticker']} — continuing with yfinance data only (limited analysis)"
+            )
+        else:
+            filer_type = "foreign (20-F/6-K)" if state.get("is_foreign") else "domestic (10-K/10-Q)"
+            logger.success(f"✓ Fetched {available}/4 quarterly filings ({filer_type})")
 
         # Earnings data from hybrid provider
         earnings_data = complete_data.get("earnings_data", {})
