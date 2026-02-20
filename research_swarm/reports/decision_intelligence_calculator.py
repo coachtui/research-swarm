@@ -258,8 +258,8 @@ class DecisionIntelligenceCalculator:
             fallback=conservative_entry * (1 - stop_pct),
             prefer="lowest",
         )
-        # Stop must be below entry
-        conservative_stop = min(conservative_stop, conservative_entry * 0.95)
+        # Stop must be at least stop_pct below entry (guarantees > 5% risk buffer)
+        conservative_stop = min(conservative_stop, conservative_entry * (1 - stop_pct))
 
         # 3 conservative targets (progressively higher)
         conservative_t1 = self._best_of(
