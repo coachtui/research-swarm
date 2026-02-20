@@ -266,15 +266,31 @@ class BlendedValuationCalculator:
         if historical_eps and len(historical_eps) >= 2:
             positive_eps = [e for e in historical_eps if e and e > 0]
             if len(positive_eps) >= 2:
-                normalized = sum(positive_eps) / len(positive_eps)
-                # Soft cap: prevent historical avg from being >2x or <0.4x TTM
-                # This keeps us anchored to recent reality while smoothing noise
-                normalized = max(ttm_eps * 0.4, min(normalized, ttm_eps * 2.0))
-                logger.info(
-                    f"EPS normalized: ${normalized:.2f} (3-5yr avg={sum(positive_eps)/len(positive_eps):.2f}, "
-                    f"TTM=${ttm_eps:.2f}, capped to [${ttm_eps*0.4:.2f}, ${ttm_eps*2.0:.2f}])"
+                raw_avg = sum(positive_eps) / len(positive_eps)
+
+                # Growth company bypass: if earnings are consistently rising (newest > oldest)
+                # the historical average understates current earnings power. For these companies
+                # the normalization goal (smoothing cyclical noise) doesn't apply — fall through
+                # to TTM+Forward blend which is more representative of ongoing run-rate.
+                is_upward_trend = all(
+                    positive_eps[i] > positive_eps[i + 1]
+                    for i in range(len(positive_eps) - 1)
                 )
-                return normalized
+                if is_upward_trend and raw_avg < ttm_eps * 0.80:
+                    # Historical average is depressed relative to TTM due to growth, not noise.
+                    # Skip backward averaging and use the forward-looking blend below.
+                    logger.info(
+                        f"EPS normalization bypassed (consistent growth trend): "
+                        f"hist avg ${raw_avg:.2f} vs TTM ${ttm_eps:.2f} — using TTM+Fwd blend"
+                    )
+                else:
+                    # Cyclical or no clear trend: historical average smooths out noise correctly
+                    normalized = max(ttm_eps * 0.4, min(raw_avg, ttm_eps * 2.0))
+                    logger.info(
+                        f"EPS normalized: ${normalized:.2f} (3-5yr avg=${raw_avg:.2f}, "
+                        f"TTM=${ttm_eps:.2f}, capped to [${ttm_eps*0.4:.2f}, ${ttm_eps*2.0:.2f}])"
+                    )
+                    return normalized
 
         # Secondary: blend TTM + Forward EPS as two-point proxy
         if stock_info:

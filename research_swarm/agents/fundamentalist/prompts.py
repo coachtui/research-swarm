@@ -638,6 +638,7 @@ DCF_INPUTS_EXTRACTION_PROMPT = """You are extracting DCF valuation inputs from a
 - Operating margin trend: "expanding" if margins are improving, "contracting" if declining
 - Use the filing's effective tax rate, not statutory rate
 - Shares outstanding should be diluted shares if available
-- Use null for any metric not found
+- Use null for scalar metrics not found (e.g. revenue_growth_rate, capex_as_pct_revenue)
+- For fcf_history: always return a list — use [] if no FCF data found, never null
 - Return ONLY valid JSON, no other text
 """
