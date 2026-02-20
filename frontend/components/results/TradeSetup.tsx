@@ -204,6 +204,24 @@ function getRRConditionalQualifier(
   return { label: null, footnote: null }
 }
 
+// Horizon-bound gain from primary window targets only (non-extended, within ~12-month horizon).
+// Prevents the low-probability regime expansion ceiling from dominating payoff display.
+// Formula: Σ (target_price - entry) × sell_fraction × 100 shares, primary targets only.
+function computeHorizonBoundGain(
+  entry: number,
+  targets: { price: number; sell_pct: number; label: string }[]
+): number | null {
+  const primaryTargets = targets.filter((t, i) => !isExtendedTarget(t.label, i))
+  if (primaryTargets.length === 0) return null
+  let totalGain = 0
+  for (const t of primaryTargets) {
+    const gain = (t.price - entry) * (t.sell_pct / 100) * 100
+    totalGain += gain
+  }
+  if (totalGain <= 0) return null
+  return Math.round(totalGain * 100) / 100
+}
+
 function SetupColumn({
   side,
   variant,
@@ -253,6 +271,10 @@ function SetupColumn({
 
   // Proximity warning based on current price relative to stop loss
   const proximityWarning = getProximityWarning(currentPrice, side.stop_loss, side.entry)
+
+  // Horizon-bound gain: realistic 12-month outcome from primary window targets only.
+  // Extended / regime expansion targets are excluded and demoted to "tail outcome" framing.
+  const horizonBoundGain = computeHorizonBoundGain(side.entry, side.targets)
 
   // C2: Setup unavailable state — show instead of normal setup when risk buffer is insufficient
   const setupUnavailable = side.setup_unavailable
@@ -410,10 +432,12 @@ function SetupColumn({
           )}
         </div>
 
-        {/* Outcome distribution bounds — presented symmetrically to reduce anchoring bias on upside */}
+        {/* Outcome distribution bounds — primary window gain is the headline figure.
+            Regime expansion ceiling is demoted to tail outcome framing to prevent
+            lottery-like perception of low-probability extended scenarios. */}
         <div className="border-t border-surface-elevated pt-3">
           <span className="text-[10px] text-text-tertiary/60 block mb-1.5 italic">
-            Outcome distribution bounds — 100 shares at anchor price. Expected value lies within this range.
+            Outcome distribution bounds — 100 shares at anchor price.
           </span>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
@@ -422,11 +446,34 @@ function SetupColumn({
               <span className="text-[10px] text-text-tertiary/60 block">If Stop Triggered</span>
             </div>
             <div>
-              <span className="text-text-tertiary block">Upside Capture / 100 sh</span>
-              <span className="font-medium text-success">{formatCurrency(side.max_gain_per_100)}</span>
-              <span className="text-[10px] text-text-tertiary/60 block">Regime Expansion Ceiling</span>
+              {horizonBoundGain !== null && horizonBoundGain > 0 ? (
+                <>
+                  <span className="text-text-tertiary block">Horizon-Bound Gain / 100 sh</span>
+                  <span className="font-medium text-success">{formatCurrency(horizonBoundGain)}</span>
+                  <span className="text-[10px] text-text-tertiary/60 block">Primary Holding Window</span>
+                  <span className="text-[10px] text-text-tertiary/40 block mt-1 italic">
+                    Tail ceiling: {formatCurrency(side.max_gain_per_100)} — extended scenario, low probability
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-text-tertiary block">Upside Capture / 100 sh</span>
+                  <span className="font-medium text-success">{formatCurrency(side.max_gain_per_100)}</span>
+                  <span className="text-[10px] text-text-tertiary/60 block">Regime Expansion Ceiling</span>
+                </>
+              )}
             </div>
           </div>
+
+          {/* Payoff vs probability clarifier — surfaces when signal conflict is active.
+              Asymmetry magnitude is intact; path probability is reduced by divergence. */}
+          {hasHighDivergence && side.risk_reward >= 3 && (
+            <div className="mt-2 pt-2 border-t border-surface-elevated/50 text-[10px] text-text-tertiary leading-relaxed">
+              <span className="font-medium text-text-secondary">Payoff Skew vs. Probability: </span>
+              Structural asymmetry ({side.risk_reward}:1) reflects scenario payoff magnitude — not probability of achievement.
+              Active signal conflict compresses near-term path probability; asymmetry is thesis-dependent, not probability-dominant.
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -479,7 +526,10 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
           </div>
         )}
 
-        {/* Entry zone taxonomy block — surfaces the three-level structure */}
+        {/* Entry zone taxonomy block — three-level structure with structural/tactical framing.
+            Structural Value Zone: long-term intrinsic anchor (model bear-to-base range).
+            Tactical Anchor: regime-contextual execution price. When large dislocation exists,
+            labels clarify the timeframe distinction rather than implying conflicting signals. */}
         {(opportunityEnvelope || tacticalBand) && (
           <div className="p-3 rounded-md bg-surface-elevated border border-border text-xs space-y-2.5">
             <span className="font-semibold text-text-secondary block">Entry Zone Taxonomy</span>
@@ -487,13 +537,22 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
               // C3: Always render low-to-high regardless of backend ordering
               const envLow = Math.min(opportunityEnvelope.low, opportunityEnvelope.high)
               const envHigh = Math.max(opportunityEnvelope.low, opportunityEnvelope.high)
-              // C3: Label when current price is below the opportunity envelope floor
+              // Structural dislocation: current price significantly above the opportunity envelope
+              const isDislocated = currentPrice !== undefined && currentPrice > 0 && currentPrice > envHigh * 1.25
+              // Deep discount: current price below the opportunity envelope floor
               const priceDeepDiscount = currentPrice !== undefined && currentPrice > 0 && currentPrice < envLow
               return (
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <span className="text-text-secondary font-medium">Opportunity Envelope</span>
-                    <span className="block text-text-tertiary">Broad range where structural thesis remains valid</span>
+                    <span className="text-text-secondary font-medium">
+                      {isDislocated ? 'Structural Value Zone' : 'Opportunity Envelope'}
+                    </span>
+                    <span className="block text-text-tertiary">
+                      {isDislocated
+                        ? 'Long-term intrinsic anchor — mean reversion basis (12–24 mo)'
+                        : 'Broad range where structural thesis remains valid'
+                      }
+                    </span>
                     {priceDeepDiscount && (
                       <span className="block text-xs text-success mt-0.5">
                         Execution Discount Zone fully active — verify thesis remains intact
@@ -515,20 +574,36 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
                 <span className="font-medium text-text-secondary font-mono">{tacticalBand.label}</span>
               </div>
             )}
-            <div className="flex items-center justify-between">
-              <div>
-                <span className="text-text-secondary font-medium">Execution Anchor</span>
-                <span className="block text-text-tertiary">Modeled optimal entry — not a guaranteed fill</span>
-              </div>
-              <span className="font-medium text-text-secondary font-mono">
-                {formatAnchor(setup.conservative.entry)}
-              </span>
-            </div>
+            {(() => {
+              const envHigh = opportunityEnvelope
+                ? Math.max(opportunityEnvelope.low, opportunityEnvelope.high)
+                : null
+              const isDislocated = currentPrice !== undefined && currentPrice > 0 && envHigh !== null && currentPrice > envHigh * 1.25
+              return (
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-text-secondary font-medium">
+                      {isDislocated ? 'Structural Anchor' : 'Execution Anchor'}
+                    </span>
+                    <span className="block text-text-tertiary">
+                      {isDislocated
+                        ? 'Regime-compressed entry — actionable if price reverts to structural zone'
+                        : 'Modeled optimal entry — not a guaranteed fill'
+                      }
+                    </span>
+                  </div>
+                  <span className="font-medium text-text-secondary font-mono shrink-0">
+                    {formatAnchor(setup.conservative.entry)}
+                  </span>
+                </div>
+              )
+            })()}
             {entryMethodology && (
               <p className="text-text-tertiary leading-relaxed pt-2 border-t border-border">{entryMethodology}</p>
             )}
             <p className="text-[11px] text-text-tertiary/60 leading-relaxed pt-1.5 border-t border-border/50 italic">
-              Execution Anchor reflects modeled optimal entry. Current price may require scaling or pullback positioning.
+              Structural anchor reflects the model's long-term intrinsic basis. Current regime may require
+              pullback or time for price compression before the zone becomes tactically actionable.
             </p>
           </div>
         )}

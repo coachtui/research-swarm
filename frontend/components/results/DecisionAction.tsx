@@ -101,6 +101,16 @@ export function DecisionAction({
   // Issue 3: Proximity status
   const proximityStatus = getAvoidProximity(currentPrice, avoidAbovePrice)
 
+  // Structural dislocation detection — when current price significantly exceeds the model's
+  // avoid threshold, the opportunity envelope represents a long-term intrinsic anchor,
+  // not a near-term actionable zone. Two-tier check prevents label flip on minor overruns.
+  const isStructuralDislocation = Boolean(
+    currentPrice && avoidAbovePrice && currentPrice > avoidAbovePrice * 1.25
+  )
+  const dislocationPct = (isStructuralDislocation && currentPrice && strategy?.entry?.ideal_zone?.high)
+    ? Math.round(((currentPrice - strategy.entry.ideal_zone.high) / strategy.entry.ideal_zone.high) * 100)
+    : null
+
   // Signal status strip
   const hasDivergence = signalBreakdown?.has_divergence
   const divergenceSeverity = fundTechDivergence?.severity || (hasDivergence ? 'MODERATE' : null)
@@ -193,27 +203,49 @@ export function DecisionAction({
         )}
 
         {/* Key Price Zones Grid
-            Issue 2: "Entry Zone" → "Opportunity Envelope" to distinguish from the
-            Tactical Band and Execution Anchor shown in the TradeSetup detail view. */}
+            Dislocation-aware: when current price significantly exceeds the avoid threshold,
+            zones are reframed as structural (long-term intrinsic) anchors rather than
+            near-term actionable levels. Prevents contradictory signal perception. */}
         {(opportunityEnvelope || stopZone || targetZone || avoidAbove) && (
           <div>
-            <p className="text-xs font-medium text-text-tertiary uppercase tracking-wide mb-2">Key Price Zones</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-text-tertiary uppercase tracking-wide">Key Price Zones</p>
+              {isStructuralDislocation && (
+                <span className="text-[10px] text-text-tertiary italic">
+                  Structural framework · Timeframe-dependent
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {opportunityEnvelope && (
                 <div className="rounded-md bg-surface-elevated border border-border p-3 text-center">
                   <p className="text-xs text-text-tertiary mb-1">
-                    Opportunity Envelope
+                    {isStructuralDislocation ? 'Structural Value Zone' : 'Opportunity Envelope'}
                     <span
                       className="ml-1 text-text-tertiary cursor-help"
-                      title="Broad price range where the investment thesis is favorably priced. The model-optimized Tactical Band and Execution Anchor are in the Trade Setup section below."
+                      title={isStructuralDislocation
+                        ? 'Long-term intrinsic value anchor derived from model bear-to-base scenario range. Represents the theoretical mean reversion zone (12–24 mo horizon), not a near-term actionable entry.'
+                        : 'Broad price range where the investment thesis is favorably priced. The model-optimized Tactical Band and Execution Anchor are in the Trade Setup section below.'}
                     >
                       ⓘ
                     </span>
                   </p>
                   <p className="text-sm font-semibold text-success">{opportunityEnvelope}</p>
+                  {isStructuralDislocation && (
+                    <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">Long-term anchor</p>
+                  )}
                 </div>
               )}
-              {avoidAbove && (
+
+              {/* Avoid Above tile: suppress when structurally dislocated (already breached).
+                  Replace with Structural Premium to show the magnitude of dislocation. */}
+              {isStructuralDislocation && dislocationPct !== null ? (
+                <div className="rounded-md bg-surface-elevated border border-warning/30 p-3 text-center">
+                  <p className="text-xs text-text-tertiary mb-1">Structural Premium</p>
+                  <p className="text-sm font-semibold text-warning">+{dislocationPct}%</p>
+                  <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">Above value zone</p>
+                </div>
+              ) : avoidAbove ? (
                 <div className={`rounded-md bg-surface-elevated p-3 text-center border ${
                   proximityStatus === 'CRITICAL'
                     ? 'border-error/50 ring-1 ring-error/20'
@@ -229,7 +261,8 @@ export function DecisionAction({
                     <p className="text-xs text-error/70 mt-1">Near threshold</p>
                   )}
                 </div>
-              )}
+              ) : null}
+
               {stopZone && (
                 <div className="rounded-md bg-surface-elevated border border-border p-3 text-center">
                   <p className="text-xs text-text-tertiary mb-1">Stop Zone</p>
@@ -256,6 +289,15 @@ export function DecisionAction({
                 </div>
               )}
             </div>
+
+            {/* Structural dislocation context note — explains the zone / price gap */}
+            {isStructuralDislocation && dislocationPct !== null && (
+              <p className="text-xs text-text-tertiary leading-relaxed mt-2.5 pl-1 border-l-2 border-warning/30">
+                <span className="font-medium text-text-secondary">Structural vs. Tactical Context:</span> Current price (+{dislocationPct}% above structural value zone) reflects market pricing outside the model's intrinsic framework.
+                {' '}Zones above represent the <span className="italic">long-term mean reversion basis</span> — not near-term actionable levels.
+                {' '}Interpret against the applicable thesis horizon before using as entry signals.
+              </p>
+            )}
           </div>
         )}
 
