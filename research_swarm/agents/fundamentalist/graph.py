@@ -15,6 +15,7 @@ from research_swarm.agents.fundamentalist.analyzer import analyzer
 from research_swarm.agents.fundamentalist.scorer import scorer
 from research_swarm.agents.fundamentalist.models import FundamentalistOutput
 from research_swarm.agents.fundamentalist.blended_valuation import blended_valuation_calculator
+from research_swarm.agents.fundamentalist.fair_value_calibrator import fair_value_calibrator
 
 
 # ============================================================================
@@ -937,7 +938,35 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                         quarterly_margin_std=quarterly_margin_std,
                     )
                     if blended_result:
+                        # Price targets committed as-is — calibration never mutates them
                         state["price_targets"] = blended_result.dict()
+
+                        # Divergence analysis layer: compares FV to analyst consensus
+                        # target. Read-only — does NOT modify blended_result or price_targets.
+                        analyst_target_data = state.get("shared_swarm_data", {}) or {}
+                        analyst_target_data = analyst_target_data.get("price_target", {}) or {}
+                        calib_meta = fair_value_calibrator.calibrate(
+                            blended_result=blended_result,
+                            current_price=fair_value_price,
+                            stock_info=stock_info,
+                            valuation_metrics=market_data_for_dcf,
+                            analyst_target_data=analyst_target_data,
+                        )
+                        if calib_meta:
+                            state["fair_value_calibration"] = calib_meta.model_dump()
+                            div_str = (
+                                f"{calib_meta.divergence_pct:+.1f}%"
+                                if calib_meta.divergence_pct is not None else "n/a"
+                            )
+                            logger.info(
+                                f"✓ Regime: {calib_meta.divergence_state} "
+                                f"(FV ${calib_meta.internal_fair_value:.2f} vs "
+                                f"consensus ${calib_meta.consensus_target or 0:.2f}, {div_str})"
+                                + (" ⚠ STABILITY WARNING" if calib_meta.model_stability_warning else "")
+                            )
+                        else:
+                            state["fair_value_calibration"] = None
+
                         logger.success(
                             f"✓ Blended Fair Value: "
                             f"Band ${blended_result.fair_value_low:.2f}–${blended_result.fair_value_mid:.2f}–${blended_result.fair_value_high:.2f} "
@@ -947,6 +976,7 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                         )
                     else:
                         logger.warning("Blended valuation returned None (insufficient data)")
+                        state["fair_value_calibration"] = None
                 else:
                     logger.warning(f"Skipping valuation: {'no current_price' if not fair_value_price else 'no valuation_metrics'}")
 
@@ -1214,7 +1244,8 @@ def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: 
         QuarterlyTrends,
         VGMScoreBreakdown,
         ValuationMetrics,
-        PriceTargetScenarios
+        PriceTargetScenarios,
+        FairValueCalibration,
     )
 
     # Parse earnings data into models
@@ -1259,6 +1290,7 @@ def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: 
         valuation_score=final_state.get("valuation_score", 5.0),
         valuation_metrics=ValuationMetrics(**final_state["valuation_metrics"]) if final_state.get("valuation_metrics") else None,
         price_targets=PriceTargetScenarios(**final_state["price_targets"]) if final_state.get("price_targets") else None,
+        fair_value_calibration=FairValueCalibration(**final_state["fair_value_calibration"]) if final_state.get("fair_value_calibration") else None,
         confidence=final_state["confidence"],
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time

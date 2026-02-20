@@ -822,6 +822,25 @@ def analyze_swarm(
     if final_state.get("fundamentalist_output"):
         vgm_scores = final_state["fundamentalist_output"].get("vgm_scores")
 
+    # Extract fair value calibration from fundamentalist_output
+    fair_value_calibration = None
+    report_qa_flags = []
+    if final_state.get("fundamentalist_output"):
+        fair_value_calibration = final_state["fundamentalist_output"].get("fair_value_calibration")
+        if fair_value_calibration:
+            report_qa_flags.append({
+                "type": "fair_value_calibration",
+                "ticker": final_state["ticker"],
+                "regime": fair_value_calibration.get("regime"),
+                "divergence_state": fair_value_calibration.get("divergence_state"),
+                "divergence_pct": fair_value_calibration.get("divergence_pct"),
+                "gates_triggered": fair_value_calibration.get("gates_triggered", []),
+                "internal_fair_value": fair_value_calibration.get("internal_fair_value"),
+                "consensus_proxy": fair_value_calibration.get("consensus_proxy"),
+                "blended_fair_value": fair_value_calibration.get("blended_fair_value"),
+                "intervention_applied": fair_value_calibration.get("intervention_applied"),
+            })
+
     # Build output
     output = ManagerOutput(
         ticker=final_state["ticker"],
@@ -853,6 +872,8 @@ def analyze_swarm(
         rating=final_state.get("rating"),
         rating_score=final_state.get("rating_score"),
         risk_level=final_state.get("risk_level"),
+        fair_value_calibration=fair_value_calibration,
+        report_qa_flags=report_qa_flags if report_qa_flags else None,
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time,
         agent_processing_times=final_state.get("agent_processing_times"),

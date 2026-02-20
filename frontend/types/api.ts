@@ -157,8 +157,39 @@ export interface ManagerOutput {
     manager: number
   }
 
+  // Fair value calibration metadata
+  fair_value_calibration?: FairValueCalibration
+  report_qa_flags?: Array<Record<string, unknown>>
+
   // Decision Intelligence (computed on-the-fly by API)
   decision_intelligence?: DecisionIntelligence
+}
+
+export interface FairValueCalibration {
+  // Regime
+  regime: string                              // "Growth" | "Stable" | "Value/Turnaround"
+  regime_rev_growth_pct: number               // Forward revenue growth used for classification (%)
+
+  // Internal model — untouched, display reference only
+  internal_fair_value: number                 // fair_value_mid from DVRG blended model
+  internal_method_dispersion_pct: number | null  // spread across P/E, EV/EBITDA, DCF (%)
+
+  // Analyst consensus target — forward market expectation proxy (structurally distinct from FV)
+  consensus_target: number | null             // analyst mean price target
+  num_analysts: number | null                 // number of analyst estimates
+
+  // Divergence analysis
+  divergence_ratio: number | null             // internal_fair_value / consensus_target
+  divergence_pct: number | null               // signed % gap vs consensus target
+  divergence_state: 'Consensus Validated ✓' | 'Model-Conservative Regime' | 'Model-Driven Upside Scenario' | 'No Consensus Data'
+
+  // Anomaly guardrail — does NOT trigger recalibration, just flags data quality
+  model_stability_warning: boolean
+  stability_warning_reasons: string[]
+
+  // Audit
+  qa_flags: string[]
+  display_label: string
 }
 
 // --- Signal Breakdown Types ---

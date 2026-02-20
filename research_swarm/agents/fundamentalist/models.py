@@ -6,6 +6,7 @@ These models ensure type safety and validation for all extracted data.
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Dict, Any
 from research_swarm.logger import logger
+from research_swarm.agents.fundamentalist.fair_value_calibrator import FairValueCalibration
 
 
 # Stub for backward compatibility with Quant agent
@@ -438,6 +439,11 @@ class DCFInputs(BaseModel):
     """Inputs for DCF valuation model, extracted from SEC filings."""
 
     fcf_history: List[float] = Field(default_factory=list, description="3-5 years of FCF in millions USD")
+
+    @field_validator('fcf_history', mode='before')
+    @classmethod
+    def coerce_none_fcf(cls, v):
+        return v if v is not None else []
     revenue_growth_rate: Optional[float] = Field(None, description="Recent YoY revenue growth as percentage")
     operating_margin_trend: Optional[str] = Field(None, description="expanding, stable, or contracting")
     operating_margin_history: Optional[List[float]] = Field(None, description="Historical operating margins (%) for stability factor")
@@ -517,6 +523,12 @@ class FundamentalistOutput(BaseModel):
         ge=0,
         le=10,
         description="Valuation score based on multiples vs sector (0-10)"
+    )
+
+    # Fair value calibration metadata
+    fair_value_calibration: Optional[FairValueCalibration] = Field(
+        None,
+        description="Calibration layer output comparing internal model to consensus proxy"
     )
 
     # Metadata

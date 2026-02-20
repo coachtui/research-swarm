@@ -258,6 +258,16 @@ class ManagerOutput(BaseModel):
         description="True if moat_score >= 8 (watchlist threshold)"
     )
 
+    # Fair value calibration metadata
+    fair_value_calibration: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Calibration layer output comparing internal model to market consensus proxy"
+    )
+    report_qa_flags: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="QA flags for admin review — regime classification, divergence, intervention gates"
+    )
+
     # Metadata
     tokens_used: int = Field(
         ...,

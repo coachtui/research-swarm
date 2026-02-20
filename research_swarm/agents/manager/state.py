@@ -68,6 +68,8 @@ class ManagerState(TypedDict, total=False):
     downgrade_triggers: Optional[List[Dict[str, str]]]  # Specific metrics → action for downgrades
     price_targets: Optional[Dict[str, Any]]  # Bull/Base/Bear price target scenarios
     conviction_statement: Optional[Dict[str, Any]]  # Conviction level, bottom line, best suited for
+    fair_value_calibration: Optional[Dict[str, Any]]  # FairValueCalibration metadata from fundamentalist
+    report_qa_flags: Optional[List[Dict[str, Any]]]  # QA flags for admin review
 
     # Metadata
     tokens_used: int  # Total tokens used in API calls (default 0)

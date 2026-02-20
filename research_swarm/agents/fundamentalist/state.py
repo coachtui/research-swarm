@@ -78,6 +78,7 @@ class FundamentalistState(TypedDict, total=False):
 
     # DCF valuation
     price_targets: Optional[Dict[str, Any]]  # PriceTargetScenarios dict from DCF calculator
+    fair_value_calibration: Optional[Dict[str, Any]]  # FairValueCalibration metadata dict
 
     # yfinance fallback data
     yfinance_quarterly_financials: Optional[Dict[str, Any]]  # Structured quarterly financials from yfinance

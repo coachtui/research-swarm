@@ -14,6 +14,7 @@ import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
 import { RecentDevelopments } from '@/components/results/RecentDevelopments'
 import { ExecutionLayer } from '@/components/results/ExecutionLayer'
 import { AnalystVerdict } from '@/components/results/AnalystVerdict'
+import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -266,6 +267,17 @@ function ResultsContent({ runId }: { runId: string }) {
             priceTargets={full_output.price_targets}
             currentPrice={decision_intelligence.current_price}
             ticker={result.ticker}
+          />
+        )}
+
+        {/* ══════════════════════════════════════════════════════════
+            LAYER 3.5 — FAIR VALUE REGIME CHECK
+            Reconciles internal model vs market consensus proxy.
+            Auto-expands on large divergences (>25%). Collapsed otherwise.
+        ══════════════════════════════════════════════════════════ */}
+        {full_output?.fair_value_calibration && (
+          <FairValueRegimeCheck
+            calibration={full_output.fair_value_calibration}
           />
         )}
 
