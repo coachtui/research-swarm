@@ -3,13 +3,7 @@ State schema for the Manager agent.
 
 Defines the TypedDict for LangGraph state management.
 """
-from typing import Annotated, TypedDict, Optional, Dict, List, Any
-
-
-def _merge_errors(a: Optional[str], b: Optional[str]) -> Optional[str]:
-    """Reducer for concurrent parallel-node error writes."""
-    parts = [x for x in [a, b] if x is not None]
-    return "; ".join(parts) if parts else None
+from typing import TypedDict, Optional, Dict, List, Any
 
 
 class ManagerState(TypedDict, total=False):
@@ -35,7 +29,12 @@ class ManagerState(TypedDict, total=False):
 
     # Status tracking
     status: str  # Current workflow status: "initialized", "calling_fundamentalist", "calling_news_hound", "calling_quant", "synthesizing", "scoring", "generating_thesis", "completed", "error"
-    error: Annotated[Optional[str], _merge_errors]  # Error message if status is "error"
+    error: Optional[str]  # Error message if status is "error"
+
+    # Per-agent error fields for parallel execution (avoids concurrent write conflicts)
+    fundamentalist_error: Optional[str]
+    news_hound_error: Optional[str]
+    quant_error: Optional[str]
 
     # Agent outputs (stored as dicts for serialization)
     fundamentalist_output: Optional[Dict[str, Any]]  # Full output from Fundamentalist agent

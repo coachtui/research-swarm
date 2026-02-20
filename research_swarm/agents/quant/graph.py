@@ -67,7 +67,7 @@ def fetch_market_data_node(state: QuantState) -> QuantState:
         logger.info(f"[Node 1] No shared_swarm_data found, fetching market data directly for {state['ticker']}")
         df = market_data_client.get_historical_data(state["ticker"], period=period)
 
-    if df.empty:
+    if df is None or df.empty:
         state["status"] = "error"
         state["error"] = f"No market data available for {state['ticker']}"
         logger.error(state["error"])

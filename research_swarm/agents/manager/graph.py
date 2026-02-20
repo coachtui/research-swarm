@@ -108,7 +108,7 @@ def call_fundamentalist_node(state: ManagerState) -> dict:
     except Exception as e:
         logger.error(f"Fundamentalist agent failed: {e}")
         return {
-            "error": f"Fundamentalist agent failed: {str(e)}",
+            "fundamentalist_error": f"Fundamentalist agent failed: {str(e)}",
         }
 
 
@@ -147,7 +147,7 @@ def call_news_hound_node(state: ManagerState) -> dict:
     except Exception as e:
         logger.error(f"News Hound agent failed: {e}")
         return {
-            "error": f"News Hound agent failed: {str(e)}",
+            "news_hound_error": f"News Hound agent failed: {str(e)}",
         }
 
 
@@ -202,7 +202,7 @@ def call_quant_node(state: ManagerState) -> dict:
     except Exception as e:
         logger.error(f"Quant agent failed: {e}")
         return {
-            "error": f"Quant agent failed: {str(e)}",
+            "quant_error": f"Quant agent failed: {str(e)}",
         }
 
 
@@ -234,11 +234,14 @@ def check_agents_complete_node(state: ManagerState) -> ManagerState:
 
     if missing_agents:
         state["status"] = "error"
-        # Preserve the underlying agent error so the root cause is visible in logs
-        underlying = state.get("error", "")
+        # Collect root causes from per-agent error fields (set by parallel nodes)
+        root_causes = [
+            state[k] for k in ("fundamentalist_error", "news_hound_error", "quant_error")
+            if state.get(k)
+        ]
         state["error"] = f"Missing agent outputs: {', '.join(missing_agents)}"
-        if underlying:
-            state["error"] += f" | Root cause: {underlying}"
+        if root_causes:
+            state["error"] += f" | Root cause: {'; '.join(root_causes)}"
         logger.error(state["error"])
         return state
 
