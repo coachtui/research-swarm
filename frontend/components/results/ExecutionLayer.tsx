@@ -116,6 +116,7 @@ export function ExecutionLayer({
                 strategy={strategy}
                 signalBreakdown={signalBreakdown}
                 rating={rating}
+                currentPrice={currentPrice}
               />
             )}
           </div>

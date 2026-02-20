@@ -9,6 +9,7 @@ interface TradeSetupProps {
   strategy?: RecommendedStrategy | null
   signalBreakdown?: SignalBreakdown | null
   rating?: string | null
+  currentPrice?: number
 }
 
 const STOP_QUALITY_STYLES: Record<string, { badge: string; note: string }> = {
@@ -17,8 +18,8 @@ const STOP_QUALITY_STYLES: Record<string, { badge: string; note: string }> = {
   ADJUSTED: { badge: 'bg-primary/15 text-primary border-primary/30', note: 'text-primary' },
 }
 
-// Issue 7: Precision normalization — use zone format for anchor prices (estimates),
-// keep formatCurrency for precise target prices (objectives).
+// Precision normalization — use zone format for anchor prices (estimates),
+// keep formatCurrency for precise target prices (defined objectives).
 function formatAnchor(price: number): string {
   return `~$${Math.round(price).toLocaleString()}`
 }
@@ -37,7 +38,7 @@ function inferTargetHorizon(label: string, index: number): string {
 }
 
 // Determine whether a target is within the primary holding period window.
-// Targets beyond ~12 months are labelled as scenario extensions.
+// Targets beyond ~12 months are labelled as regime expansion scenarios.
 function isExtendedTarget(label: string, index: number): boolean {
   const l = label.toLowerCase()
   if (l.includes('bull') || l.includes('stretch') || l.includes('extended') || l.includes('upside')) return true
@@ -46,10 +47,11 @@ function isExtendedTarget(label: string, index: number): boolean {
 }
 
 // Classify target by analytical type for institutional-grade labeling.
+// Extended targets use regime framing rather than promotional outcome language.
 function inferTargetType(label: string, index: number): string {
   const l = label.toLowerCase()
   if (l.includes('bull') || l.includes('stretch') || l.includes('extended') || l.includes('upside') || index >= 2)
-    return 'Scenario'
+    return 'Regime Expansion'
   if (l.includes('near') || l.includes('t1') || l.includes('short') || index === 0)
     return 'Tactical Reversion'
   if (l.includes('base') || l.includes('t2') || l.includes('mid') || index === 1)
@@ -57,8 +59,73 @@ function inferTargetType(label: string, index: number): string {
   return 'Thesis'
 }
 
-// Issue 6: R/R realism qualifier — high ratios are modeled projections,
-// not realized outcome guarantees.
+// Replace informal target parentheticals with institutional-grade equivalents.
+// No numerical values are altered — this is label normalization only.
+function sanitizeTargetLabel(label: string): string {
+  return label
+    .replace(/\(bull case\)/gi, '(Conditional Upside)')
+    .replace(/\(stretch\)/gi, '(Low-Probability)')
+    .replace(/\(near.?term\)/gi, '(Near-Term)')
+    .replace(/\(base case\)/gi, '(Base Case)')
+}
+
+// Qualitative conditionality tag per target — expectation management without
+// introducing new probability models.
+function inferTargetConditionality(
+  label: string,
+  index: number,
+  rating: string | null | undefined,
+  variant: 'conservative' | 'aggressive'
+): string | null {
+  const l = label.toLowerCase()
+  // Extended targets are always conditional on regime / thesis validation
+  if (l.includes('bull') || l.includes('stretch') || index >= 2) return 'Conditional Scenario'
+  // Aggressive T2 requires multiple expansion beyond current consensus
+  if (index === 1 && variant === 'aggressive') return 'Requires Multiple Expansion'
+  // T1 under HOLD depends on divergence resolving in favor of the thesis
+  if (index === 0 && rating === 'HOLD') return 'Dependent on Thesis Resolution'
+  return null
+}
+
+// Time-normalized interpretation of the R/R ratio — purely informational.
+// Annualizes the modeled ratio to prevent conflating long-horizon asymmetry
+// with short-term trade expectancy. Not a new calculation engine.
+function getAnnualizedRREq(rr: number, holdingPeriod: string | null | undefined): string | null {
+  if (!holdingPeriod || rr <= 0) return null
+  const rangeMatch = holdingPeriod.match(/(\d+)[–\-](\d+)\s*months?/i)
+  if (rangeMatch) {
+    const avgMonths = (parseInt(rangeMatch[1]) + parseInt(rangeMatch[2])) / 2
+    const years = avgMonths / 12
+    if (years <= 0) return null
+    return `${(rr / years).toFixed(1)}:1`
+  }
+  const singleMatch = holdingPeriod.match(/(\d+)\s*months?/i)
+  if (singleMatch) {
+    const years = parseInt(singleMatch[1]) / 12
+    if (years <= 0) return null
+    return `${(rr / years).toFixed(1)}:1`
+  }
+  return null
+}
+
+// Adaptive copy when current price is within a tight band near the stop loss.
+// Neutral / institutional tone — not alarmist.
+function getProximityWarning(
+  currentPrice: number | undefined,
+  stopLoss: number,
+  entry: number
+): string | null {
+  if (!currentPrice || currentPrice <= 0) return null
+  if (currentPrice < stopLoss) return 'Current Price Below Stop — Risk Threshold Breached'
+  const riskRange = entry - stopLoss
+  if (riskRange <= 0) return null
+  const proximity = (currentPrice - stopLoss) / riskRange
+  if (proximity < 0.12) return 'Price Near Risk Boundary — Limited Margin for Error'
+  if (proximity < 0.22) return 'Execution Sensitivity Elevated'
+  return null
+}
+
+// R/R realism qualifier — high ratios are modeled projections, not realized outcome guarantees.
 function getRRRealism(
   rr: number,
   hasHighDivergence: boolean
@@ -66,18 +133,18 @@ function getRRRealism(
   if (rr >= 6 && hasHighDivergence)
     return {
       qualifier: 'Theoretical',
-      footnote: 'Modeled asymmetry — realized performance is regime-dependent. High divergence reduces path probability.',
+      footnote: 'Modeled asymmetry — realized performance is regime-dependent. High signal divergence reduces path probability; monitor flow and momentum alignment before full sizing.',
     }
   if (rr >= 4)
     return {
       qualifier: 'Modeled',
-      footnote: 'Modeled asymmetry. Execution variability and volatility may compress realized returns.',
+      footnote: 'Modeled asymmetry reflects scenario-weighted price targets. Execution variability, volatility compression, and timing risk may reduce realized returns.',
     }
   return { qualifier: null, footnote: null }
 }
 
-// Issue 1: Conditional R/R qualifier — when signals conflict with the R/R implication,
-// surface the conflict as a badge rather than silently showing the ratio.
+// Conditional R/R qualifier — when signals conflict with the R/R implication,
+// surfaces the structural vs. tactical distinction rather than a generic conflict flag.
 function getRRConditionalQualifier(
   rr: number,
   signalBreakdown: SignalBreakdown | null | undefined,
@@ -98,17 +165,17 @@ function getRRConditionalQualifier(
   if (bearishCount > bullishCount && rr > 3)
     return {
       label: 'Low Signal Agreement',
-      footnote: 'Asymmetric payoff modeled from current levels — bearish signal dominance reduces confidence that target prices are achievable within the holding period.',
+      footnote: 'Flow and sentiment signals (tactical) conflict with the structural thesis — bearish signal dominance impairs near-term path probability. Modeled upside magnitude is intact; probability of achieving it within the holding window is reduced.',
     }
   if (rating === 'HOLD' && rr > 4)
     return {
       label: 'Thesis-Dependent',
-      footnote: 'High theoretical R/R — payoff is contingent on divergence resolution in favor of the bull case. HOLD rating reflects current signal uncertainty.',
+      footnote: 'High modeled asymmetry — realized payoff is contingent on divergence resolution in favor of the structural thesis. HOLD reflects signal-level timing uncertainty, not fundamental impairment. Monitor for flow and momentum alignment before adding exposure.',
     }
   if (signalBreakdown.has_divergence && rr > 4)
     return {
       label: 'Divergence Unresolved',
-      footnote: 'Divergence active — modeled asymmetry is regime-dependent. Monitor for signal resolution before sizing aggressively.',
+      footnote: 'Signal conflict active — structural thesis is intact but tactical timing risk is elevated. Modeled asymmetry is regime-dependent; await valuation and flow convergence before full position sizing.',
     }
   return { label: null, footnote: null }
 }
@@ -119,12 +186,14 @@ function SetupColumn({
   signalBreakdown,
   rating,
   holdingPeriod,
+  currentPrice,
 }: {
   side: TradeSetupSide
   variant: 'conservative' | 'aggressive'
   signalBreakdown?: SignalBreakdown | null
   rating?: string | null
   holdingPeriod?: string | null
+  currentPrice?: number
 }) {
   const borderColor = variant === 'conservative' ? 'border-success/30' : 'border-warning/30'
   const headerBg = variant === 'conservative' ? 'bg-success/5' : 'bg-warning/5'
@@ -145,36 +214,53 @@ function SetupColumn({
   const displayQualifier = conditionalLabel ?? realismQualifier
   const displayFootnote = conditionalFootnote ?? realismFootnote
 
-  // Req 1 + 6: Soften R/R badge under HOLD or signal conflict — prevents promotional read
+  // Soften R/R badge under HOLD or signal conflict — prevents promotional read
   const isHoldRating = rating === 'HOLD'
   const showSoftRR = isHoldRating || conditionalLabel !== null
-  const rrLabel = showSoftRR
-    ? `Modeled Asymmetry (${side.risk_reward}:1)`
-    : `${side.risk_reward}:1 R/R`
   const rrVariant = showSoftRR
     ? 'secondary' as const
     : (variant === 'conservative' ? 'success' as const : 'warning' as const)
+
+  // Informational time-normalized R/R — prevents conflating long-horizon ratio with short-term expectancy
+  const annualizedRR = getAnnualizedRREq(side.risk_reward, holdingPeriod)
+
+  // Proximity warning based on current price relative to stop loss
+  const proximityWarning = getProximityWarning(currentPrice, side.stop_loss, side.entry)
 
   return (
     <div className={`rounded-lg border ${borderColor} overflow-hidden`}>
       {/* Header */}
       <div className={`px-4 py-3 ${headerBg}`}>
-        <div className="flex items-center justify-between flex-wrap gap-1.5">
-          {/* Req 2: Replace "Recommended" with "Model-Optimal" — eliminates execution tension */}
-          <span className="text-sm font-semibold text-text-primary">
+        {/* Row 1: Label + R/R badge on same line */}
+        <div className="flex items-start justify-between gap-2">
+          <span className="text-sm font-semibold text-text-primary leading-tight">
             {side.label.replace('Recommended', 'Model-Optimal')}
           </span>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <Badge variant={rrVariant} className={showSoftRR ? 'opacity-75 font-normal' : ''}>
-              {rrLabel}
-            </Badge>
+          <Badge
+            variant={rrVariant}
+            className={`shrink-0 text-xs ${showSoftRR ? 'opacity-75 font-normal' : ''}`}
+          >
+            Modeled Asymmetry ({side.risk_reward}:1)
+          </Badge>
+        </div>
+
+        {/* Row 2: Qualifier badge + time-normalized R/R */}
+        {(displayQualifier || annualizedRR) && (
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             {displayQualifier && (
               <Badge variant="secondary" className="text-xs font-normal opacity-80">
                 {displayQualifier}
               </Badge>
             )}
+            {annualizedRR && (
+              <span className="text-[10px] text-text-tertiary/70 italic">
+                Horizon-Normalized: {annualizedRR} ann. equiv.
+              </span>
+            )}
           </div>
-        </div>
+        )}
+
+        {/* Footnote */}
         {displayFootnote && (
           <p className="text-xs text-text-tertiary mt-1.5 leading-relaxed">{displayFootnote}</p>
         )}
@@ -182,26 +268,32 @@ function SetupColumn({
 
       {/* Body */}
       <div className="p-4 space-y-3">
-        {/* Entry & Stop — use anchor format (estimates, not exact prices) */}
+        {/* Entry & Stop */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <span className="text-xs text-text-tertiary block">Execution Anchor</span>
             <span className="text-sm font-semibold text-text-primary">
               {formatAnchor(side.entry)}
             </span>
-            {/* Req 5: Clarify modeled vs actionable fill */}
-            <span className="text-xs text-text-tertiary block mt-0.5">Modeled entry — scale in or wait for pullback</span>
+            <span className="text-xs text-text-tertiary block mt-0.5">
+              Modeled entry — scale in or await pullback
+            </span>
           </div>
           <div>
             <span className="text-xs text-text-tertiary block">Stop Loss</span>
             <span className="text-sm font-semibold text-error">
               {formatAnchor(side.stop_loss)}
             </span>
+            {proximityWarning && (
+              <span className="text-[10px] text-warning block mt-0.5 leading-tight">
+                {proximityWarning}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Targets — kept precise as they are defined objectives, not estimates.
-            Time horizons are inferred from label keywords for trade framing context. */}
+        {/* Targets — precise prices are defined objectives, not estimates.
+            Two-line layout prevents label truncation at normal breakpoints. */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs text-text-tertiary">Profit Targets</span>
@@ -215,48 +307,72 @@ function SetupColumn({
             const horizon = inferTargetHorizon(t.label, i)
             const extended = isExtendedTarget(t.label, i)
             const targetType = inferTargetType(t.label, i)
-            // Req 6: HOLD + extended targets get extra visual downgrade
+            const conditionality = inferTargetConditionality(t.label, i, rating, variant)
+            const sanitizedLabel = sanitizeTargetLabel(t.label)
             const dimExtra = rating === 'HOLD' && extended
             return (
-              <div key={i} className={`flex items-center justify-between text-sm rounded px-2 py-1 ${extended ? 'bg-surface-elevated/60' : ''} ${dimExtra ? 'opacity-50' : ''}`}>
-                <div className="flex items-center gap-2">
-                  {/* Req 4: Full target classification label */}
-                  <span className={extended ? 'text-text-tertiary' : 'text-text-secondary'}>
-                    {t.label} – {targetType} Target
-                  </span>
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${
-                    extended
-                      ? 'bg-surface-elevated text-text-tertiary'
-                      : 'bg-primary/10 text-primary/70'
-                  }`}>
-                    {horizon}
-                  </span>
+              <div
+                key={i}
+                className={`rounded px-2 py-1.5 text-sm ${extended ? 'bg-surface-elevated/60' : ''} ${dimExtra ? 'opacity-50' : ''}`}
+              >
+                {/* Label row */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className={`truncate ${extended ? 'text-text-tertiary' : 'text-text-secondary'}`}>
+                      {sanitizedLabel}
+                    </span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded font-mono shrink-0 ${
+                      extended
+                        ? 'bg-surface-elevated text-text-tertiary'
+                        : 'bg-primary/10 text-primary/70'
+                    }`}>
+                      {horizon}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`font-medium ${extended ? 'text-success/60' : 'text-success'}`}>
+                      {formatCurrency(t.price)}
+                    </span>
+                    <span className="text-xs text-text-tertiary">Sell {t.sell_pct}%</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className={`font-medium ${extended ? 'text-success/60' : 'text-success'}`}>
-                    {formatCurrency(t.price)}
+                {/* Type + conditionality subrow */}
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[11px] text-text-tertiary">
+                    {targetType} Target
                   </span>
-                  <span className="text-xs text-text-tertiary">Sell {t.sell_pct}%</span>
+                  {conditionality && (
+                    <span className="text-[10px] text-text-tertiary/60 italic">
+                      — {conditionality}
+                    </span>
+                  )}
                 </div>
               </div>
             )
           })}
           {side.targets.some((t, i) => isExtendedTarget(t.label, i)) && (
             <p className="text-xs text-text-tertiary pt-1 leading-relaxed">
-              Scenario targets (muted) extend beyond the primary holding window — applicable only if the bull case materializes.
+              Regime Expansion targets (muted) extend beyond the primary holding window — conditional on thesis validation and favorable macro regime.
             </p>
           )}
         </div>
 
-        {/* Risk metrics */}
-        <div className="border-t border-surface-elevated pt-3 grid grid-cols-2 gap-2 text-xs">
-          <div>
-            <span className="text-text-tertiary block">Max Loss / 100 sh</span>
-            <span className="font-medium text-error">{formatCurrency(side.max_loss_per_100)}</span>
-          </div>
-          <div>
-            <span className="text-text-tertiary block">Max Gain / 100 sh</span>
-            <span className="font-medium text-success">{formatCurrency(side.max_gain_per_100)}</span>
+        {/* Risk metrics — presented symmetrically to reduce anchoring bias on upside */}
+        <div className="border-t border-surface-elevated pt-3">
+          <span className="text-[10px] text-text-tertiary/60 block mb-1.5 italic">
+            Modeled extreme outcomes — 100 share position at anchor price
+          </span>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <span className="text-text-tertiary block">Max Loss / 100 sh</span>
+              <span className="font-medium text-error">{formatCurrency(side.max_loss_per_100)}</span>
+              <span className="text-[10px] text-text-tertiary/60 block">Scenario Minimum</span>
+            </div>
+            <div>
+              <span className="text-text-tertiary block">Max Gain / 100 sh</span>
+              <span className="font-medium text-success">{formatCurrency(side.max_gain_per_100)}</span>
+              <span className="text-[10px] text-text-tertiary/60 block">Scenario Maximum</span>
+            </div>
           </div>
         </div>
       </div>
@@ -264,7 +380,7 @@ function SetupColumn({
   )
 }
 
-export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, rating }: TradeSetupProps) {
+export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, rating, currentPrice }: TradeSetupProps) {
   const stopQuality = strategy?.exit?.stop_quality
   const stopAlignmentNote = strategy?.exit?.stop_alignment_note
   const stopZone = strategy?.exit?.stop_zone
@@ -278,7 +394,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
 
   const stopStyle = stopQuality ? STOP_QUALITY_STYLES[stopQuality] : undefined
 
-  // Issue 2: Entry zone taxonomy — three distinct levels clarify the system
+  // Entry zone taxonomy — three distinct levels clarify the system
   const opportunityEnvelope = strategy?.entry?.ideal_zone
   const tacticalBand = entryZoneDisplay
 
@@ -289,7 +405,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
       </CardHeader>
       <CardContent className="space-y-4">
 
-        {/* P0: Entry below bear case disclosure */}
+        {/* Entry below bear case disclosure */}
         {entryBelowBear && belowBearJustification && (
           <div className={`p-3 rounded-md border text-xs leading-relaxed ${
             belowBearClassification === 'DISTRESSED_ENTRY' || belowBearClassification === 'CLAMPED'
@@ -310,7 +426,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
           </div>
         )}
 
-        {/* Issue 2: Entry zone taxonomy block — surfaces the three-level structure */}
+        {/* Entry zone taxonomy block — surfaces the three-level structure */}
         {(opportunityEnvelope || tacticalBand) && (
           <div className="p-3 rounded-md bg-surface-elevated border border-border text-xs space-y-2.5">
             <span className="font-semibold text-text-secondary block">Entry Zone Taxonomy</span>
@@ -318,7 +434,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
               <div className="flex items-center justify-between">
                 <div>
                   <span className="text-text-secondary font-medium">Opportunity Envelope</span>
-                  <span className="block text-text-tertiary">Broad range where thesis is valid</span>
+                  <span className="block text-text-tertiary">Broad range where structural thesis remains valid</span>
                 </div>
                 <span className="font-medium text-text-secondary font-mono">
                   ~${Math.round(opportunityEnvelope.low).toLocaleString()} – ~${Math.round(opportunityEnvelope.high).toLocaleString()}
@@ -337,8 +453,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             <div className="flex items-center justify-between">
               <div>
                 <span className="text-text-secondary font-medium">Execution Anchor</span>
-                {/* Req 5: Clarify modeled vs actionable */}
-                <span className="block text-text-tertiary">Modeled optimal entry, not guaranteed fill</span>
+                <span className="block text-text-tertiary">Modeled optimal entry — not a guaranteed fill</span>
               </div>
               <span className="font-medium text-text-secondary font-mono">
                 {formatAnchor(setup.conservative.entry)}
@@ -347,9 +462,8 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             {entryMethodology && (
               <p className="text-text-tertiary leading-relaxed pt-2 border-t border-border">{entryMethodology}</p>
             )}
-            {/* Req 5: Static clarification — prevents actionable misread when anchor ≠ current price */}
             <p className="text-[11px] text-text-tertiary/60 leading-relaxed pt-1.5 border-t border-border/50 italic">
-              Execution Anchor reflects modeled optimal entry. Current price may require scaling or pullback entry.
+              Execution Anchor reflects modeled optimal entry. Current price may require scaling or pullback positioning.
             </p>
           </div>
         )}
@@ -362,7 +476,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
           </div>
         )}
 
-        {/* P0: Stop quality badge + alignment note */}
+        {/* Stop quality badge + alignment note */}
         {stopQuality && (
           <div className={`p-3 rounded-md border text-xs ${stopStyle?.badge ?? 'bg-surface-elevated border-border'}`}>
             <div className="flex items-center gap-2 mb-1">
@@ -392,6 +506,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             signalBreakdown={signalBreakdown}
             rating={rating}
             holdingPeriod={strategy?.exit?.holding_period}
+            currentPrice={currentPrice}
           />
           <SetupColumn
             side={setup.aggressive}
@@ -399,6 +514,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             signalBreakdown={signalBreakdown}
             rating={rating}
             holdingPeriod={strategy?.exit?.holding_period}
+            currentPrice={currentPrice}
           />
         </div>
       </CardContent>
