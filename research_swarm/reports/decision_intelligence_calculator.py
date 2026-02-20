@@ -95,6 +95,10 @@ class DecisionIntelligenceCalculator:
         # --- New buyers guidance ---
         buyer_caveat = None
 
+        # C1: Buy limit validation — a buy limit for pullback entry must always be BELOW current price.
+        # If the computed entry_zone_low >= current_price (degenerate zone), fall back to 85% of current.
+        _buy_limit = entry_zone_low if entry_zone_low < current_price else round(current_price * 0.85, 2)
+
         if rating in ("SELL", "STRONG SELL"):
             buyer_action = "AVOID"
             buyer_urgency = "N/A"
@@ -108,7 +112,7 @@ class DecisionIntelligenceCalculator:
             buyer_detail = (
                 f"Significant discount ({discount_to_target_pct:.0f}%) to fair value. "
                 f"Enter at current ${current_price:.2f} (market order for immediate entry) or set a buy limit at "
-                f"${entry_zone_low:.2f} to get an even better entry if the stock dips further."
+                f"${_buy_limit:.2f} to get an even better entry if the stock dips further."
             )
         elif discount_to_target_pct >= 5 and conviction_level == "High":
             buyer_action = "BUY NOW"
@@ -123,7 +127,7 @@ class DecisionIntelligenceCalculator:
             buyer_detail = (
                 f"Near fair value — build position gradually. "
                 f"Start with 30% allocation, add on dips to "
-                f"${entry_zone_low:.2f}-${entry_zone_high:.2f}."
+                f"${_buy_limit:.2f}–${entry_zone_high:.2f}."
             )
         else:
             buyer_action = "WAIT"
@@ -131,7 +135,7 @@ class DecisionIntelligenceCalculator:
             buyer_detail = (
                 f"Trading {abs(discount_to_target_pct):.0f}% above fair value. "
                 f"Wait for pullback to ${entry_zone_high:.2f} (ideal entry zone). "
-                f"Set a buy limit at ${entry_zone_low:.2f} to automatically enter if price dips to attractive levels."
+                f"Set a buy limit at ${_buy_limit:.2f} to automatically enter if price dips to attractive levels."
             )
 
         # Divergence override: HIGH severity forces WAIT for new buyers
@@ -186,12 +190,20 @@ class DecisionIntelligenceCalculator:
         # Extract available levels with fallbacks
         base_target = price_targets.get("base_target", current_price * 1.15)
         bull_target = price_targets.get("bull_target", current_price * 1.30)
+        bear_target = price_targets.get("bear_target", current_price * 0.85)
+
+        # QA flags — collect every constraint violation or clamping event for admin review
+        qa_flags: list = []
 
         # Sanity gate: reject targets wildly out of range (broken valuation / stale cache data)
         if base_target > current_price * 3.0 or base_target < current_price * 0.20:
             logger.warning(
                 f"base_target ${base_target:.2f} is unreasonable vs current_price ${current_price:.2f} "
                 f"(ratio={base_target/current_price:.1f}x) — using percentage fallback"
+            )
+            qa_flags.append(
+                f"base_target ${base_target:.2f} outside 0.2x–3.0x range vs current ${current_price:.2f}; "
+                "recalculated to current_price × 1.15"
             )
             base_target = current_price * 1.15
             bull_target = current_price * 1.30  # reset bull too since it was derived from bad base
@@ -200,7 +212,25 @@ class DecisionIntelligenceCalculator:
                 f"bull_target ${bull_target:.2f} is unreasonable vs current_price ${current_price:.2f} "
                 f"— using percentage fallback"
             )
+            qa_flags.append(
+                f"bull_target ${bull_target:.2f} outside 0.25x–4.0x range vs current ${current_price:.2f}; "
+                "recalculated to current_price × 1.30"
+            )
             bull_target = current_price * 1.30
+
+        # H1: Enforce bear < base < bull fair value chain consistency
+        if bear_target >= base_target:
+            qa_flags.append(
+                f"Chain violation: bear_target (${bear_target:.2f}) >= base_target (${base_target:.2f}); "
+                "bear recalculated to base × 0.85"
+            )
+            bear_target = round(base_target * 0.85, 2)
+        if bull_target <= base_target:
+            qa_flags.append(
+                f"Chain violation: bull_target (${bull_target:.2f}) <= base_target (${base_target:.2f}); "
+                "bull recalculated to base × 1.15"
+            )
+            bull_target = round(base_target * 1.15, 2)
 
         tech_entry = technical_levels.get("entry")
         tech_stop = technical_levels.get("stop_loss")
@@ -261,6 +291,56 @@ class DecisionIntelligenceCalculator:
         # T3 must be above T2 (10% beyond T2)
         aggressive_t3 = aggressive_t2 * 1.10
 
+        _MIN_RISK_BUFFER = 0.05  # 5% minimum gap between entry and stop
+
+        # C2: Conservative setup — enforce minimum risk buffer
+        conservative_risk_pct = (
+            (conservative_entry - conservative_stop) / conservative_entry
+            if conservative_entry > 0 else 0.0
+        )
+        conservative_setup_unavailable: str | None = None
+        if conservative_risk_pct < _MIN_RISK_BUFFER and conservative_entry > 0:
+            enforced_stop = round(conservative_entry * (1 - _MIN_RISK_BUFFER), 2)
+            if enforced_stop < conservative_stop:
+                # Widen stop to meet minimum buffer
+                qa_flags.append(
+                    f"Conservative stop widened from ${conservative_stop:.2f} to ${enforced_stop:.2f} "
+                    f"to enforce {_MIN_RISK_BUFFER*100:.0f}% minimum risk buffer"
+                )
+                conservative_stop = enforced_stop
+                conservative_risk_pct = _MIN_RISK_BUFFER
+            else:
+                # Cannot satisfy minimum buffer — entry and stop are too close
+                conservative_setup_unavailable = (
+                    "Setup Unavailable — insufficient risk buffer. "
+                    f"Entry (${conservative_entry:.2f}) and stop (${conservative_stop:.2f}) "
+                    "are within 5% of each other; risk parameters do not support a valid setup."
+                )
+                qa_flags.append(f"Conservative setup unavailable: entry/stop collision (<5% buffer)")
+
+        # C2: Aggressive setup — enforce minimum risk buffer
+        aggressive_risk_pct = (
+            (aggressive_entry - aggressive_stop) / aggressive_entry
+            if aggressive_entry > 0 else 0.0
+        )
+        aggressive_setup_unavailable: str | None = None
+        if aggressive_risk_pct < _MIN_RISK_BUFFER and aggressive_entry > 0:
+            enforced_agg_stop = round(aggressive_entry * (1 - _MIN_RISK_BUFFER), 2)
+            if enforced_agg_stop < aggressive_stop:
+                qa_flags.append(
+                    f"Aggressive stop widened from ${aggressive_stop:.2f} to ${enforced_agg_stop:.2f} "
+                    f"to enforce {_MIN_RISK_BUFFER*100:.0f}% minimum risk buffer"
+                )
+                aggressive_stop = enforced_agg_stop
+                aggressive_risk_pct = _MIN_RISK_BUFFER
+            else:
+                aggressive_setup_unavailable = (
+                    "Setup Unavailable — insufficient risk buffer. "
+                    f"Entry (${aggressive_entry:.2f}) and stop (${aggressive_stop:.2f}) "
+                    "are within 5% of each other; risk parameters do not support a valid setup."
+                )
+                qa_flags.append(f"Aggressive setup unavailable: entry/stop collision (<5% buffer)")
+
         def per_100(entry, target):
             return round(abs(target - entry) * 100, 2)
 
@@ -271,7 +351,7 @@ class DecisionIntelligenceCalculator:
                 return round(gain / loss, 1)
             return 0.0
 
-        return {
+        result = {
             "conservative": {
                 "label": "Conservative (Recommended)",
                 "entry": round(conservative_entry, 2),
@@ -284,6 +364,7 @@ class DecisionIntelligenceCalculator:
                 "max_loss_per_100": per_100(conservative_entry, conservative_stop),
                 "max_gain_per_100": per_100(conservative_entry, conservative_t3),
                 "risk_reward": risk_reward(conservative_entry, conservative_stop, conservative_t2),
+                "setup_unavailable": conservative_setup_unavailable,
             },
             "aggressive": {
                 "label": "Aggressive (Higher risk)",
@@ -297,8 +378,11 @@ class DecisionIntelligenceCalculator:
                 "max_loss_per_100": per_100(aggressive_entry, aggressive_stop),
                 "max_gain_per_100": per_100(aggressive_entry, aggressive_t3),
                 "risk_reward": risk_reward(aggressive_entry, aggressive_stop, aggressive_t2),
+                "setup_unavailable": aggressive_setup_unavailable,
             },
+            "report_qa_flags": qa_flags,
         }
+        return result
 
     def detect_fund_tech_divergence(
         self,
@@ -526,9 +610,10 @@ class DecisionIntelligenceCalculator:
 
         # 3. Enhanced trade setup
         enhanced_trade_setup = None
+        report_qa_flags: list = []
         try:
             tech_levels = entry_exit.get("key_levels", {})
-            enhanced_trade_setup = self.calculate_enhanced_trade_setup(
+            _setup_result = self.calculate_enhanced_trade_setup(
                 current_price=current_price,
                 entry_strategy=entry_strategy,
                 exit_plan=exit_plan,
@@ -537,6 +622,10 @@ class DecisionIntelligenceCalculator:
                 volume_profile_data=volume_profile,
                 risk_level=risk_level,
             )
+            # Extract qa_flags before storing the trade setup
+            if _setup_result:
+                report_qa_flags = _setup_result.pop("report_qa_flags", [])
+                enhanced_trade_setup = _setup_result
         except Exception as e:
             logger.warning(f"Enhanced trade setup calculation failed: {e}")
 
@@ -558,6 +647,7 @@ class DecisionIntelligenceCalculator:
             "enhanced_trade_setup": enhanced_trade_setup,
             "fund_tech_divergence": fund_tech_divergence,
             "conviction_position": conviction_position,
+            "report_qa_flags": report_qa_flags,
         }
 
     # --- Private helpers ---

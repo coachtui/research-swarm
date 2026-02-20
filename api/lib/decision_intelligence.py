@@ -147,6 +147,7 @@ def enrich_with_decision_intelligence(
             "risk_level": risk_level,
             "current_price": current_price,
             "recommended_strategy": recommended_strategy,
+            "report_qa_flags": di_result.get("report_qa_flags", []),
         }
 
     except Exception as e:

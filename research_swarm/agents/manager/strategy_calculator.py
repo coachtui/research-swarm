@@ -349,7 +349,7 @@ class StrategyCalculator:
             stop_loss = round(bear_target * 0.97, 2)
             stop_quality = "ADJUSTED"
             stop_alignment_note = (
-                f"Stop adjusted to ${stop_loss:.2f} — original stop exceeded bear case "
+                f"Stop adjusted to ${stop_loss:.2f} (Bear Case Anchored) — original stop exceeded bear case "
                 f"(${bear_target:.2f}), which would trigger exit before the downside scenario "
                 "fully played out. Re-anchored 3% below bear case threshold."
             )
@@ -372,8 +372,9 @@ class StrategyCalculator:
                 stop_alignment_note = f"Stop derived from {stop_loss_pct}% risk-level rule."
 
         # P1: Stop provenance label
+        bear_case_label = " [Bear Case Anchored]" if stop_quality == "ADJUSTED" else ""
         stop_methodology = (
-            f"Stop derived from {risk_level.lower()} risk profile: {stop_loss_pct}% below entry price. "
+            f"Stop derived from {risk_level.lower()} risk profile: {stop_loss_pct}% below entry price{bear_case_label}. "
             "Rule: Low risk = 20% (wider tolerance), Medium = 15% (standard), High = 10% (tight). "
             f"Bear case constraint applied: stop ≤ ${bear_target:.2f}."
         )

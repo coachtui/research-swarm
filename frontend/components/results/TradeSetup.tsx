@@ -87,6 +87,27 @@ function inferTargetConditionality(
   return null
 }
 
+// H2: Weighted realized R/R using staged sell percentages.
+// Formula: Σ(target_gain_per_share × sell_fraction) / risk_per_share
+// Normalised by total sell fraction in case percentages don't add to 100.
+function getWeightedRealizedRR(
+  entry: number,
+  stopLoss: number,
+  targets: { price: number; sell_pct: number }[]
+): number | null {
+  const risk = entry - stopLoss
+  if (risk <= 0 || targets.length === 0) return null
+  const totalPct = targets.reduce((sum, t) => sum + t.sell_pct, 0)
+  if (totalPct === 0) return null
+  let weightedGain = 0
+  for (const t of targets) {
+    const gain = t.price - entry
+    weightedGain += gain * (t.sell_pct / totalPct)
+  }
+  if (weightedGain <= 0) return null
+  return Math.round((weightedGain / risk) * 10) / 10
+}
+
 // Time-normalized interpretation of the R/R ratio — purely informational.
 // Annualizes the modeled ratio to prevent conflating long-horizon asymmetry
 // with short-term trade expectancy. Not a new calculation engine.
@@ -224,8 +245,32 @@ function SetupColumn({
   // Informational time-normalized R/R — prevents conflating long-horizon ratio with short-term expectancy
   const annualizedRR = getAnnualizedRREq(side.risk_reward, holdingPeriod)
 
+  // H2: Weighted realized R/R using staged sell percentages (30/40/30 or 33/34/33)
+  const weightedRR = getWeightedRealizedRR(side.entry, side.stop_loss, side.targets)
+
   // Proximity warning based on current price relative to stop loss
   const proximityWarning = getProximityWarning(currentPrice, side.stop_loss, side.entry)
+
+  // C2: Setup unavailable state — show instead of normal setup when risk buffer is insufficient
+  const setupUnavailable = side.setup_unavailable
+
+  if (setupUnavailable) {
+    return (
+      <div className={`rounded-lg border ${borderColor} overflow-hidden`}>
+        <div className={`px-4 py-3 ${headerBg}`}>
+          <span className="text-sm font-semibold text-text-primary">
+            {side.label.replace('Recommended', 'Model-Optimal')}
+          </span>
+        </div>
+        <div className="p-4">
+          <div className="rounded-md bg-warning/10 border border-warning/30 p-3 text-xs text-warning leading-relaxed">
+            <span className="font-semibold block mb-1">Setup Unavailable — Insufficient Risk Buffer</span>
+            <span className="text-text-secondary">{setupUnavailable}</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={`rounded-lg border ${borderColor} overflow-hidden`}>
@@ -244,8 +289,8 @@ function SetupColumn({
           </Badge>
         </div>
 
-        {/* Row 2: Qualifier badge + time-normalized R/R */}
-        {(displayQualifier || annualizedRR) && (
+        {/* Row 2: Qualifier badge + time-normalized R/R + weighted R/R */}
+        {(displayQualifier || annualizedRR || weightedRR) && (
           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
             {displayQualifier && (
               <Badge variant="secondary" className="text-xs font-normal opacity-80">
@@ -255,6 +300,11 @@ function SetupColumn({
             {annualizedRR && (
               <span className="text-[10px] text-text-tertiary/70 italic">
                 Horizon-Normalized: {annualizedRR} ann. equiv.
+              </span>
+            )}
+            {weightedRR !== null && (
+              <span className="text-[10px] text-text-tertiary/70 italic">
+                · Weighted Realized: {weightedRR}:1
               </span>
             )}
           </div>
@@ -430,17 +480,29 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
         {(opportunityEnvelope || tacticalBand) && (
           <div className="p-3 rounded-md bg-surface-elevated border border-border text-xs space-y-2.5">
             <span className="font-semibold text-text-secondary block">Entry Zone Taxonomy</span>
-            {opportunityEnvelope && (
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-text-secondary font-medium">Opportunity Envelope</span>
-                  <span className="block text-text-tertiary">Broad range where structural thesis remains valid</span>
+            {opportunityEnvelope && (() => {
+              // C3: Always render low-to-high regardless of backend ordering
+              const envLow = Math.min(opportunityEnvelope.low, opportunityEnvelope.high)
+              const envHigh = Math.max(opportunityEnvelope.low, opportunityEnvelope.high)
+              // C3: Label when current price is below the opportunity envelope floor
+              const priceDeepDiscount = currentPrice !== undefined && currentPrice > 0 && currentPrice < envLow
+              return (
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-text-secondary font-medium">Opportunity Envelope</span>
+                    <span className="block text-text-tertiary">Broad range where structural thesis remains valid</span>
+                    {priceDeepDiscount && (
+                      <span className="block text-xs text-success mt-0.5">
+                        Current price below opportunity envelope — deep discount setup
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-medium text-text-secondary font-mono shrink-0">
+                    ~${Math.round(envLow).toLocaleString()} – ~${Math.round(envHigh).toLocaleString()}
+                  </span>
                 </div>
-                <span className="font-medium text-text-secondary font-mono">
-                  ~${Math.round(opportunityEnvelope.low).toLocaleString()} – ~${Math.round(opportunityEnvelope.high).toLocaleString()}
-                </span>
-              </div>
-            )}
+              )
+            })()}
             {tacticalBand && (
               <div className="flex items-center justify-between">
                 <div>

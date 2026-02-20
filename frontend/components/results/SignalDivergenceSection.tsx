@@ -125,7 +125,7 @@ function buildReconciliationStatement(breakdown: SignalBreakdown): string | null
     return 'Technical improvement is occurring under institutional distribution — price structure strengthens while smart money reduces exposure. This increases setup fragility.'
 
   if (hasBullishAnalyst && hasBearishInsider)
-    return 'Analysts are bullish while insiders are selling. Insiders operate with material non-public context that sell-side coverage does not reflect. This asymmetry historically resolves toward insider direction.'
+    return 'Analysts are bullish while insiders are selling. Insiders operate with material non-public context that sell-side coverage does not reflect. This pattern has historically tended to resolve toward insider direction in large-cap studies; outcomes vary significantly in small and mid-cap names.'
 
   if (hasBullishTech && hasBearishDarkPool)
     return 'Bullish price structure is forming amid elevated dark pool selling. Momentum may be technically valid but lacks institutional conviction.'
@@ -142,19 +142,19 @@ export function SignalDivergenceSection({
 }: SignalDivergenceSectionProps) {
   const [showExplainer, setShowExplainer] = useState(false)
 
-  const divergenceMagnitude = Math.max(...[
-    breakdown.news_score,
-    breakdown.earnings_score,
-    breakdown.analyst_score,
-    breakdown.institutional_score,
-    breakdown.insider_score,
-  ]) - Math.min(...[
-    breakdown.news_score,
-    breakdown.earnings_score,
-    breakdown.analyst_score,
-    breakdown.institutional_score,
-    breakdown.insider_score,
-  ])
+  // C5 + H3: Compute divergence magnitude using only signals that have confirmed data.
+  // Including no-data defaults (5.0) would artificially compress the spread.
+  const _scoredWithData = [
+    { score: breakdown.news_score, hasData: breakdown.news_has_data !== false },
+    { score: breakdown.earnings_score, hasData: breakdown.earnings_has_data !== false },
+    { score: breakdown.analyst_score, hasData: breakdown.analyst_has_data !== false },
+    { score: breakdown.institutional_score, hasData: breakdown.institutional_has_data !== false },
+    { score: breakdown.insider_score, hasData: breakdown.insider_has_data !== false },
+  ].filter(s => s.hasData).map(s => s.score)
+
+  const divergenceMagnitude = _scoredWithData.length >= 2
+    ? Math.max(..._scoredWithData) - Math.min(..._scoredWithData)
+    : 0
 
   const signals: SignalRow[] = [
     {
@@ -231,6 +231,15 @@ export function SignalDivergenceSection({
   const credibility = deriveCredibility(breakdown)
   const allHighCredibility = credibility.strength >= 7 && credibility.stability >= 7 && credibility.agreement >= 7
 
+  // C4: "Signals Aligned" badge requires Agreement ≥ 5.0 AND no individual signal score below 3.0.
+  // Prevents badge firing on weak or partial consensus.
+  const minDataScore = signals.filter(s => s.hasData).reduce(
+    (min, s) => Math.min(min, s.score), 10
+  )
+  const isFullyAligned = !hasDivergence && credibility.agreement >= 5.0 && minDataScore >= 3.0
+  const isPartiallyAligned = !hasDivergence && !isFullyAligned && credibility.agreement >= 3.0
+  // Anything else with hasDivergence shows the existing Divergence badge
+
   // Issue 5: Reconciliation statement
   const reconciliation = hasDivergence ? buildReconciliationStatement(breakdown) : null
 
@@ -245,8 +254,12 @@ export function SignalDivergenceSection({
             <Badge variant={severity === 'high' ? 'error' : 'warning'}>
               {severity === 'high' ? 'High' : 'Moderate'} Divergence
             </Badge>
-          ) : (
+          ) : isFullyAligned ? (
             <Badge variant="success">Signals Aligned</Badge>
+          ) : isPartiallyAligned ? (
+            <Badge variant="secondary">Partial Alignment</Badge>
+          ) : (
+            <Badge variant="warning">Signal Conflict</Badge>
           )}
           <button
             onClick={() => setShowExplainer(true)}
@@ -396,7 +409,7 @@ export function SignalDivergenceSection({
                   {divergenceMagnitude >= 4 && (
                     <p className="text-xs text-text-tertiary">
                       Divergence magnitude: {divergenceMagnitude.toFixed(1)} pts ·{' '}
-                      Historical pattern: 68% of similar conflicts resolve within 2–8 weeks in the direction of fundamentals.
+                      Model heuristic (not backtested): similar conflicts have historically tended to resolve within 2–8 weeks in the direction of fundamentals.
                     </p>
                   )}
                   {breakdown.divergence_recommendation && (
@@ -430,10 +443,16 @@ export function SignalDivergenceSection({
           )}
 
           {/* All-clear strip */}
-          {!hasDivergence && (
+          {isFullyAligned && (
             <div className="flex items-center gap-2 text-xs text-text-secondary pt-1">
               <CheckCircle className="h-3.5 w-3.5 text-success flex-shrink-0" />
               <span>{breakdown.alignment_status} · All signals confirm direction</span>
+            </div>
+          )}
+          {isPartiallyAligned && (
+            <div className="flex items-center gap-2 text-xs text-text-secondary pt-1">
+              <Info className="h-3.5 w-3.5 text-text-tertiary flex-shrink-0" />
+              <span>{breakdown.alignment_status} · Directional agreement is partial — monitor for confirmation</span>
             </div>
           )}
         </CardContent>

@@ -262,6 +262,8 @@ export interface DecisionIntelligence {
   risk_level: string | null
   current_price: number
   recommended_strategy: RecommendedStrategy | null
+  /** QA flags: constraint violations and clamping events logged during calculation */
+  report_qa_flags?: string[]
 }
 
 export interface DecisionFramework {
@@ -293,6 +295,8 @@ export interface TradeSetupSide {
   max_loss_per_100: number
   max_gain_per_100: number
   risk_reward: number
+  /** C2: Set when entry/stop are too close to form a valid risk buffer (< 5% gap) */
+  setup_unavailable?: string | null
 }
 
 export interface EnhancedTradeSetup {
