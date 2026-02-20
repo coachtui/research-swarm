@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency } from '@/lib/utils/formatting'
-import type { EnhancedTradeSetup, TradeSetupSide, RecommendedStrategy, SignalBreakdown } from '@/types/api'
+import type { EnhancedTradeSetup, TradeSetupSide, RecommendedStrategy, SignalBreakdown, FairValueCalibration } from '@/types/api'
 
 interface TradeSetupProps {
   setup: EnhancedTradeSetup
@@ -10,6 +10,19 @@ interface TradeSetupProps {
   signalBreakdown?: SignalBreakdown | null
   rating?: string | null
   currentPrice?: number
+  calibration?: FairValueCalibration | null
+  financialHealthScore?: number
+}
+
+function detectStructuralPremium(
+  calibration: FairValueCalibration | null | undefined,
+  currentPrice: number | undefined,
+  financialHealthScore: number | undefined
+): boolean {
+  if (!calibration || !currentPrice || financialHealthScore == null) return false
+  const fv = calibration.internal_fair_value
+  if (!fv || fv <= 0) return false
+  return (currentPrice - fv) / fv > 0.5 && calibration.regime === 'Growth' && financialHealthScore > 7.0
 }
 
 const STOP_QUALITY_STYLES: Record<string, { badge: string; note: string }> = {
@@ -229,6 +242,8 @@ function SetupColumn({
   rating,
   holdingPeriod,
   currentPrice,
+  isDeepEntry,
+  structuralFairValue,
 }: {
   side: TradeSetupSide
   variant: 'conservative' | 'aggressive'
@@ -236,6 +251,8 @@ function SetupColumn({
   rating?: string | null
   holdingPeriod?: string | null
   currentPrice?: number
+  isDeepEntry?: boolean
+  structuralFairValue?: number | null
 }) {
   const borderColor = variant === 'conservative' ? 'border-success/30' : 'border-warning/30'
   const headerBg = variant === 'conservative' ? 'bg-success/5' : 'bg-warning/5'
@@ -297,14 +314,41 @@ function SetupColumn({
     )
   }
 
+  // Fix 5: all primary targets above structural FV → targets are in market regime, not anchored to FV
+  const allTargetsAboveStructuralFV =
+    structuralFairValue != null &&
+    structuralFairValue > 0 &&
+    side.targets.length > 0 &&
+    side.targets.every(t => t.price > structuralFairValue)
+
   return (
     <div className={`rounded-lg border ${borderColor} overflow-hidden`}>
+      {/* Fix 4: Deep Value Entry warning — shown when entry is far below current market price */}
+      {isDeepEntry && (
+        <div className="px-4 pt-3 pb-0">
+          <div className="rounded-md bg-warning/8 border border-warning/25 p-2.5 text-xs leading-relaxed">
+            <span className="font-semibold text-warning block mb-0.5">
+              Deep Value Entry — Structural Reversion Scenario
+            </span>
+            <span className="text-text-tertiary">
+              This setup anchors to the structural value zone ({formatAnchor(side.entry)}), which is{' '}
+              {currentPrice ? Math.round(((currentPrice - side.entry) / currentPrice) * 100) : '—'}%
+              below current market price. Not actionable at current levels — only becomes relevant
+              during a significant market dislocation. See the aggressive setup for the
+              regime-anchored position.
+            </span>
+          </div>
+        </div>
+      )}
       {/* Header */}
-      <div className={`px-4 py-3 ${headerBg}`}>
+      <div className={`px-4 py-3 ${headerBg} ${isDeepEntry ? 'mt-2' : ''}`}>
         {/* Row 1: Label + R/R badge on same line */}
         <div className="flex items-start justify-between gap-2">
-          <span className="text-sm font-semibold text-text-primary leading-tight">
-            {side.label.replace('Recommended', 'Model-Optimal')}
+          <span className={`text-sm font-semibold leading-tight ${isDeepEntry ? 'text-text-tertiary' : 'text-text-primary'}`}>
+            {isDeepEntry
+              ? side.label.replace('Recommended', 'Model-Optimal').replace('Conservative', 'Reversion')
+              : side.label.replace('Recommended', 'Model-Optimal')
+            }
           </span>
           <Badge
             variant={rrVariant}
@@ -430,6 +474,12 @@ function SetupColumn({
               Regime Expansion targets (muted) extend beyond the primary holding window — conditional on thesis validation and favorable macro regime.
             </p>
           )}
+          {/* Fix 5: Coherence label when targets operate in market pricing regime, not structural FV zone */}
+          {allTargetsAboveStructuralFV && (
+            <p className="text-[10px] text-text-tertiary/70 pt-1 italic leading-relaxed">
+              Targets reflect current market pricing path — not anchored to structural fair value.
+            </p>
+          )}
         </div>
 
         {/* Outcome distribution bounds — primary window gain is the headline figure.
@@ -480,7 +530,7 @@ function SetupColumn({
   )
 }
 
-export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, rating, currentPrice }: TradeSetupProps) {
+export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, rating, currentPrice, calibration, financialHealthScore }: TradeSetupProps) {
   const stopQuality = strategy?.exit?.stop_quality
   const stopAlignmentNote = strategy?.exit?.stop_alignment_note
   const stopZone = strategy?.exit?.stop_zone
@@ -497,6 +547,16 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
   // Entry zone taxonomy — three distinct levels clarify the system
   const opportunityEnvelope = strategy?.entry?.ideal_zone
   const tacticalBand = entryZoneDisplay
+
+  // Structural Premium Regime detection (Fix 2, 4, 5)
+  const isStructuralPremium = detectStructuralPremium(calibration, currentPrice, financialHealthScore)
+  const structuralFV = calibration?.internal_fair_value ?? null
+  // Fix 4: conservative entry anchored to structural zone far below current price
+  const isDeepConservativeEntry =
+    isStructuralPremium &&
+    currentPrice != null &&
+    currentPrice > 0 &&
+    setup.conservative.entry < currentPrice * 0.65
 
   return (
     <Card>
@@ -639,6 +699,15 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
           </div>
         )}
 
+        {/* Fix 2: Structural Premium Regime context callout beneath the key price zones block */}
+        {isStructuralPremium && (
+          <p className="text-[11px] text-text-tertiary/70 leading-relaxed italic px-0.5">
+            Structural Value Zone represents long-term mean-reversion basis. Current price reflects
+            market-assigned growth premium. Tactical targets and stops operate within the current
+            market pricing regime, not the structural zone.
+          </p>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <SetupColumn
             side={setup.conservative}
@@ -647,6 +716,8 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             rating={rating}
             holdingPeriod={strategy?.exit?.holding_period}
             currentPrice={currentPrice}
+            isDeepEntry={isDeepConservativeEntry}
+            structuralFairValue={structuralFV}
           />
           <SetupColumn
             side={setup.aggressive}
@@ -655,6 +726,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             rating={rating}
             holdingPeriod={strategy?.exit?.holding_period}
             currentPrice={currentPrice}
+            structuralFairValue={structuralFV}
           />
         </div>
       </CardContent>

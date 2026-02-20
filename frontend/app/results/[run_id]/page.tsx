@@ -284,6 +284,8 @@ function ResultsContent({ runId }: { runId: string }) {
         {full_output?.fair_value_calibration && (
           <FairValueRegimeCheck
             calibration={full_output.fair_value_calibration}
+            currentPrice={decision_intelligence?.current_price}
+            financialHealthScore={moat_breakdown?.financial_health}
           />
         )}
 
@@ -298,6 +300,10 @@ function ResultsContent({ runId }: { runId: string }) {
             upgradeTriggers={upgrade_triggers}
             downgradeTriggers={downgrade_triggers}
             signalBreakdown={signal_breakdown}
+            valuationScore={moat_breakdown?.valuation}
+            calibration={full_output.fair_value_calibration}
+            currentPrice={decision_intelligence?.current_price}
+            financialHealthScore={moat_breakdown?.financial_health}
           />
         )}
 
@@ -317,6 +323,7 @@ function ResultsContent({ runId }: { runId: string }) {
             enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
             strategy={decision_intelligence.recommended_strategy}
             signalBreakdown={signal_breakdown}
+            calibration={full_output.fair_value_calibration}
           />
         )}
 

@@ -1,5 +1,5 @@
 import { Card, CardContent } from '@/components/ui/card'
-import type { InvestmentThesisStructured, SignalBreakdown, TriggerItem } from '@/types/api'
+import type { InvestmentThesisStructured, SignalBreakdown, TriggerItem, FairValueCalibration } from '@/types/api'
 import { MarketRegimeOverlay } from './MarketRegimeOverlay'
 
 interface AnalystVerdictProps {
@@ -7,6 +7,21 @@ interface AnalystVerdictProps {
   upgradeTriggers?: TriggerItem[] | null
   downgradeTriggers?: TriggerItem[] | null
   signalBreakdown?: SignalBreakdown | null
+  valuationScore?: number | null
+  calibration?: FairValueCalibration | null
+  currentPrice?: number
+  financialHealthScore?: number
+}
+
+function detectStructuralPremium(
+  calibration: FairValueCalibration | null | undefined,
+  currentPrice: number | undefined,
+  financialHealthScore: number | undefined
+): boolean {
+  if (!calibration || !currentPrice || financialHealthScore == null) return false
+  const fv = calibration.internal_fair_value
+  if (!fv || fv <= 0) return false
+  return (currentPrice - fv) / fv > 0.5 && calibration.regime === 'Growth' && financialHealthScore > 7.0
 }
 
 /** Heuristic confidence score (0–100) derived from existing backend signal fields. */
@@ -44,10 +59,12 @@ function ConfidencePill({ pct }: { pct: number }) {
   )
 }
 
-export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, signalBreakdown }: AnalystVerdictProps) {
+export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, signalBreakdown, valuationScore, calibration, currentPrice, financialHealthScore }: AnalystVerdictProps) {
   const hasStructuredThesis = typeof thesis !== 'string'
   const hasTriggers = (upgradeTriggers?.length ?? 0) > 0 || (downgradeTriggers?.length ?? 0) > 0
   const confidence = signalBreakdown ? computeModelConfidence(signalBreakdown) : null
+  const isStructuralPremium = detectStructuralPremium(calibration, currentPrice, financialHealthScore)
+  const showValuationReframe = isStructuralPremium && valuationScore != null && valuationScore < 5.0
 
   return (
     <Card className="border border-border-subtle shadow-sm">
@@ -106,6 +123,17 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
               <p className="text-text-secondary text-sm leading-relaxed">
                 {(thesis as InvestmentThesisStructured).valuation_signal_analysis}
               </p>
+              {/* Fix 6: Reframe low valuation score for Structural Premium Regime stocks */}
+              {showValuationReframe && (
+                <div className="mt-3 rounded-md p-3 bg-primary/5 border border-primary/15 text-xs text-text-tertiary leading-relaxed">
+                  <span className="font-medium text-text-secondary">Valuation Context: </span>
+                  A valuation score of {valuationScore!.toFixed(1)} reflects a stock priced for continued
+                  exceptional execution — not a signal that the stock should trade lower imminently.
+                  The margin of safety is narrow and the cost of disappointment is elevated, but this
+                  is characteristic of high-quality businesses operating in a sustained growth regime.
+                  The structural anchor, not the valuation score, defines the mean-reversion risk.
+                </div>
+              )}
             </div>
 
             {/* Key Risks */}
