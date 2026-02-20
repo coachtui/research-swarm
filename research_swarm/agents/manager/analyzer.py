@@ -264,13 +264,24 @@ class ManagerAnalyzer:
             return synthesis, tokens_used
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse synthesis JSON: {e}")
-            logger.debug(f"Response: {response_text[:500]}")
-            return {
-                "synthesis_narrative": "Error: Failed to generate synthesis narrative. The analysis pipeline encountered a JSON parsing error and could not produce a complete synthesis. Please retry the analysis.",
-                "key_insights": ["Error parsing synthesis — retry required", "Analysis pipeline failed to generate insights", "Please rerun the analysis for this ticker"],
-                "risk_factors": ["Analysis pipeline error — results unreliable", "Synthesis generation failed", "Retry required before making investment decisions"],
-            }, 0
+            logger.warning(f"Synthesis JSON parse failed on first attempt, retrying: {e}")
+            logger.debug(f"Bad response: {response_text[:500]}")
+            try:
+                retry_prompt = prompt + "\n\nCRITICAL: Your previous response could not be parsed as JSON. You MUST respond with ONLY a valid JSON object. No preamble, no explanation, no markdown code blocks, no extra text. Start your response with { and end with }."
+                retry_response = self.sonnet.invoke(retry_prompt)
+                retry_text = retry_response.content.strip()
+                retry_tokens = extract_token_usage(retry_response.response_metadata)
+                json_text = self._extract_json(retry_text)
+                synthesis = json.loads(json_text)
+                logger.success(f"✓ Synthesized findings for {ticker} (retry succeeded)")
+                return synthesis, tokens_used + retry_tokens
+            except Exception as retry_e:
+                logger.error(f"Synthesis retry also failed: {retry_e}")
+                return {
+                    "synthesis_narrative": "Error: Failed to generate synthesis narrative. The analysis pipeline encountered a JSON parsing error and could not produce a complete synthesis. Please retry the analysis.",
+                    "key_insights": ["Error parsing synthesis — retry required", "Analysis pipeline failed to generate insights", "Please rerun the analysis for this ticker"],
+                    "risk_factors": ["Analysis pipeline error — results unreliable", "Synthesis generation failed", "Retry required before making investment decisions"],
+                }, 0
 
         except Exception as e:
             logger.error(f"Error synthesizing findings: {e}")
