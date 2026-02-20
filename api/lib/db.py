@@ -115,6 +115,63 @@ async def create_test_user(email: str = "test@example.com", full_name: str = "Te
         "created": True
     }
 
+async def create_pending_run(user_id: str, ticker: str, news_days_back: int = 30) -> str:
+    """
+    Create a Run record with status 'running' and return its ID immediately.
+    Used by the background task pattern so the API can return a run_id before
+    the analysis completes.
+    """
+    db = await get_db()
+    run = await db.run.create(
+        data={
+            "userId": user_id,
+            "tickers": [ticker],
+            "status": "running",
+            "totalStocks": 1,
+            "completedCount": 0,
+            "failedCount": 0,
+            "progressPercent": 0.0,
+            "newsDaysBack": news_days_back,
+            "quarters": [],
+        }
+    )
+    return run.id
+
+
+async def update_run_failed(run_id: str, error_message: str) -> None:
+    """Mark a Run as failed with an error message."""
+    from datetime import datetime
+    global _db_client
+    # Force fresh connection — this is called after a long analysis
+    if _db_client:
+        try:
+            await _db_client.disconnect()
+        except Exception:
+            pass
+    _db_client = None
+    db = await get_db()
+    await db.run.update(
+        where={"id": run_id},
+        data={
+            "status": "failed",
+            "completedAt": datetime.utcnow(),
+            "progressPercent": 100.0,
+            "failedCount": 1,
+        }
+    )
+    # Create a minimal failed StockResult so the results page can show the error
+    run = await db.run.find_unique(where={"id": run_id})
+    ticker = run.tickers[0] if run and run.tickers else "UNKNOWN"
+    await db.stockresult.create(
+        data={
+            "runId": run_id,
+            "ticker": ticker,
+            "status": "failed",
+            "errorMessage": error_message,
+        }
+    )
+
+
 async def save_analysis_result(
     user_id: str,
     ticker: str,
@@ -158,23 +215,38 @@ async def save_analysis_result(
                 print(f"⚠️  Retry {attempt}/{max_retries}: Re-attempting save...")
                 # Connection is already fresh, just retry the operation
 
-            # Create or get run
+            # Create or update run
+            final_status = "completed" if result['status'] == 'completed' else "failed"
             if run_id is None:
                 run = await db.run.create(
                     data={
                         "userId": user_id,
                         "tickers": [ticker],
-                        "status": "completed" if result['status'] == 'completed' else "failed",
+                        "status": final_status,
                         "totalStocks": 1,
                         "completedCount": 1 if result['status'] == 'completed' else 0,
                         "failedCount": 0 if result['status'] == 'completed' else 1,
                         "progressPercent": 100.0,
                         "totalCostUsd": result.get('cost_usd', 0.0),
-                        "quarters": [],  # Will be populated from result
+                        "quarters": [],
                         "newsDaysBack": 30
                     }
                 )
                 run_id = run.id
+            else:
+                # Update the pre-existing "running" run to completed/failed
+                from datetime import datetime
+                await db.run.update(
+                    where={"id": run_id},
+                    data={
+                        "status": final_status,
+                        "completedAt": datetime.utcnow(),
+                        "progressPercent": 100.0,
+                        "completedCount": 1 if result['status'] == 'completed' else 0,
+                        "failedCount": 0 if result['status'] == 'completed' else 1,
+                        "totalCostUsd": result.get('cost_usd', 0.0),
+                    }
+                )
 
             # Create stock result (excluding supply chain per user request)
             # Serialize full_output to JSON if it exists
