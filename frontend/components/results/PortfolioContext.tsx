@@ -95,15 +95,40 @@ export function PortfolioContext({
   const qualityLevel = financialHealthScore >= 8.0 ? 'high' : financialHealthScore >= 6.0 ? 'medium' : 'low'
 
   // Fix 6: Signal-conflict override for position sizing language.
-  // When Smart Money (institutional) score is low AND signal spread is high AND rating is HOLD/WAIT,
-  // the quality-based copy would contradict active institutional distribution signals.
-  // Override with a combined assessment that acknowledges both the fundamental quality AND the conflict.
+  // Trigger conditions (all three must be true):
+  //   1. Smart Money composite (avg of institutional + insider + dark_pool) < 3.5
+  //   2. Smart Money vs Public divergence magnitude > 4.0 pts
+  //      (public composite = avg of news + earnings + analyst + tech_divergence)
+  //   3. Rating is HOLD or WAIT
   const institutionalScore = signalBreakdown?.institutional_score ?? null
-  const signalSpread = signalBreakdown?.signal_spread ?? null
+  const insiderScore = signalBreakdown?.insider_score ?? null
+  const darkPoolScore = signalBreakdown?.dark_pool_score ?? null
   const ratingIsHoldOrWait = rating === 'HOLD' || rating === 'WAIT'
+
+  const smartMoneyScoresAvailable =
+    institutionalScore != null && insiderScore != null && darkPoolScore != null
+  const smartMoneyComposite = smartMoneyScoresAvailable
+    ? (institutionalScore! + insiderScore! + darkPoolScore!) / 3
+    : null
+
+  const newsScore = signalBreakdown?.news_score ?? null
+  const earningsScore = signalBreakdown?.earnings_score ?? null
+  const analystScore = signalBreakdown?.analyst_score ?? null
+  const techScore = signalBreakdown?.tech_divergence_score ?? null
+  const publicScoresAvailable =
+    newsScore != null && earningsScore != null && analystScore != null && techScore != null
+  const publicComposite = publicScoresAvailable
+    ? (newsScore! + earningsScore! + analystScore! + techScore!) / 4
+    : null
+
+  const divergenceMagnitude =
+    smartMoneyComposite != null && publicComposite != null
+      ? Math.abs(smartMoneyComposite - publicComposite)
+      : null
+
   const hasSignalConflict = Boolean(
-    institutionalScore != null && institutionalScore < 3.0 &&
-    signalSpread != null && signalSpread > 5.0 &&
+    smartMoneyComposite != null && smartMoneyComposite < 3.5 &&
+    divergenceMagnitude != null && divergenceMagnitude > 4.0 &&
     ratingIsHoldOrWait
   )
 
@@ -214,9 +239,11 @@ export function PortfolioContext({
                   <li className="flex gap-2">
                     <span className="text-warning">⚠</span>
                     <span>
-                      Fundamental quality supports long-term core holding thesis, but active institutional
-                      distribution signals warrant satellite sizing until smart money flows stabilize.
-                      Reduce to core position only on confirmation of institutional re-accumulation.
+                      Fundamental quality supports long-term thesis, but active smart money distribution
+                      signals (Institutional: {institutionalScore!.toFixed(1)}, Insider: {insiderScore!.toFixed(1)}, Dark
+                      Pool: {darkPoolScore!.toFixed(1)}) indicate large holders are reducing exposure. Size as
+                      satellite position until institutional flows stabilize — do not treat as core holding
+                      at current signal levels.
                     </span>
                   </li>
                 ) : qualityLevel === 'high' ? (
