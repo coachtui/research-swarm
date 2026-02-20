@@ -1,5 +1,23 @@
 import type { TakeawayItem } from '@/components/results/KeyTakeaways'
 
+// Substrings present in backend error fallback strings — checked against raw strings
+// before any transformation. Specific enough to avoid false positives (e.g. "analysis
+// pipeline" not just "pipeline"). No dependency on exact dash character encoding.
+const RAW_ERROR_PATTERNS = [
+  'error parsing synthesis',
+  'analysis pipeline failed',
+  'please rerun the analysis',
+  'error in synthesis',
+  'analysis pipeline error',
+  'synthesis generation failed',
+  'retry required before making investment',
+]
+
+function isRawErrorString(text: string): boolean {
+  const lower = text.toLowerCase()
+  return RAW_ERROR_PATTERNS.some(p => lower.includes(p))
+}
+
 /**
  * Transforms verbose key insights and risk factors into simplified,
  * scannable bullet points with headline/context/metric structure.
@@ -8,8 +26,14 @@ export function simplifyKeyInsights(
   rawInsights: string[],
   rawRisks: string[]
 ): { strengths: TakeawayItem[]; concerns: TakeawayItem[] } {
-  const strengths = rawInsights.slice(0, 5).map((insight) => transformToSimpleBullet(insight, 'strength'))
-  const concerns = rawRisks.slice(0, 5).map((risk) => transformToSimpleBullet(risk, 'concern'))
+  const strengths = rawInsights
+    .filter(s => !isRawErrorString(s))
+    .slice(0, 5)
+    .map((insight) => transformToSimpleBullet(insight, 'strength'))
+  const concerns = rawRisks
+    .filter(r => !isRawErrorString(r))
+    .slice(0, 5)
+    .map((risk) => transformToSimpleBullet(risk, 'concern'))
 
   return { strengths, concerns }
 }
