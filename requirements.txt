@@ -25,6 +25,7 @@ stripe>=8.0.0
 # Utilities
 loguru==0.7.2
 python-dateutil==2.8.2
+json-repair>=0.30.0
 
 # Quant Agent
 yfinance>=0.2.31

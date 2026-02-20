@@ -252,27 +252,30 @@ class ManagerAnalyzer:
         )
 
         try:
-            response = self.sonnet.invoke(prompt)
+            response = self.sonnet.invoke(prompt, config={"max_tokens": 8192})
             response_text = response.content.strip()
             tokens_used = extract_token_usage(response.response_metadata)
 
-            # Extract JSON from response
-            json_text = self._extract_json(response_text)
-            synthesis = json.loads(json_text)
+            synthesis = self._parse_json_with_repair(response_text)
 
             logger.success(f"✓ Synthesized findings for {ticker}")
             return synthesis, tokens_used
 
         except json.JSONDecodeError as e:
-            logger.warning(f"Synthesis JSON parse failed on first attempt, retrying: {e}")
-            logger.debug(f"Bad response: {response_text[:500]}")
+            logger.warning(f"Synthesis JSON parse failed (including repair attempt), retrying with LLM: {e}")
+            logger.debug(f"Bad response (first 500 chars): {response_text[:500]}")
             try:
-                retry_prompt = prompt + "\n\nCRITICAL: Your previous response could not be parsed as JSON. You MUST respond with ONLY a valid JSON object. No preamble, no explanation, no markdown code blocks, no extra text. Start your response with { and end with }."
-                retry_response = self.sonnet.invoke(retry_prompt)
+                retry_prompt = (
+                    "You are a JSON generator. Output ONLY a valid JSON object with NO other text.\n\n"
+                    "The following synthesis data needs to be formatted as JSON:\n\n"
+                    + prompt
+                    + "\n\nCRITICAL: Return ONLY the JSON object. Start with { and end with }. "
+                    "All string values must use \\n for line breaks — never use actual newlines inside strings."
+                )
+                retry_response = self.sonnet.invoke(retry_prompt, config={"max_tokens": 8192})
                 retry_text = retry_response.content.strip()
                 retry_tokens = extract_token_usage(retry_response.response_metadata)
-                json_text = self._extract_json(retry_text)
-                synthesis = json.loads(json_text)
+                synthesis = self._parse_json_with_repair(retry_text)
                 logger.success(f"✓ Synthesized findings for {ticker} (retry succeeded)")
                 return synthesis, tokens_used + retry_tokens
             except Exception as retry_e:
@@ -444,13 +447,11 @@ class ManagerAnalyzer:
         )
 
         try:
-            response = self.sonnet.invoke(prompt)
+            response = self.sonnet.invoke(prompt, config={"max_tokens": 4096})
             response_text = response.content.strip()
             tokens_used = extract_token_usage(response.response_metadata)
 
-            # Extract JSON from response
-            json_text = self._extract_json(response_text)
-            thesis = json.loads(json_text)
+            thesis = self._parse_json_with_repair(response_text)
 
             logger.success(f"✓ Generated investment thesis for {ticker}")
             return thesis, tokens_used
@@ -512,6 +513,34 @@ class ManagerAnalyzer:
 
         # Last resort: return as-is and let json.loads fail with useful error
         return text
+
+    def _parse_json_with_repair(self, text: str) -> dict:
+        """
+        Parse JSON from LLM response with automatic repair fallback.
+
+        Tries json.loads first, then falls back to json_repair for common
+        LLM JSON issues (missing commas, unescaped newlines, trailing commas).
+        """
+        json_text = self._extract_json(text)
+
+        # First try: standard json.loads
+        try:
+            return json.loads(json_text)
+        except json.JSONDecodeError:
+            pass
+
+        # Second try: json_repair (handles missing commas, unescaped chars, etc.)
+        try:
+            from json_repair import repair_json
+            repaired = repair_json(json_text, return_objects=True)
+            if isinstance(repaired, dict) and repaired:
+                logger.warning("JSON repaired successfully using json_repair")
+                return repaired
+        except Exception:
+            pass
+
+        # Re-raise by attempting standard parse again (produces the original error)
+        return json.loads(json_text)
 
     def _format_fundamentalist_summary(self, output: Dict[str, Any]) -> str:
         """Format fundamentalist output for prompt."""
