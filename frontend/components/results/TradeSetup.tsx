@@ -59,14 +59,17 @@ function inferTargetType(label: string, index: number): string {
   return 'Thesis'
 }
 
-// Replace informal target parentheticals with institutional-grade equivalents.
+// Normalize any legacy target label formats to the current scenario taxonomy.
+// New labels (T1/T2/T3 with scenario names) pass through unchanged.
 // No numerical values are altered — this is label normalization only.
 function sanitizeTargetLabel(label: string): string {
   return label
-    .replace(/\(bull case\)/gi, '(Conditional Upside)')
-    .replace(/\(stretch\)/gi, '(Low-Probability)')
-    .replace(/\(near.?term\)/gi, '(Near-Term)')
-    .replace(/\(base case\)/gi, '(Base Case)')
+    // Legacy formats → current scenario names
+    .replace(/\(bull case\)/gi, '(Re-rating Scenario)')
+    .replace(/\(stretch\)/gi, '(Regime Expansion Scenario)')
+    .replace(/\(near.?term\)/gi, '(Continuation Scenario)')
+    .replace(/\(base case\)/gi, '(Continuation Scenario)')
+    // Current format (T1/T2/T3 — Scenario Name) passes through unchanged
 }
 
 // Qualitative conditionality tag per target — expectation management without
@@ -78,10 +81,10 @@ function inferTargetConditionality(
   variant: 'conservative' | 'aggressive'
 ): string | null {
   const l = label.toLowerCase()
-  // Extended targets are always conditional on regime / thesis validation
-  if (l.includes('bull') || l.includes('stretch') || index >= 2) return 'Conditional Scenario'
-  // Aggressive T2 requires multiple expansion beyond current consensus
-  if (index === 1 && variant === 'aggressive') return 'Requires Multiple Expansion'
+  // T3 (Regime Expansion) and legacy "bull"/"stretch" labels are conditional on regime / thesis validation
+  if (l.includes('regime expansion') || l.includes('bull') || l.includes('stretch') || index >= 2) return 'Conditional Scenario'
+  // Re-rating Scenario (T2 aggressive) requires multiple expansion beyond current consensus
+  if ((l.includes('re-rating') || index === 1) && variant === 'aggressive') return 'Requires Multiple Expansion'
   // T1 under HOLD depends on divergence resolving in favor of the thesis
   if (index === 0 && rating === 'HOLD') return 'Dependent on Thesis Resolution'
   return null
@@ -466,10 +469,10 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
               <span className="font-bold">
                 {belowBearClassification === 'DISTRESSED_ENTRY' ? 'Distressed Entry Zone' :
                  belowBearClassification === 'CLAMPED' ? 'Entry Clamped' :
-                 'Entry Below Bear Case'}
+                 'Entry Below Risk Scenario Floor'}
               </span>
               {entryBelowBearPct !== undefined && entryBelowBearPct > 0 && (
-                <span className="font-normal opacity-80">({entryBelowBearPct.toFixed(1)}% below bear)</span>
+                <span className="font-normal opacity-80">({entryBelowBearPct.toFixed(1)}% below Risk Scenario)</span>
               )}
             </div>
             <p className="text-text-secondary">{belowBearJustification}</p>

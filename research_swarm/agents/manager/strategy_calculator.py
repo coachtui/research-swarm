@@ -115,38 +115,53 @@ class StrategyCalculator:
             below_bear_classification = "ABOVE_BEAR"
 
         if discount_pct >= 15:
-            recommendation = "Price Below Intrinsic Value Band — Risk/Reward Favorable"
+            recommendation = "Price Below Intrinsic Value Band — Execution Discount Zone Active"
             entry_methodology = (
-                f"Entry zone derived from intrinsic value discount band. "
+                f"Execution Discount Zone derived from Intrinsic Value Estimate discount band. "
                 f"Current price is {discount_pct:.1f}% below base-case fair value — "
-                "risk/reward meets minimum threshold. Zone anchored at ±3% around current price."
+                "risk/reward meets minimum threshold; zone anchored at ±3% around current price. "
+                "The Execution Discount Zone sits below the Intrinsic Value Estimate to capture a "
+                "margin of safety beyond pure fundamental value, reflecting model uncertainty and "
+                "short-term price volatility that can temporarily depress prices below economic worth."
             )
         elif discount_pct >= 5:
-            recommendation = "Price Approaching Intrinsic Value Zone — Moderate Discount"
+            recommendation = "Price Approaching Intrinsic Value Zone — Execution Discount Zone Near"
             entry_methodology = (
-                f"Entry zone derived from bear-to-base range. "
-                f"Current price is {discount_pct:.1f}% below base case (${base_target:.2f}). "
-                f"Ideal entry: bear scenario (${bear_target:.2f}) to base ×95%."
+                f"Execution Discount Zone derived from bear-to-base intrinsic value range. "
+                f"Current price is {discount_pct:.1f}% below Intrinsic Value Estimate (${base_target:.2f}). "
+                f"Ideal zone: bear scenario (${bear_target:.2f}) to base ×95%. "
+                "Optimal entry is anchored below the intrinsic midpoint: price momentum and short-term "
+                "supply/demand dynamics can create temporary dislocations below fundamental value, and "
+                "the Execution Discount Zone is sized to absorb that volatility."
             )
         elif discount_pct >= -5:
-            recommendation = "Price Within Intrinsic Value Band — Scale In"
+            recommendation = "Price Within Intrinsic Value Band — Scale Into Execution Discount Zone"
             entry_methodology = (
-                "Entry zone reflects current trading range — price is near intrinsic value midpoint. "
-                "Scale-in approach appropriate; avoid large single-tranche entry at full valuation."
+                "Execution Discount Zone reflects current Market Structure Value Area — "
+                "price is near the Intrinsic Value Estimate midpoint. "
+                "Scale-in approach appropriate; avoid large single-tranche entry at full valuation. "
+                "Near-intrinsic entry justifies staged accumulation: execution at this level "
+                "provides limited margin of safety and relies on continued fundamental delivery."
             )
         elif discount_pct >= -15:
-            recommendation = "Price Above Intrinsic Value Band — Await Pullback"
+            recommendation = "Price Above Intrinsic Value Band — Await Execution Discount Zone"
             entry_methodology = (
-                f"Entry zone derived from bear-to-base discount range. "
-                f"Current price trades {abs(discount_pct):.1f}% above base case (${base_target:.2f}). "
-                f"Ideal zone: ${ideal_low:.2f}–${ideal_high:.2f} represents reversion toward intrinsic value."
+                f"Execution Discount Zone derived from bear-to-base discount range. "
+                f"Current price trades {abs(discount_pct):.1f}% above Intrinsic Value Estimate (${base_target:.2f}). "
+                f"Ideal zone: ${ideal_low:.2f}–${ideal_high:.2f} represents reversion toward intrinsic value. "
+                "The Execution Discount Zone is constrained below current price because price momentum "
+                "and volatility clustering typically sustain premiums above intrinsic value before "
+                "mean-reverting — entry above the Execution Discount Zone reduces margin of safety."
             )
         else:
             recommendation = "Price Above Intrinsic Value Band — Risk/Reward Unfavorable"
             entry_methodology = (
-                f"Price significantly elevated vs intrinsic value. "
-                f"Entry zone (${ideal_low:.2f}–${ideal_high:.2f}) requires meaningful pullback. "
-                "Derived from bear scenario floor as minimum acceptable discount."
+                f"Price significantly elevated above Intrinsic Value Estimate. "
+                f"Execution Discount Zone (${ideal_low:.2f}–${ideal_high:.2f}) requires meaningful reversion. "
+                "Derived from bear scenario floor as minimum acceptable discount. "
+                "Structural premium above intrinsic value increases downside exposure without "
+                "commensurate upside improvement; the Execution Discount Zone is anchored well "
+                "below current price to restore an acceptable risk/reward ratio."
             )
 
         # Calculate tranched buying plan
@@ -178,7 +193,7 @@ class StrategyCalculator:
             "preferred_entry_zone": {
                 "low": round(ideal_low, 2),
                 "high": round(ideal_high, 2),
-                "label": "Preferred Entry Zone: Low–Mid Band"
+                "label": "Execution Discount Zone"
             },
             # Keep ideal_zone for backward-compatibility with downstream consumers
             "ideal_zone": {
@@ -208,7 +223,13 @@ class StrategyCalculator:
                 "add_price": round(add_price, 2),
                 "final_percent": final_percent,
                 "final_price": round(final_price, 2),
-                "rationale": f"{'Aggressive' if discount_pct >= 0 else 'Conservative'} entry based on intrinsic value estimate"
+                "rationale": (
+                    "Aggressive accumulation — price at or below Intrinsic Value Estimate; "
+                    "Execution Discount Zone captures discount to fair value."
+                ) if discount_pct >= 0 else (
+                    "Staged accumulation within Execution Discount Zone — "
+                    "waiting for price to approach Intrinsic Value Estimate from above."
+                )
             }
         }
 
@@ -321,15 +342,15 @@ class StrategyCalculator:
         bull_target = price_targets.get("bull_target", current_price * 1.30)
         bear_target = price_targets.get("bear_target", current_price * 0.85)
 
-        # Target 1: Intrinsic value midpoint reached (sell 50%)
+        # Target 1: Continuation Scenario — intrinsic value midpoint reached (sell 50%)
         target_1_price = base_target
         target_1_percent = 50
-        target_1_rationale = "Price reached intrinsic value midpoint — reduce position, reassess thesis"
+        target_1_rationale = "Continuation Scenario target reached — reduce position, reassess thesis"
 
-        # Target 2: Upside scenario (sell remaining)
+        # Target 2: Re-rating Scenario — upside scenario (sell remaining)
         target_2_price = bull_target
         target_2_percent = 50
-        target_2_rationale = "Price reached upside scenario — exit remaining position"
+        target_2_rationale = "Re-rating Scenario target reached — exit remaining position"
 
         # Stop loss based on risk level
         if risk_level == "Low":
@@ -345,38 +366,38 @@ class StrategyCalculator:
         stop_quality = "ALIGNED"
         stop_alignment_note = ""
         if bear_target > 0 and stop_loss > bear_target:
-            # Stop is above bear case — logically inconsistent: triggers before bear plays out
+            # Stop is above Risk Scenario — logically inconsistent: triggers before downside plays out
             stop_loss = round(bear_target * 0.97, 2)
             stop_quality = "ADJUSTED"
             stop_alignment_note = (
-                f"Stop adjusted to ${stop_loss:.2f} (Bear Case Anchored) — original stop exceeded bear case "
-                f"(${bear_target:.2f}), which would trigger exit before the downside scenario "
-                "fully played out. Re-anchored 3% below bear case threshold."
+                f"Stop adjusted to ${stop_loss:.2f} (Risk Scenario Anchored) — original stop exceeded the "
+                f"Risk Scenario floor (${bear_target:.2f}), which would trigger exit before the downside "
+                "path fully played out. Re-anchored 3% below the Risk Scenario threshold."
             )
         elif bear_target > 0 and stop_loss < bear_target * 0.80:
             stop_quality = "WIDE"
             gap_pct = ((bear_target - stop_loss) / bear_target) * 100
             stop_alignment_note = (
-                f"Stop (${stop_loss:.2f}) is {gap_pct:.0f}% below bear case "
-                f"(${bear_target:.2f}). Allows for temporary breach of bear scenario — "
+                f"Stop (${stop_loss:.2f}) is {gap_pct:.0f}% below the Risk Scenario floor "
+                f"(${bear_target:.2f}). Allows for temporary breach of the downside scenario — "
                 "appropriate only for long-horizon conviction positions."
             )
         else:
             if bear_target > 0:
                 gap_pct = ((bear_target - stop_loss) / bear_target) * 100
                 stop_alignment_note = (
-                    f"Stop structurally aligned — positioned {gap_pct:.0f}% below bear case "
+                    f"Stop structurally aligned — positioned {gap_pct:.0f}% below the Risk Scenario floor "
                     f"(${bear_target:.2f})."
                 )
             else:
                 stop_alignment_note = f"Stop derived from {stop_loss_pct}% risk-level rule."
 
         # P1: Stop provenance label
-        bear_case_label = " [Bear Case Anchored]" if stop_quality == "ADJUSTED" else ""
+        risk_scenario_label = " [Risk Scenario Anchored]" if stop_quality == "ADJUSTED" else ""
         stop_methodology = (
-            f"Stop derived from {risk_level.lower()} risk profile: {stop_loss_pct}% below entry price{bear_case_label}. "
+            f"Stop derived from {risk_level.lower()} risk profile: {stop_loss_pct}% below entry price{risk_scenario_label}. "
             "Rule: Low risk = 20% (wider tolerance), Medium = 15% (standard), High = 10% (tight). "
-            f"Bear case constraint applied: stop ≤ ${bear_target:.2f}."
+            f"Risk Scenario constraint applied: stop ≤ ${bear_target:.2f}."
         )
 
         # P2: Precision normalization — express stop as a zone, not a point
@@ -512,7 +533,7 @@ class StrategyCalculator:
     def _default_entry_strategy(self) -> Dict[str, Any]:
         """Return default entry strategy when data insufficient."""
         return {
-            "preferred_entry_zone": {"low": 0.0, "high": 0.0, "label": "Preferred Entry Zone: Low–Mid Band"},
+            "preferred_entry_zone": {"low": 0.0, "high": 0.0, "label": "Execution Discount Zone"},
             "ideal_zone": {"low": 0.0, "high": 0.0},
             "current_price": 0.0,
             "discount_to_target_pct": 0.0,

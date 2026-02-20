@@ -336,19 +336,19 @@
     </thead>
     <tbody>
         <tr>
-            <td class="strong text-success">Bull Case</td>
+            <td class="strong text-success">Re-rating Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.bull_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.bull_probability * 100) }}%</td>
             <td style="font-size: 8.5pt;">{{ stock.price_targets.bull_assumptions[:60] }}{% if stock.price_targets.bull_assumptions|length > 60 %}...{% endif %}</td>
         </tr>
         <tr>
-            <td class="strong">Base Case</td>
+            <td class="strong">Continuation Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.base_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.base_probability * 100) }}%</td>
             <td style="font-size: 8.5pt;">{{ stock.price_targets.base_assumptions[:60] }}{% if stock.price_targets.base_assumptions|length > 60 %}...{% endif %}</td>
         </tr>
         <tr>
-            <td class="strong text-error">Bear Case</td>
+            <td class="strong text-error">Risk Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.bear_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.bear_probability * 100) }}%</td>
             <td style="font-size: 8.5pt;">{{ stock.price_targets.bear_assumptions[:60] }}{% if stock.price_targets.bear_assumptions|length > 60 %}...{% endif %}</td>

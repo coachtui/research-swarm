@@ -998,22 +998,38 @@ class BlendedValuationCalculator:
         # Probabilistic framing for assumptions (no deterministic language)
         premium_vs_mid = (current_price - fair_value_mid) / fair_value_mid if fair_value_mid else 0.0
         if current_price > fair_value_high:
-            price_context = f"Price Above Intrinsic Value Band — Risk/Reward Unfavorable (+{premium_vs_mid:.0%} vs midpoint)"
+            price_context = (
+                f"Price Above Intrinsic Value Estimate Band (+{premium_vs_mid:.0%} vs midpoint) — "
+                "Execution Discount Zone requires pullback to restore margin of safety"
+            )
         elif current_price < fair_value_low:
-            price_context = f"Price Below Intrinsic Value Band — Potential Value Opportunity ({premium_vs_mid:.0%} vs midpoint)"
+            price_context = (
+                f"Price Below Intrinsic Value Estimate Band ({premium_vs_mid:.0%} vs midpoint) — "
+                "Execution Discount Zone active; current price within or near target accumulation range"
+            )
         else:
-            price_context = f"Price Within Intrinsic Value Band ({premium_vs_mid:+.0%} vs midpoint)"
+            price_context = (
+                f"Price Within Intrinsic Value Estimate Band ({premium_vs_mid:+.0%} vs midpoint) — "
+                "Execution Discount Zone at or near current price; scale-in approach recommended"
+            )
 
         base_assumptions = (
-            f"Intrinsic value midpoint ${fair_value_mid:.2f} using {sector_pe:.1f}x sector P/E{eps_note}. "
+            f"Continuation Scenario: Intrinsic Value Estimate midpoint ${fair_value_mid:.2f} "
+            f"using {sector_pe:.1f}x sector P/E{eps_note}. "
             f"{methodology_used}. Confidence: {confidence_score}/100 ({confidence_label}). "
-            f"{price_context}."
+            f"{price_context}. "
+            "Represents the probability-weighted base path — business executes as modeled "
+            "with no significant multiple expansion or contraction."
         )
         bull_assumptions = (
-            f"Upside scenario +{spread_pct}: {sector_pe*1.1:.1f}x P/E with margin improvement and market share gains."
+            f"Re-rating Scenario (+{spread_pct}): {sector_pe*1.1:.1f}x P/E with margin improvement and "
+            "market share gains. Market recognizes fundamental value — multiple expansion from current levels. "
+            "Represents a probabilistic outcome path, not a direct fair value forecast."
         )
         bear_assumptions = (
-            f"Downside scenario −{spread_pct}: {sector_pe*0.9:.1f}x P/E with competitive pressure or margin headwinds."
+            f"Risk Scenario (−{spread_pct}): {sector_pe*0.9:.1f}x P/E with competitive pressure or "
+            "margin headwinds. Represents the downside probabilistic outcome path — "
+            "thesis partially invalidated; fundamental delivery falls short of the Continuation Scenario."
         )
 
         # Compute both deviation metrics
@@ -1097,10 +1113,10 @@ class BlendedValuationCalculator:
             ),
             base_probability=0.50,
             bull_target=round(current_price * 1.10, 2),
-            bull_assumptions="Upside scenario: +10% from current price",
+            bull_assumptions="Re-rating Scenario: +10% from current price (probabilistic path, not a fair value forecast)",
             bull_probability=0.25,
             bear_target=round(current_price * 0.90, 2),
-            bear_assumptions="Downside scenario: −10% from current price",
+            bear_assumptions="Risk Scenario: −10% from current price (probabilistic path, not a fair value forecast)",
             bear_probability=0.25,
             methodology="Market Price (High Uncertainty — model unreliable)",
         )

@@ -107,16 +107,19 @@ class DCFCalculator:
                 margin_note = f", margins {dcf_inputs.operating_margin_trend}"
 
             base_assumptions = (
-                f"FCF growth: {base_growth*100:.1f}%/yr declining to {terminal_growth*100:.1f}%, "
-                f"WACC: {wacc*100:.1f}% (margin stability: {margin_stability:.2f}){margin_note}"
+                f"Continuation Scenario: FCF growth {base_growth*100:.1f}%/yr declining to {terminal_growth*100:.1f}%, "
+                f"WACC {wacc*100:.1f}% (margin stability: {margin_stability:.2f}){margin_note}. "
+                "Business executes as modeled — probability-weighted base path."
             )
             bull_assumptions = (
-                f"FCF growth: {bull_growth*100:.1f}%/yr with margin expansion, "
-                f"lower WACC: {(wacc-0.005)*100:.1f}%"
+                f"Re-rating Scenario: FCF growth {bull_growth*100:.1f}%/yr with margin expansion, "
+                f"lower WACC {(wacc-0.005)*100:.1f}%. Market recognizes fundamental value — "
+                "multiple expansion from current levels. Probabilistic outcome path."
             )
             bear_assumptions = (
-                f"FCF growth: {bear_growth*100:.1f}%/yr with margin contraction, "
-                f"higher WACC: {(wacc+0.01)*100:.1f}%"
+                f"Risk Scenario: FCF growth {bear_growth*100:.1f}%/yr with margin contraction, "
+                f"higher WACC {(wacc+0.01)*100:.1f}%. Thesis partially invalidated — "
+                "fundamental delivery falls short of the Continuation Scenario. Probabilistic outcome path."
             )
 
             result = PriceTargetScenarios(

@@ -374,9 +374,9 @@ class DataExtractor:
                     "bull_probability": 0.25,
                     "bear_probability": 0.25,
                     "methodology": "Analyst consensus (fallback)",
-                    "base_assumptions": "Analyst average target — used as intrinsic value proxy",
-                    "bull_assumptions": "Analyst high target",
-                    "bear_assumptions": "Analyst low target",
+                    "base_assumptions": "Continuation Scenario: Analyst consensus average target — used as Intrinsic Value Estimate proxy",
+                    "bull_assumptions": "Re-rating Scenario: Analyst high target — market recognizes full upside (probabilistic path)",
+                    "bear_assumptions": "Risk Scenario: Analyst low target — downside path if thesis underdelivers (probabilistic path)",
                     "expected_value": avg_target * 0.50 + high_target * 0.25 + low_target * 0.25,
                 }
             else:
@@ -408,9 +408,9 @@ class DataExtractor:
                     "bull_probability": 0.25,
                     "bear_probability": 0.25,
                     "methodology": "Percentage-based estimate (fallback — low confidence)",
-                    "base_assumptions": f"Moat-adjusted {(upside_mult - 1) * 100:.0f}% upside — no financial model",
-                    "bull_assumptions": f"{(upside_mult + 0.14) * 100:.0f}% upside scenario",
-                    "bear_assumptions": "15% downside scenario",
+                    "base_assumptions": f"Continuation Scenario: Moat-adjusted {(upside_mult - 1) * 100:.0f}% upside — no financial model (heuristic estimate)",
+                    "bull_assumptions": f"Re-rating Scenario: {(upside_mult + 0.14) * 100:.0f}% upside if market re-rates toward moat quality (probabilistic path)",
+                    "bear_assumptions": "Risk Scenario: 15% downside if thesis underdelivers (probabilistic path)",
                     "expected_value": round(
                         fv_mid * 0.50 + fv_high * 0.25 + fv_low * 0.25, 2
                     ),

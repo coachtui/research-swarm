@@ -31,11 +31,15 @@ export function PriceTargetsCard({ priceTargets, currentPrice, ticker }: PriceTa
         </span>
       </h2>
 
+      <p className="text-xs text-muted-foreground mb-4">
+        Scenarios represent probabilistic outcome paths calibrated to signal divergence — not direct fair value forecasts.
+      </p>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        {/* Bear Case */}
+        {/* Risk Scenario */}
         <div className="border-l-4 border-red-500 bg-surface-elevated p-4 rounded">
           <div className="text-sm text-text-secondary mb-1">
-            Bear Case
+            Risk Scenario
           </div>
           <div className="text-2xl font-bold text-red-500">
             ${priceTargets.bear_target.toFixed(2)}
@@ -48,10 +52,10 @@ export function PriceTargetsCard({ priceTargets, currentPrice, ticker }: PriceTa
           </p>
         </div>
 
-        {/* Base Case */}
+        {/* Continuation Scenario */}
         <div className="border-l-4 border-blue-500 bg-surface-elevated p-4 rounded">
           <div className="text-sm text-text-secondary mb-1">
-            Base Case
+            Continuation Scenario
           </div>
           <div className="text-2xl font-bold text-blue-500">
             ${priceTargets.base_target.toFixed(2)}
@@ -64,10 +68,10 @@ export function PriceTargetsCard({ priceTargets, currentPrice, ticker }: PriceTa
           </p>
         </div>
 
-        {/* Bull Case */}
+        {/* Re-rating Scenario */}
         <div className="border-l-4 border-green-500 bg-surface-elevated p-4 rounded">
           <div className="text-sm text-text-secondary mb-1">
-            Bull Case
+            Re-rating Scenario
           </div>
           <div className="text-2xl font-bold text-green-500">
             ${priceTargets.bull_target.toFixed(2)}
@@ -82,7 +86,7 @@ export function PriceTargetsCard({ priceTargets, currentPrice, ticker }: PriceTa
       </div>
 
       <div className="text-sm text-muted-foreground text-center">
-        Current Price: ${currentPrice.toFixed(2)} | Target Range: ${priceTargets.bear_target.toFixed(2)} - ${priceTargets.bull_target.toFixed(2)}
+        Current Price: ${currentPrice.toFixed(2)} | Scenario Range: ${priceTargets.bear_target.toFixed(2)} – ${priceTargets.bull_target.toFixed(2)}
       </div>
     </div>
   )

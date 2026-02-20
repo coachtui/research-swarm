@@ -84,6 +84,8 @@
 {% if stock.enhanced_trade_setup %}
 #### 🎯 Trade Setup Playbook
 
+> *Entry prices reflect the **Execution Discount Zone** — the optimal accumulation range constrained by both the Intrinsic Value Estimate and Market Structure Value Area (volume profile). The Execution Discount Zone sits below the intrinsic midpoint to provide margin of safety against model uncertainty and short-term volatility.*
+
 {% if stock.conviction_position %}
 **Conviction:** {{ stock.conviction_position.conviction_level }} ({{ stock.conviction_position.conviction_score }}/10) → **Position Size:** {{ "%.1f"|format(stock.conviction_position.recommended_pct) }}% of portfolio (${{ "%.0f"|format(stock.conviction_position.dollar_per_100k) }} per $100K)
 
@@ -251,13 +253,15 @@ All major signals pointing same direction → high conviction, low uncertainty.
 
 **Methodology:** {{ stock.price_targets.methodology }}
 
+> *Scenarios represent probabilistic outcome paths calibrated to signal divergence — not direct fair value forecasts. Probabilities reflect the weight of evidence from fundamental, technical, and sentiment signals.*
+
 | Scenario | Price Target | Probability | Key Assumptions |
 |----------|--------------|-------------|-----------------|
-| 🐂 **Bull Case** | ${{ "%.2f"|format(stock.price_targets.bull_target) }} | {{ "%.0f"|format(stock.price_targets.bull_probability * 100) }}% | {{ stock.price_targets.bull_assumptions }} |
-| 📊 **Base Case** | ${{ "%.2f"|format(stock.price_targets.base_target) }} | {{ "%.0f"|format(stock.price_targets.base_probability * 100) }}% | {{ stock.price_targets.base_assumptions }} |
-| 🐻 **Bear Case** | ${{ "%.2f"|format(stock.price_targets.bear_target) }} | {{ "%.0f"|format(stock.price_targets.bear_probability * 100) }}% | {{ stock.price_targets.bear_assumptions }} |
+| 🐂 **Re-rating Scenario** | ${{ "%.2f"|format(stock.price_targets.bull_target) }} | {{ "%.0f"|format(stock.price_targets.bull_probability * 100) }}% | {{ stock.price_targets.bull_assumptions }} |
+| 📊 **Continuation Scenario** | ${{ "%.2f"|format(stock.price_targets.base_target) }} | {{ "%.0f"|format(stock.price_targets.base_probability * 100) }}% | {{ stock.price_targets.base_assumptions }} |
+| 🐻 **Risk Scenario** | ${{ "%.2f"|format(stock.price_targets.bear_target) }} | {{ "%.0f"|format(stock.price_targets.bear_probability * 100) }}% | {{ stock.price_targets.bear_assumptions }} |
 
-**Expected Value:** ${{ "%.2f"|format(stock.price_targets.expected_value) }}
+**Probability-Weighted Expected Value:** ${{ "%.2f"|format(stock.price_targets.expected_value) }}
 
 {% if stock.valuation_metrics and stock.valuation_metrics.current_price %}
 **Upside to Expected Value:** {{ "%.1f"|format((stock.price_targets.expected_value / stock.valuation_metrics.current_price - 1) * 100) }}%
@@ -648,7 +652,7 @@ All major signals pointing same direction → high conviction, low uncertainty.
 #### 🎯 Recommended Strategy
 
 **Entry Strategy:**
-- Ideal Entry Zone: ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.low) }} - ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.high) }}
+- Execution Discount Zone: ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.low) }} – ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.high) }}
 - Current Price: ${{ "%.2f"|format(stock.recommended_strategy.entry.current_price) }}
 - Recommendation: {{ stock.recommended_strategy.entry.recommendation }}
 

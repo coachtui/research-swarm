@@ -351,15 +351,24 @@ class DecisionIntelligenceCalculator:
                 return round(gain / loss, 1)
             return 0.0
 
+        # Identify which anchor drove the conservative entry (for label transparency)
+        if tech_entry and conservative_entry == min(tech_entry, current_price):
+            conservative_entry_anchor = "Technical Regime Level"
+        elif val_low and abs(conservative_entry - val_low) < 0.01:
+            conservative_entry_anchor = "Market Structure Value Area (Volume Profile)"
+        else:
+            conservative_entry_anchor = "Execution Discount Zone (Intrinsic Value Derived)"
+
         result = {
             "conservative": {
                 "label": "Conservative (Recommended)",
                 "entry": round(conservative_entry, 2),
+                "entry_anchor": conservative_entry_anchor,
                 "stop_loss": round(conservative_stop, 2),
                 "targets": [
-                    {"price": round(conservative_t1, 2), "sell_pct": 30, "label": "T1 (Near-term)"},
-                    {"price": round(conservative_t2, 2), "sell_pct": 40, "label": "T2 (Base case)"},
-                    {"price": round(conservative_t3, 2), "sell_pct": 30, "label": "T3 (Bull case)"},
+                    {"price": round(conservative_t1, 2), "sell_pct": 30, "label": "T1 — Continuation Scenario"},
+                    {"price": round(conservative_t2, 2), "sell_pct": 40, "label": "T2 — Re-rating Scenario"},
+                    {"price": round(conservative_t3, 2), "sell_pct": 30, "label": "T3 — Regime Expansion Scenario"},
                 ],
                 "max_loss_per_100": per_100(conservative_entry, conservative_stop),
                 "max_gain_per_100": per_100(conservative_entry, conservative_t3),
@@ -369,17 +378,28 @@ class DecisionIntelligenceCalculator:
             "aggressive": {
                 "label": "Aggressive (Higher risk)",
                 "entry": round(aggressive_entry, 2),
+                "entry_anchor": "Market Order (Current Price)",
                 "stop_loss": round(aggressive_stop, 2),
                 "targets": [
-                    {"price": round(aggressive_t1, 2), "sell_pct": 33, "label": "T1 (Base case)"},
-                    {"price": round(aggressive_t2, 2), "sell_pct": 34, "label": "T2 (Bull case)"},
-                    {"price": round(aggressive_t3, 2), "sell_pct": 33, "label": "T3 (Stretch)"},
+                    {"price": round(aggressive_t1, 2), "sell_pct": 33, "label": "T1 — Continuation Scenario"},
+                    {"price": round(aggressive_t2, 2), "sell_pct": 34, "label": "T2 — Re-rating Scenario"},
+                    {"price": round(aggressive_t3, 2), "sell_pct": 33, "label": "T3 — Regime Expansion Scenario"},
                 ],
                 "max_loss_per_100": per_100(aggressive_entry, aggressive_stop),
                 "max_gain_per_100": per_100(aggressive_entry, aggressive_t3),
                 "risk_reward": risk_reward(aggressive_entry, aggressive_stop, aggressive_t2),
                 "setup_unavailable": aggressive_setup_unavailable,
             },
+            # Taxonomy clarification for display
+            "scenario_taxonomy": (
+                "T1 (Continuation Scenario): Business executes as modeled — price reaches near-term "
+                "technical target or Intrinsic Value Estimate midpoint. "
+                "T2 (Re-rating Scenario): Market recognizes fundamental value — multiple expansion "
+                "from current levels drives price to base-case Intrinsic Value Estimate. "
+                "T3 (Regime Expansion Scenario): Full bullish regime — earnings growth and multiple "
+                "expansion compound; price reaches the upper bound of the probabilistic outcome path. "
+                "These targets represent probabilistic outcome paths, not direct fair value forecasts."
+            ),
             "report_qa_flags": qa_flags,
         }
         return result

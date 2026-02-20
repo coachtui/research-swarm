@@ -65,10 +65,12 @@ export function ProfessionalValuation({
               : 'The valuation analysis employs a multi-factor approach incorporating discounted cash flow (DCF) modeling, comparable company analysis, and technical price levels.'}
           </p>
           <p className="text-sm text-text-primary leading-relaxed">
-            Scenario analysis uses probability-weighted outcomes across bull ({bullProb}%),
-            base ({baseProb}%), and bear ({bearProb}%) cases. The base case anchors at fair value midpoint.
-            Bear case is structurally below fair value. Bull case reflects upside tail scenario.
-            Expected value = bear×{bearProb}% + base×{baseProb}% + bull×{bullProb}%.
+            Scenario analysis uses probability-weighted outcomes across Re-rating ({bullProb}%),
+            Continuation ({baseProb}%), and Risk ({bearProb}%) scenarios. The Continuation Scenario
+            anchors at the Intrinsic Value Estimate midpoint. The Risk Scenario represents a downside
+            probabilistic path structurally below intrinsic value. The Re-rating Scenario reflects
+            multiple expansion from current levels. These are probabilistic outcome paths, not direct
+            fair value forecasts. Expected value = Risk×{bearProb}% + Continuation×{baseProb}% + Re-rating×{bullProb}%.
           </p>
           {chainNotes && chainNotes.length > 0 && (
             <div className="mt-2 p-2.5 rounded-md bg-primary/5 border border-primary/20">
@@ -170,9 +172,9 @@ export function ProfessionalValuation({
                 </tr>
                 <tr>
                   <td className="border border-border px-4 py-3">
-                    Base Case Target
+                    Continuation Scenario Target
                     <span className="block text-xs text-text-tertiary font-normal">
-                      Intrinsic Value Midpoint
+                      Intrinsic Value Estimate Midpoint
                     </span>
                   </td>
                   <td className="border border-border px-4 py-3 text-right font-semibold text-text-primary">
@@ -264,7 +266,7 @@ export function ProfessionalValuation({
           <tbody className="text-sm">
             <tr>
               <td className="border border-border px-4 py-3 font-semibold text-success">
-                Bull Case
+                Re-rating Scenario
               </td>
               <td className="border border-border px-4 py-3 text-center font-semibold">
                 ${bullCaseValue.toFixed(2)}
@@ -276,12 +278,12 @@ export function ProfessionalValuation({
                 {bullProb}%
               </td>
               <td className="border border-border px-4 py-3 text-text-secondary">
-                {pt?.bull_assumptions ?? 'Strong execution, market share gains, multiple expansion, favorable macro conditions'}
+                {pt?.bull_assumptions ?? 'Re-rating Scenario: Strong execution, market share gains, multiple expansion, favorable macro conditions'}
               </td>
             </tr>
             <tr>
               <td className="border border-border px-4 py-3 font-semibold">
-                Base Case
+                Continuation Scenario
               </td>
               <td className="border border-border px-4 py-3 text-center font-semibold">
                 ${baseCaseValue.toFixed(2)}
@@ -295,12 +297,12 @@ export function ProfessionalValuation({
               <td className="border border-border px-4 py-3 text-text-secondary">
                 {pt?.base_assumptions
                   ? pt.base_assumptions.split('.')[0] + '.'
-                  : 'In-line execution, stable competitive positioning, normalized growth trajectory'}
+                  : 'Continuation Scenario: In-line execution, stable competitive positioning, normalized growth trajectory'}
               </td>
             </tr>
             <tr>
               <td className="border border-border px-4 py-3 font-semibold text-error">
-                Bear Case
+                Risk Scenario
               </td>
               <td className="border border-border px-4 py-3 text-center font-semibold">
                 ${bearCaseValue.toFixed(2)}
