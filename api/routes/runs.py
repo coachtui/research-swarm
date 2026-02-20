@@ -2,6 +2,7 @@
 Run management endpoints for checking status and retrieving results.
 """
 
+import json
 from fastapi import APIRouter, HTTPException, Depends
 from api.models.responses import RunResponse, RunListResponse, RunSummary
 from api.dependencies import get_current_user
@@ -124,6 +125,12 @@ async def get_run(
         for result in run.stockResults:
             # Enrich fullOutput with decision intelligence on-the-fly
             full_output = result.fullOutput
+            # Handle double-serialized fullOutput (json.dumps stored in Json column)
+            if isinstance(full_output, str):
+                try:
+                    full_output = json.loads(full_output)
+                except (json.JSONDecodeError, ValueError):
+                    full_output = None
             if full_output and result.moatScore is not None:
                 full_output = enrich_with_decision_intelligence(
                     full_output, result.moatScore
