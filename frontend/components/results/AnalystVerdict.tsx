@@ -1,26 +1,74 @@
 import { Card, CardContent } from '@/components/ui/card'
-import type { InvestmentThesisStructured, TriggerItem } from '@/types/api'
+import type { InvestmentThesisStructured, SignalBreakdown, TriggerItem } from '@/types/api'
+import { MarketRegimeOverlay } from './MarketRegimeOverlay'
 
 interface AnalystVerdictProps {
   thesis: InvestmentThesisStructured | string
   upgradeTriggers?: TriggerItem[] | null
   downgradeTriggers?: TriggerItem[] | null
+  signalBreakdown?: SignalBreakdown | null
 }
 
-export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers }: AnalystVerdictProps) {
-  const hasStructuredThesis = typeof thesis !== 'string'
-  const hasTriggers = (upgradeTriggers?.length ?? 0) > 0 || (downgradeTriggers?.length ?? 0) > 0
+/** Heuristic confidence score (0–100) derived from existing backend signal fields. */
+function computeModelConfidence(breakdown: SignalBreakdown): number {
+  const strength = (breakdown.signal_strength ?? 5) / 10           // 0–1
+  const stability = (breakdown.signal_stability ?? 5) / 10         // 0–1
+  const integrity = (breakdown.data_integrity_pct ?? 50) / 100     // 0–1
+  const spread = breakdown.signal_spread ?? 5
+  const inverseDivergence = Math.max(0, 10 - spread) / 10          // 0–1; high spread = low confidence
+
+  const raw =
+    strength * 30 +
+    stability * 30 +
+    integrity * 20 +
+    inverseDivergence * 20
+
+  return Math.round(Math.min(100, Math.max(0, raw)))
+}
+
+function ConfidencePill({ pct }: { pct: number }) {
+  const color =
+    pct >= 70
+      ? 'text-success bg-success/10 border-success/20'
+      : pct >= 50
+      ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20'
+      : 'text-warning bg-warning/10 border-warning/20'
 
   return (
-    <Card className="border border-border-subtle">
+    <span
+      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded border ${color}`}
+      title="Heuristic score derived from signal strength, stability, data completeness, and divergence magnitude. Not backtested."
+    >
+      Model Confidence: {pct}%
+    </span>
+  )
+}
+
+export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, signalBreakdown }: AnalystVerdictProps) {
+  const hasStructuredThesis = typeof thesis !== 'string'
+  const hasTriggers = (upgradeTriggers?.length ?? 0) > 0 || (downgradeTriggers?.length ?? 0) > 0
+  const confidence = signalBreakdown ? computeModelConfidence(signalBreakdown) : null
+
+  return (
+    <Card className="border border-border-subtle shadow-sm">
       <CardContent className="pt-6 space-y-6">
-        <h2 className="text-xl font-semibold text-text-primary">Analyst Verdict</h2>
+
+        {/* Market Regime Overlay — contextual framing only */}
+        {signalBreakdown && (
+          <MarketRegimeOverlay breakdown={signalBreakdown} />
+        )}
+
+        {/* Header row: title + model confidence */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h2 className="text-2xl font-bold text-text-primary tracking-tight">Analyst Verdict</h2>
+          {confidence !== null && <ConfidencePill pct={confidence} />}
+        </div>
 
         {hasStructuredThesis ? (
-          <div className="space-y-5">
+          <div className="space-y-6">
             {/* Company Overview */}
             <div>
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-1.5">
+              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2">
                 Company Overview
               </h3>
               <p className="text-text-secondary text-sm leading-relaxed">
@@ -35,24 +83,24 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers }: A
               </p>
             </div>
 
-            {/* Why at this level — investment highlights */}
+            {/* Investment Highlights */}
             <div>
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">
+              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2.5">
                 Investment Highlights
               </h3>
-              <ul className="space-y-2">
+              <ul className="space-y-2.5">
                 {(thesis as InvestmentThesisStructured).investment_highlights.map((item, idx) => (
-                  <li key={idx} className="flex items-start gap-2 text-sm text-text-secondary">
-                    <span className="text-success mt-1 flex-shrink-0">·</span>
-                    <span>{item}</span>
+                  <li key={idx} className="flex items-start gap-2.5 text-sm text-text-secondary">
+                    <span className="text-success mt-1 flex-shrink-0 font-bold">·</span>
+                    <span className="leading-relaxed">{item}</span>
                   </li>
                 ))}
               </ul>
             </div>
 
-            {/* Valuation & signal analysis */}
+            {/* Valuation & Signal Analysis */}
             <div>
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-1.5">
+              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2">
                 Valuation &amp; Signal Analysis
               </h3>
               <p className="text-text-secondary text-sm leading-relaxed">
@@ -60,24 +108,24 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers }: A
               </p>
             </div>
 
-            {/* Strongest counterpoint — key risks */}
+            {/* Key Risks */}
             <div>
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">
-                Risks
+              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2.5">
+                Key Risks
               </h3>
-              <ul className="space-y-2">
+              <ul className="space-y-2.5">
                 {(thesis as InvestmentThesisStructured).key_risks.map((item, idx) => (
-                  <li key={idx} className="flex items-start gap-2 text-sm text-text-secondary">
-                    <span className="text-error mt-1 flex-shrink-0">·</span>
-                    <span>{item}</span>
+                  <li key={idx} className="flex items-start gap-2.5 text-sm text-text-secondary">
+                    <span className="text-error mt-1 flex-shrink-0 font-bold">·</span>
+                    <span className="leading-relaxed">{item}</span>
                   </li>
                 ))}
               </ul>
             </div>
 
-            {/* Entry strategy & investor fit */}
+            {/* Entry Strategy & Investor Fit */}
             <div>
-              <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-1.5">
+              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2">
                 Entry Strategy &amp; Investor Fit
               </h3>
               <p className="text-text-secondary text-sm leading-relaxed">
@@ -91,10 +139,10 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers }: A
           </p>
         )}
 
-        {/* What changes the rating — merged from BottomLine */}
+        {/* What changes the rating */}
         {hasTriggers && (
-          <div className="border-t border-border pt-5 space-y-4">
-            <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wide">
+          <div className="border-t border-border pt-6 space-y-4">
+            <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest">
               What Changes This Rating
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -15,6 +15,7 @@ import { RecentDevelopments } from '@/components/results/RecentDevelopments'
 import { ExecutionLayer } from '@/components/results/ExecutionLayer'
 import { AnalystVerdict } from '@/components/results/AnalystVerdict'
 import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
+import { HistoricalAnalogPanel } from '@/components/results/HistoricalAnalogPanel'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -159,7 +160,7 @@ function ResultsContent({ runId }: { runId: string }) {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-8">
 
         {/* ── IDENTITY BAR ─────────────────────────────────────────── */}
         <div className="flex items-center justify-between">
@@ -249,6 +250,11 @@ function ResultsContent({ runId }: { runId: string }) {
           />
         )}
 
+        {/* 2C.5: Historical Analog — heuristic pattern framing */}
+        {signal_breakdown && (
+          <HistoricalAnalogPanel breakdown={signal_breakdown} />
+        )}
+
         {/* 2D: Key Takeaways — Strengths vs Risks */}
         <KeyTakeaways strengths={strengths} concerns={concerns} />
 
@@ -291,6 +297,7 @@ function ResultsContent({ runId }: { runId: string }) {
             thesis={full_output.investment_thesis}
             upgradeTriggers={upgrade_triggers}
             downgradeTriggers={downgrade_triggers}
+            signalBreakdown={signal_breakdown}
           />
         )}
 
