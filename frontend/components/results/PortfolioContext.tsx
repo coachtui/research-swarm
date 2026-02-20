@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Briefcase, AlertTriangle } from 'lucide-react'
-import type { ConvictionPosition } from '@/types/api'
+import type { ConvictionPosition, SignalBreakdown } from '@/types/api'
 
 interface PortfolioContextProps {
   ticker: string
@@ -12,6 +12,7 @@ interface PortfolioContextProps {
   sector?: string
   currentPrice: number
   convictionPosition?: ConvictionPosition | null
+  signalBreakdown?: SignalBreakdown | null
 }
 
 type RiskProfile = 'conservative' | 'moderate' | 'aggressive'
@@ -24,6 +25,7 @@ export function PortfolioContext({
   sector = 'Technology',
   currentPrice,
   convictionPosition,
+  signalBreakdown,
 }: PortfolioContextProps) {
   const [riskProfile, setRiskProfile] = useState<RiskProfile>('moderate')
 
@@ -91,6 +93,19 @@ export function PortfolioContext({
 
   // Risk warnings based on quality
   const qualityLevel = financialHealthScore >= 8.0 ? 'high' : financialHealthScore >= 6.0 ? 'medium' : 'low'
+
+  // Fix 6: Signal-conflict override for position sizing language.
+  // When Smart Money (institutional) score is low AND signal spread is high AND rating is HOLD/WAIT,
+  // the quality-based copy would contradict active institutional distribution signals.
+  // Override with a combined assessment that acknowledges both the fundamental quality AND the conflict.
+  const institutionalScore = signalBreakdown?.institutional_score ?? null
+  const signalSpread = signalBreakdown?.signal_spread ?? null
+  const ratingIsHoldOrWait = rating === 'HOLD' || rating === 'WAIT'
+  const hasSignalConflict = Boolean(
+    institutionalScore != null && institutionalScore < 3.0 &&
+    signalSpread != null && signalSpread > 5.0 &&
+    ratingIsHoldOrWait
+  )
 
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
@@ -193,7 +208,18 @@ export function PortfolioContext({
             <div className="flex-1 space-y-2">
               <p className="text-xs font-medium text-text-primary">Risk Considerations</p>
               <ul className="space-y-1 text-xs text-text-secondary">
-                {qualityLevel === 'high' ? (
+                {/* Fix 6: When smart money divergence conflicts with fundamental quality, override
+                    the quality-only copy with a combined assessment that reflects signal reality. */}
+                {hasSignalConflict ? (
+                  <li className="flex gap-2">
+                    <span className="text-warning">⚠</span>
+                    <span>
+                      Fundamental quality supports long-term core holding thesis, but active institutional
+                      distribution signals warrant satellite sizing until smart money flows stabilize.
+                      Reduce to core position only on confirmation of institutional re-accumulation.
+                    </span>
+                  </li>
+                ) : qualityLevel === 'high' ? (
                   <li className="flex gap-2">
                     <span className="text-success">✓</span>
                     <span>High-quality company suitable as core holding with disciplined sizing</span>

@@ -228,6 +228,7 @@ function ResultsContent({ runId }: { runId: string }) {
             signalBreakdown={signal_breakdown}
             fundTechDivergence={decision_intelligence.fund_tech_divergence}
             convictionLevel={decision_intelligence.conviction_position?.conviction_level}
+            enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
           />
         )}
 

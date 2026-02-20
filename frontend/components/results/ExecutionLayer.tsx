@@ -109,6 +109,7 @@ export function ExecutionLayer({
                 sector={sector}
                 currentPrice={currentPrice}
                 convictionPosition={convictionPosition}
+                signalBreakdown={signalBreakdown}
               />
             )}
             {activeTab === 'setup' && enhancedTradeSetup && (

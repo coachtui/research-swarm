@@ -254,8 +254,13 @@ function SetupColumn({
   isDeepEntry?: boolean
   structuralFairValue?: number | null
 }) {
-  const borderColor = variant === 'conservative' ? 'border-success/30' : 'border-warning/30'
-  const headerBg = variant === 'conservative' ? 'bg-success/5' : 'bg-warning/5'
+  // Fix 2: Deep entry (structural reversion) uses visually subordinate styling — muted border and lighter treatment
+  const borderColor = isDeepEntry
+    ? 'border-border'
+    : variant === 'conservative' ? 'border-success/30' : 'border-warning/30'
+  const headerBg = isDeepEntry
+    ? 'bg-surface-elevated/40'
+    : variant === 'conservative' ? 'bg-success/5' : 'bg-warning/5'
 
   const hasHighDivergence = signalBreakdown?.has_divergence === true
 
@@ -344,12 +349,20 @@ function SetupColumn({
       <div className={`px-4 py-3 ${headerBg} ${isDeepEntry ? 'mt-2' : ''}`}>
         {/* Row 1: Label + R/R badge on same line */}
         <div className="flex items-start justify-between gap-2">
-          <span className={`text-sm font-semibold leading-tight ${isDeepEntry ? 'text-text-tertiary' : 'text-text-primary'}`}>
-            {isDeepEntry
-              ? side.label.replace('Recommended', 'Model-Optimal').replace('Conservative', 'Reversion')
-              : side.label.replace('Recommended', 'Model-Optimal')
-            }
-          </span>
+          <div className="min-w-0">
+            <span className={`text-sm font-semibold leading-tight ${isDeepEntry ? 'text-text-tertiary' : 'text-text-primary'}`}>
+              {isDeepEntry
+                ? 'Structural Reversion — Conditional Setup'
+                : side.label.replace('Recommended', 'Model-Optimal')
+              }
+            </span>
+            {/* Fix 2: Subtitle clarifying non-primary nature of structural reversion card */}
+            {isDeepEntry && (
+              <p className="text-[10px] text-text-tertiary/70 leading-tight mt-0.5">
+                Only actionable during significant market dislocation. Not a primary recommendation at current prices.
+              </p>
+            )}
+          </div>
           <Badge
             variant={rrVariant}
             className={`shrink-0 text-xs ${showSoftRR ? 'opacity-75 font-normal' : ''}`}
@@ -423,7 +436,12 @@ function SetupColumn({
             )}
           </div>
           {side.targets.map((t, i) => {
-            const horizon = inferTargetHorizon(t.label, i)
+            // Fix 1: Deep entry (structural reversion) targets are anchored to long-term recovery —
+            // minimum horizon is 12–24 mo regardless of label. Prevents short-horizon framing on
+            // targets that are measured from a structural entry far below current market price.
+            const horizon = isDeepEntry
+              ? (i === 0 ? '12–24 mo' : '24–36 mo')
+              : inferTargetHorizon(t.label, i)
             const extended = isExtendedTarget(t.label, i)
             const targetType = inferTargetType(t.label, i)
             const conditionality = inferTargetConditionality(t.label, i, rating, variant)
@@ -469,13 +487,19 @@ function SetupColumn({
               </div>
             )
           })}
-          {side.targets.some((t, i) => isExtendedTarget(t.label, i)) && (
+          {side.targets.some((t, i) => isExtendedTarget(t.label, i)) && !isDeepEntry && (
             <p className="text-xs text-text-tertiary pt-1 leading-relaxed">
               Regime Expansion targets (muted) extend beyond the primary holding window — conditional on thesis validation and favorable macro regime.
             </p>
           )}
-          {/* Fix 5: Coherence label when targets operate in market pricing regime, not structural FV zone */}
-          {allTargetsAboveStructuralFV && (
+          {/* Fix 1: Structural entry disclaimer — targets anchored to entry, not market regime */}
+          {isDeepEntry && (
+            <p className="text-[11px] text-text-tertiary/80 pt-1.5 leading-relaxed border-t border-border/50 italic">
+              Targets calculated from structural entry — not comparable to market-regime setup targets.
+            </p>
+          )}
+          {/* Coherence label when targets operate in market pricing regime, not structural FV zone */}
+          {allTargetsAboveStructuralFV && !isDeepEntry && (
             <p className="text-[10px] text-text-tertiary/70 pt-1 italic leading-relaxed">
               Targets reflect current market pricing path — not anchored to structural fair value.
             </p>

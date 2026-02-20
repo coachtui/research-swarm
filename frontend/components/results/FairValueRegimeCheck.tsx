@@ -189,9 +189,12 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
                 <AlertTriangle className="h-4 w-4" /> Model Stability Warning
               </p>
               <p className="text-xs text-text-tertiary mb-1.5">
-                The following anomalies were detected. This does not affect the reported values —
-                fair value and price targets are unchanged. Review input data quality before
-                acting on this analysis.
+                {/* Fix 4: Structural Premium regime gets a regime-context explanation rather than
+                    a data quality implication. Non-premium stocks keep the anomaly-focused copy. */}
+                {isStructuralPremium
+                  ? 'This analysis operates in Structural Premium Regime. The Structural Value Anchor reflects long-term intrinsic basis — not a near-term price expectation. Fair value and price targets are valid within their respective frameworks.'
+                  : 'The following anomalies were detected. This does not affect the reported values — fair value and price targets are unchanged. Review input data quality before acting on this analysis.'
+                }
               </p>
               <ul className="space-y-1">
                 {calibration.stability_warning_reasons.map((r, i) => (

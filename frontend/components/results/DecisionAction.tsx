@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, CheckCircle } from 'lucide-react'
-import type { DecisionFramework, RecommendedStrategy, SignalBreakdown, FundTechDivergence } from '@/types/api'
+import type { DecisionFramework, RecommendedStrategy, SignalBreakdown, FundTechDivergence, EnhancedTradeSetup } from '@/types/api'
 
 interface DecisionActionProps {
   framework: DecisionFramework
@@ -16,6 +16,7 @@ interface DecisionActionProps {
   signalBreakdown?: SignalBreakdown | null
   fundTechDivergence?: FundTechDivergence | null
   convictionLevel?: string | null
+  enhancedTradeSetup?: EnhancedTradeSetup | null
 }
 
 type Tab = 'new' | 'holders'
@@ -72,6 +73,7 @@ export function DecisionAction({
   signalBreakdown,
   fundTechDivergence,
   convictionLevel,
+  enhancedTradeSetup,
 }: DecisionActionProps) {
   const [tab, setTab] = useState<Tab>('new')
   const { current_holders, new_buyers, one_liner } = framework
@@ -83,7 +85,9 @@ export function DecisionAction({
     ? formatZone(strategy.entry.ideal_zone.low, strategy.entry.ideal_zone.high)
     : strategy?.entry?.entry_zone_display?.label ?? null
 
-  const stopZone = strategy?.exit?.stop_zone?.label
+  // Fix 3: Stop zone derivation — resolved after dislocation detection below.
+  // Placeholder until isStructuralDislocation is computed.
+  const rawStopZone = strategy?.exit?.stop_zone?.label
     ?? (strategy?.exit?.stop_loss ? `~$${Math.round(strategy.exit.stop_loss).toLocaleString()}` : null)
 
   const targetZone = strategy?.exit?.target_2?.price
@@ -109,6 +113,21 @@ export function DecisionAction({
   )
   const dislocationPct = (isStructuralDislocation && currentPrice && strategy?.entry?.ideal_zone?.high)
     ? Math.round(((currentPrice - strategy.entry.ideal_zone.high) / strategy.entry.ideal_zone.high) * 100)
+    : null
+
+  // Fix 3: When structural dislocation is active, the primary actionable setup is the aggressive
+  // (market-regime) setup. Pull stop zone from aggressive.stop_loss with a clear label so the user
+  // knows which entry it references. The structural setup's stop ($52–54) is irrelevant at current prices.
+  const stopZone = (() => {
+    if (isStructuralDislocation && enhancedTradeSetup?.aggressive?.stop_loss) {
+      return `~$${Math.round(enhancedTradeSetup.aggressive.stop_loss).toLocaleString()}`
+    }
+    return rawStopZone
+  })()
+  const stopZoneSetupLabel = isStructuralDislocation && enhancedTradeSetup?.aggressive?.stop_loss
+    ? 'Market-regime setup'
+    : isStructuralDislocation
+    ? 'Structural setup'
     : null
 
   // Signal status strip
@@ -267,6 +286,10 @@ export function DecisionAction({
                 <div className="rounded-md bg-surface-elevated border border-border p-3 text-center">
                   <p className="text-xs text-text-tertiary mb-1">Stop Zone</p>
                   <p className="text-sm font-semibold text-error">{stopZone}</p>
+                  {/* Fix 3: Label clarifies which setup the stop references */}
+                  {stopZoneSetupLabel && (
+                    <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">{stopZoneSetupLabel}</p>
+                  )}
                 </div>
               )}
               {targetZone && (
@@ -350,17 +373,55 @@ export function DecisionAction({
                     </span>
                   </div>
                   <div className="relative h-1.5 bg-surface-elevated rounded-full overflow-hidden">
-                    <div
-                      className={`absolute inset-y-0 left-0 rounded-full ${
-                        proximityStatus === 'CRITICAL'
-                          ? 'bg-warning w-[55%]'
-                          : new_buyers.urgency.toLowerCase().includes('high')
-                          ? 'bg-error w-[85%]'
-                          : new_buyers.urgency.toLowerCase().includes('medium')
-                          ? 'bg-warning w-[55%]'
-                          : 'bg-success w-[25%]'
-                      }`}
-                    />
+                    {/* Fix 5: Bar color maps to action + divergence — not urgency text alone.
+                        A WAIT/Low urgency bar must never render green (visual contradiction).
+                        RED FLAG divergence (high severity) shifts any bar to amber minimum.
+                        new_buyers.action union: 'BUY NOW' | 'SCALE IN' | 'WAIT' | 'AVOID' */}
+                    {(() => {
+                      const urgencyLower = new_buyers.urgency.toLowerCase()
+                      const urgencyHigh = urgencyLower.includes('high') || urgencyLower.includes('elevat')
+                      const urgencyLow = urgencyLower.includes('low')
+                      const action = new_buyers.action
+                      const hasRedFlagDivergence = hasDivergence && divergenceSeverity === 'HIGH'
+                      const isWaitAvoid = action === 'WAIT' || action === 'AVOID'
+                      // HOLD rating maps to WAIT action for new buyers; catch it via rating prop
+                      const isHoldRating = rating === 'HOLD' || rating === 'WAIT'
+                      const isBuyAction = action === 'BUY NOW' || action === 'SCALE IN'
+
+                      let barColor: string
+                      let barWidth: string
+
+                      if (proximityStatus === 'CRITICAL') {
+                        barColor = 'bg-warning'
+                        barWidth = 'w-[55%]'
+                      } else if (isWaitAvoid || urgencyLow) {
+                        // WAIT / AVOID / low urgency → grey (never green)
+                        barColor = 'bg-text-tertiary/30'
+                        barWidth = urgencyLow ? 'w-[15%]' : 'w-[25%]'
+                      } else if (isHoldRating && !isBuyAction) {
+                        // HOLD rating without explicit buy action → amber
+                        barColor = 'bg-warning'
+                        barWidth = 'w-[40%]'
+                      } else if (isBuyAction && !hasRedFlagDivergence) {
+                        // BUY NOW / SCALE IN with no red-flag divergence → green
+                        barColor = 'bg-success'
+                        barWidth = urgencyHigh ? 'w-[85%]' : 'w-[55%]'
+                      } else if (isBuyAction && hasRedFlagDivergence) {
+                        // BUY NOW but RED FLAG divergence active → amber minimum
+                        barColor = 'bg-warning'
+                        barWidth = urgencyHigh ? 'w-[70%]' : 'w-[50%]'
+                      } else if (hasRedFlagDivergence) {
+                        // Any other action with red flag → amber minimum
+                        barColor = 'bg-warning'
+                        barWidth = 'w-[40%]'
+                      } else {
+                        // Fallback
+                        barColor = urgencyHigh ? 'bg-success' : 'bg-warning'
+                        barWidth = urgencyHigh ? 'w-[65%]' : 'w-[40%]'
+                      }
+
+                      return <div className={`absolute inset-y-0 left-0 rounded-full ${barColor} ${barWidth}`} />
+                    })()}
                   </div>
                 </div>
               )}
