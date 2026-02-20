@@ -7,6 +7,7 @@ core research_swarm agent orchestration.
 
 from typing import Dict, Any
 from research_swarm.agents.manager.graph import analyze_swarm
+import asyncio
 import time
 
 async def run_stock_analysis(
@@ -34,12 +35,17 @@ async def run_stock_analysis(
     start_time = time.time()
 
     try:
-        # Call the existing analyze_swarm function
-        # This is synchronous, so we run it directly (no await needed)
-        result = analyze_swarm(
-            ticker=ticker,
-            quarters=quarters,
-            news_days_back=news_days_back
+        # analyze_swarm is synchronous (~4 minutes). Run it in a thread pool
+        # so the asyncio event loop stays free to serve health checks and other
+        # requests during the long analysis — prevents Railway 503s.
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: analyze_swarm(
+                ticker=ticker,
+                quarters=quarters,
+                news_days_back=news_days_back
+            )
         )
 
         # Extract key metrics from result (ManagerOutput Pydantic model)
