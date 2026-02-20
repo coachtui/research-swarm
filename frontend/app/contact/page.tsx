@@ -30,10 +30,10 @@ export default function ContactPage() {
               Questions about the platform, billing, or your account.
             </p>
             <a
-              href="mailto:support@dvrg.ai"
+              href="mailto:support.dvrg.io@aigaai.com"
               className="text-sm text-primary hover:underline"
             >
-              support@dvrg.ai
+              support.dvrg.io@aigaai.com
             </a>
           </div>
 
@@ -49,10 +49,10 @@ export default function ContactPage() {
               API integrations, institutional licensing, or press inquiries.
             </p>
             <a
-              href="mailto:hello@dvrg.ai"
+              href="mailto:hello.dvrg.io@aigaai.com"
               className="text-sm text-primary hover:underline"
             >
-              hello@dvrg.ai
+              hello.dvrg.io@aigaai.com
             </a>
           </div>
         </div>

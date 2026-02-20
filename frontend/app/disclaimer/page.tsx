@@ -123,8 +123,8 @@ export default function DisclaimerPage() {
         <Section title="9. Contact">
           <p className="text-text-secondary text-sm leading-relaxed">
             Questions about this disclaimer? Contact us at{' '}
-            <a href="mailto:support@dvrg.ai" className="text-primary hover:underline">
-              support@dvrg.ai
+            <a href="mailto:support.dvrg.io@aigaai.com" className="text-primary hover:underline">
+              support.dvrg.io@aigaai.com
             </a>.
           </p>
         </Section>

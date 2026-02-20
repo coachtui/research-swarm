@@ -41,8 +41,8 @@ export default function TermsOfServicePage() {
             You are responsible for maintaining the confidentiality of your account
             credentials and for all activity that occurs under your account. You must
             notify us immediately at{' '}
-            <a href="mailto:support@dvrg.ai" className="text-primary hover:underline">
-              support@dvrg.ai
+            <a href="mailto:support.dvrg.io@aigaai.com" className="text-primary hover:underline">
+              support.dvrg.io@aigaai.com
             </a>{' '}
             of any unauthorized use of your account.
           </p>
@@ -132,8 +132,8 @@ export default function TermsOfServicePage() {
         <Section title="12. Contact">
           <p className="text-text-secondary text-sm leading-relaxed">
             Questions about these Terms? Contact us at{' '}
-            <a href="mailto:support@dvrg.ai" className="text-primary hover:underline">
-              support@dvrg.ai
+            <a href="mailto:support.dvrg.io@aigaai.com" className="text-primary hover:underline">
+              support.dvrg.io@aigaai.com
             </a>.
           </p>
         </Section>

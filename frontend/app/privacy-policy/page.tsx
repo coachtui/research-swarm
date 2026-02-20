@@ -94,8 +94,8 @@ export default function PrivacyPolicyPage() {
           <p className="text-text-secondary text-sm leading-relaxed">
             Depending on your jurisdiction, you may have the right to access, correct, or
             delete personal data we hold about you. To exercise these rights, contact us at{' '}
-            <a href="mailto:support@dvrg.ai" className="text-primary hover:underline">
-              support@dvrg.ai
+            <a href="mailto:support.dvrg.io@aigaai.com" className="text-primary hover:underline">
+              support.dvrg.io@aigaai.com
             </a>.
           </p>
         </Section>
@@ -118,8 +118,8 @@ export default function PrivacyPolicyPage() {
         <Section title="10. Contact">
           <p className="text-text-secondary text-sm leading-relaxed">
             For privacy-related questions, contact us at{' '}
-            <a href="mailto:support@dvrg.ai" className="text-primary hover:underline">
-              support@dvrg.ai
+            <a href="mailto:support.dvrg.io@aigaai.com" className="text-primary hover:underline">
+              support.dvrg.io@aigaai.com
             </a>.
           </p>
         </Section>
