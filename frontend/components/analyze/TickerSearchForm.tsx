@@ -243,7 +243,7 @@ export function TickerSearchForm() {
             size="lg"
             className="w-full"
             disabled={isSubmitting || isAtLimit}
-            variant={isAtLimit ? 'outline' : 'default'}
+            variant={isAtLimit ? 'outline' : 'primary'}
           >
             {isSubmitting ? (
               <>
