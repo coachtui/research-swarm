@@ -101,7 +101,7 @@ async def create_test_user(email: str = "test@example.com", full_name: str = "Te
             "clerkId": f"test_{email.split('@')[0]}",
             "email": email,
             "fullName": full_name,
-            "tier": "pro",
+            "tier": "starter",
             "monthlyBudgetUsd": 200.0,
             "isActive": True
         }
