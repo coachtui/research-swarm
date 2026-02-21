@@ -9,9 +9,9 @@ from enum import Enum
 
 class UserTier(str, Enum):
     """User subscription tier."""
-    FREE = "free"
-    PRO = "pro"
-    PREMIUM = "premium"
+    STARTER = "starter"
+    INVESTOR = "investor"
+    TRADER = "trader"
 
 class User(BaseModel):
     """
@@ -22,7 +22,7 @@ class User(BaseModel):
     email: EmailStr = Field(..., description="User email address")
     full_name: Optional[str] = Field(None, description="User's full name")
 
-    tier: UserTier = Field(default=UserTier.FREE, description="Subscription tier")
+    tier: UserTier = Field(default=UserTier.STARTER, description="Subscription tier")
     monthly_budget_usd: float = Field(default=200.0, description="Monthly API budget in USD")
 
     is_active: bool = Field(default=True, description="Account active status")
@@ -36,7 +36,7 @@ class User(BaseModel):
                 "clerk_id": "user_2abc123def456",
                 "email": "investor@example.com",
                 "full_name": "Jane Investor",
-                "tier": "pro",
+                "tier": "starter",
                 "monthly_budget_usd": 200.0,
                 "is_active": True,
                 "is_admin": False,
@@ -89,7 +89,7 @@ class UserQuota(BaseModel):
         json_schema_extra = {
             "example": {
                 "user_id": "550e8400-e29b-41d4-a716-446655440000",
-                "tier": "pro",
+                "tier": "starter",
                 "monthly_budget_usd": 200.0,
                 "monthly_stock_limit": 50,
                 "current_month_cost_usd": 45.30,
