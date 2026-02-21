@@ -124,9 +124,9 @@
   --surface-2-rgb: 236 234 230; /* #ECEAE6 — slight depth */
 
   /* === Text === */
-  --text-rgb: 16 20 36;        /* #101424 — near-black */
-  --text-muted-rgb: 82 92 118;  /* #525C76 — medium blue-gray */
-  --text-subtle-rgb: 156 166 192; /* #9CA6C0 — light, for labels */
+  --text-rgb: 14 18 32;          /* #0E1220 — deep near-black (ink) */
+  --text-muted-rgb: 54 66 92;    /* #36425C — dense secondary; ~9:1 contrast on paper */
+  --text-subtle-rgb: 96 108 138; /* #606C8A — legible tertiary/label; ~4.8:1 on paper */
 
   /* === Brand accent (slightly deeper teal for light-bg contrast) === */
   --accent-rgb: 0 160 134;     /* #00A086 */
@@ -137,16 +137,16 @@
   --bg: rgb(246 245 242);
   --surface-1: rgb(255 254 251);
   --surface-2: rgb(236 234 230);
-  --text: rgb(16 20 36);
-  --text-muted: rgb(82 92 118);
-  --text-subtle: rgb(156 166 192);
+  --text: rgb(14 18 32);
+  --text-muted: rgb(54 66 92);
+  --text-subtle: rgb(96 108 138);
   --accent: rgb(0 160 134);
   --accent-dark: rgb(0 132 111);
   --accent-light: rgb(0 190 159);
 
   /* === Hairline borders === */
-  --border: rgba(0 0 0 / 0.08);
-  --border-strong: rgba(0 0 0 / 0.14);
+  --border: rgba(0 0 0 / 0.11);
+  --border-strong: rgba(0 0 0 / 0.18);
 
   /* === Accent tints === */
   --accent-weak: rgba(0 160 134 / 0.08);
@@ -167,9 +167,9 @@
   --background: rgb(246 245 242);
   --surface: rgb(255 254 251);
   --surface-elevated: rgb(236 234 230);
-  --text-primary: rgb(16 20 36);
-  --text-secondary: rgb(82 92 118);
-  --text-tertiary: rgb(156 166 192);
+  --text-primary: rgb(14 18 32);
+  --text-secondary: rgb(54 66 92);
+  --text-tertiary: rgb(96 108 138);
   --success: #059669;
   --warning: #D97706;
   --error: #DC2626;
