@@ -91,9 +91,9 @@ async def get_platform_metrics(admin: User = Depends(require_admin)):
 
     # User counts by tier
     total_users = await db.user.count()
-    free_users = await db.user.count(where={"tier": "free"})
-    pro_users = await db.user.count(where={"tier": "pro"})
-    premium_users = await db.user.count(where={"tier": "premium"})
+    starter_users = await db.user.count(where={"tier": "starter"})
+    investor_users = await db.user.count(where={"tier": "investor"})
+    trader_users = await db.user.count(where={"tier": "trader"})
 
     # Analysis counts
     total_analyses = await db.stockresult.count(where={"status": "completed"})
@@ -113,9 +113,9 @@ async def get_platform_metrics(admin: User = Depends(require_admin)):
     return PlatformMetrics(
         users={
             "total": total_users,
-            "free": free_users,
-            "pro": pro_users,
-            "premium": premium_users
+            "starter": starter_users,
+            "investor": investor_users,
+            "trader": trader_users
         },
         analyses={
             "total": total_analyses,
@@ -196,8 +196,8 @@ async def update_user_tier(
 
     Admin-only endpoint for manual tier management.
     """
-    if request.new_tier not in ["pro", "premium"]:
-        raise HTTPException(400, "Invalid tier. Must be one of: pro, premium")
+    if request.new_tier not in ["starter", "investor", "trader"]:
+        raise HTTPException(400, "Invalid tier. Must be one of: starter, investor, trader")
 
     # Ensure fresh DB connection
     from api.lib.db import _db_client

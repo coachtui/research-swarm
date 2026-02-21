@@ -292,6 +292,12 @@ class ApiClient {
       method: 'POST',
     })
   }
+
+  async createBoostSession(): Promise<{ checkout_url: string; warn_expiry?: boolean; days_remaining?: number }> {
+    return this.request('/api/stripe/create-boost-session', {
+      method: 'POST',
+    })
+  }
 }
 
 // Export singleton instance

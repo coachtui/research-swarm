@@ -307,10 +307,15 @@ async def get_usage(user: User = Depends(get_current_user)):
     """
     Get current usage and quota for the user.
 
-    Returns analyses used/limit, watchlist count/limit, and period info.
+    Returns analyses used/limit, boost info, watchlist count/limit, and billing period info.
     """
     try:
-        usage = await get_usage_summary(user.id, user.tier)
+        # Fetch stripe status from DB for boost eligibility check
+        db = await get_db()
+        user_db = await db.user.find_unique(where={"id": user.id})
+        stripe_status = (user_db.stripeSubscriptionStatus or "") if user_db else ""
+
+        usage = await get_usage_summary(user.id, user.tier, stripe_status)
         return usage
     except Exception as e:
         print(f"❌ Error fetching usage for user {user.id}: {e}")

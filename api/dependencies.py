@@ -90,7 +90,7 @@ async def get_current_user(
                             "clerkId": "user_mock_123",
                             "email": "test@example.com",
                             "fullName": "Test User",
-                            "tier": "pro",
+                            "tier": "trader",
                             "monthlyBudgetUsd": 200.0,
                             "isActive": True,
                             "isAdmin": True
@@ -118,7 +118,7 @@ async def get_current_user(
             clerk_id="user_mock_123",
             email="test@example.com",
             full_name="Test User",
-            tier="pro",
+            tier="trader",
             monthly_budget_usd=200.0,
             is_active=True,
             is_admin=True
@@ -257,7 +257,7 @@ async def get_current_user(
                         "clerkId": clerk_user_id,
                         "email": email,
                         "fullName": email.split("@")[0],
-                        "tier": "pro",  # Default to pro tier (requires subscription to activate)
+                        "tier": "starter",  # Default to starter tier (requires subscription to activate)
                         "monthlyBudgetUsd": 200.0,
                         "isActive": True,
                         "isAdmin": is_admin

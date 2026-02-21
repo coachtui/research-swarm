@@ -476,12 +476,16 @@ export interface WatchlistStatsResponse {
 export interface QuotaData {
   analyses_used: number
   analyses_limit: number
+  boost_analyses_added: number
   analyses_remaining: number
   watchlist_count: number
   watchlist_limit: number
   watchlist_remaining: number
   period_start: string
   period_end: string
+  billing_period_end: string
+  days_remaining: number
+  boost_eligible: boolean
   tier: string
 }
 

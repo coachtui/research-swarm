@@ -59,7 +59,7 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-success" />
-                <span>10-30 reports per month</span>
+                <span>5-50 analyses per month</span>
               </div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-success" />
@@ -422,7 +422,7 @@ export default function Home() {
                 <span className="text-primary group-open:rotate-180 transition-transform">▼</span>
               </summary>
               <p className="mt-4 text-text-secondary">
-                Each report is a snapshot in time. However, you can re-run analysis on the same stock to get updated insights. Pro plan users receive automatic watchlist alerts when significant changes are detected.
+                Each report is a snapshot in time. However, you can re-run analysis on the same stock to get updated insights. All paid plan users receive automatic watchlist alerts when significant changes are detected.
               </p>
             </details>
           </div>
@@ -440,11 +440,6 @@ export default function Home() {
               Join investors who are making smarter decisions with AI-powered analysis
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link href="/sign-up">
-                <Button size="lg" className="text-lg px-8 py-6 w-full sm:w-auto">
-                  Start Free Trial <ArrowRight className="ml-2 w-5 h-5" />
-                </Button>
-              </Link>
               <Link href="/analyze">
                 <Button size="lg" variant="outline" className="text-lg px-8 py-6 w-full sm:w-auto">
                   Analyze Your First Stock

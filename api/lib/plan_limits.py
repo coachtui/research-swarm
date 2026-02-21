@@ -1,6 +1,6 @@
 """
 Plan limits configuration for tier-based access control.
-Defines quotas and features for Free, Pro, and Premium tiers.
+Defines quotas and features for Starter, Investor, and Trader tiers.
 """
 
 from dataclasses import dataclass
@@ -21,24 +21,23 @@ class PlanLimits:
 
 # Tier limit definitions
 TIER_LIMITS = {
-    # Free tier temporarily disabled
-    # "free": PlanLimits(
-    #     analyses_per_month=3,
-    #     watchlist_max=999,
-    #     concurrent_analyses=1,
-    #     priority_queue=False,
-    #     api_access=False
-    # ),
-    "pro": PlanLimits(
-        analyses_per_month=10,  # Pro: $19.99/month for 10 reports
-        watchlist_max=999,  # Unlimited watchlist for all tiers
+    "starter": PlanLimits(
+        analyses_per_month=5,    # Starter: $19.99/month for 5 reports
+        watchlist_max=999,        # Unlimited watchlist for all tiers
+        concurrent_analyses=2,
+        priority_queue=True,
+        api_access=True
+    ),
+    "investor": PlanLimits(
+        analyses_per_month=15,   # Investor: $39.99/month for 15 reports
+        watchlist_max=999,        # Unlimited watchlist for all tiers
         concurrent_analyses=3,
         priority_queue=True,
         api_access=True
     ),
-    "premium": PlanLimits(
-        analyses_per_month=30,  # Premium: $49.99/month for 30 reports
-        watchlist_max=999,  # Unlimited watchlist for all tiers
+    "trader": PlanLimits(
+        analyses_per_month=50,   # Trader: $99.99/month for 50 reports
+        watchlist_max=999,        # Unlimited watchlist for all tiers
         concurrent_analyses=5,
         priority_queue=True,
         api_access=True
@@ -51,14 +50,14 @@ def get_tier_limits(tier: str) -> PlanLimits:
     Get the plan limits for a given tier.
 
     Args:
-        tier: The tier name (pro, premium)
+        tier: The tier name (starter, investor, trader)
 
     Returns:
         PlanLimits configuration for the tier
 
-    Defaults to pro tier if tier not found (free tier disabled).
+    Defaults to starter tier if tier not found.
     """
-    return TIER_LIMITS.get(tier.lower(), TIER_LIMITS["pro"])
+    return TIER_LIMITS.get(tier.lower(), TIER_LIMITS["starter"])
 
 
 def get_analyses_limit(tier: str) -> int:

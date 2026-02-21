@@ -19,7 +19,7 @@ model User {
   fullName  String?  @map("full_name")
 
   // Subscription tier
-  tier             String  @default("free")  // free, pro, premium
+  tier             String  @default("starter")  // starter, investor, trader
   monthlyBudgetUsd Float   @default(200.0) @map("monthly_budget_usd")
 
   // Stripe subscription (new fields for paid plans)
@@ -28,6 +28,10 @@ model User {
   stripeSubscriptionStatus String?  @map("stripe_subscription_status")  // active, canceled, past_due, trialing, incomplete
   stripePriceId           String?   @map("stripe_price_id")  // Which plan they're on
   subscriptionEndDate     DateTime? @map("subscription_end_date")  // When subscription period ends
+
+  // 30-day rolling billing period (set by Stripe webhooks)
+  billingPeriodStart  DateTime? @map("billing_period_start")
+  billingPeriodEnd    DateTime? @map("billing_period_end")
 
   // Account status
   isActive  Boolean  @default(true) @map("is_active")
@@ -265,8 +269,9 @@ model UsageQuota {
   periodEnd    DateTime @map("period_end")
 
   // Usage counters
-  analysesUsed    Int @default(0) @map("analyses_used")
-  watchlistCount  Int @default(0) @map("watchlist_count")
+  analysesUsed       Int @default(0) @map("analyses_used")
+  boostAnalysesAdded Int @default(0) @map("boost_analyses_added")
+  watchlistCount     Int @default(0) @map("watchlist_count")
 
   // Limits (copied from tier at period start)
   analysesLimit   Int @map("analyses_limit")

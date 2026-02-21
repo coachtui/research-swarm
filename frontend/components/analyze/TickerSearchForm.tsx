@@ -10,9 +10,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useSubmitAnalysis } from '@/lib/hooks/useAnalysis'
+import { useQuota } from '@/lib/hooks/useQuota'
 import { formatTicker, isValidTicker } from '@/lib/utils/formatting'
-import { getErrorMessage } from '@/lib/utils/errors'
 import { apiClient } from '@/lib/api/client'
+import { Zap, TrendingUp } from 'lucide-react'
 
 const formSchema = z.object({
   ticker: z
@@ -28,10 +29,75 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>
 
+function OutOfAnalysesPanel({ boostEligible, boostAnalysesAdded, daysRemaining }: {
+  boostEligible: boolean
+  boostAnalysesAdded: number
+  daysRemaining: number
+}) {
+  const router = useRouter()
+  const [boostLoading, setBoostLoading] = useState(false)
+  const [boostError, setBoostError] = useState<string | null>(null)
+
+  const handleBoost = async () => {
+    setBoostLoading(true)
+    setBoostError(null)
+    try {
+      const result = await apiClient.createBoostSession()
+      window.location.href = result.checkout_url
+    } catch {
+      setBoostError('Could not start boost purchase. Please try again.')
+    } finally {
+      setBoostLoading(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-error/30 bg-error/5 p-4 space-y-3">
+      <div>
+        <p className="text-sm font-semibold text-text-primary">Out of Analyses</p>
+        <p className="text-xs text-text-secondary mt-0.5">
+          You&apos;ve used all your analyses this period.{' '}
+          {daysRemaining > 0 ? `Resets in ${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}.` : 'Resets soon.'}
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {boostEligible && (
+          <button
+            onClick={handleBoost}
+            disabled={boostLoading}
+            className="flex items-center justify-center gap-2 w-full py-2 px-3 bg-warning/10 border border-warning/30 text-warning hover:bg-warning/20 rounded-md text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            {boostLoading ? 'Loading...' : 'Buy Boost — $9.99 (adds 5 analyses)'}
+          </button>
+        )}
+        <button
+          onClick={() => router.push('/#pricing-tiers')}
+          className="flex items-center justify-center gap-2 w-full py-2 px-3 border border-primary/30 text-primary hover:bg-primary/5 rounded-md text-sm font-medium transition-colors"
+        >
+          <TrendingUp className="h-3.5 w-3.5" />
+          Upgrade Plan
+        </button>
+      </div>
+
+      {boostError && <p className="text-xs text-error">{boostError}</p>}
+
+      {boostEligible && boostAnalysesAdded > 0 && (
+        <p className="text-xs text-text-tertiary">
+          You already have {boostAnalysesAdded} boost analyses active — they&apos;ll appear after page refresh.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function TickerSearchForm() {
   const router = useRouter()
   const [serverError, setServerError] = useState<string | null>(null)
+  const [showOutOfAnalyses, setShowOutOfAnalyses] = useState(false)
   const submitAnalysis = useSubmitAnalysis()
+  const { data: quota } = useQuota()
 
   const {
     register,
@@ -48,20 +114,33 @@ export function TickerSearchForm() {
 
   const ticker = watch('ticker')
 
+  // Pre-flight quota check
+  const isAtLimit = quota ? quota.analyses_remaining === 0 : false
+
   const onSubmit = async (data: FormData) => {
     setServerError(null)
+    setShowOutOfAnalyses(false)
 
     try {
       const response = await submitAnalysis.mutateAsync({
         ticker: data.ticker,
         news_days_back: data.newsDaysBack,
       })
-
-      // Redirect to results page with polling
       router.push(`/results/${response.run_id}`)
-    } catch (error) {
-      setServerError(getErrorMessage(error))
+    } catch (error: any) {
+      // 402 = quota exceeded — show boost/upgrade UI
+      if (error?.status === 402) {
+        setShowOutOfAnalyses(true)
+      } else {
+        setServerError(error?.message || 'Something went wrong. Please try again.')
+      }
     }
+  }
+
+  const buttonLabel = () => {
+    if (isAtLimit) return 'Out of Analyses'
+    if (isSubmitting) return 'Submitting...'
+    return `Analyze ${ticker ? ticker.toUpperCase() : 'Stock'}`
   }
 
   return (
@@ -114,12 +193,18 @@ export function TickerSearchForm() {
             </div>
           </div>
 
-          {/* Server Error */}
-          {serverError && (
+          {/* Out of Analyses — shown pre-flight (quota check) or after 402 */}
+          {(isAtLimit || showOutOfAnalyses) && quota ? (
+            <OutOfAnalysesPanel
+              boostEligible={quota.boost_eligible ?? false}
+              boostAnalysesAdded={quota.boost_analyses_added ?? 0}
+              daysRemaining={quota.days_remaining ?? 0}
+            />
+          ) : serverError ? (
             <div className="p-3 rounded-button bg-error/10 border border-error/20">
               <p className="text-sm text-error">{serverError}</p>
             </div>
-          )}
+          ) : null}
 
           {/* What's Included */}
           <div className="rounded-button bg-surface-elevated p-4 space-y-2">
@@ -157,12 +242,13 @@ export function TickerSearchForm() {
             type="submit"
             size="lg"
             className="w-full"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isAtLimit}
+            variant={isAtLimit ? 'outline' : 'default'}
           >
             {isSubmitting ? (
               <>
                 <svg
-                  className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                  className="animate-spin -ml-1 mr-3 h-5 w-5"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -174,23 +260,32 @@ export function TickerSearchForm() {
                     r="10"
                     stroke="currentColor"
                     strokeWidth="4"
-                  ></circle>
+                  />
                   <path
                     className="opacity-75"
                     fill="currentColor"
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  ></path>
+                  />
                 </svg>
                 Submitting...
               </>
             ) : (
-              <>Analyze {ticker ? ticker.toUpperCase() : 'Stock'}</>
+              buttonLabel()
             )}
           </Button>
 
-          <p className="text-xs text-center text-text-tertiary">
-            Analysis typically takes 3-5 minutes
-          </p>
+          {/* Quota indicator — show remaining count when near limit */}
+          {quota && !isAtLimit && quota.analyses_remaining <= 3 && (
+            <p className="text-xs text-center text-warning">
+              {quota.analyses_remaining} analysis{quota.analyses_remaining !== 1 ? 'ses' : ''} remaining this period
+            </p>
+          )}
+
+          {!isAtLimit && (
+            <p className="text-xs text-center text-text-tertiary">
+              Analysis typically takes 3-5 minutes
+            </p>
+          )}
         </form>
       </CardContent>
     </Card>

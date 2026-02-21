@@ -115,14 +115,15 @@ export function AdminUserTable() {
                   disabled={isUpdating}
                   className="px-3 py-1.5 rounded-md border border-surface-elevated bg-surface text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <option value="pro">Pro</option>
-                  <option value="premium">Premium</option>
+                  <option value="starter">Starter</option>
+                  <option value="investor">Investor</option>
+                  <option value="trader">Trader</option>
                 </select>
 
                 {/* Current tier badge */}
                 <Badge variant={
-                  user.tier === 'premium' ? 'success' :
-                  user.tier === 'pro' ? 'secondary' : 'warning'
+                  user.tier === 'trader' ? 'success' :
+                  user.tier === 'investor' ? 'secondary' : 'warning'
                 }>
                   {user.tier}
                 </Badge>

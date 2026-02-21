@@ -164,13 +164,13 @@ async def handle_user_created(db, event: dict):
             }
         )
     else:
-        # Create new user with Pro tier (requires subscription to activate)
+        # Create new user with Starter tier (requires subscription to activate)
         await db.user.create(
             data={
                 "clerkId": clerk_id,
                 "email": primary_email,
                 "fullName": full_name,
-                "tier": "pro",
+                "tier": "starter",
                 "monthlyBudgetUsd": 200.0,
                 "isActive": True,
                 "isAdmin": False,
