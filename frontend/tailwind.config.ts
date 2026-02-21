@@ -55,8 +55,9 @@ const config: Config = {
       },
 
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
+        // var(--font-inter) is injected by next/font in layout.tsx
+        sans: ['var(--font-inter)', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'ui-monospace', 'monospace'],
       },
 
       fontSize: {
@@ -80,6 +81,11 @@ const config: Config = {
         // Reference CSS variable so shadows respect theme
         theme:    'var(--shadow)',
         'theme-sm': 'var(--shadow-sm)',
+      },
+
+      maxWidth: {
+        page:    'var(--page-max)',    // 1200px
+        reading: 'var(--reading-max)', // 76ch
       },
     },
   },

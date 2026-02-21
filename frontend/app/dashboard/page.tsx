@@ -59,9 +59,9 @@ function DashboardContent() {
     <div className="min-h-screen bg-background">
       <DashboardHeader quota={quota} isLoading={quotaLoading} />
 
-      <main className="container mx-auto px-4 py-8">
-        <Tabs defaultValue="watchlist" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 lg:w-[400px]">
+      <main className="page-container py-8">
+        <Tabs defaultValue="watchlist" className="space-y-0">
+          <TabsList>
             <TabsTrigger value="watchlist">
               Watchlist {quota && `(${quota.watchlist_count})`}
             </TabsTrigger>
@@ -82,7 +82,7 @@ function DashboardContent() {
           </TabsContent>
 
           <TabsContent value="analyze">
-            <div className="rounded-lg border border-surface-elevated bg-surface p-8 text-center">
+            <div className="rounded-card p-8 text-center" style={{ border: '1px solid var(--border)', background: 'var(--surface-1)' }}>
               <p className="text-text-secondary mb-4">
                 Quick analyze form coming soon
               </p>

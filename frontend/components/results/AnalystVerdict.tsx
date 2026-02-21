@@ -85,29 +85,25 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
           <div className="space-y-6">
             {/* Company Overview */}
             <div>
-              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2">
-                Company Overview
-              </h3>
-              <p className="text-text-secondary text-sm leading-relaxed">
+              <h3 className="label mb-2">Company Overview</h3>
+              <p className="text-text-secondary leading-relaxed" style={{ fontSize: 'var(--text-base)' }}>
                 {(thesis as InvestmentThesisStructured).company_overview}
               </p>
             </div>
 
             {/* Recommendation summary — highlighted */}
-            <div className="bg-surface-elevated rounded-lg p-4 border-l-4 border-primary">
-              <p className="text-text-primary font-medium text-sm leading-relaxed">
+            <div className="rounded-lg p-4 border-l-4 border-primary" style={{ background: 'var(--surface-2)' }}>
+              <p className="text-text-primary font-medium leading-relaxed" style={{ fontSize: 'var(--text-base)' }}>
                 {(thesis as InvestmentThesisStructured).recommendation_summary}
               </p>
             </div>
 
             {/* Investment Highlights */}
             <div>
-              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2.5">
-                Investment Highlights
-              </h3>
+              <h3 className="label mb-2.5">Investment Highlights</h3>
               <ul className="space-y-2.5">
                 {(thesis as InvestmentThesisStructured).investment_highlights.map((item, idx) => (
-                  <li key={idx} className="flex items-start gap-2.5 text-sm text-text-secondary">
+                  <li key={idx} className="flex items-start gap-2.5 text-text-secondary" style={{ fontSize: 'var(--text-base)' }}>
                     <span className="text-success mt-1 flex-shrink-0 font-bold">·</span>
                     <span className="leading-relaxed">{item}</span>
                   </li>
@@ -117,10 +113,10 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
 
             {/* Valuation & Signal Analysis */}
             <div>
-              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2">
+              <h3 className="label mb-2">
                 Valuation &amp; Signal Analysis
               </h3>
-              <p className="text-text-secondary text-sm leading-relaxed">
+              <p className="text-text-secondary leading-relaxed" style={{ fontSize: 'var(--text-base)' }}>
                 {(thesis as InvestmentThesisStructured).valuation_signal_analysis}
               </p>
               {/* Fix 6: Reframe low valuation score for Structural Premium Regime stocks */}
@@ -138,12 +134,10 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
 
             {/* Key Risks */}
             <div>
-              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2.5">
-                Key Risks
-              </h3>
+              <h3 className="label mb-2.5">Key Risks</h3>
               <ul className="space-y-2.5">
                 {(thesis as InvestmentThesisStructured).key_risks.map((item, idx) => (
-                  <li key={idx} className="flex items-start gap-2.5 text-sm text-text-secondary">
+                  <li key={idx} className="flex items-start gap-2.5 text-text-secondary" style={{ fontSize: 'var(--text-base)' }}>
                     <span className="text-error mt-1 flex-shrink-0 font-bold">·</span>
                     <span className="leading-relaxed">{item}</span>
                   </li>
@@ -153,16 +147,14 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
 
             {/* Entry Strategy & Investor Fit */}
             <div>
-              <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest mb-2">
-                Entry Strategy &amp; Investor Fit
-              </h3>
-              <p className="text-text-secondary text-sm leading-relaxed">
+              <h3 className="label mb-2">Entry Strategy &amp; Investor Fit</h3>
+              <p className="text-text-secondary leading-relaxed" style={{ fontSize: 'var(--text-base)' }}>
                 {(thesis as InvestmentThesisStructured).entry_strategy}
               </p>
             </div>
           </div>
         ) : (
-          <p className="text-text-secondary text-sm leading-relaxed whitespace-pre-wrap">
+          <p className="text-text-secondary leading-relaxed whitespace-pre-wrap" style={{ fontSize: 'var(--text-base)' }}>
             {thesis as string}
           </p>
         )}
@@ -170,9 +162,7 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
         {/* What changes the rating */}
         {hasTriggers && (
           <div className="border-t border-border pt-6 space-y-4">
-            <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-widest">
-              What Changes This Rating
-            </h3>
+            <h3 className="label">What Changes This Rating</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {upgradeTriggers && upgradeTriggers.length > 0 && (
                 <div className="rounded-lg border border-success/25 bg-success/5 p-4">

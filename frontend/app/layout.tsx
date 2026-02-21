@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { Inter } from 'next/font/google'
 import { ClerkProvider } from '@clerk/nextjs'
 import { QueryProvider } from '@/lib/providers/query-provider'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -8,13 +9,17 @@ import { Footer } from '@/components/layout/Footer'
 import { TokenProvider } from '@/components/auth/TokenProvider'
 import { KnowledgeProvider } from '@/components/knowledge/KnowledgeProvider'
 
+// Load Inter via next/font — exposes --font-inter CSS variable used by globals.css
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+})
+
 // Minified theme-init script — runs synchronously before first paint to avoid FOUC.
 // Reads localStorage["theme"] (dark|light). Legacy "system" migrates to "dark".
 // Default when no preference is stored: dark.
-const THEME_INIT_SCRIPT = `(function(){try{var p=localStorage.getItem('theme')||'system';var t=p==='system'?(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'):p;document.documentElement.setAttribute('data-theme',t)}catch(e){}})();`
-
-// Using system fonts as fallback due to Google Fonts timeout
-const fontClass = 'font-sans'
+const THEME_INIT_SCRIPT = `(function(){try{var t=localStorage.getItem('theme')||'dark';if(t==='system')t='dark';document.documentElement.setAttribute('data-theme',t)}catch(e){}})();`
 
 export const viewport = {
   width: 'device-width',
@@ -55,12 +60,12 @@ export default function RootLayout({
         suppressHydrationWarning: the inline script mutates data-theme before
         React hydrates, causing an expected mismatch that we can safely ignore.
       */}
-      <html lang="en" suppressHydrationWarning>
+      <html lang="en" suppressHydrationWarning className={inter.variable}>
         <head>
           {/* FOUC prevention — must run synchronously before CSS is applied */}
           <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         </head>
-        <body className={`${fontClass} flex min-h-screen flex-col`}>
+        <body className="flex min-h-screen flex-col">
           <QueryProvider>
             <TooltipProvider delayDuration={200}>
               <KnowledgeProvider>
