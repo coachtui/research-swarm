@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
@@ -14,11 +15,8 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b border-surface-elevated bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-16 items-center px-4">
         {/* Logo */}
-        <Link href="/" className="flex items-center space-x-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <span className="text-lg font-bold text-white">D</span>
-          </div>
-          <span className="text-xl font-bold text-text-primary">DVRG</span>
+        <Link href="/" className="flex items-center">
+          <Image src="/dvrg-logo.png" alt="DVRG" width={120} height={40} className="h-10 w-auto" priority />
         </Link>
 
         {/* Spacer */}
