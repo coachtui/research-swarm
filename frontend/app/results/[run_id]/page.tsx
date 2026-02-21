@@ -24,6 +24,7 @@ import { simplifyKeyInsights } from '@/lib/analysis/simplifyKeyInsights'
 import { extractWhatsNew } from '@/lib/analysis/extractWhatsNew'
 import { extractWatchCalendar } from '@/lib/analysis/extractWatchCalendar'
 import { AddToWatchlistButton } from '@/components/dashboard/AddToWatchlistButton'
+import { OnboardingPanel } from '@/components/knowledge/OnboardingPanel'
 
 interface ResultsPageProps {
   params: { run_id: string }
@@ -159,6 +160,7 @@ function ResultsContent({ runId }: { runId: string }) {
   const watchCalendarEvents = extractWatchCalendar(full_output)
 
   return (
+    <OnboardingPanel>
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-6xl mx-auto space-y-8">
 
@@ -348,5 +350,6 @@ function ResultsContent({ runId }: { runId: string }) {
         </Card>
       </div>
     </div>
+    </OnboardingPanel>
   )
 }
