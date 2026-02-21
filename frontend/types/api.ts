@@ -494,9 +494,10 @@ export interface QuotaData {
 export interface PlatformMetrics {
   users: {
     total: number
-    free: number
-    pro: number
-    premium: number
+    free: number       // legacy — may be 0
+    starter: number
+    investor: number
+    trader: number
   }
   analyses: {
     total: number

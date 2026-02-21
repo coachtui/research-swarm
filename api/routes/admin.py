@@ -94,6 +94,7 @@ async def get_platform_metrics(admin: User = Depends(require_admin)):
     starter_users = await db.user.count(where={"tier": "starter"})
     investor_users = await db.user.count(where={"tier": "investor"})
     trader_users = await db.user.count(where={"tier": "trader"})
+    free_users = await db.user.count(where={"tier": "free"})  # legacy count
 
     # Analysis counts
     total_analyses = await db.stockresult.count(where={"status": "completed"})
@@ -113,6 +114,7 @@ async def get_platform_metrics(admin: User = Depends(require_admin)):
     return PlatformMetrics(
         users={
             "total": total_users,
+            "free": free_users,
             "starter": starter_users,
             "investor": investor_users,
             "trader": trader_users

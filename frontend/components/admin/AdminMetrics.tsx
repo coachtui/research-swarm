@@ -35,7 +35,7 @@ export function AdminMetrics({ metrics, isLoading }: AdminMetricsProps) {
           icon={<Users className="h-5 w-5" />}
           title="Total Users"
           value={metrics.users.total}
-          subtitle={`Free: ${metrics.users.free} • Pro: ${metrics.users.pro} • Premium: ${metrics.users.premium}`}
+          subtitle={`Starter: ${metrics.users.starter} • Investor: ${metrics.users.investor} • Trader: ${metrics.users.trader}`}
         />
 
         <MetricCard
@@ -67,7 +67,6 @@ export function AdminMetrics({ metrics, isLoading }: AdminMetricsProps) {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Free tier disabled - only showing test users if any exist */}
             {metrics.users.free > 0 && (
               <TierBar
                 label="Free (Legacy)"
@@ -77,14 +76,20 @@ export function AdminMetrics({ metrics, isLoading }: AdminMetricsProps) {
               />
             )}
             <TierBar
-              label="Pro"
-              count={metrics.users.pro}
+              label="Starter"
+              count={metrics.users.starter}
+              total={metrics.users.total}
+              color="bg-warning"
+            />
+            <TierBar
+              label="Investor"
+              count={metrics.users.investor}
               total={metrics.users.total}
               color="bg-primary"
             />
             <TierBar
-              label="Premium"
-              count={metrics.users.premium}
+              label="Trader"
+              count={metrics.users.trader}
               total={metrics.users.total}
               color="bg-success"
             />
