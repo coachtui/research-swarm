@@ -138,7 +138,12 @@ export function PortfolioContext({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Briefcase className="h-5 w-5 text-primary" />
-            <h3 className="text-lg font-semibold text-text-primary">Position Sizing</h3>
+            <div>
+              <h3 className="text-lg font-semibold text-text-primary">Portfolio Construction</h3>
+              <p className="text-[10px] text-text-tertiary leading-none mt-0.5">
+                Multi-factor allocation engine
+              </p>
+            </div>
             <Badge variant="secondary">{ticker}</Badge>
           </div>
 
@@ -177,10 +182,81 @@ export function PortfolioContext({
           </p>
         </div>
 
+        {/* Sizing Determinants — surfaces the factor inputs driving the allocation range.
+            All values are already computed above; this is purely a visual disclosure. */}
+        <div className="rounded-lg border border-border/60 bg-surface/30 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-text-tertiary mb-2 font-semibold">
+            Sizing Determinants
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
+            <div>
+              <span className="text-[10px] text-text-tertiary block">Conviction</span>
+              <span className="text-xs font-medium text-text-primary">
+                {convictionPosition?.conviction_level ??
+                  (moatScore >= 7.5 ? 'High' : moatScore >= 5.5 ? 'Medium' : 'Low')}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-text-tertiary block">Financial Quality</span>
+              <span
+                className={`text-xs font-medium ${
+                  qualityLevel === 'high'
+                    ? 'text-success'
+                    : qualityLevel === 'medium'
+                      ? 'text-warning'
+                      : 'text-error'
+                }`}
+              >
+                {financialHealthScore.toFixed(1)}/10 ·{' '}
+                {qualityLevel.charAt(0).toUpperCase() + qualityLevel.slice(1)}
+              </span>
+            </div>
+            <div>
+              <span className="text-[10px] text-text-tertiary block">Signal Conflict</span>
+              <span
+                className={`text-xs font-medium ${hasSignalConflict ? 'text-warning' : 'text-success'}`}
+              >
+                {hasSignalConflict ? 'Active — Cap at Satellite' : 'None Detected'}
+              </span>
+            </div>
+            {smartMoneyComposite != null && (
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Smart Money Flow</span>
+                <span
+                  className={`text-xs font-medium ${
+                    smartMoneyComposite >= 6
+                      ? 'text-success'
+                      : smartMoneyComposite >= 4
+                        ? 'text-warning'
+                        : 'text-error'
+                  }`}
+                >
+                  {smartMoneyComposite.toFixed(1)}/10 composite
+                </span>
+              </div>
+            )}
+            <div>
+              <span className="text-[10px] text-text-tertiary block">Risk Multiplier</span>
+              <span className="text-xs font-medium text-text-primary">
+                {riskProfile === 'conservative' ? '0.7×' : riskProfile === 'aggressive' ? '1.3×' : '1.0×'}{' '}
+                <span className="text-text-tertiary font-normal">({riskProfile})</span>
+              </span>
+            </div>
+            {convictionPosition?.max_pct && (
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Risk-Adjusted Cap</span>
+                <span className="text-xs font-medium text-text-primary">
+                  {convictionPosition.max_pct}% max
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Position Sizing Guidance */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <p className="text-sm font-medium text-text-secondary">Suggested Allocation</p>
+            <p className="text-sm font-medium text-text-secondary">Conviction-Adjusted Range</p>
             <div className="bg-surface rounded-lg p-3 border border-border">
               <div className="flex items-baseline gap-2 mb-1">
                 <span className="text-2xl font-bold text-primary">
@@ -207,7 +283,7 @@ export function PortfolioContext({
           </div>
 
           <div className="space-y-2">
-            <p className="text-sm font-medium text-text-secondary">Example Position Sizes</p>
+            <p className="text-sm font-medium text-text-secondary">Dollar Exposure Calculator</p>
             <div className="bg-surface rounded-lg p-3 border border-border space-y-1.5">
               {portfolioExamples.map((example, i) => (
                 <div key={i} className="flex items-center justify-between text-xs">
@@ -283,7 +359,7 @@ export function PortfolioContext({
 
         {/* Bottom line */}
         <p className="text-xs text-text-tertiary italic">
-          Position sizing is as important as stock selection. The suggested allocations balance opportunity vs. risk based on company quality, current valuation, and market signals.
+          Allocation range is conviction-weighted and signal-gated — sized by company quality, flow alignment, and active conflict state. Position sizing discipline is as structurally important as stock selection.
         </p>
       </CardContent>
     </Card>
