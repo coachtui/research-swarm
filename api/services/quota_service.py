@@ -257,7 +257,7 @@ async def decrement_watchlist_count(user_id: str, tier: str) -> None:
     )
 
 
-async def get_usage_summary(user_id: str, tier: str, stripe_status: str = "") -> Dict[str, Any]:
+async def get_usage_summary(user_id: str, tier: str, stripe_status: str = "", is_admin: bool = False) -> Dict[str, Any]:
     """
     Get current usage summary for dashboard display.
 
@@ -265,6 +265,7 @@ async def get_usage_summary(user_id: str, tier: str, stripe_status: str = "") ->
         user_id: User UUID
         tier: User tier
         stripe_status: Stripe subscription status (for boost eligibility check)
+        is_admin: If True, returns unlimited quota values
 
     Returns:
         Dict with usage stats including boost info and billing period
@@ -277,8 +278,27 @@ async def get_usage_summary(user_id: str, tier: str, stripe_status: str = "") ->
         period_end = period_end.replace(tzinfo=timezone.utc)
 
     days_remaining = max(0, (period_end - now).days)
-    total_available = max(0, quota.analysesLimit + quota.boostAnalysesAdded - quota.analysesUsed)
     boost_eligible = await check_boost_eligibility(user_id, stripe_status, tier) if stripe_status else False
+
+    # Admins get unlimited analyses — bypass all quota limits
+    if is_admin:
+        return {
+            "analyses_used": quota.analysesUsed,
+            "analyses_limit": 9999,
+            "boost_analyses_added": 0,
+            "analyses_remaining": 9999,
+            "watchlist_count": quota.watchlistCount,
+            "watchlist_limit": 9999,
+            "watchlist_remaining": 9999,
+            "period_start": quota.periodStart,
+            "period_end": quota.periodEnd,
+            "billing_period_end": quota.periodEnd,
+            "days_remaining": days_remaining,
+            "boost_eligible": False,
+            "tier": tier
+        }
+
+    total_available = max(0, quota.analysesLimit + quota.boostAnalysesAdded - quota.analysesUsed)
 
     return {
         "analyses_used": quota.analysesUsed,

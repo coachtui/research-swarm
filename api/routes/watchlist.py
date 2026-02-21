@@ -53,7 +53,7 @@ async def get_watchlist(user: User = Depends(get_current_user)):
     )
 
     # Check if user can refresh (has quota remaining)
-    can_refresh, _ = await check_can_analyze(user.id, user.tier, user.email)
+    can_refresh, _ = await check_can_analyze(user.id, user.tier, user.email, user.is_admin)
 
     # Enrich each item with calculated fields
     enriched_items = []
@@ -214,7 +214,7 @@ async def refresh_watchlist_item(
         raise HTTPException(status_code=404, detail=f"{ticker} not found in watchlist")
 
     # Check analysis quota
-    can_analyze, error_msg = await check_can_analyze(user.id, user.tier, user.email)
+    can_analyze, error_msg = await check_can_analyze(user.id, user.tier, user.email, user.is_admin)
     if not can_analyze:
         raise HTTPException(status_code=402, detail=error_msg)
 
@@ -315,7 +315,7 @@ async def get_usage(user: User = Depends(get_current_user)):
         user_db = await db.user.find_unique(where={"id": user.id})
         stripe_status = (user_db.stripeSubscriptionStatus or "") if user_db else ""
 
-        usage = await get_usage_summary(user.id, user.tier, stripe_status)
+        usage = await get_usage_summary(user.id, user.tier, stripe_status, is_admin=user.is_admin)
         return usage
     except Exception as e:
         print(f"❌ Error fetching usage for user {user.id}: {e}")
