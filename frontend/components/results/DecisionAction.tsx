@@ -149,11 +149,8 @@ export function DecisionAction({
 
   return (
     <Card
-      className="border-primary/30"
-      style={{
-        background: 'var(--surface-1)',
-        boxShadow: '0 0 0 1px rgba(0 217 181 / 0.08), 0 4px 28px rgba(0 0 0 / 0.45)',
-      }}
+      className="border-primary/30 ambient-verdict"
+      style={{ background: 'var(--surface-1)' }}
     >
       <CardContent className="pt-6 space-y-5">
 

@@ -265,6 +265,25 @@
     --tw-ring-color: var(--focus);
   }
 
+  /* ── Ambient verdict panel — dark mode backlight effect ──────────────────── */
+  /* Applied only to the primary verdict/decision card.
+     In dark mode: large diffuse teal halo creates soft "LED backlight" depth.
+     In light mode: clean directional shadow only. Effect is felt, not seen. */
+
+  [data-theme="dark"] .ambient-verdict {
+    box-shadow:
+      0 0 0 1px rgba(0 217 181 / 0.12),   /* teal hairline ring — defines card edge */
+      0 6px 36px rgba(0 0 0 / 0.55),       /* depth shadow */
+      0 0 100px 40px rgba(0 217 181 / 0.04); /* ambient halo — large, diffuse, barely there */
+  }
+
+  [data-theme="light"] .ambient-verdict {
+    box-shadow:
+      0 0 0 1px rgba(0 160 134 / 0.14),   /* teal hairline ring (light-mode teal) */
+      0 4px 20px rgba(0 0 0 / 0.07),       /* directional shadow */
+      0 1px 3px rgba(0 0 0 / 0.05);        /* micro shadow for edge definition */
+  }
+
   /* ── Framework Guide type utilities ─────────────────────────────────────── */
 
   /* .label — mono chip/tag text: "FINANCIALS", "14 JUN", section headers */
