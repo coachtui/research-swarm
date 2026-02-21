@@ -80,10 +80,10 @@ function TakeawayList({ items, bulletColor }: { items: TakeawayItem[]; bulletCol
           <div className="flex items-start gap-2">
             <span className={`${bulletColor} mt-0.5 text-lg`}>•</span>
             <div className="flex-1">
-              <p className="font-medium text-sm leading-tight mb-1">
+              <p className="font-medium leading-snug mb-1.5" style={{ fontSize: 'var(--text-base)' }}>
                 {item.headline}
               </p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
+              <p className="text-text-secondary leading-relaxed" style={{ fontSize: 'var(--text-sm)' }}>
                 {highlightMetrics(item.context)}
               </p>
               {item.metric && (
@@ -115,8 +115,8 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
 
   return (
     <section className="key-takeaways">
-      <div className="flex items-center gap-2 mb-6">
-        <h2 className="text-xl font-semibold">Key Takeaways</h2>
+      <div className="mb-6">
+        <h2 className="label mb-1">Key Takeaways</h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -127,7 +127,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
               <div className="h-8 w-8 rounded-full bg-success/10 flex items-center justify-center">
                 <CheckCircle className="h-5 w-5 text-success" />
               </div>
-              <h3 className="font-semibold text-lg">Strengths</h3>
+              <h3 className="font-semibold" style={{ fontSize: 'var(--text-base)' }}>Strengths</h3>
             </div>
             <TakeawayList items={trueStrengths} bulletColor="text-success" />
           </Card>
@@ -140,7 +140,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
               <div className="h-8 w-8 rounded-full bg-warning/10 flex items-center justify-center">
                 <AlertTriangle className="h-5 w-5 text-warning" />
               </div>
-              <h3 className="font-semibold text-lg">Risks</h3>
+              <h3 className="font-semibold" style={{ fontSize: 'var(--text-base)' }}>Risks</h3>
             </div>
             <TakeawayList items={cleanConcerns} bulletColor="text-warning" />
           </Card>
@@ -156,7 +156,7 @@ export function KeyTakeaways({ strengths, concerns }: KeyTakeawaysProps) {
             <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
               <TrendingDown className="h-5 w-5 text-primary/70" />
             </div>
-            <h3 className="font-semibold text-lg">Notable Signal Conditions</h3>
+            <h3 className="font-semibold" style={{ fontSize: 'var(--text-base)' }}>Notable Signal Conditions</h3>
           </div>
           <p className="text-xs text-text-tertiary mb-4 ml-10">
             Analytically significant — these are signal observations, not investment positives

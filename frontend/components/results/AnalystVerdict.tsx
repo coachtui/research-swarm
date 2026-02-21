@@ -82,7 +82,7 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
         </div>
 
         {hasStructuredThesis ? (
-          <div className="space-y-6">
+          <div className="space-y-8">
             {/* Company Overview */}
             <div>
               <h3 className="label mb-2">Company Overview</h3>
@@ -132,8 +132,8 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
               )}
             </div>
 
-            {/* Key Risks */}
-            <div>
+            {/* Key Risks — divider separates from valuation section */}
+            <div className="pt-2" style={{ borderTop: '1px solid var(--border)' }}>
               <h3 className="label mb-2.5">Key Risks</h3>
               <ul className="space-y-2.5">
                 {(thesis as InvestmentThesisStructured).key_risks.map((item, idx) => (

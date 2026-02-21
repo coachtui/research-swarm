@@ -148,14 +148,24 @@ export function DecisionAction({
   })()
 
   return (
-    <Card className="border-primary/30 bg-surface">
+    <Card
+      className="border-primary/30"
+      style={{
+        background: 'var(--surface-1)',
+        boxShadow: '0 0 0 1px rgba(0 217 181 / 0.08), 0 4px 28px rgba(0 0 0 / 0.45)',
+      }}
+    >
       <CardContent className="pt-6 space-y-5">
 
         {/* Decision Hero */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             {rating && (
-              <Badge variant={ratingToBadgeVariant(rating)} className="text-base px-3 py-0.5">
+              <Badge
+                variant={ratingToBadgeVariant(rating)}
+                className="px-3.5 py-1 font-semibold tracking-wide"
+                style={{ fontSize: 'var(--text-lg)' }}
+              >
                 {rating}
               </Badge>
             )}

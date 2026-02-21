@@ -29,12 +29,12 @@
   --lh-relaxed: 1.75;
 
   /* === Letter spacing === */
-  --tracking-tighter: -0.03em;
-  --tracking-tight:   -0.015em;
+  --tracking-tighter: -0.035em;
+  --tracking-tight:   -0.022em;  /* headings — crisper, terminal feel */
   --tracking-normal:   0em;
   --tracking-wide:     0.04em;
-  --tracking-wider:    0.08em;
-  --tracking-widest:   0.12em;
+  --tracking-wider:    0.09em;
+  --tracking-widest:   0.14em;   /* .label chips — more open, scanner-friendly */
 
   /* === Font weights === */
   --weight-regular:  400;
@@ -60,13 +60,13 @@
 [data-theme="dark"] {
   /* === Background layers (R G B channels — used by Tailwind for opacity) === */
   --bg-rgb: 8 12 24;           /* #080C18 — near-black navy base */
-  --surface-1-rgb: 14 20 34;   /* #0E1422 — card surface */
-  --surface-2-rgb: 22 30 50;   /* #161E32 — elevated panel */
+  --surface-1-rgb: 16 24 40;   /* #101828 — card surface (lifted +2/4/6) */
+  --surface-2-rgb: 26 36 58;   /* #1A243A — elevated panel (lifted +4/6/8) */
 
   /* === Text === */
-  --text-rgb: 228 231 242;     /* #E4E7F2 — off-white; not glare-white */
-  --text-muted-rgb: 96 110 148; /* #606E94 — subdued labels */
-  --text-subtle-rgb: 48 58 88;  /* #303A58 — very muted, divider labels */
+  --text-rgb: 233 236 248;     /* #E9ECF8 — slightly brighter off-white */
+  --text-muted-rgb: 118 132 172; /* #7684AC — secondary body: up from 96 110 148 for 5.5:1+ contrast */
+  --text-subtle-rgb: 64 76 112;  /* #404C70 — tertiary/divider labels */
 
   /* === Brand accent === */
   --accent-rgb: 0 217 181;      /* #00D9B5 — keep existing teal */
@@ -75,18 +75,18 @@
 
   /* === Computed full-value vars (for direct CSS / inline-style use) === */
   --bg: rgb(8 12 24);
-  --surface-1: rgb(14 20 34);
-  --surface-2: rgb(22 30 50);
-  --text: rgb(228 231 242);
-  --text-muted: rgb(96 110 148);
-  --text-subtle: rgb(48 58 88);
+  --surface-1: rgb(16 24 40);
+  --surface-2: rgb(26 36 58);
+  --text: rgb(233 236 248);
+  --text-muted: rgb(118 132 172);
+  --text-subtle: rgb(64 76 112);
   --accent: rgb(0 217 181);
   --accent-dark: rgb(0 179 150);
   --accent-light: rgb(51 228 200);
 
   /* === Hairline borders (rgba — intentionally light, not heavy outlines) === */
-  --border: rgba(255 255 255 / 0.07);
-  --border-strong: rgba(255 255 255 / 0.13);
+  --border: rgba(255 255 255 / 0.09);
+  --border-strong: rgba(255 255 255 / 0.17);
 
   /* === Accent tints (for chip hover / active states) === */
   --accent-weak: rgba(0 217 181 / 0.09);
@@ -105,11 +105,11 @@
   --primary-dark: rgb(0 179 150);
   --primary-light: rgb(51 228 200);
   --background: rgb(8 12 24);
-  --surface: rgb(14 20 34);
-  --surface-elevated: rgb(22 30 50);
-  --text-primary: rgb(228 231 242);
-  --text-secondary: rgb(96 110 148);
-  --text-tertiary: rgb(48 58 88);
+  --surface: rgb(16 24 40);
+  --surface-elevated: rgb(26 36 58);
+  --text-primary: rgb(233 236 248);
+  --text-secondary: rgb(118 132 172);
+  --text-tertiary: rgb(64 76 112);
   --success: #10B981;
   --warning: #F59E0B;
   --error: #EF4444;
