@@ -36,6 +36,10 @@ const config: Config = {
           tertiary:  'rgb(var(--text-subtle-rgb) / <alpha-value>)',
         },
 
+        // ── Hairline border (maps to CSS var — adapts to theme) ─────────────
+        hairline: 'var(--border)',
+        'hairline-strong': 'var(--border-strong)',
+
         // ── Semantic (fixed — same in both themes) ──────────────────────────
         success: '#10B981',
         warning: '#F59E0B',

@@ -9,8 +9,8 @@ import { TokenProvider } from '@/components/auth/TokenProvider'
 import { KnowledgeProvider } from '@/components/knowledge/KnowledgeProvider'
 
 // Minified theme-init script — runs synchronously before first paint to avoid FOUC.
-// Reads localStorage key "theme" (system|dark|light), resolves system to OS pref,
-// and sets `data-theme` on <html> before React hydrates.
+// Reads localStorage["theme"] (dark|light). Legacy "system" migrates to "dark".
+// Default when no preference is stored: dark.
 const THEME_INIT_SCRIPT = `(function(){try{var p=localStorage.getItem('theme')||'system';var t=p==='system'?(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'):p;document.documentElement.setAttribute('data-theme',t)}catch(e){}})();`
 
 // Using system fonts as fallback due to Google Fonts timeout

@@ -1,109 +1,78 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Monitor, Moon, Sun } from 'lucide-react'
+import { Moon, Sun } from 'lucide-react'
 
-export type ThemePreference = 'system' | 'dark' | 'light'
+type ThemeValue = 'dark' | 'light'
 
-/** Resolves the stored preference to an actual data-theme value. */
-function resolveTheme(pref: ThemePreference): 'dark' | 'light' {
-  if (pref === 'system') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-  }
-  return pref
+function applyTheme(t: ThemeValue) {
+  document.documentElement.setAttribute('data-theme', t)
 }
 
-/** Applies a theme preference to the document root. */
-function applyTheme(pref: ThemePreference) {
-  document.documentElement.setAttribute('data-theme', resolveTheme(pref))
-}
-
-const OPTIONS: { value: ThemePreference; icon: React.ReactNode; label: string }[] = [
-  { value: 'system', icon: <Monitor size={13} strokeWidth={1.7} />, label: 'System' },
-  { value: 'dark',   icon: <Moon    size={13} strokeWidth={1.7} />, label: 'Dark'   },
-  { value: 'light',  icon: <Sun     size={13} strokeWidth={1.7} />, label: 'Light'  },
-]
-
-export function ThemeToggle() {
-  const [theme, setTheme] = useState<ThemePreference>('system')
+/**
+ * Single circular icon button that toggles between dark ↔ light.
+ * - Dark mode  → shows Sun  (click to go light)
+ * - Light mode → shows Moon (click to go dark)
+ * Persists to localStorage["theme"]. "system" mode is retired.
+ */
+export function ThemeButton() {
+  const [theme, setTheme] = useState<ThemeValue>('dark')
   const [mounted, setMounted] = useState(false)
 
-  // Read stored preference on mount
   useEffect(() => {
     setMounted(true)
-    const stored = (localStorage.getItem('theme') as ThemePreference | null) ?? 'system'
-    setTheme(stored)
+    const stored = localStorage.getItem('theme')
+    // Migrate legacy "system" → "dark"
+    const resolved: ThemeValue = stored === 'light' ? 'light' : 'dark'
+    setTheme(resolved)
+    applyTheme(resolved)
   }, [])
 
-  // When in "system" mode, follow OS preference changes
-  useEffect(() => {
-    if (theme !== 'system') return
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const handler = () => applyTheme('system')
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [theme])
-
-  const handleChange = useCallback((next: ThemePreference) => {
+  const toggle = useCallback(() => {
+    const next: ThemeValue = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
     localStorage.setItem('theme', next)
     applyTheme(next)
-  }, [])
+  }, [theme])
 
-  // Avoid hydration mismatch: render a stable placeholder until mounted
+  // Stable placeholder — no layout shift before hydration
   if (!mounted) {
     return (
       <div
         aria-hidden
-        className="h-8 w-[106px] rounded-full"
-        style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
+        className="w-8 h-8 rounded-full shrink-0"
+        style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
       />
     )
   }
 
   return (
-    <div
-      role="group"
-      aria-label="Color theme"
-      className="flex items-center rounded-full p-0.5 gap-px"
+    <button
+      onClick={toggle}
+      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      className={[
+        'w-8 h-8 rounded-full shrink-0',
+        'flex items-center justify-center',
+        'transition-all duration-150',
+        'hover:brightness-110 active:scale-95',
+        'focus-visible:outline-none focus-visible:ring-2',
+        'focus-visible:ring-[var(--focus)] focus-visible:ring-offset-1',
+        'focus-visible:ring-offset-[var(--bg)]',
+      ].join(' ')}
       style={{
-        background: 'var(--surface-1)',
+        background: 'var(--surface-2)',
         border: '1px solid var(--border)',
+        color: 'var(--text-muted)',
       }}
     >
-      {OPTIONS.map(({ value, icon, label }) => {
-        const active = theme === value
-        return (
-          <button
-            key={value}
-            onClick={() => handleChange(value)}
-            aria-label={`${label} theme`}
-            title={`${label} theme`}
-            className={[
-              'flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1',
-              'transition-colors duration-150',
-              active ? '' : 'hover:text-[var(--text)]',
-            ].join(' ')}
-            style={
-              active
-                ? {
-                    color: 'var(--accent)',
-                    background: 'var(--surface-2)',
-                    border: '1px solid var(--accent-border)',
-                    boxShadow: 'var(--shadow-sm)',
-                  }
-                : {
-                    color: 'var(--text-muted)',
-                    border: '1px solid transparent',
-                  }
-            }
-          >
-            {icon}
-            <span className="hidden sm:inline">{label}</span>
-          </button>
-        )
-      })}
-    </div>
+      {theme === 'dark'
+        ? <Sun  size={14} strokeWidth={1.6} />
+        : <Moon size={14} strokeWidth={1.6} />
+      }
+    </button>
   )
 }
+
+// Backward-compat alias so existing imports still resolve
+export { ThemeButton as ThemeToggle }

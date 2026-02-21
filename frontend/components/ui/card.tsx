@@ -1,17 +1,21 @@
 import * as React from 'react'
 import { cn } from '@/lib/utils/cn'
 
+// Framework Guide card — surface elevation + hairline border + soft shadow.
+// No heavy outlines, no teal hover border. Structure comes from dividers inside.
+
 const Card = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
+>(({ className, style, ...props }, ref) => (
   <div
     ref={ref}
     className={cn(
-      'rounded-card bg-surface border border-surface-elevated p-6',
-      'hover:border-primary/20 transition-colors',
+      'rounded-card bg-surface p-6 shadow-theme-sm',
+      'transition-colors duration-150',
       className
     )}
+    style={{ border: '1px solid var(--border)', ...style }}
     {...props}
   />
 ))
@@ -23,7 +27,7 @@ const CardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn('flex flex-col space-y-1.5 pb-4', className)}
+    className={cn('flex flex-col space-y-1 pb-4', className)}
     {...props}
   />
 ))
@@ -35,7 +39,10 @@ const CardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <h3
     ref={ref}
-    className={cn('text-xl font-semibold leading-none tracking-tight text-text-primary', className)}
+    className={cn(
+      'text-base font-semibold leading-snug tracking-tight text-text-primary',
+      className
+    )}
     {...props}
   />
 ))
@@ -47,7 +54,7 @@ const CardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <p
     ref={ref}
-    className={cn('text-sm text-text-secondary', className)}
+    className={cn('text-sm text-text-secondary leading-relaxed', className)}
     {...props}
   />
 ))
@@ -68,6 +75,7 @@ const CardFooter = React.forwardRef<
   <div
     ref={ref}
     className={cn('flex items-center pt-4', className)}
+    style={{ borderTop: '1px solid var(--border)' }}
     {...props}
   />
 ))

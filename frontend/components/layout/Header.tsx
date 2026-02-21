@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
-import { ThemeToggle } from '@/components/ui/theme-toggle'
+import { ThemeButton } from '@/components/ui/theme-toggle'
 import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { UserButton, useUser } from '@clerk/nextjs'
@@ -27,23 +27,26 @@ export function Header() {
         borderBottom: '1px solid var(--border)',
       }}
     >
-      <div className="container mx-auto flex h-14 items-center px-4">
+      <div className="container mx-auto flex h-14 items-center gap-6 px-4">
 
         {/* Logo */}
-        <Link href="/" className="flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] rounded">
-          <Image src="/dvrg-logo.png" alt="DVRG" width={110} height={36} className="h-9 w-auto" priority />
+        <Link
+          href="/"
+          className="flex items-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] rounded"
+        >
+          <Image src="/dvrg-logo.png" alt="DVRG" width={100} height={34} className="h-8 w-auto" priority />
         </Link>
 
         <div className="flex-1" />
 
         {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-1 mr-4">
+        <nav className="hidden md:flex items-center gap-0.5">
           {NAV_LINKS.map(({ href, label }) => (
             <Link
               key={href}
               href={href}
-              className="px-3 py-1.5 rounded-md text-sm transition-colors duration-150
-                         text-text-secondary hover:text-text-primary hover:bg-surface
+              className="px-3 py-1.5 rounded-md text-sm text-text-secondary hover:text-text-primary
+                         hover:bg-surface-elevated transition-colors duration-150
                          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
             >
               {label}
@@ -51,13 +54,10 @@ export function Header() {
           ))}
         </nav>
 
-        {/* Theme toggle — desktop */}
-        <div className="hidden md:flex items-center">
-          <ThemeToggle />
-        </div>
+        {/* Desktop right: theme + auth */}
+        <div className="hidden md:flex items-center gap-2">
+          <ThemeButton />
 
-        {/* Desktop auth */}
-        <div className="hidden md:flex items-center gap-2 ml-4">
           {isSignedIn ? (
             <>
               <Link href="/analyze">
@@ -80,53 +80,46 @@ export function Header() {
           )}
         </div>
 
-        {/* Mobile menu toggle */}
-        <button
-          className="md:hidden ml-3 p-2 rounded-md text-text-secondary hover:text-text-primary
-                     hover:bg-surface transition-colors duration-150
-                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          aria-label="Toggle menu"
-        >
-          {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+        {/* Mobile: theme + hamburger */}
+        <div className="md:hidden flex items-center gap-2 ml-2">
+          <ThemeButton />
+          <button
+            className="p-1.5 rounded-md text-text-secondary hover:text-text-primary
+                       hover:bg-surface-elevated transition-colors duration-150
+                       focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile navigation drawer */}
       {mobileMenuOpen && (
-        <div
-          className="md:hidden"
-          style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}
-        >
-          <nav className="container mx-auto px-4 py-4 flex flex-col gap-1">
+        <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
+          <nav className="container mx-auto px-4 py-3 flex flex-col gap-0.5">
             {NAV_LINKS.map(({ href, label }) => (
               <Link
                 key={href}
                 href={href}
-                className="text-sm text-text-secondary hover:text-text-primary hover:bg-surface
-                           transition-colors duration-150 py-2.5 px-3 rounded-md"
+                className="text-sm text-text-secondary hover:text-text-primary
+                           hover:bg-surface-elevated px-3 py-2.5 rounded-md
+                           transition-colors duration-150"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 {label}
               </Link>
             ))}
 
-            {/* Theme toggle — mobile */}
-            <div className="pt-3 pb-1">
-              <ThemeToggle />
-            </div>
-
-            {/* Auth — mobile */}
-            <div
-              className="flex flex-col gap-2 pt-3"
-              style={{ borderTop: '1px solid var(--border)' }}
-            >
+            {/* Mobile auth */}
+            <div className="flex flex-col gap-2 pt-3 mt-1" style={{ borderTop: '1px solid var(--border)' }}>
               {isSignedIn ? (
                 <>
                   <Link href="/analyze" onClick={() => setMobileMenuOpen(false)}>
                     <Button size="sm" className="w-full">Analyze Stock</Button>
                   </Link>
-                  <div className="flex items-center justify-between py-2 px-2">
+                  <div className="flex items-center justify-between py-1.5 px-1">
                     <span className="text-sm text-text-secondary truncate">
                       {user?.primaryEmailAddress?.emailAddress}
                     </span>

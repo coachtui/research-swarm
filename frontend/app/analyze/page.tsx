@@ -7,30 +7,38 @@ export const metadata = {
 
 export default function AnalyzePage() {
   return (
-    <div className="container mx-auto px-4 py-12">
-      <div className="max-w-4xl mx-auto space-y-8">
+    <div className="container mx-auto px-4 py-16">
+      <div className="max-w-2xl mx-auto space-y-10">
+
         {/* Header */}
-        <div className="text-center space-y-3">
-          <h1 className="text-3xl md:text-4xl font-bold text-text-primary">
-            Analyze Your Stock
+        <div className="space-y-2">
+          <p className="text-xs font-medium tracking-widest uppercase text-text-secondary">
+            Research
+          </p>
+          <h1 className="text-2xl md:text-3xl font-bold text-text-primary tracking-tight">
+            Analyze a Stock
           </h1>
-          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
+          <p className="text-sm text-text-secondary leading-relaxed">
             Get institutional-quality research powered by AI. We analyze 13+ data sources
-            to detect what Wall Street doesn't tell you.
+            to detect what Wall Street doesn&apos;t tell you.
           </p>
         </div>
 
-        {/* Form */}
+        {/* Divider */}
+        <div style={{ borderTop: '1px solid var(--border)' }} />
+
+        {/* Search form */}
         <TickerSearchForm />
 
-        {/* Example Tickers - Static display */}
-        <div className="text-center space-y-3">
-          <p className="text-sm text-text-secondary">Popular stocks to analyze:</p>
-          <div className="flex flex-wrap justify-center gap-2">
+        {/* Popular tickers */}
+        <div className="space-y-3">
+          <p className="text-xs text-text-secondary">Popular:</p>
+          <div className="flex flex-wrap gap-2">
             {['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'TSLA', 'META', 'AMZN', 'TSM'].map((ticker) => (
               <div
                 key={ticker}
-                className="px-3 py-1 rounded-button bg-surface text-text-secondary text-sm"
+                className="px-3 py-1 rounded-full text-xs font-medium text-text-secondary transition-colors duration-150"
+                style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
               >
                 {ticker}
               </div>
@@ -38,26 +46,39 @@ export default function AnalyzePage() {
           </div>
         </div>
 
+        {/* Divider */}
+        <div style={{ borderTop: '1px solid var(--border)' }} />
+
         {/* Guarantee */}
-        <div className="rounded-card bg-primary/5 border border-primary/20 p-6 text-center space-y-2">
-          <h3 className="font-semibold text-primary">Money-Back Guarantee</h3>
-          <p className="text-sm text-text-secondary">
-            If your analysis fails for any reason, we'll automatically issue a full refund.
+        <div
+          className="rounded-card p-5 text-center space-y-1"
+          style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}
+        >
+          <h3 className="text-sm font-semibold text-primary">Money-Back Guarantee</h3>
+          <p className="text-xs text-text-secondary">
+            If your analysis fails for any reason, we&apos;ll automatically issue a full refund.
             No questions asked.
           </p>
         </div>
 
-        {/* Trust Indicators */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center max-w-xl mx-auto">
-          <div className="space-y-1">
-            <div className="text-2xl font-bold text-primary">~4 min</div>
-            <div className="text-sm text-text-secondary">Average analysis time</div>
+        {/* Trust stats */}
+        <div className="grid grid-cols-2 gap-4 text-center">
+          <div
+            className="py-4 rounded-card"
+            style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
+          >
+            <div className="text-2xl font-bold text-primary font-mono">~4 min</div>
+            <div className="text-xs text-text-secondary mt-1">Average analysis time</div>
           </div>
-          <div className="space-y-1">
-            <div className="text-2xl font-bold text-primary">13+</div>
-            <div className="text-sm text-text-secondary">Data sources analyzed</div>
+          <div
+            className="py-4 rounded-card"
+            style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
+          >
+            <div className="text-2xl font-bold text-primary font-mono">13+</div>
+            <div className="text-xs text-text-secondary mt-1">Data sources analyzed</div>
           </div>
         </div>
+
       </div>
     </div>
   )

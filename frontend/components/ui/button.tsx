@@ -12,28 +12,36 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         className={cn(
-          // Base styles
-          'inline-flex items-center justify-center rounded-button font-semibold transition-all',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
-          'disabled:pointer-events-none disabled:opacity-50',
+          // Base — tight tracking, no heavy shadows
+          'inline-flex items-center justify-center rounded-button font-medium tracking-tight transition-all duration-150',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] focus-visible:ring-offset-1',
+          'focus-visible:ring-offset-[var(--bg)]',
+          'disabled:pointer-events-none disabled:opacity-40',
 
-          // Variants
+          // ── Variants ────────────────────────────────────────────────────────
           {
-            'bg-primary text-white hover:bg-primary-dark active:scale-95':
+            // Primary: solid teal CTA — used sparingly
+            'bg-primary text-white hover:bg-primary-dark active:scale-[0.97]':
               variant === 'primary',
-            'bg-surface text-text-primary hover:bg-surface-elevated':
+
+            // Secondary: muted surface, hairline border
+            'bg-surface-elevated text-text-secondary border border-hairline hover:text-text-primary hover:bg-surface-elevated':
               variant === 'secondary',
-            'border-2 border-primary text-primary hover:bg-primary/10':
+
+            // Outline: teal hairline border; no fill
+            'border border-primary/40 text-primary hover:bg-primary/[8%] hover:border-primary/70':
               variant === 'outline',
-            'text-text-secondary hover:text-text-primary hover:bg-surface':
+
+            // Ghost: text only — lowest visual weight
+            'text-text-secondary hover:text-text-primary hover:bg-surface-elevated':
               variant === 'ghost',
           },
 
-          // Sizes
+          // ── Sizes ────────────────────────────────────────────────────────────
           {
-            'h-9 px-4 text-sm': size === 'sm',
-            'h-11 px-6 text-base': size === 'md',
-            'h-14 px-8 text-lg': size === 'lg',
+            'h-8 px-3 text-xs gap-1.5': size === 'sm',
+            'h-10 px-5 text-sm gap-2':  size === 'md',
+            'h-12 px-7 text-base gap-2': size === 'lg',
           },
 
           className
