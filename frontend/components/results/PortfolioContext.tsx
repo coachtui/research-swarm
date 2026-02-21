@@ -135,7 +135,7 @@ export function PortfolioContext({
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
       <CardContent className="pt-6 space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2">
             <Briefcase className="h-5 w-5 text-primary" />
             <div>
@@ -148,12 +148,12 @@ export function PortfolioContext({
           </div>
 
           {/* Risk Profile Selector */}
-          <div className="flex items-center gap-1 bg-surface rounded-lg p-1 border border-border">
+          <div className="flex items-center gap-1 bg-surface rounded-lg p-1 border border-border self-start sm:self-auto">
             {(['conservative', 'moderate', 'aggressive'] as const).map((profile) => (
               <button
                 key={profile}
                 onClick={() => setRiskProfile(profile)}
-                className={`px-3 py-1 text-xs font-medium rounded transition-all ${
+                className={`px-2.5 sm:px-3 py-1 text-xs font-medium rounded transition-all ${
                   riskProfile === profile
                     ? 'bg-primary text-white shadow-sm'
                     : 'text-text-tertiary hover:text-text-primary'

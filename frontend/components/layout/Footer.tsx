@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 
 export function Footer() {
   return (
@@ -7,11 +8,8 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           {/* Brand */}
           <div className="space-y-3">
-            <div className="flex items-center space-x-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                <span className="text-lg font-bold text-white">D</span>
-              </div>
-              <span className="text-xl font-bold text-text-primary">DVRG</span>
+            <div className="flex items-center">
+              <Image src="/dvrg-logo.png" alt="DVRG" width={100} height={34} className="h-8 w-auto" />
             </div>
             <p className="text-sm text-text-secondary">
               AI-powered stock analysis that detects divergences before the market does.

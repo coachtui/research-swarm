@@ -62,10 +62,10 @@ export function AdminAnalysisTable() {
           {data.analyses.map((analysis) => (
             <div
               key={analysis.run_id}
-              className="flex items-center justify-between p-4 rounded-lg border border-surface-elevated hover:border-primary/50 transition-colors"
+              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg border border-surface-elevated hover:border-primary/50 transition-colors"
             >
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-1">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3 mb-1 flex-wrap">
                   <StockLogo ticker={analysis.ticker} size="md" />
                   <p className="font-bold text-lg text-text-primary">
                     {analysis.ticker}
@@ -92,7 +92,7 @@ export function AdminAnalysisTable() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
                 <Button
                   variant="outline"
                   size="sm"

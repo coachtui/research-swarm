@@ -452,10 +452,10 @@ function SetupColumn({
                 key={i}
                 className={`rounded px-2 py-1.5 text-sm ${extended ? 'bg-surface-elevated/60' : ''} ${dimExtra ? 'opacity-50' : ''}`}
               >
-                {/* Label row */}
-                <div className="flex items-center justify-between gap-2">
+                {/* Label row — wraps on narrow screens to keep full label visible */}
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className={`truncate ${extended ? 'text-text-tertiary' : 'text-text-secondary'}`}>
+                    <span className={`${extended ? 'text-text-tertiary' : 'text-text-secondary'}`}>
                       {sanitizedLabel}
                     </span>
                     <span className={`text-xs px-1.5 py-0.5 rounded font-mono shrink-0 ${

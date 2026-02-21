@@ -6,6 +6,7 @@ import type {
   AnalysesListResponse,
   UpdateTierRequest,
   CostSummary,
+  RevenueTimeSeries,
 } from '@/types/api'
 
 // Query keys
@@ -13,6 +14,7 @@ export const adminKeys = {
   all: ['admin'] as const,
   metrics: () => [...adminKeys.all, 'metrics'] as const,
   costs: () => [...adminKeys.all, 'costs'] as const,
+  revenue: () => [...adminKeys.all, 'revenue'] as const,
   users: (limit?: number, offset?: number) => [...adminKeys.all, 'users', limit, offset] as const,
   analyses: (limit?: number, ticker?: string) => [...adminKeys.all, 'analyses', limit, ticker] as const,
 }
@@ -24,6 +26,17 @@ export function useAdminMetrics() {
   return useQuery({
     queryKey: adminKeys.metrics(),
     queryFn: () => apiClient.getAdminMetrics(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+/**
+ * Fetch revenue and profit timeseries
+ */
+export function useAdminRevenue() {
+  return useQuery({
+    queryKey: adminKeys.revenue(),
+    queryFn: () => apiClient.getAdminRevenue(),
     staleTime: 1000 * 60 * 5, // 5 minutes
   })
 }

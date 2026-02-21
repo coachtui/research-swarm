@@ -68,6 +68,29 @@ class UpdateTierRequest(BaseModel):
     new_tier: str
 
 
+class DailyCostPoint(BaseModel):
+    date: str          # YYYY-MM-DD
+    cost_usd: float
+    analyses: int
+
+
+class MonthlyCostPoint(BaseModel):
+    month: str         # YYYY-MM
+    cost_usd: float
+    analyses: int
+    estimated_revenue: float
+
+
+class RevenueTimeSeries(BaseModel):
+    daily: List[DailyCostPoint]          # last 30 days
+    monthly: List[MonthlyCostPoint]      # last 12 months
+    estimated_mrr: float                 # current MRR from active subscribers
+    current_month_cost: float
+    current_month_profit: float          # MRR - current month cost
+    profit_margin_pct: float             # profit / MRR × 100
+    tier_breakdown: dict                 # {tier: {users, monthly_revenue}}
+
+
 # --- Endpoints ---
 
 @router.get("/admin/metrics", response_model=PlatformMetrics)
@@ -367,4 +390,127 @@ async def get_cost_summary(admin: User = Depends(require_admin)):
         analyses_month=analyses_month,
         analyses_year=analyses_year,
         analyses_all_time=len(all_results)
+    )
+
+
+# Subscription pricing by tier (USD/month)
+_TIER_PRICE = {
+    "starter": 9.99,
+    "investor": 19.99,
+    "trader": 49.99,
+    "free": 0.0,
+}
+
+
+@router.get("/admin/revenue", response_model=RevenueTimeSeries)
+async def get_revenue_timeseries(admin: User = Depends(require_admin)):
+    """
+    Revenue and profit timeseries for the admin dashboard.
+
+    Returns daily AI costs (last 30 days), monthly cost/revenue (last 12 months),
+    and estimated MRR derived from active subscriber tier counts.
+    """
+    from collections import defaultdict
+
+    # Fresh DB connection
+    from api.lib.db import _db_client
+    global _db_client
+    try:
+        db = await get_db()
+        if not db.is_connected():
+            await db.disconnect()
+            await db.connect()
+    except Exception:
+        _db_client = None
+        db = await get_db()
+
+    now = datetime.now(timezone.utc)
+
+    # ── 1. Fetch all completed results ──────────────────────────────────────
+    cutoff_30d = now - timedelta(days=30)
+    cutoff_12m = now - timedelta(days=365)
+
+    all_results = await db.stockresult.find_many(
+        where={"status": "completed", "createdAt": {"gte": cutoff_12m}}
+    )
+
+    # ── 2. Daily aggregation (last 30 days) ─────────────────────────────────
+    daily_buckets: dict = defaultdict(lambda: {"cost_usd": 0.0, "analyses": 0})
+    for r in all_results:
+        if r.createdAt >= cutoff_30d:
+            day_key = r.createdAt.strftime("%Y-%m-%d")
+            daily_buckets[day_key]["cost_usd"] += r.costUsd or 0.0
+            daily_buckets[day_key]["analyses"] += 1
+
+    # Fill every day in the window even if no data
+    daily_points: list[DailyCostPoint] = []
+    for offset_days in range(29, -1, -1):
+        d = (now - timedelta(days=offset_days)).strftime("%Y-%m-%d")
+        bucket = daily_buckets.get(d, {"cost_usd": 0.0, "analyses": 0})
+        daily_points.append(DailyCostPoint(
+            date=d,
+            cost_usd=round(bucket["cost_usd"], 4),
+            analyses=bucket["analyses"],
+        ))
+
+    # ── 3. Monthly aggregation (last 12 months) ──────────────────────────────
+    monthly_buckets: dict = defaultdict(lambda: {"cost_usd": 0.0, "analyses": 0})
+    for r in all_results:
+        month_key = r.createdAt.strftime("%Y-%m")
+        monthly_buckets[month_key]["cost_usd"] += r.costUsd or 0.0
+        monthly_buckets[month_key]["analyses"] += 1
+
+    # Collect last 12 calendar months
+    monthly_points: list[MonthlyCostPoint] = []
+    for offset_months in range(11, -1, -1):
+        # Step back by offset_months months
+        target = now.replace(day=1) - timedelta(days=offset_months * 30)
+        month_key = target.strftime("%Y-%m")
+        bucket = monthly_buckets.get(month_key, {"cost_usd": 0.0, "analyses": 0})
+        monthly_points.append(MonthlyCostPoint(
+            month=month_key,
+            cost_usd=round(bucket["cost_usd"], 4),
+            analyses=bucket["analyses"],
+            estimated_revenue=0.0,  # filled in step 4
+        ))
+
+    # ── 4. MRR from active subscriber counts ────────────────────────────────
+    users_by_tier: dict[str, int] = {}
+    for tier in _TIER_PRICE:
+        users_by_tier[tier] = await db.user.count(where={"tier": tier})
+
+    tier_breakdown = {}
+    estimated_mrr = 0.0
+    for tier, price in _TIER_PRICE.items():
+        count = users_by_tier.get(tier, 0)
+        monthly_rev = round(count * price, 2)
+        estimated_mrr += monthly_rev
+        tier_breakdown[tier] = {"users": count, "monthly_revenue": monthly_rev}
+
+    estimated_mrr = round(estimated_mrr, 2)
+
+    # Back-fill estimated_revenue into monthly points
+    # (We approximate: each historical month has the same MRR as today.
+    #  Accurate historical MRR would require a payment-event table.)
+    for mp in monthly_points:
+        mp.estimated_revenue = estimated_mrr
+
+    # ── 5. Current month profit ──────────────────────────────────────────────
+    current_month_key = now.strftime("%Y-%m")
+    current_month_cost = round(
+        monthly_buckets.get(current_month_key, {}).get("cost_usd", 0.0), 4
+    )
+    current_month_profit = round(estimated_mrr - current_month_cost, 2)
+    profit_margin_pct = (
+        round(current_month_profit / estimated_mrr * 100, 1) if estimated_mrr > 0 else 0.0
+    )
+
+    return RevenueTimeSeries(
+        daily=daily_points,
+        monthly=monthly_points,
+        estimated_mrr=estimated_mrr,
+        current_month_cost=current_month_cost,
+        current_month_profit=current_month_profit,
+        profit_margin_pct=profit_margin_pct,
+        tier_breakdown=tier_breakdown,
     )

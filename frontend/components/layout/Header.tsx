@@ -3,55 +3,61 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { UserButton, useUser } from '@clerk/nextjs'
+
+const NAV_LINKS = [
+  { href: '/dashboard',     label: 'Dashboard'    },
+  { href: '/#how-it-works', label: 'How It Works' },
+  { href: '/#pricing',      label: 'Pricing'      },
+  { href: '/#faq',          label: 'FAQ'           },
+]
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const { isSignedIn, user } = useUser()
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-surface-elevated bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container mx-auto flex h-16 items-center px-4">
+    <header
+      className="sticky top-0 z-50 w-full backdrop-blur supports-[backdrop-filter]:bg-background/60"
+      style={{
+        background: 'rgb(var(--bg-rgb) / 0.95)',
+        borderBottom: '1px solid var(--border)',
+      }}
+    >
+      <div className="container mx-auto flex h-14 items-center px-4">
+
         {/* Logo */}
-        <Link href="/" className="flex items-center">
-          <Image src="/dvrg-logo.png" alt="DVRG" width={120} height={40} className="h-10 w-auto" priority />
+        <Link href="/" className="flex items-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)] rounded">
+          <Image src="/dvrg-logo.png" alt="DVRG" width={110} height={36} className="h-9 w-auto" priority />
         </Link>
 
-        {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center space-x-6">
-          <Link
-            href="/dashboard"
-            className="text-sm text-text-secondary hover:text-text-primary transition-colors"
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/#how-it-works"
-            className="text-sm text-text-secondary hover:text-text-primary transition-colors"
-          >
-            How It Works
-          </Link>
-          <Link
-            href="/#pricing"
-            className="text-sm text-text-secondary hover:text-text-primary transition-colors"
-          >
-            Pricing
-          </Link>
-          <Link
-            href="/#faq"
-            className="text-sm text-text-secondary hover:text-text-primary transition-colors"
-          >
-            FAQ
-          </Link>
+        {/* Desktop nav */}
+        <nav className="hidden md:flex items-center gap-1 mr-4">
+          {NAV_LINKS.map(({ href, label }) => (
+            <Link
+              key={href}
+              href={href}
+              className="px-3 py-1.5 rounded-md text-sm transition-colors duration-150
+                         text-text-secondary hover:text-text-primary hover:bg-surface
+                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
+            >
+              {label}
+            </Link>
+          ))}
         </nav>
 
-        {/* Desktop Auth */}
-        <div className="hidden md:flex items-center gap-3 ml-6">
+        {/* Theme toggle — desktop */}
+        <div className="hidden md:flex items-center">
+          <ThemeToggle />
+        </div>
+
+        {/* Desktop auth */}
+        <div className="hidden md:flex items-center gap-2 ml-4">
           {isSignedIn ? (
             <>
               <Link href="/analyze">
@@ -59,11 +65,7 @@ export function Header() {
               </Link>
               <UserButton
                 afterSignOutUrl="/"
-                appearance={{
-                  elements: {
-                    avatarBox: "w-8 h-8",
-                  },
-                }}
+                appearance={{ elements: { avatarBox: 'w-8 h-8' } }}
               />
             </>
           ) : (
@@ -78,65 +80,59 @@ export function Header() {
           )}
         </div>
 
-        {/* Mobile Menu Button */}
+        {/* Mobile menu toggle */}
         <button
-          className="md:hidden ml-4 p-2 text-text-secondary hover:text-text-primary"
+          className="md:hidden ml-3 p-2 rounded-md text-text-secondary hover:text-text-primary
+                     hover:bg-surface transition-colors duration-150
+                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus)]"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
           aria-label="Toggle menu"
         >
-          {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+          {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
       </div>
 
-      {/* Mobile Navigation */}
+      {/* Mobile navigation drawer */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-surface-elevated bg-surface">
-          <nav className="container mx-auto px-4 py-4 flex flex-col space-y-4">
-            <Link
-              href="/dashboard"
-              className="text-sm text-text-secondary hover:text-text-primary transition-colors py-2"
-              onClick={() => setMobileMenuOpen(false)}
+        <div
+          className="md:hidden"
+          style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}
+        >
+          <nav className="container mx-auto px-4 py-4 flex flex-col gap-1">
+            {NAV_LINKS.map(({ href, label }) => (
+              <Link
+                key={href}
+                href={href}
+                className="text-sm text-text-secondary hover:text-text-primary hover:bg-surface
+                           transition-colors duration-150 py-2.5 px-3 rounded-md"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {label}
+              </Link>
+            ))}
+
+            {/* Theme toggle — mobile */}
+            <div className="pt-3 pb-1">
+              <ThemeToggle />
+            </div>
+
+            {/* Auth — mobile */}
+            <div
+              className="flex flex-col gap-2 pt-3"
+              style={{ borderTop: '1px solid var(--border)' }}
             >
-              Dashboard
-            </Link>
-            <Link
-              href="/#how-it-works"
-              className="text-sm text-text-secondary hover:text-text-primary transition-colors py-2"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              How It Works
-            </Link>
-            <Link
-              href="/#pricing"
-              className="text-sm text-text-secondary hover:text-text-primary transition-colors py-2"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              Pricing
-            </Link>
-            <Link
-              href="/#faq"
-              className="text-sm text-text-secondary hover:text-text-primary transition-colors py-2"
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              FAQ
-            </Link>
-            <div className="flex flex-col gap-2 pt-2 border-t border-surface-elevated">
               {isSignedIn ? (
                 <>
                   <Link href="/analyze" onClick={() => setMobileMenuOpen(false)}>
                     <Button size="sm" className="w-full">Analyze Stock</Button>
                   </Link>
                   <div className="flex items-center justify-between py-2 px-2">
-                    <span className="text-sm text-text-secondary">
+                    <span className="text-sm text-text-secondary truncate">
                       {user?.primaryEmailAddress?.emailAddress}
                     </span>
                     <UserButton
                       afterSignOutUrl="/"
-                      appearance={{
-                        elements: {
-                          avatarBox: "w-8 h-8",
-                        },
-                      }}
+                      appearance={{ elements: { avatarBox: 'w-8 h-8' } }}
                     />
                   </div>
                 </>

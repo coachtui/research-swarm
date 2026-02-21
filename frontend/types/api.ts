@@ -558,6 +558,29 @@ export interface CostSummary {
   analyses_all_time: number
 }
 
+export interface DailyCostPoint {
+  date: string           // YYYY-MM-DD
+  cost_usd: number
+  analyses: number
+}
+
+export interface MonthlyCostPoint {
+  month: string          // YYYY-MM
+  cost_usd: number
+  analyses: number
+  estimated_revenue: number
+}
+
+export interface RevenueTimeSeries {
+  daily: DailyCostPoint[]
+  monthly: MonthlyCostPoint[]
+  estimated_mrr: number
+  current_month_cost: number
+  current_month_profit: number
+  profit_margin_pct: number
+  tier_breakdown: Record<string, { users: number; monthly_revenue: number }>
+}
+
 export interface UserInfo {
   id: string
   email: string

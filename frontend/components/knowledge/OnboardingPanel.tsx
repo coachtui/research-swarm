@@ -106,7 +106,7 @@ export function OnboardingPanel({ children }: OnboardingPanelProps) {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-0 right-6 z-30 flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 border border-gray-700 border-b-0 rounded-t-md text-xs font-mono text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors shadow-lg"
+          className="fixed bottom-0 right-4 sm:right-6 z-30 flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 border border-gray-700 border-b-0 rounded-t-md text-xs font-mono text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors shadow-lg"
           aria-label="Open Framework Guide"
         >
           <span className="text-[10px] tracking-widest uppercase">Framework Guide</span>
@@ -201,48 +201,51 @@ function ConstructView({
         </div>
       </div>
 
-      {/* Main construct content */}
-      <div className="grid grid-cols-[1fr_auto_1fr_2fr] gap-4 items-start">
+      {/* Main construct content — responsive: stacks on mobile, 4-col on desktop */}
+      <div className="flex flex-col sm:grid sm:grid-cols-[1fr_auto_1fr_2fr] gap-3 sm:gap-4 items-start">
 
-        {/* Left concept */}
-        <div className="space-y-1">
-          <p className="text-[10px] font-mono tracking-widest uppercase text-gray-500">
-            {construct.title.split(' vs. ')[0]}
-          </p>
-          <p className="text-sm font-semibold text-white">{construct.left.label}</p>
-          <ul className="space-y-0.5">
-            {construct.left.descriptors.map(d => (
-              <li key={d} className="text-xs text-gray-400 font-mono">{d}</li>
-            ))}
-          </ul>
-        </div>
+        {/* Left vs Right concepts — side by side on mobile */}
+        <div className="grid grid-cols-[1fr_auto_1fr] gap-2 sm:contents">
+          {/* Left concept */}
+          <div className="space-y-1">
+            <p className="text-[10px] font-mono tracking-widest uppercase text-gray-500">
+              {construct.title.split(' vs. ')[0]}
+            </p>
+            <p className="text-sm font-semibold text-white">{construct.left.label}</p>
+            <ul className="space-y-0.5 hidden sm:block">
+              {construct.left.descriptors.map(d => (
+                <li key={d} className="text-xs text-gray-400 font-mono">{d}</li>
+              ))}
+            </ul>
+          </div>
 
-        {/* VS divider */}
-        <div className="flex flex-col items-center justify-center pt-4 gap-1">
-          <div className="w-px h-8 bg-gray-700" />
-          <span className="text-xs font-mono text-gray-600">vs</span>
-          <div className="w-px h-8 bg-gray-700" />
-        </div>
+          {/* VS divider */}
+          <div className="flex flex-col items-center justify-center pt-4 gap-1">
+            <div className="w-px h-6 sm:h-8 bg-gray-700" />
+            <span className="text-xs font-mono text-gray-600">vs</span>
+            <div className="w-px h-6 sm:h-8 bg-gray-700" />
+          </div>
 
-        {/* Right concept */}
-        <div className="space-y-1">
-          <p className="text-[10px] font-mono tracking-widest uppercase text-gray-500">
-            {construct.title.split(' vs. ')[1]}
-          </p>
-          <p className="text-sm font-semibold text-white">{construct.right.label}</p>
-          <ul className="space-y-0.5">
-            {construct.right.descriptors.map(d => (
-              <li key={d} className="text-xs text-gray-400 font-mono">{d}</li>
-            ))}
-          </ul>
+          {/* Right concept */}
+          <div className="space-y-1">
+            <p className="text-[10px] font-mono tracking-widest uppercase text-gray-500">
+              {construct.title.split(' vs. ')[1]}
+            </p>
+            <p className="text-sm font-semibold text-white">{construct.right.label}</p>
+            <ul className="space-y-0.5 hidden sm:block">
+              {construct.right.descriptors.map(d => (
+                <li key={d} className="text-xs text-gray-400 font-mono">{d}</li>
+              ))}
+            </ul>
+          </div>
         </div>
 
         {/* Bridge statement + related terms */}
-        <div className="space-y-2 pl-4 border-l border-gray-800">
+        <div className="space-y-1.5 sm:space-y-2 sm:pl-4 sm:border-l sm:border-gray-800 border-t border-gray-800 pt-2.5 sm:pt-0 sm:border-t-0">
           <p className="text-xs text-gray-300 leading-relaxed italic">
             &ldquo;{construct.bridgeStatement}&rdquo;
           </p>
-          <p className="text-xs text-gray-500 leading-relaxed">
+          <p className="text-xs text-gray-500 leading-relaxed hidden sm:block">
             {construct.whyItMatters}
           </p>
 

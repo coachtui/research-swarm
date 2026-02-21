@@ -8,6 +8,8 @@ import { AdminMetrics } from '@/components/admin/AdminMetrics'
 import { AdminCostSummary } from '@/components/admin/AdminCostSummary'
 import { AdminUserTable } from '@/components/admin/AdminUserTable'
 import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
+import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
+import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { Shield, AlertCircle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { apiClient } from '@/lib/api/client'
@@ -77,10 +79,12 @@ function AdminContent() {
       {/* Content */}
       <main className="container mx-auto px-4 py-8">
         <Tabs defaultValue="metrics" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3 lg:w-[400px]">
+          <TabsList className="grid w-full grid-cols-5 lg:w-[640px]">
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
+            <TabsTrigger value="revenue">Revenue</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="analyses">Analyses</TabsTrigger>
+            <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
           </TabsList>
 
           <TabsContent value="metrics">
@@ -90,12 +94,20 @@ function AdminContent() {
             </div>
           </TabsContent>
 
+          <TabsContent value="revenue">
+            <AdminRevenueCharts />
+          </TabsContent>
+
           <TabsContent value="users">
             <AdminUserTable />
           </TabsContent>
 
           <TabsContent value="analyses">
             <AdminAnalysisTable />
+          </TabsContent>
+
+          <TabsContent value="watchlist">
+            <WatchlistView />
           </TabsContent>
         </Tabs>
       </main>

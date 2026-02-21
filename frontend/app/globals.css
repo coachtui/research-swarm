@@ -2,58 +2,226 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Theme Token Layer ─────────────────────────────────────────────────────
+   All CSS custom properties are defined here.
+   Tailwind config references the *-rgb channel vars (for opacity support).
+   Direct CSS may reference the computed vars (--bg, --surface-1, etc.).
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Dark theme — default / fallback if JS hasn't run yet */
+:root,
+[data-theme="dark"] {
+  /* === Background layers (R G B channels — used by Tailwind for opacity) === */
+  --bg-rgb: 8 12 24;           /* #080C18 — near-black navy base */
+  --surface-1-rgb: 14 20 34;   /* #0E1422 — card surface */
+  --surface-2-rgb: 22 30 50;   /* #161E32 — elevated panel */
+
+  /* === Text === */
+  --text-rgb: 228 231 242;     /* #E4E7F2 — off-white; not glare-white */
+  --text-muted-rgb: 96 110 148; /* #606E94 — subdued labels */
+  --text-subtle-rgb: 48 58 88;  /* #303A58 — very muted, divider labels */
+
+  /* === Brand accent === */
+  --accent-rgb: 0 217 181;      /* #00D9B5 — keep existing teal */
+  --accent-dark-rgb: 0 179 150; /* #00B396 */
+  --accent-light-rgb: 51 228 200; /* #33E4C8 */
+
+  /* === Computed full-value vars (for direct CSS / inline-style use) === */
+  --bg: rgb(8 12 24);
+  --surface-1: rgb(14 20 34);
+  --surface-2: rgb(22 30 50);
+  --text: rgb(228 231 242);
+  --text-muted: rgb(96 110 148);
+  --text-subtle: rgb(48 58 88);
+  --accent: rgb(0 217 181);
+  --accent-dark: rgb(0 179 150);
+  --accent-light: rgb(51 228 200);
+
+  /* === Hairline borders (rgba — intentionally light, not heavy outlines) === */
+  --border: rgba(255 255 255 / 0.07);
+  --border-strong: rgba(255 255 255 / 0.13);
+
+  /* === Accent tints (for chip hover / active states) === */
+  --accent-weak: rgba(0 217 181 / 0.09);
+  --accent-border: rgba(0 217 181 / 0.28);
+
+  /* === Shadows === */
+  --shadow-sm: 0 1px 3px rgba(0 0 0 / 0.35);
+  --shadow: 0 4px 24px rgba(0 0 0 / 0.5);
+
+  /* === Misc === */
+  --radius: 6px;
+  --focus: rgb(0 217 181);
+
+  /* === Legacy var aliases (keep old globals working) === */
+  --primary: rgb(0 217 181);
+  --primary-dark: rgb(0 179 150);
+  --primary-light: rgb(51 228 200);
+  --background: rgb(8 12 24);
+  --surface: rgb(14 20 34);
+  --surface-elevated: rgb(22 30 50);
+  --text-primary: rgb(228 231 242);
+  --text-secondary: rgb(96 110 148);
+  --text-tertiary: rgb(48 58 88);
+  --success: #10B981;
+  --warning: #F59E0B;
+  --error: #EF4444;
+  --info: #3B82F6;
+}
+
+/* Light theme — "paper research" look */
+[data-theme="light"] {
+  /* === Background layers === */
+  --bg-rgb: 246 245 242;       /* #F6F5F2 — warm off-white paper */
+  --surface-1-rgb: 255 254 251; /* #FFFEFB — warm white card */
+  --surface-2-rgb: 236 234 230; /* #ECEAE6 — slight depth */
+
+  /* === Text === */
+  --text-rgb: 16 20 36;        /* #101424 — near-black */
+  --text-muted-rgb: 82 92 118;  /* #525C76 — medium blue-gray */
+  --text-subtle-rgb: 156 166 192; /* #9CA6C0 — light, for labels */
+
+  /* === Brand accent (slightly deeper teal for light-bg contrast) === */
+  --accent-rgb: 0 160 134;     /* #00A086 */
+  --accent-dark-rgb: 0 132 111; /* #00846F */
+  --accent-light-rgb: 0 190 159; /* #00BE9F */
+
+  /* === Computed full-value vars === */
+  --bg: rgb(246 245 242);
+  --surface-1: rgb(255 254 251);
+  --surface-2: rgb(236 234 230);
+  --text: rgb(16 20 36);
+  --text-muted: rgb(82 92 118);
+  --text-subtle: rgb(156 166 192);
+  --accent: rgb(0 160 134);
+  --accent-dark: rgb(0 132 111);
+  --accent-light: rgb(0 190 159);
+
+  /* === Hairline borders === */
+  --border: rgba(0 0 0 / 0.08);
+  --border-strong: rgba(0 0 0 / 0.14);
+
+  /* === Accent tints === */
+  --accent-weak: rgba(0 160 134 / 0.08);
+  --accent-border: rgba(0 160 134 / 0.28);
+
+  /* === Shadows === */
+  --shadow-sm: 0 1px 3px rgba(0 0 0 / 0.06);
+  --shadow: 0 4px 16px rgba(0 0 0 / 0.08);
+
+  /* === Misc === */
+  --radius: 6px;
+  --focus: rgb(0 160 134);
+
+  /* === Legacy var aliases === */
+  --primary: rgb(0 160 134);
+  --primary-dark: rgb(0 132 111);
+  --primary-light: rgb(0 190 159);
+  --background: rgb(246 245 242);
+  --surface: rgb(255 254 251);
+  --surface-elevated: rgb(236 234 230);
+  --text-primary: rgb(16 20 36);
+  --text-secondary: rgb(82 92 118);
+  --text-tertiary: rgb(156 166 192);
+  --success: #059669;
+  --warning: #D97706;
+  --error: #DC2626;
+  --info: #2563EB;
+}
+
+/* ─── Base Layer ─────────────────────────────────────────────────────────── */
+
 @layer base {
-  :root {
-    /* DVRG Brand Colors */
-    --primary: #00D9B5;
-    --primary-dark: #00B396;
-    --primary-light: #33E4C8;
-
-    /* Dark Mode Palette */
-    --background: #0A0E1A;
-    --surface: #1A1F2E;
-    --surface-elevated: #252B3D;
-
-    --text-primary: #FFFFFF;
-    --text-secondary: #9CA3AF;
-    --text-tertiary: #6B7280;
-
-    /* Semantic Colors */
-    --success: #10B981;
-    --warning: #F59E0B;
-    --error: #EF4444;
-    --info: #3B82F6;
-  }
-
+  /* Default border colour (hairline) */
   * {
     @apply border-surface-elevated;
   }
 
+  html {
+    /* Smooth theme transitions — scoped here so page content doesn't jump */
+    transition: background-color 200ms ease;
+  }
+
   body {
     @apply bg-background text-text-primary font-sans antialiased;
+    /* Improved body typography */
+    line-height: 1.6;
   }
+
+  /* Smooth theme colour transitions for common containers */
+  body,
+  header,
+  footer,
+  nav,
+  main,
+  section,
+  article,
+  aside,
+  div,
+  span,
+  p,
+  h1, h2, h3, h4, h5, h6,
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  li,
+  td,
+  th {
+    transition-property: color, background-color, border-color;
+    transition-timing-function: ease;
+    transition-duration: 150ms;
+  }
+
+  /* Long-form text: sensible max-width and line-height */
+  p, li {
+    max-width: 72ch;
+  }
+
+  /* Stronger heading hierarchy */
+  h1 { @apply text-4xl font-bold tracking-tight; }
+  h2 { @apply text-3xl font-semibold tracking-tight; }
+  h3 { @apply text-xl font-semibold; }
+  h4 { @apply text-base font-semibold; }
 }
+
+/* ─── Utilities ──────────────────────────────────────────────────────────── */
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+
+  /* Hairline divider — prefer over heavy card outlines */
+  .divider {
+    border-top: 1px solid var(--border);
+  }
+
+  /* Teal focus ring using CSS variable */
+  .ring-accent {
+    --tw-ring-color: var(--focus);
+  }
 }
 
-/* Custom scrollbar (Robinhood-style) */
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-surface;
+  background: var(--surface-1);
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-surface-elevated rounded-full;
+  background: var(--surface-2);
+  border-radius: 99px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-primary/50;
+  background: var(--accent);
+  opacity: 0.5;
 }

@@ -17,6 +17,7 @@ import type {
   AnalysesListResponse,
   UpdateTierRequest,
   CostSummary,
+  RevenueTimeSeries,
   UserInfo,
 } from '@/types/api'
 
@@ -277,6 +278,10 @@ class ApiClient {
 
   async getCostSummary(): Promise<CostSummary> {
     return this.request('/api/admin/costs')
+  }
+
+  async getAdminRevenue(): Promise<RevenueTimeSeries> {
+    return this.request('/api/admin/revenue')
   }
 
   // Stripe subscription methods

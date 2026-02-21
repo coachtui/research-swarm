@@ -1,5 +1,10 @@
 import type { Config } from 'tailwindcss'
 
+// Colors reference CSS custom properties defined in globals.css.
+// Using the `rgb(var(--*-rgb) / <alpha-value>)` pattern so that Tailwind's
+// opacity modifier syntax (e.g. `bg-background/80`, `text-primary/20`) works
+// correctly alongside the theme token layer.
+
 const config: Config = {
   content: [
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
@@ -9,52 +14,68 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // DVRG Brand Colors (Robinhood-inspired with #00D9B5)
+        // ── Brand accent ───────────────────────────────────────────────────
+        // Use sparingly: only for interactive/active/CTA/focus states.
         primary: {
-          DEFAULT: '#00D9B5',
-          dark: '#00B396',
-          light: '#33E4C8',
+          DEFAULT: 'rgb(var(--accent-rgb) / <alpha-value>)',
+          dark:    'rgb(var(--accent-dark-rgb) / <alpha-value>)',
+          light:   'rgb(var(--accent-light-rgb) / <alpha-value>)',
         },
-        // Dark mode palette
-        background: '#0A0E1A',
+
+        // ── Theme-aware surfaces ────────────────────────────────────────────
+        background: 'rgb(var(--bg-rgb) / <alpha-value>)',
         surface: {
-          DEFAULT: '#1A1F2E',
-          elevated: '#252B3D',
+          DEFAULT:  'rgb(var(--surface-1-rgb) / <alpha-value>)',
+          elevated: 'rgb(var(--surface-2-rgb) / <alpha-value>)',
         },
+
+        // ── Theme-aware text ────────────────────────────────────────────────
         text: {
-          primary: '#FFFFFF',
-          secondary: '#9CA3AF',
-          tertiary: '#6B7280',
+          primary:   'rgb(var(--text-rgb) / <alpha-value>)',
+          secondary: 'rgb(var(--text-muted-rgb) / <alpha-value>)',
+          tertiary:  'rgb(var(--text-subtle-rgb) / <alpha-value>)',
         },
-        // Semantic colors
+
+        // ── Semantic (fixed — same in both themes) ──────────────────────────
         success: '#10B981',
         warning: '#F59E0B',
-        error: '#EF4444',
-        info: '#3B82F6',
-        // Chart colors
+        error:   '#EF4444',
+        info:    '#3B82F6',
+
+        // ── Chart ───────────────────────────────────────────────────────────
         chart: {
-          strong: '#10B981',
+          strong:   '#10B981',
           moderate: '#F59E0B',
-          weak: '#EF4444',
+          weak:     '#EF4444',
         },
       },
+
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
         mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
       },
+
       fontSize: {
-        xs: '0.75rem',     // 12px
-        sm: '0.875rem',    // 14px
+        xs:   '0.75rem',   // 12px
+        sm:   '0.875rem',  // 14px
         base: '1rem',      // 16px
-        lg: '1.125rem',    // 18px
-        xl: '1.25rem',     // 20px
+        lg:   '1.125rem',  // 18px
+        xl:   '1.25rem',   // 20px
         '2xl': '1.5rem',   // 24px
         '3xl': '1.875rem', // 30px
         '4xl': '2.25rem',  // 36px
       },
+
       borderRadius: {
-        'card': '12px',
-        'button': '8px',
+        // Tighter radii for the Framework Guide / institutional look
+        card:   '8px',
+        button: '6px',
+      },
+
+      boxShadow: {
+        // Reference CSS variable so shadows respect theme
+        theme:    'var(--shadow)',
+        'theme-sm': 'var(--shadow-sm)',
       },
     },
   },
