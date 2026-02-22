@@ -241,6 +241,11 @@ async def refresh_watchlist_item(
     # Save to database
     saved = await save_analysis_result(user.id, ticker, result)
 
+    # Re-fetch db after long-running analysis — close_db() was called before analysis
+    # and save_analysis_result() opens a fresh connection internally, so the original
+    # `db` reference is stale. get_db() returns the fresh client save_analysis_result set up.
+    db = await get_db()
+
     # Update watchlist item with new score
     new_score = result.get('moat_score')
     old_score = watchlist_item.latestMoatScore or watchlist_item.initialMoatScore or 0.0
