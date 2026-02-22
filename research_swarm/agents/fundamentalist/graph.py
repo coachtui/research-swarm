@@ -656,13 +656,22 @@ def analyze_qualitative_ttm_node(state: FundamentalistState) -> FundamentalistSt
         ttm_metrics = TTMMetrics(**state["ttm_metrics"])
         quarterly_trends = QuarterlyTrends(**state["quarterly_trends"])
 
+        # Fetch supplemental market data to enrich analysis context
+        from research_swarm.data.market_data_client import market_data_client as _mdc
+        key_stats = _mdc.get_key_stats(state["ticker"])
+        supplemental_market_data = {
+            "valuation_metrics": state.get("valuation_metrics"),
+            "key_stats": key_stats,
+        }
+
         analysis, tokens = analyzer.analyze_qualitative_ttm(
             state["ticker"],
             state["analysis_period"],
             state["quarters"],
             state["parsed_sections_by_quarter"],
             ttm_metrics,
-            quarterly_trends
+            quarterly_trends,
+            supplemental_market_data=supplemental_market_data,
         )
 
         if not analysis:

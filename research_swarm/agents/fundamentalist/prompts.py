@@ -273,47 +273,62 @@ QUALITATIVE_ANALYSIS_PROMPT_TTM = """You are a seasoned financial analyst conduc
 **Analysis Period**: {analysis_period}
 **Quarters Analyzed**: {quarters}
 
-**TTM Financial Metrics**:
+**TTM Financial Metrics** (from SEC filings):
 {ttm_metrics}
 
 **Quarterly Trends**:
 {quarterly_trends}
+
+**Market Data & Key Ratios** (from market data — use these to anchor your analysis):
+{supplemental_market_data}
 
 **Key Sections from Most Recent Filing**:
 {parsed_sections}
 
 ---
 
-**Task**: Provide a comprehensive qualitative analysis of the company's financial health and business position, with emphasis on recent trends.
+**Task**: Provide a comprehensive qualitative analysis of the company's financial health and business position, with emphasis on recent trends. Use ALL data provided above — especially the Market Data & Key Ratios — to deliver specific, data-anchored insights.
 
-Your analysis should cover:
+Your analysis MUST cover:
 
 1. **Business Model & Competitive Position**
    - Core business strengths and competitive advantages
    - Market position and industry dynamics
 
 2. **Financial Performance & Trends**
-   - TTM revenue and profitability analysis
+   - TTM revenue and profitability analysis with specific numbers
    - **Quarter-over-quarter trends** (improving, stable, or declining)
-   - Margin analysis and efficiency changes over the 4 quarters
-   - Momentum assessment
+   - Margin analysis: gross, operating, net margins with context on sector norms
+   - Operating margin and net margin levels — are they above/below industry?
 
-3. **Risk Assessment**
+3. **Capital Efficiency & Returns**
+   - Return on Equity (ROE) and Return on Assets (ROA) — assess whether the company earns above its cost of capital
+   - Free cash flow generation and FCF margin (FCF as % of revenue if calculable)
+   - EBITDA and cash conversion quality
+
+4. **Valuation Context**
+   - Current P/E vs. sector average — premium or discount, and whether justified
+   - Forward P/E and PEG ratio interpretation
+   - EV/EBITDA vs sector average
+   - What growth rate is being priced in?
+
+5. **Risk Assessment**
    - Key business risks and challenges
-   - Operational challenges
+   - Balance sheet leverage: total debt, debt-to-equity, interest coverage
    - Any deteriorating trends to watch
+   - Short interest signal (if elevated, note the bear case implied)
 
-4. **Growth & Innovation**
+6. **Growth & Innovation**
+   - Forward earnings growth estimate vs historical revenue growth
    - R&D investment trajectory
-   - Market expansion signals
-   - Strategic initiatives
+   - Market expansion signals and strategic initiatives
 
-5. **Balance Sheet & Liquidity**
-   - Debt levels and capital structure
-   - Cash flow trends
-   - Financial flexibility
+7. **Balance Sheet & Liquidity**
+   - Total debt vs. cash position (net debt)
+   - Cash flow coverage of debt obligations
+   - Financial flexibility for reinvestment or buybacks
 
-**Output**: Write a clear, analytical summary (800-1200 words) that synthesizes these elements. **Explicitly reference quarter-over-quarter trends** and whether the company's trajectory is improving or declining.
+**Output**: Write a clear, analytical summary (800-1200 words) that synthesizes these elements. **Reference specific numbers** from the Market Data section (ROE, ROA, FCF, P/E vs sector, etc.) throughout your analysis. Do not hedge by saying data is unavailable if it is provided above.
 """
 
 # ============================================================================

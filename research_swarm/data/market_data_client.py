@@ -721,6 +721,74 @@ class MarketDataClient:
             logger.error(f"Error fetching valuation metrics for {ticker}: {e}")
             return None
 
+    def get_key_stats(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Get key fundamental stats not captured by get_valuation_metrics().
+
+        Extracts return-on-capital metrics, cash flow, balance sheet, and
+        growth data from yfinance .info — enriches qualitative analysis context.
+
+        Returns:
+            Dict with key stats or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_key_stats"
+
+        cached = cache.get("market_key_stats", cache_key)
+        if cached:
+            return cached
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+
+            stock = yf.Ticker(ticker)
+            info = stock.info
+
+            if not info:
+                return None
+
+            def to_pct(v):
+                """Convert 0-1 decimal to percentage, or return None."""
+                return round(v * 100, 2) if v is not None else None
+
+            def to_millions(v):
+                """Convert raw value to millions, or return None."""
+                return round(v / 1_000_000, 1) if v is not None else None
+
+            result = {
+                # Return on capital metrics
+                "return_on_equity": to_pct(info.get("returnOnEquity")),
+                "return_on_assets": to_pct(info.get("returnOnAssets")),
+                # Cash flow (TTM)
+                "free_cashflow_millions": to_millions(info.get("freeCashflow")),
+                "operating_cashflow_millions": to_millions(info.get("operatingCashflow")),
+                # Balance sheet
+                "total_debt_millions": to_millions(info.get("totalDebt")),
+                "total_cash_millions": to_millions(info.get("totalCash")),
+                "ebitda_millions": to_millions(info.get("ebitda")),
+                # Growth
+                "earnings_growth_fwd": to_pct(info.get("earningsGrowth")),
+                "revenue_growth": to_pct(info.get("revenueGrowth")),
+                # Margins (supplemental cross-check)
+                "gross_margins": to_pct(info.get("grossMargins")),
+                "operating_margins": to_pct(info.get("operatingMargins")),
+                "profit_margins": to_pct(info.get("profitMargins")),
+                # Shares
+                "shares_outstanding_millions": to_millions(info.get("sharesOutstanding")),
+                "shares_short_pct_float": to_pct(info.get("shortPercentOfFloat")),
+                # Classification
+                "sector": info.get("sector", "Unknown"),
+                "industry": info.get("industry", "Unknown"),
+            }
+
+            cache.set("market_key_stats", cache_key, result, ttl_days=1)
+            logger.info(f"Fetched key stats for {ticker}: ROE={result['return_on_equity']}%, ROA={result['return_on_assets']}%")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error fetching key stats for {ticker}: {e}")
+            return None
+
     def build_valuation_from_fundamentals(
         self,
         ticker: str,
