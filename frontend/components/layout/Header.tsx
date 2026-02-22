@@ -8,11 +8,15 @@ import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { UserButton, useUser } from '@clerk/nextjs'
 
-const NAV_LINKS = [
-  { href: '/dashboard',     label: 'Dashboard'    },
+const PUBLIC_NAV_LINKS = [
   { href: '/#how-it-works', label: 'How It Works' },
   { href: '/#pricing',      label: 'Pricing'      },
   { href: '/#faq',          label: 'FAQ'           },
+]
+
+const AUTH_NAV_LINKS = [
+  { href: '/dashboard',     label: 'Dashboard'    },
+  ...PUBLIC_NAV_LINKS,
 ]
 
 export function Header() {
@@ -41,7 +45,7 @@ export function Header() {
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-0.5">
-          {NAV_LINKS.map(({ href, label }) => (
+          {(isSignedIn ? AUTH_NAV_LINKS : PUBLIC_NAV_LINKS).map(({ href, label }) => (
             <Link
               key={href}
               href={href}
@@ -99,7 +103,7 @@ export function Header() {
       {mobileMenuOpen && (
         <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
           <nav className="container mx-auto px-4 py-3 flex flex-col gap-0.5">
-            {NAV_LINKS.map(({ href, label }) => (
+            {(isSignedIn ? AUTH_NAV_LINKS : PUBLIC_NAV_LINKS).map(({ href, label }) => (
               <Link
                 key={href}
                 href={href}
