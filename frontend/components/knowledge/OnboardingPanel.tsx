@@ -106,7 +106,7 @@ export function OnboardingPanel({ children }: OnboardingPanelProps) {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-0 right-4 sm:right-6 z-30 flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 border border-gray-700 border-b-0 rounded-t-md text-xs font-mono text-gray-400 hover:text-gray-200 hover:bg-gray-800 transition-colors shadow-lg"
+          className="fixed bottom-0 right-4 sm:right-6 z-30 flex items-center gap-1.5 px-3 py-1.5 bg-surface border border-hairline border-b-0 rounded-t-md text-xs font-mono text-text-secondary hover:text-text-primary hover:bg-surface-elevated transition-colors shadow-theme"
           aria-label="Open Framework Guide"
         >
           <span className="text-[10px] tracking-widest uppercase">Framework Guide</span>
@@ -117,7 +117,7 @@ export function OnboardingPanel({ children }: OnboardingPanelProps) {
       {/* ── Bottom Panel ── */}
       {isOpen && currentConstruct && (
         <div
-          className="fixed bottom-0 inset-x-0 z-30 border-t border-gray-800 bg-gray-950 shadow-2xl"
+          className="fixed bottom-0 inset-x-0 z-30 border-t border-hairline bg-background shadow-2xl"
           role="complementary"
           aria-label="Framework Guide"
         >
@@ -166,7 +166,7 @@ function ConstructView({
       {/* Header row */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono tracking-widest uppercase text-gray-500">
+          <span className="text-[10px] font-mono tracking-widest uppercase text-text-tertiary">
             Framework Guide
           </span>
           {/* Progress dots */}
@@ -175,25 +175,25 @@ function ConstructView({
               <div
                 key={i}
                 className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                  i === stepIndex ? 'bg-blue-500' : 'bg-gray-700'
+                  i === stepIndex ? 'bg-primary' : 'bg-surface-elevated'
                 }`}
               />
             ))}
           </div>
-          <span className="text-[10px] font-mono text-gray-600">{stepIndex + 1} of {total}</span>
+          <span className="text-[10px] font-mono text-text-tertiary">{stepIndex + 1} of {total}</span>
         </div>
 
         <div className="flex items-center gap-1">
           <button
             onClick={onCollapse}
-            className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
+            className="p-1 text-text-tertiary hover:text-text-secondary transition-colors"
             aria-label="Collapse"
           >
             <ChevronDown size={14} />
           </button>
           <button
             onClick={onDismiss}
-            className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
+            className="p-1 text-text-tertiary hover:text-text-secondary transition-colors"
             aria-label="Dismiss permanently"
           >
             <X size={14} />
@@ -208,56 +208,56 @@ function ConstructView({
         <div className="grid grid-cols-[1fr_auto_1fr] gap-2 sm:contents">
           {/* Left concept */}
           <div className="space-y-1">
-            <p className="text-[10px] font-mono tracking-widest uppercase text-gray-500">
+            <p className="text-[10px] font-mono tracking-widest uppercase text-text-tertiary">
               {construct.title.split(' vs. ')[0]}
             </p>
-            <p className="text-sm font-semibold text-white">{construct.left.label}</p>
+            <p className="text-sm font-semibold text-text-primary">{construct.left.label}</p>
             <ul className="space-y-0.5 hidden sm:block">
               {construct.left.descriptors.map(d => (
-                <li key={d} className="text-xs text-gray-400 font-mono">{d}</li>
+                <li key={d} className="text-xs text-text-secondary font-mono">{d}</li>
               ))}
             </ul>
           </div>
 
           {/* VS divider */}
           <div className="flex flex-col items-center justify-center pt-4 gap-1">
-            <div className="w-px h-6 sm:h-8 bg-gray-700" />
-            <span className="text-xs font-mono text-gray-600">vs</span>
-            <div className="w-px h-6 sm:h-8 bg-gray-700" />
+            <div className="w-px h-6 sm:h-8 bg-text-tertiary/30" />
+            <span className="text-xs font-mono text-text-tertiary">vs</span>
+            <div className="w-px h-6 sm:h-8 bg-text-tertiary/30" />
           </div>
 
           {/* Right concept */}
           <div className="space-y-1">
-            <p className="text-[10px] font-mono tracking-widest uppercase text-gray-500">
+            <p className="text-[10px] font-mono tracking-widest uppercase text-text-tertiary">
               {construct.title.split(' vs. ')[1]}
             </p>
-            <p className="text-sm font-semibold text-white">{construct.right.label}</p>
+            <p className="text-sm font-semibold text-text-primary">{construct.right.label}</p>
             <ul className="space-y-0.5 hidden sm:block">
               {construct.right.descriptors.map(d => (
-                <li key={d} className="text-xs text-gray-400 font-mono">{d}</li>
+                <li key={d} className="text-xs text-text-secondary font-mono">{d}</li>
               ))}
             </ul>
           </div>
         </div>
 
         {/* Bridge statement + related terms */}
-        <div className="space-y-1.5 sm:space-y-2 sm:pl-4 sm:border-l sm:border-gray-800 border-t border-gray-800 pt-2.5 sm:pt-0 sm:border-t-0">
-          <p className="text-xs text-gray-300 leading-relaxed italic">
+        <div className="space-y-1.5 sm:space-y-2 sm:pl-4 sm:border-l sm:border-hairline border-t border-hairline pt-2.5 sm:pt-0 sm:border-t-0">
+          <p className="text-xs text-text-primary leading-relaxed italic">
             &ldquo;{construct.bridgeStatement}&rdquo;
           </p>
-          <p className="text-xs text-gray-500 leading-relaxed hidden sm:block">
+          <p className="text-xs text-text-secondary leading-relaxed hidden sm:block">
             {construct.whyItMatters}
           </p>
 
           {/* Related term chips */}
           {construct.relatedTermIds.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
-              <span className="text-[10px] font-mono text-gray-600 uppercase tracking-wider self-center">
+              <span className="text-[10px] font-mono text-text-tertiary uppercase tracking-wider self-center">
                 In this analysis:
               </span>
               {construct.relatedTermIds.map(id => (
                 <TermTooltip key={id} termId={id}>
-                  <span className="px-2 py-0.5 text-[10px] font-mono text-gray-300 bg-gray-800 border border-gray-700 rounded hover:border-gray-500 cursor-pointer transition-colors">
+                  <span className="px-2 py-0.5 text-[10px] font-mono text-text-primary bg-surface-elevated border border-hairline rounded hover:border-hairline-strong cursor-pointer transition-colors">
                     {id.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
                   </span>
                 </TermTooltip>
@@ -268,25 +268,25 @@ function ConstructView({
       </div>
 
       {/* Navigation row */}
-      <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-800">
+      <div className="flex items-center justify-between mt-3 pt-3 border-t border-hairline">
         <button
           onClick={onPrev}
           disabled={stepIndex === 0}
-          className="flex items-center gap-1 text-xs font-mono text-gray-500 hover:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-1 text-xs font-mono text-text-tertiary hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronLeft size={13} /> Prev
         </button>
 
         <button
           onClick={onDismiss}
-          className="text-[10px] font-mono text-gray-600 hover:text-gray-400 transition-colors"
+          className="text-[10px] font-mono text-text-tertiary hover:text-text-secondary transition-colors"
         >
           Skip Framework Guide
         </button>
 
         <button
           onClick={onNext}
-          className="flex items-center gap-1 text-xs font-mono text-blue-400 hover:text-blue-300 transition-colors"
+          className="flex items-center gap-1 text-xs font-mono text-primary hover:text-primary-light transition-colors"
         >
           {stepIndex === ONBOARDING_CONSTRUCTS.length - 1 ? 'Complete' : 'Next'}
           <ChevronRight size={13} />
@@ -301,8 +301,8 @@ function ConstructView({
 function CompletionMessage({ onDone }: { onDone: () => void }) {
   return (
     <div className="flex items-center justify-center gap-3 py-4 px-4">
-      <span className="text-xs font-mono text-gray-400">Framework guide complete.</span>
-      <span className="text-xs font-mono text-gray-500">
+      <span className="text-xs font-mono text-text-secondary">Framework guide complete.</span>
+      <span className="text-xs font-mono text-text-tertiary">
         Access anytime via the tab handle below.
       </span>
     </div>
