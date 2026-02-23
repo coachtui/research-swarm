@@ -84,8 +84,11 @@ async def analyze_stock(
     - Pro tier: 10 analyses/month
     - Premium tier: 30 analyses/month
     """
-    # Check tier-based analysis quota (admins bypass)
-    can_analyze, error_msg = await check_can_analyze(user.id, user.tier, user.email, user.is_admin)
+    # Check tier-based analysis quota (admins bypass; requires active Stripe subscription)
+    can_analyze, error_msg = await check_can_analyze(
+        user.id, user.tier, user.email, user.is_admin,
+        stripe_status=user.stripe_subscription_status or ""
+    )
     if not can_analyze:
         raise HTTPException(status_code=402, detail=error_msg)
 

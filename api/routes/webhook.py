@@ -45,12 +45,15 @@ async def verify_clerk_signature(payload: bytes, headers: dict) -> bool:
             signatures[version] = signature
 
     # Verify v1 signature (most common)
+    # Svix format: secret is "whsec_" + base64(raw_key_bytes)
+    # Signature = base64(HMAC-SHA256(signed_content, raw_key_bytes))
     if "v1" in signatures:
-        expected_signature = hmac.new(
-            webhook_secret.encode(),
-            signed_content.encode(),
-            hashlib.sha256
-        ).hexdigest()
+        import base64
+        raw_secret = webhook_secret.removeprefix("whsec_")
+        # Add padding in case base64 string is not padded
+        key_bytes = base64.b64decode(raw_secret + "==")
+        mac = hmac.new(key_bytes, signed_content.encode(), hashlib.sha256)
+        expected_signature = base64.b64encode(mac.digest()).decode()
 
         if hmac.compare_digest(signatures["v1"], expected_signature):
             return True
@@ -97,16 +100,20 @@ async def clerk_webhook(
     event_type = event.get("type")
     logger.info(f"Received Clerk webhook: {event_type}")
 
-    # Get database connection
-    global _db_client
+    # Get database connection with reconnect on error
+    import api.lib.db as db_module
     try:
         db = await get_db()
         if not db.is_connected():
-            await db.disconnect()
             await db.connect()
     except Exception as e:
         logger.error(f"Database connection error: {e}")
-        _db_client = None
+        if db_module._db_client:
+            try:
+                await db_module._db_client.disconnect()
+            except Exception:
+                pass
+        db_module._db_client = None
         db = await get_db()
 
     try:

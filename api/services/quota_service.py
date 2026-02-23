@@ -86,7 +86,7 @@ async def get_or_create_current_quota(user_id: str, tier: str):
     return quota
 
 
-async def check_can_analyze(user_id: str, tier: str, user_email: str = "", is_admin: bool = False) -> Tuple[bool, str]:
+async def check_can_analyze(user_id: str, tier: str, user_email: str = "", is_admin: bool = False, stripe_status: str = "") -> Tuple[bool, str]:
     """
     Check if user can run another analysis.
 
@@ -95,18 +95,28 @@ async def check_can_analyze(user_id: str, tier: str, user_email: str = "", is_ad
         tier: User tier
         user_email: User email (optional, for test account bypass)
         is_admin: Whether user is an admin (bypasses all limits)
+        stripe_status: Stripe subscription status (must be active/trialing to analyze)
 
     Returns:
         (can_proceed, error_message)
         - can_proceed: True if user has quota remaining
         - error_message: Empty if allowed, error message if denied
     """
-    print(f"🔍 check_can_analyze: user_email='{user_email}', tier='{tier}', is_admin={is_admin}")
+    print(f"🔍 check_can_analyze: user_email='{user_email}', tier='{tier}', is_admin={is_admin}, stripe_status='{stripe_status}'")
 
     # Bypass for admins - unlimited analyses
     if is_admin:
         print(f"✅ Bypassing quota check for admin user: {user_email}")
         return True, ""
+
+    # Require an active paid subscription before counting quota
+    _PAID_STATUSES = {"active", "trialing"}
+    if stripe_status not in _PAID_STATUSES:
+        print(f"❌ No active subscription for {user_email}: stripe_status='{stripe_status}'")
+        return False, (
+            "An active subscription is required to run analyses. "
+            "Please purchase a plan at dvrg.io to get started."
+        )
 
     quota = await get_or_create_current_quota(user_id, tier)
 

@@ -241,10 +241,13 @@ async def update_user_tier(
     if not user:
         raise HTTPException(404, "User not found")
 
-    # Update tier
+    # Update tier and mark subscription as active (admin-granted access bypasses Stripe)
     updated_user = await db.user.update(
         where={"id": user_id},
-        data={"tier": request.new_tier}
+        data={
+            "tier": request.new_tier,
+            "stripeSubscriptionStatus": "active",
+        }
     )
 
     return {

@@ -120,6 +120,7 @@ async def get_current_user(
             full_name="Test User",
             tier="trader",
             monthly_budget_usd=200.0,
+            stripe_subscription_status="active",
             is_active=True,
             is_admin=True
         )
@@ -297,6 +298,7 @@ async def get_current_user(
         full_name=user.fullName,
         tier=user.tier,
         monthly_budget_usd=user.monthlyBudgetUsd,
+        stripe_subscription_status=user.stripeSubscriptionStatus,
         is_active=user.isActive,
         is_admin=user.isAdmin
     )

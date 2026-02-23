@@ -25,6 +25,8 @@ class User(BaseModel):
     tier: UserTier = Field(default=UserTier.STARTER, description="Subscription tier")
     monthly_budget_usd: float = Field(default=200.0, description="Monthly API budget in USD")
 
+    stripe_subscription_status: Optional[str] = Field(None, description="Stripe subscription status (active, trialing, canceled, etc.)")
+
     is_active: bool = Field(default=True, description="Account active status")
     is_admin: bool = Field(default=False, description="Admin access for dashboard")
     created_at: datetime = Field(default_factory=datetime.utcnow)
