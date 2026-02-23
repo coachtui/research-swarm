@@ -241,10 +241,11 @@ async def get_current_user(
             payload.get("email") or
             payload.get("email_address") or
             payload.get("primary_email_address") or
-            f"user_{clerk_user_id[:8]}@example.com"  # Valid domain for fallback
+            # Use full Clerk ID (unique) to avoid collisions between users who share an 8-char prefix
+            f"{clerk_user_id}@users.dvrg.io"
         )
         logger.info(f"📧 Extracted email from JWT: {email}")
-        if email.endswith("@example.com"):
+        if email.endswith("@users.dvrg.io"):
             logger.warning(f"⚠️  Email not in JWT - using fallback. Configure Clerk session token to include email!")
 
         # Check if this is the admin user
@@ -267,14 +268,21 @@ async def get_current_user(
                 logger.info(f"✅ Auto-created user: {user.email} (admin={is_admin})")
                 break
             except Exception as create_err:
-                if "Closed" in str(create_err) and create_attempt == 0:
+                err_str = str(create_err)
+                if "UniqueConstraint" in err_str or "Unique constraint" in err_str:
+                    # Email collision — look up the existing user by clerkId or email
+                    logger.warning(f"⚠️  Email collision on auto-create for {clerk_user_id}, looking up existing user...")
+                    user = await db.user.find_first(where={"OR": [{"clerkId": clerk_user_id}, {"email": email}]})
+                    if user:
+                        logger.info(f"✅ Recovered existing user after collision: {user.email}")
+                    break
+                elif "Closed" in err_str and create_attempt == 0:
                     # Reconnect and retry
-                    from api.lib.db import _db_client
                     import api.lib.db as db_module
                     if db_module._db_client:
                         try:
                             await db_module._db_client.disconnect()
-                        except:
+                        except Exception:
                             pass
                     db_module._db_client = None
                     db = await get_db()
