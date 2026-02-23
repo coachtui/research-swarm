@@ -171,10 +171,10 @@ class ManagerAnalyzer:
         """
         logger.info(f"Synthesizing findings for {ticker}")
 
-        # Extract key scores
-        financial_health_score = fundamentalist_output.get("financial_health_score", 0)
-        sentiment_score = news_hound_output.get("sentiment_score", 0)
-        technical_score = quant_output.get("technical_score", 0)
+        # Extract key scores — use `or 0` to handle keys present with None values
+        financial_health_score = fundamentalist_output.get("financial_health_score") or 0
+        sentiment_score = news_hound_output.get("sentiment_score") or 0
+        technical_score = quant_output.get("technical_score") or 0
 
         # Compute smart money vs public sentiment scores for probability calibration
         smart_money_score, divergence_pattern = self._compute_divergence_scores(news_hound_output)
