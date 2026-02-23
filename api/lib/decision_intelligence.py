@@ -37,9 +37,16 @@ def enrich_with_decision_intelligence(
         if not current_price or current_price <= 0:
             return full_output
 
+        # --- Fair value for regime detection (raw intrinsic value, pre-sanity-gate) ---
+        fv_calibration = fund_output.get("fair_value_calibration") or {}
+        fair_value = fv_calibration.get("internal_fair_value") if fv_calibration else None
+
         # --- Price targets (with fallback chain) ---
         price_targets = fund_output.get("price_targets")
         analyst_consensus = news_hound.get("analyst_consensus")
+        analyst_consensus_target = (
+            analyst_consensus.get("avg_price_target") if analyst_consensus else None
+        )
 
         if not price_targets:
             if analyst_consensus and analyst_consensus.get("avg_price_target"):
@@ -158,6 +165,8 @@ def enrich_with_decision_intelligence(
             price_targets=price_targets or {},
             technical_indicators=technical_indicators,
             signal_breakdown=signal_breakdown,
+            fair_value=fair_value,
+            analyst_consensus_target=analyst_consensus_target,
         )
 
         # Merge into full_output

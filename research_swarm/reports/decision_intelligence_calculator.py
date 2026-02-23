@@ -250,6 +250,8 @@ class DecisionIntelligenceCalculator:
         technical_levels: Dict[str, Any],
         volume_profile_data: Dict[str, Any],
         risk_level: str,
+        fair_value: Optional[float] = None,
+        analyst_consensus_target: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Calculate conservative and aggressive trade setups with 3 targets each.
@@ -324,6 +326,18 @@ class DecisionIntelligenceCalculator:
 
         ideal_low = entry_strategy.get("ideal_zone", {}).get("low", current_price * 0.90)
         ideal_high = entry_strategy.get("ideal_zone", {}).get("high", current_price * 0.95)
+
+        # --- Regime detection ---
+        # MOMENTUM: price > 150% of fair value — targets must anchor to current price, not intrinsic value
+        # DISTRESSED: price < 50% of fair value
+        # STANDARD: price within 50–150% of fair value
+        regime_mode = "STANDARD"
+        if fair_value and fair_value > 0:
+            fv_ratio = current_price / fair_value
+            if fv_ratio > 1.50:
+                regime_mode = "MOMENTUM"
+            elif fv_ratio < 0.50:
+                regime_mode = "DISTRESSED"
 
         # --- Conservative setup: wait for pullback, wider stops ---
         conservative_entry = self._best_of(
@@ -417,6 +431,26 @@ class DecisionIntelligenceCalculator:
         aggressive_t4 = max(bull_target, aggressive_t3 * 1.15)
         aggressive_t4_label = "T4 — Regime Expansion Scenario"
 
+        # --- MOMENTUM regime: ensure aggressive targets are anchored above current price ---
+        # When price > 150% of intrinsic fair value, the structural base/bull targets are
+        # far below current price and would produce illogical profit targets.
+        # Override to use technical resistance + momentum projections instead.
+        if regime_mode == "MOMENTUM":
+            # T2 override: analyst consensus (if above current) or 25% momentum continuation
+            if analyst_consensus_target and analyst_consensus_target > current_price * 1.01:
+                aggressive_t2 = analyst_consensus_target
+                aggressive_t2_label = "T2 — Analyst Consensus Target (6–12 mo)"
+            elif aggressive_t2 <= current_price:
+                aggressive_t2 = current_price * 1.25
+                aggressive_t2_label = "T2 — Momentum Continuation (25% above current)"
+            # T3 override: extended momentum if below current price
+            if aggressive_t3 <= current_price:
+                aggressive_t3 = max(aggressive_t2 * 1.15, current_price * 1.40)
+                aggressive_t3_label = "T3 — Momentum Continuation (not anchored to intrinsic value)"
+            # T4 override: label as structural reversion, zero sell %
+            aggressive_t4 = fair_value if fair_value else aggressive_t4
+            aggressive_t4_label = "T4 — Structural Reversion (long-term only)"
+
         _MIN_RISK_BUFFER = 0.05  # 5% minimum gap between entry and stop
 
         # C2: Conservative setup — enforce minimum risk buffer
@@ -485,39 +519,75 @@ class DecisionIntelligenceCalculator:
         else:
             conservative_entry_anchor = "Execution Discount Zone (Intrinsic Value Derived)"
 
+        def _build_target(price, sell_pct, label, current_price=current_price):
+            """Build a target dict, flagging suppression if price < current_price for long setups."""
+            t = {"price": round(price, 2), "sell_pct": sell_pct, "label": label}
+            if price < current_price and sell_pct > 0:
+                # Target is below current price — illogical as a profit target for a long position
+                t["suppressed"] = True
+                fv_str = f"${fair_value:.0f}" if fair_value else "fair value"
+                t["suppression_reason"] = (
+                    f"Target below current price — suppressed in momentum regime. "
+                    f"See structural value zone ({fv_str}) for long-term mean reversion basis."
+                )
+            else:
+                t["suppressed"] = False
+            return t
+
+        cons_targets = [
+            _build_target(conservative_t1, 30, conservative_t1_label),
+            _build_target(conservative_t2, 40, conservative_t2_label),
+            _build_target(conservative_t3, 30, conservative_t3_label),
+            _build_target(conservative_t4, 0, conservative_t4_label),
+        ]
+        agg_targets = [
+            _build_target(aggressive_t1, 33, aggressive_t1_label),
+            _build_target(aggressive_t2, 34, aggressive_t2_label),
+            _build_target(aggressive_t3, 33, aggressive_t3_label),
+            _build_target(aggressive_t4, 0, aggressive_t4_label),
+        ]
+
+        conservative_side = {
+            "label": "Conservative (Recommended)",
+            "entry": round(conservative_entry, 2),
+            "entry_anchor": conservative_entry_anchor,
+            "stop_loss": round(conservative_stop, 2),
+            "targets": cons_targets,
+            "max_loss_per_100": per_100(conservative_entry, conservative_stop),
+            "max_gain_per_100": per_100(conservative_entry, conservative_t4),
+            "risk_reward": risk_reward(conservative_entry, conservative_stop, conservative_t2),
+            "setup_unavailable": conservative_setup_unavailable,
+        }
+
+        # In MOMENTUM mode: expose the structural anchor's asymmetry separately so
+        # users understand that the high R/R is from the structural entry, not current price.
+        if regime_mode == "MOMENTUM":
+            conservative_side["structural_anchor_price"] = round(conservative_entry, 2)
+            # Asymmetry from current price: gain = T2 - current_price (may be negative)
+            current_price_gain = conservative_t2 - current_price
+            current_price_risk = current_price - conservative_stop
+            if current_price_risk > 0:
+                rr_from_current = round(current_price_gain / current_price_risk, 1)
+            else:
+                rr_from_current = None
+            conservative_side["asymmetry_from_current_price"] = rr_from_current
+
         result = {
-            "conservative": {
-                "label": "Conservative (Recommended)",
-                "entry": round(conservative_entry, 2),
-                "entry_anchor": conservative_entry_anchor,
-                "stop_loss": round(conservative_stop, 2),
-                "targets": [
-                    {"price": round(conservative_t1, 2), "sell_pct": 30, "label": conservative_t1_label},
-                    {"price": round(conservative_t2, 2), "sell_pct": 40, "label": conservative_t2_label},
-                    {"price": round(conservative_t3, 2), "sell_pct": 30, "label": conservative_t3_label},
-                    {"price": round(conservative_t4, 2), "sell_pct": 0, "label": conservative_t4_label},
-                ],
-                "max_loss_per_100": per_100(conservative_entry, conservative_stop),
-                "max_gain_per_100": per_100(conservative_entry, conservative_t4),
-                "risk_reward": risk_reward(conservative_entry, conservative_stop, conservative_t2),
-                "setup_unavailable": conservative_setup_unavailable,
-            },
+            "conservative": conservative_side,
             "aggressive": {
                 "label": "Aggressive (Higher risk)",
                 "entry": round(aggressive_entry, 2),
                 "entry_anchor": "Market Order (Current Price)",
                 "stop_loss": round(aggressive_stop, 2),
-                "targets": [
-                    {"price": round(aggressive_t1, 2), "sell_pct": 33, "label": aggressive_t1_label},
-                    {"price": round(aggressive_t2, 2), "sell_pct": 34, "label": aggressive_t2_label},
-                    {"price": round(aggressive_t3, 2), "sell_pct": 33, "label": aggressive_t3_label},
-                    {"price": round(aggressive_t4, 2), "sell_pct": 0, "label": aggressive_t4_label},
-                ],
+                "targets": agg_targets,
                 "max_loss_per_100": per_100(aggressive_entry, aggressive_stop),
                 "max_gain_per_100": per_100(aggressive_entry, aggressive_t4),
                 "risk_reward": risk_reward(aggressive_entry, aggressive_stop, aggressive_t2),
                 "setup_unavailable": aggressive_setup_unavailable,
             },
+            # Regime classification — STANDARD / MOMENTUM / DISTRESSED
+            "regime_mode": regime_mode,
+            "intrinsic_fair_value": round(fair_value, 2) if fair_value else None,
             # Taxonomy clarification for display
             "scenario_taxonomy": (
                 "T1 (Tactical Bounce Target): First meaningful technical resistance above entry — "
@@ -535,6 +605,21 @@ class DecisionIntelligenceCalculator:
             "technical_resistance_levels": conservative_resistances,
             "report_qa_flags": qa_flags,
         }
+
+        # Add momentum regime warning when stock trades far above intrinsic value
+        if regime_mode == "MOMENTUM" and fair_value:
+            result["momentum_regime_warning"] = (
+                f"⚠️ Momentum Regime: Targets anchored to current market price, not intrinsic value. "
+                f"Fair value (${fair_value:.2f}) represents long-term mean reversion basis only."
+            )
+        elif regime_mode == "MOMENTUM":
+            result["momentum_regime_warning"] = (
+                "⚠️ Momentum Regime: Stock trades significantly above intrinsic value. "
+                "Targets anchored to current market price."
+            )
+        else:
+            result["momentum_regime_warning"] = None
+
         return result
 
     def detect_fund_tech_divergence(
@@ -686,6 +771,8 @@ class DecisionIntelligenceCalculator:
         price_targets: Dict[str, Any],
         technical_indicators: Dict[str, Any],
         signal_breakdown: Optional[Dict[str, Any]],
+        fair_value: Optional[float] = None,
+        analyst_consensus_target: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Calculate all decision intelligence components.
@@ -792,6 +879,8 @@ class DecisionIntelligenceCalculator:
                 technical_levels=tech_levels,
                 volume_profile_data=volume_profile,
                 risk_level=risk_level,
+                fair_value=fair_value,
+                analyst_consensus_target=analyst_consensus_target,
             )
             # Extract qa_flags before storing the trade setup
             if _setup_result:

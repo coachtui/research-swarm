@@ -337,6 +337,8 @@ function SetupColumn({
   isDeepEntry,
   structuralFairValue,
   opportunityEnvelopeLow,
+  regimeMode,
+  momentumRegimeWarning,
 }: {
   side: TradeSetupSide
   variant: 'conservative' | 'aggressive'
@@ -347,14 +349,23 @@ function SetupColumn({
   isDeepEntry?: boolean
   structuralFairValue?: number | null
   opportunityEnvelopeLow?: number | null
+  regimeMode?: 'STANDARD' | 'MOMENTUM' | 'DISTRESSED' | null
+  momentumRegimeWarning?: string | null
 }) {
+  const isMomentumRegime = regimeMode === 'MOMENTUM'
+
   // Fix 2: Deep entry (structural reversion) uses visually subordinate styling — muted border and lighter treatment
-  const borderColor = isDeepEntry
-    ? 'border-border'
-    : variant === 'conservative' ? 'border-success/30' : 'border-warning/30'
-  const headerBg = isDeepEntry
-    ? 'bg-surface-elevated/40'
-    : variant === 'conservative' ? 'bg-success/5' : 'bg-warning/5'
+  // In MOMENTUM regime, both cards get the momentum warning treatment instead
+  const borderColor = isMomentumRegime
+    ? 'border-amber-500/40'
+    : isDeepEntry
+      ? 'border-border'
+      : variant === 'conservative' ? 'border-success/30' : 'border-warning/30'
+  const headerBg = isMomentumRegime
+    ? 'bg-amber-500/5'
+    : isDeepEntry
+      ? 'bg-surface-elevated/40'
+      : variant === 'conservative' ? 'bg-success/5' : 'bg-warning/5'
 
   const hasHighDivergence = signalBreakdown?.has_divergence === true
 
@@ -406,6 +417,13 @@ function SetupColumn({
       ? calcRRAtEntry(opportunityEnvelopeLow, side.entry, side.stop_loss, t2Price)
       : null
 
+  // FIX 4: Momentum regime asymmetry — for conservative card, expose structural anchor R/R separately.
+  // The high R/R on the conservative card is FROM the structural anchor entry (e.g., $59), not from
+  // the current price ($248). Display both so users understand the distinction.
+  const showMomentumAsymmetry = isMomentumRegime && variant === 'conservative'
+  const rrFromCurrent = side.asymmetry_from_current_price ?? null
+  const structuralAnchorPrice = side.structural_anchor_price ?? null
+
   // C2: Setup unavailable state — show instead of normal setup when risk buffer is insufficient
   const setupUnavailable = side.setup_unavailable
 
@@ -436,8 +454,18 @@ function SetupColumn({
 
   return (
     <div className={`rounded-lg border ${borderColor} overflow-hidden`}>
-      {/* Fix 4: Deep Value Entry warning — shown when entry is far below current market price */}
-      {isDeepEntry && (
+      {/* FIX 1: Momentum Regime banner — shown on BOTH cards when price > 150% of fair value */}
+      {isMomentumRegime && momentumRegimeWarning && (
+        <div className="px-4 pt-3 pb-0">
+          <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2.5 text-xs leading-relaxed">
+            <span className="font-semibold text-amber-400 block mb-0.5">
+              {momentumRegimeWarning}
+            </span>
+          </div>
+        </div>
+      )}
+      {/* Fix 4: Deep Value Entry warning — shown when entry is far below current market price (STANDARD mode only) */}
+      {isDeepEntry && !isMomentumRegime && (
         <div className="px-4 pt-3 pb-0">
           <div className="rounded-md bg-warning/8 border border-warning/25 p-2.5 text-xs leading-relaxed">
             <span className="font-semibold text-warning block mb-0.5">
@@ -532,6 +560,27 @@ function SetupColumn({
           </div>
         )}
 
+        {/* FIX 4: Dual asymmetry display for conservative card in MOMENTUM regime.
+            The modeled R/R is from the structural anchor (e.g., $59), NOT from current price.
+            Show both so users understand the distinction. */}
+        {showMomentumAsymmetry && structuralAnchorPrice != null && (
+          <div className="mt-2 pt-2 border-t border-amber-500/20 text-[10px] text-text-tertiary leading-relaxed space-y-1">
+            <div className="flex items-center justify-between">
+              <span>Asymmetry from structural anchor ({formatAnchor(structuralAnchorPrice)})</span>
+              <span className="font-semibold text-text-secondary ml-2">{side.risk_reward}:1 — requires mean reversion entry</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Asymmetry from current price</span>
+              <span className={`font-semibold ml-2 ${rrFromCurrent != null && rrFromCurrent > 0 ? 'text-text-secondary' : 'text-error/70'}`}>
+                {rrFromCurrent != null && rrFromCurrent > 0
+                  ? `${rrFromCurrent}:1`
+                  : 'N/A — targets below current price'
+                }
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Footnote */}
         {displayFootnote && (
           <p className="text-xs text-text-tertiary mt-1.5 leading-relaxed">{displayFootnote}</p>
@@ -587,6 +636,30 @@ function SetupColumn({
             const conditionality = inferTargetConditionality(t.label, i, rating, variant)
             const sanitizedLabel = sanitizeTargetLabel(t.label)
             const dimExtra = rating === 'HOLD' && extended
+            const isSuppressed = t.suppressed === true
+
+            // FIX 2: Suppressed targets (price < current price in a long position).
+            // Show suppression message in place of the price — never display downside
+            // values as profit targets; it is logically incoherent for a long position.
+            if (isSuppressed) {
+              return (
+                <div
+                  key={i}
+                  className="rounded px-2 py-1.5 text-xs bg-error/5 border border-error/15"
+                >
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-text-tertiary">{sanitizedLabel}</span>
+                    <span className="bg-error/10 text-error/70 text-[10px] px-1.5 py-0.5 rounded font-semibold">
+                      Suppressed
+                    </span>
+                  </div>
+                  <p className="text-text-tertiary/70 leading-relaxed">
+                    {t.suppression_reason ?? 'Target below current price — not a valid profit target at current market levels.'}
+                  </p>
+                </div>
+              )
+            }
+
             return (
               <div
                 key={i}
@@ -903,6 +976,8 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             isDeepEntry={isDeepConservativeEntry}
             structuralFairValue={structuralFV}
             opportunityEnvelopeLow={opportunityEnvelope ? Math.min(opportunityEnvelope.low, opportunityEnvelope.high) : null}
+            regimeMode={setup.regime_mode}
+            momentumRegimeWarning={setup.momentum_regime_warning}
           />
           <SetupColumn
             side={setup.aggressive}
@@ -913,6 +988,8 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             currentPrice={currentPrice}
             structuralFairValue={structuralFV}
             opportunityEnvelopeLow={opportunityEnvelope ? Math.min(opportunityEnvelope.low, opportunityEnvelope.high) : null}
+            regimeMode={setup.regime_mode}
+            momentumRegimeWarning={setup.momentum_regime_warning}
           />
         </div>
       </CardContent>

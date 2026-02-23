@@ -341,6 +341,10 @@ export interface TradeTarget {
   price: number
   sell_pct: number
   label: string
+  /** True when target price < current price in a long position (illogical profit target) */
+  suppressed?: boolean
+  /** Reason for suppression — shown in place of the target price */
+  suppression_reason?: string | null
 }
 
 export interface TradeSetupSide {
@@ -353,11 +357,21 @@ export interface TradeSetupSide {
   risk_reward: number
   /** C2: Set when entry/stop are too close to form a valid risk buffer (< 5% gap) */
   setup_unavailable?: string | null
+  /** MOMENTUM mode: the structural fair value anchor price (conservative entry) */
+  structural_anchor_price?: number | null
+  /** MOMENTUM mode: R/R ratio calculated from current price (may be negative when targets < price) */
+  asymmetry_from_current_price?: number | null
 }
 
 export interface EnhancedTradeSetup {
   conservative: TradeSetupSide
   aggressive: TradeSetupSide
+  /** Regime classification: STANDARD | MOMENTUM | DISTRESSED */
+  regime_mode?: 'STANDARD' | 'MOMENTUM' | 'DISTRESSED' | null
+  /** Raw intrinsic fair value used for regime detection (pre-sanity-gate) */
+  intrinsic_fair_value?: number | null
+  /** Warning message shown prominently when in MOMENTUM regime */
+  momentum_regime_warning?: string | null
 }
 
 export interface FundTechDivergence {
