@@ -867,7 +867,18 @@ class DecisionIntelligenceCalculator:
         _val_high = volume_profile.get("value_area_high") if volume_profile else None
         _val_low = volume_profile.get("value_area_low") if volume_profile else None
         _bb_upper = technical_indicators.get("bollinger_bands", {}).get("upper_band")
-        _regime_mode = signal_breakdown.get("regime_mode") if signal_breakdown else None
+        # Regime detection: mirrors calculate_enhanced_trade_setup logic exactly.
+        # signal_breakdown does NOT carry regime_mode — must compute from fair_value ratio.
+        if fair_value and fair_value > 0:
+            _fv_ratio = current_price / fair_value
+            if _fv_ratio > 1.50:
+                _regime_mode = "MOMENTUM"
+            elif _fv_ratio < 0.50:
+                _regime_mode = "DISTRESSED"
+            else:
+                _regime_mode = "STANDARD"
+        else:
+            _regime_mode = "STANDARD"
 
         decision_framework = None
         try:
