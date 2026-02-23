@@ -81,6 +81,29 @@ def enrich_with_decision_intelligence(
             else:
                 rating = "STRONG SELL"
 
+        # --- Recommendation-Rating Alignment ---
+        # The moat scorer and the LLM thesis generator are separate systems that can
+        # independently arrive at different conclusions. When they disagree, we take the
+        # more conservative rating so the badge always matches the written verdict.
+        # This prevents the "BUY badge / HOLD narrative" contradiction.
+        _TIER_ORDER = ["STRONG SELL", "SELL", "HOLD", "BUY", "STRONG BUY"]
+        _REC_NORMALIZE = {"AVOID": "SELL", "BUY NOW": "BUY", "SCALE IN": "HOLD", "WAIT": "HOLD"}
+        llm_recommendation = full_output.get("recommendation")
+        if llm_recommendation and rating:
+            rec_upper = llm_recommendation.upper()
+            rec_normalized = _REC_NORMALIZE.get(rec_upper, rec_upper)
+            if rec_normalized in _TIER_ORDER and rating in _TIER_ORDER:
+                rec_idx = _TIER_ORDER.index(rec_normalized)
+                rating_idx = _TIER_ORDER.index(rating)
+                alignment_gap = rating_idx - rec_idx  # positive = scorer more bullish than LLM
+                if alignment_gap > 0:
+                    # Scorer is more bullish — trust the LLM which has full narrative context
+                    print(
+                        f"[DI Alignment] Badge reconciled: scorer={rating} vs LLM={llm_recommendation} "
+                        f"(gap={alignment_gap} tiers) → badge set to {rec_normalized}"
+                    )
+                    rating = rec_normalized
+
         # --- Risk level (with fallback) ---
         risk_level = full_output.get("risk_level")
         if not risk_level:

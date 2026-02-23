@@ -94,16 +94,12 @@ export function PortfolioContext({
   // Risk warnings based on quality
   const qualityLevel = financialHealthScore >= 8.0 ? 'high' : financialHealthScore >= 6.0 ? 'medium' : 'low'
 
-  // Fix 6: Signal-conflict override for position sizing language.
-  // Trigger conditions (all three must be true):
-  //   1. Smart Money composite (avg of institutional + insider + dark_pool) < 3.5
-  //   2. Smart Money vs Public divergence magnitude > 4.0 pts
-  //      (public composite = avg of news + earnings + analyst + tech_divergence)
-  //   3. Rating is HOLD or WAIT
+  // Signal-conflict: use has_divergence from the backend signal_breakdown as the
+  // authoritative source — this is the same field the Signal Analysis section uses,
+  // preventing "None Detected" vs "4 of 7 disagree" contradiction within the same report.
   const institutionalScore = signalBreakdown?.institutional_score ?? null
   const insiderScore = signalBreakdown?.insider_score ?? null
   const darkPoolScore = signalBreakdown?.dark_pool_score ?? null
-  const ratingIsHoldOrWait = rating === 'HOLD' || rating === 'WAIT'
 
   const smartMoneyScoresAvailable =
     institutionalScore != null && insiderScore != null && darkPoolScore != null
@@ -111,26 +107,9 @@ export function PortfolioContext({
     ? (institutionalScore! + insiderScore! + darkPoolScore!) / 3
     : null
 
-  const newsScore = signalBreakdown?.news_score ?? null
-  const earningsScore = signalBreakdown?.earnings_score ?? null
-  const analystScore = signalBreakdown?.analyst_score ?? null
-  const techScore = signalBreakdown?.tech_divergence_score ?? null
-  const publicScoresAvailable =
-    newsScore != null && earningsScore != null && analystScore != null && techScore != null
-  const publicComposite = publicScoresAvailable
-    ? (newsScore! + earningsScore! + analystScore! + techScore!) / 4
-    : null
-
-  const divergenceMagnitude =
-    smartMoneyComposite != null && publicComposite != null
-      ? Math.abs(smartMoneyComposite - publicComposite)
-      : null
-
-  const hasSignalConflict = Boolean(
-    smartMoneyComposite != null && smartMoneyComposite < 3.5 &&
-    divergenceMagnitude != null && divergenceMagnitude > 4.0 &&
-    ratingIsHoldOrWait
-  )
+  // Primary: has_divergence is the authoritative backend signal (same as Signal Analysis section).
+  // This prevents the position sizing section from showing a different conflict state than the matrix.
+  const hasSignalConflict = Boolean(signalBreakdown?.has_divergence)
 
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">

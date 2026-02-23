@@ -1,7 +1,81 @@
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency } from '@/lib/utils/formatting'
 import type { EnhancedTradeSetup, TradeSetupSide, RecommendedStrategy, SignalBreakdown, FairValueCalibration } from '@/types/api'
+
+// Expandable disclosure for the CLAMPED entry case.
+// Shows both the original model output and the re-anchored value so users can
+// make an informed judgment rather than only seeing the post-heuristic result.
+function ClampedEntryDisclosure({
+  classification,
+  justification,
+  belowBearPct,
+  originalIdealLow,
+}: {
+  classification?: string
+  justification: string
+  belowBearPct?: number
+  originalIdealLow?: number | null
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const isClamped = classification === 'CLAMPED'
+  const isDistressed = classification === 'DISTRESSED_ENTRY'
+  const colorClass = isDistressed || isClamped
+    ? 'bg-error/10 border-error/30 text-error'
+    : 'bg-warning/10 border-warning/30 text-warning'
+
+  const title = isDistressed ? 'Distressed Entry Zone'
+    : isClamped ? 'Entry Re-anchored (Risk Heuristic)'
+    : 'Entry Below Risk Scenario Floor'
+
+  return (
+    <div className={`p-3 rounded-md border text-xs leading-relaxed ${colorClass}`}>
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="flex items-center gap-2">
+          <span className="font-bold">{title}</span>
+          {belowBearPct !== undefined && belowBearPct > 0 && (
+            <span className="font-normal opacity-80">({belowBearPct.toFixed(1)}% below Risk Scenario)</span>
+          )}
+        </div>
+        {isClamped && (
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="text-[10px] underline underline-offset-2 opacity-70 hover:opacity-100 shrink-0"
+          >
+            {expanded ? 'Hide detail ▲' : 'Why? ▼'}
+          </button>
+        )}
+      </div>
+
+      <p className="text-text-secondary">{justification}</p>
+
+      {isClamped && expanded && (
+        <div className="mt-2.5 pt-2.5 border-t border-error/20 space-y-1.5">
+          {originalIdealLow != null && (
+            <p>
+              <span className="font-semibold">Model output (unclamped):</span>{' '}
+              <span className="font-mono">${originalIdealLow.toFixed(2)}</span>
+              <span className="opacity-70"> — the raw calculation before re-anchoring.</span>
+            </p>
+          )}
+          <p className="opacity-80">
+            <span className="font-semibold">Why we re-anchor:</span>{' '}
+            When the model calculates an entry significantly below its own bear-case estimate,
+            we cap it at bear−5% as a conservative floor. This is a{' '}
+            <span className="font-semibold">risk management heuristic, not a model prediction</span>{' '}
+            — if you believe the model&rsquo;s original calculation is correct for your risk tolerance,
+            you may use that value instead.
+          </p>
+          <p className="opacity-70 italic">
+            Consider: if the model genuinely thinks ${originalIdealLow?.toFixed(2)} is the right
+            entry, suppressing that signal may not serve your interests. Use professional judgment.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface TradeSetupProps {
   setup: EnhancedTradeSetup
@@ -565,6 +639,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
   const entryBelowBearPct = strategy?.entry?.entry_below_bear_pct
   const belowBearClassification = strategy?.entry?.below_bear_classification
   const belowBearJustification = strategy?.entry?.below_bear_justification
+  const originalIdealLow = strategy?.entry?.original_ideal_low
 
   const stopStyle = stopQuality ? STOP_QUALITY_STYLES[stopQuality] : undefined
 
@@ -591,23 +666,12 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
 
         {/* Entry below bear case disclosure */}
         {entryBelowBear && belowBearJustification && (
-          <div className={`p-3 rounded-md border text-xs leading-relaxed ${
-            belowBearClassification === 'DISTRESSED_ENTRY' || belowBearClassification === 'CLAMPED'
-              ? 'bg-error/10 border-error/30 text-error'
-              : 'bg-warning/10 border-warning/30 text-warning'
-          }`}>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="font-bold">
-                {belowBearClassification === 'DISTRESSED_ENTRY' ? 'Distressed Entry Zone' :
-                 belowBearClassification === 'CLAMPED' ? 'Entry Clamped' :
-                 'Entry Below Risk Scenario Floor'}
-              </span>
-              {entryBelowBearPct !== undefined && entryBelowBearPct > 0 && (
-                <span className="font-normal opacity-80">({entryBelowBearPct.toFixed(1)}% below Risk Scenario)</span>
-              )}
-            </div>
-            <p className="text-text-secondary">{belowBearJustification}</p>
-          </div>
+          <ClampedEntryDisclosure
+            classification={belowBearClassification}
+            justification={belowBearJustification}
+            belowBearPct={entryBelowBearPct}
+            originalIdealLow={originalIdealLow}
+          />
         )}
 
         {/* Entry zone taxonomy block — three-level structure with structural/tactical framing.

@@ -1,9 +1,14 @@
+'use client'
+
+import { useState } from 'react'
 import type { SignalBreakdown } from '@/types/api'
 
 interface AnalogProfile {
   scenario: string
   resolution: string
-  probability: string
+  // Qualitative framing — specific percentages removed because this is a heuristic,
+  // not a backtested statistic. Quantitative precision implies false accuracy.
+  probabilityBias: string
   volatility: string
 }
 
@@ -16,7 +21,7 @@ function deriveAnalog(breakdown: SignalBreakdown): AnalogProfile {
     return {
       scenario: 'Broad Bullish Alignment',
       resolution: '2–6 weeks typical',
-      probability: '~65% historical upside follow-through',
+      probabilityBias: 'More often than not, upside follow-through',
       volatility: 'Low-to-moderate — trending conditions more reliable when signals broadly agree',
     }
   }
@@ -24,7 +29,7 @@ function deriveAnalog(breakdown: SignalBreakdown): AnalogProfile {
     return {
       scenario: 'Broad Bearish Alignment',
       resolution: '2–6 weeks typical',
-      probability: '~62% historical downside continuation',
+      probabilityBias: 'Majority tend toward downside continuation',
       volatility: 'Elevated drawdown risk; defensive positioning historically advantaged',
     }
   }
@@ -32,7 +37,7 @@ function deriveAnalog(breakdown: SignalBreakdown): AnalogProfile {
     return {
       scenario: 'High Signal Conflict',
       resolution: '1–4 weeks typical',
-      probability: '~55% resolve toward fundamental signal',
+      probabilityBias: 'Slight majority tend toward fundamental signal',
       volatility: 'Elevated realized volatility expected during resolution window',
     }
   }
@@ -40,14 +45,14 @@ function deriveAnalog(breakdown: SignalBreakdown): AnalogProfile {
     return {
       scenario: 'Moderate Signal Divergence',
       resolution: '2–8 weeks typical',
-      probability: '~57% resolve toward fundamental signal',
+      probabilityBias: 'Moderate majority tend toward fundamental signal',
       volatility: 'Above-average intraday swings; wider spreads possible near resolution',
     }
   }
   return {
     scenario: 'Balanced / Mixed Signals',
     resolution: '3–10 weeks typical',
-    probability: 'Outcome distribution near 50/50 — catalyst-dependent',
+    probabilityBias: 'Outcome near even split — catalyst-dependent',
     volatility: 'Moderate — expect directional clarity once a signal breaks the tie',
   }
 }
@@ -58,15 +63,30 @@ interface HistoricalAnalogPanelProps {
 
 export function HistoricalAnalogPanel({ breakdown }: HistoricalAnalogPanelProps) {
   const analog = deriveAnalog(breakdown)
+  const [showHeuristicNote, setShowHeuristicNote] = useState(false)
 
   return (
     <div className="border border-border rounded-lg p-4 bg-surface">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-semibold text-text-primary">Historical Analog Behavior</h3>
-        <span className="text-[10px] text-text-tertiary bg-surface-elevated px-2 py-0.5 rounded border border-border uppercase tracking-wide">
-          Heuristic · Not backtested
-        </span>
+        <button
+          onClick={() => setShowHeuristicNote(v => !v)}
+          className="text-[10px] text-text-tertiary bg-surface-elevated px-2 py-0.5 rounded border border-border uppercase tracking-wide hover:bg-surface-elevated/80 transition-colors cursor-help"
+        >
+          Heuristic · Not backtested {showHeuristicNote ? '▲' : '▼'}
+        </button>
       </div>
+
+      {showHeuristicNote && (
+        <div className="mb-3 p-2.5 rounded-md bg-surface-elevated border border-border text-xs text-text-secondary leading-relaxed">
+          <span className="font-semibold text-text-primary block mb-1">What does "heuristic" mean here?</span>
+          A <strong>heuristic</strong> is an educated pattern drawn from general market observation —
+          not a statistically validated backtest with a defined sample. These scenarios describe how
+          similar signal configurations have <em>tended</em> to behave, expressed as directional
+          bias rather than precise probabilities. They are orientation tools, not forecasts.
+          Do not size positions based on this language alone.
+        </div>
+      )}
 
       <p className="text-xs font-medium text-text-secondary mb-3 pb-3 border-b border-border-subtle">
         Current pattern matches: <span className="text-text-primary">{analog.scenario}</span>
@@ -82,8 +102,9 @@ export function HistoricalAnalogPanel({ breakdown }: HistoricalAnalogPanelProps)
         <div>
           <p className="text-[10px] text-text-tertiary uppercase tracking-wide mb-1">
             Probability Bias
+            <span className="ml-1 font-normal normal-case text-text-tertiary">(heuristic)</span>
           </p>
-          <p className="text-sm font-semibold text-text-primary">{analog.probability}</p>
+          <p className="text-sm font-semibold text-text-primary">{analog.probabilityBias}</p>
         </div>
         <div>
           <p className="text-[10px] text-text-tertiary uppercase tracking-wide mb-1">

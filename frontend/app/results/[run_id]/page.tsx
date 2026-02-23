@@ -25,6 +25,8 @@ import { extractWhatsNew } from '@/lib/analysis/extractWhatsNew'
 import { extractWatchCalendar } from '@/lib/analysis/extractWatchCalendar'
 import { AddToWatchlistButton } from '@/components/dashboard/AddToWatchlistButton'
 import { OnboardingPanel } from '@/components/knowledge/OnboardingPanel'
+import { SmartMoneyAlert } from '@/components/results/SmartMoneyAlert'
+import { WatchForSummary } from '@/components/results/WatchForSummary'
 
 interface ResultsPageProps {
   params: { run_id: string }
@@ -231,6 +233,24 @@ function ResultsContent({ runId }: { runId: string }) {
             fundTechDivergence={decision_intelligence.fund_tech_divergence}
             convictionLevel={decision_intelligence.conviction_position?.conviction_level}
             enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
+          />
+        )}
+
+        {/* ── SMART MONEY DIVERGENCE ALERT ─────────────────────────
+            Shown immediately after the main recommendation when the gap
+            between informed capital and public signals exceeds 3.0 pts.
+            This is DVRG's core differentiator — surfaces it prominently. */}
+        {signal_breakdown && (
+          <SmartMoneyAlert signalBreakdown={signal_breakdown} />
+        )}
+
+        {/* ── WATCH FOR: Condensed upgrade/downgrade triggers ───────
+            Top-2 triggers per direction surfaced early so users see
+            the key catalysts before scrolling the full analysis. */}
+        {(upgrade_triggers || downgrade_triggers) && (
+          <WatchForSummary
+            upgradeTriggers={upgrade_triggers}
+            downgradeTriggers={downgrade_triggers}
           />
         )}
 

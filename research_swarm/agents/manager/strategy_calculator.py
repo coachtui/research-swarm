@@ -78,6 +78,7 @@ class StrategyCalculator:
         entry_below_bear = ideal_low < bear_target
         entry_below_bear_pct = max(0.0, round((bear_target - ideal_low) / bear_target * 100, 1))
         below_bear_justification = None
+        original_ideal_low_before_clamp = None  # Only set when CLAMPED
 
         if entry_below_bear:
             if entry_below_bear_pct <= 5.0:
@@ -101,11 +102,13 @@ class StrategyCalculator:
                     "Manage exposure carefully; do not size up without thesis confirmation."
                 )
             else:
-                # Override: floor the entry_low at bear_target × 0.95 to prevent absurd entries
+                # Override: floor the entry_low at bear_target × 0.95 to prevent absurd entries.
+                # Store original for transparency — both values exposed to the frontend.
                 below_bear_classification = "CLAMPED"
                 clamped_low = round(bear_target * 0.95, 2)
+                original_ideal_low_before_clamp = round(ideal_low, 2)
                 below_bear_justification = (
-                    f"Entry lower bound clamped to ${clamped_low:.2f} — original calculation of ${ideal_low:.2f} "
+                    f"Entry lower bound clamped to ${clamped_low:.2f} — original calculation of ${original_ideal_low_before_clamp:.2f} "
                     f"was {entry_below_bear_pct:.1f}% below the bear-case estimate (${bear_target:.2f}), "
                     "which exceeds the maximum defensible tail-risk discount (10%). "
                     "Entry zone re-anchored at bear case −5%."
@@ -212,6 +215,8 @@ class StrategyCalculator:
             "entry_below_bear_pct": entry_below_bear_pct,
             "below_bear_classification": below_bear_classification,
             "below_bear_justification": below_bear_justification,
+            # When CLAMPED: expose original model value so the UI can show both
+            "original_ideal_low": original_ideal_low_before_clamp if below_bear_classification == "CLAMPED" else None,
             "current_price": round(current_price, 2),
             "discount_to_target_pct": round(discount_pct, 1),
             "recommendation": recommendation,

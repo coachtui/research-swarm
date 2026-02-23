@@ -370,6 +370,8 @@ export interface RecommendedStrategy {
     entry_below_bear_pct?: number
     below_bear_classification?: 'ABOVE_BEAR' | 'TAIL_RISK_DISCOUNT' | 'DISTRESSED_ENTRY' | 'CLAMPED'
     below_bear_justification?: string | null
+    // Only present when CLAMPED — the raw model value before re-anchoring
+    original_ideal_low?: number | null
   }
   exit: {
     stop_loss: number
