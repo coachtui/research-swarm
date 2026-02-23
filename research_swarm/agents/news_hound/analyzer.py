@@ -796,13 +796,20 @@ class NewsAnalyzer:
         # Format data for prompt
         short_text = "No short interest data available"
         if short_data:
+            # yfinance returns shortPercentOfFloat as a decimal fraction (e.g. 0.034 = 3.4%)
+            raw_pct = short_data.get('short_percent_float')
+            pct_str = f"{raw_pct * 100:.2f}" if raw_pct is not None else "N/A"
+
+            def fmt_shares(val):
+                return f"{int(val):,}" if val is not None else "N/A"
+
             short_text = f"""
-Short % of Float: {short_data.get('short_percent_float', 'N/A')}%
-Shares Short: {short_data.get('shares_short', 'N/A'):,}
-Shares Short (Prior Month): {short_data.get('shares_short_prior_month', 'N/A'):,}
+Short % of Float: {pct_str}%
+Shares Short: {fmt_shares(short_data.get('shares_short'))}
+Shares Short (Prior Month): {fmt_shares(short_data.get('shares_short_prior_month'))}
 Days to Cover: {short_data.get('short_ratio', 'N/A')}
-Float Shares: {short_data.get('float_shares', 'N/A'):,}
-Shares Outstanding: {short_data.get('shares_outstanding', 'N/A'):,}
+Float Shares: {fmt_shares(short_data.get('float_shares'))}
+Shares Outstanding: {fmt_shares(short_data.get('shares_outstanding'))}
 """
 
         # Build prompt
