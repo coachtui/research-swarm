@@ -64,7 +64,7 @@ export function Header() {
 
           {isSignedIn ? (
             <>
-              <Link href="/dashboard">
+              <Link href="/analyze">
                 <Button size="sm">Analyze Stock</Button>
               </Link>
               <UserButton
@@ -120,7 +120,7 @@ export function Header() {
             <div className="flex flex-col gap-2 pt-3 mt-1" style={{ borderTop: '1px solid var(--border)' }}>
               {isSignedIn ? (
                 <>
-                  <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)}>
+                  <Link href="/analyze" onClick={() => setMobileMenuOpen(false)}>
                     <Button size="sm" className="w-full">Analyze Stock</Button>
                   </Link>
                   <div className="flex items-center justify-between py-1.5 px-1">
