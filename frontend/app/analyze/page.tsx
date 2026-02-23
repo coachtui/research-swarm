@@ -43,7 +43,7 @@ export default function AnalyzePage() {
         apiClient.setTokenGetter(getToken)
         const user = await apiClient.getCurrentUser()
         const PAID_STATUSES = ['active', 'trialing']
-        setHasSubscription(PAID_STATUSES.includes(user.stripe_subscription_status ?? ''))
+        setHasSubscription(user.is_admin || PAID_STATUSES.includes(user.stripe_subscription_status ?? ''))
       } catch {
         setHasSubscription(false)
       }

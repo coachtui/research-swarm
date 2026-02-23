@@ -85,7 +85,7 @@ function DashboardContent({ currentUser }: { currentUser: UserInfo | null }) {
 
   const PAID_STATUSES = ['active', 'trialing']
   const hasSubscription = currentUser
-    ? PAID_STATUSES.includes(currentUser.stripe_subscription_status ?? '')
+    ? (currentUser.is_admin || PAID_STATUSES.includes(currentUser.stripe_subscription_status ?? ''))
     : false
 
   return (
