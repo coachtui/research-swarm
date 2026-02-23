@@ -654,7 +654,7 @@ class ManagerAnalyzer:
         lines = []
         for cat in categories:
             name = cat.get("name", "Unknown")
-            score = cat.get("score", 0)
+            score = cat.get("score") or 0
             strength = cat.get("strength", "none")
             lines.append(f"• {name}: {score:.1f}/10 ({strength})")
 
@@ -692,12 +692,12 @@ class ManagerAnalyzer:
 
         for s in scenarios:
             case = s.get("case", "")
-            target = s.get("target", 0)
-            upside = s.get("upside_pct", 0)
-            prob = s.get("probability", 0)
+            target = s.get("target") or 0
+            upside = s.get("upside_pct") or 0
+            prob = s.get("probability") or 0
             lines.append(f"• {case.upper()}: ${target:.2f} ({upside:+.1f}%) - {prob:.0%} probability")
 
-        lines.insert(0, f"Current Price: ${current:.2f}")
+        lines.insert(0, f"Current Price: ${current or 0:.2f}")
         return "\n".join(lines)
 
     def _format_peer_comparison(self, output: Dict[str, Any]) -> str:
@@ -732,9 +732,9 @@ class ManagerAnalyzer:
         for s in individual:
             name = s.get("name", "")
             signal = s.get("signal", "neutral")
-            score = s.get("score", 5.0)
-            confidence = s.get("confidence", 0.5)
-            weight = s.get("weight", 0.1)
+            score = s.get("score") or 5.0
+            confidence = s.get("confidence") or 0.5
+            weight = s.get("weight") or 0.1
             lines.append(f"• {name}: {signal.upper()} (score: {score:.1f}/10, confidence: {confidence:.0%}, weight: {weight:.0%})")
 
         lines.insert(0, f"Overall: {overall.upper()}\n")
@@ -751,14 +751,14 @@ class ManagerAnalyzer:
 
         lines = []
         if ninety_day:
-            up = ninety_day.get("upgrades", 0)
-            down = ninety_day.get("downgrades", 0)
-            net = ninety_day.get("net_revisions", 0)
+            up = ninety_day.get("upgrades") or 0
+            down = ninety_day.get("downgrades") or 0
+            net = ninety_day.get("net_revisions") or 0
             trend = ninety_day.get("trend", "neutral")
             lines.append(f"90-Day Activity: {up} upgrades, {down} downgrades (net: {net:+d}) - {trend.upper()}")
 
         if surprise_hist:
-            avg_surprise = sum([s.get("surprise_pct", 0) for s in surprise_hist[:4]]) / min(4, len(surprise_hist))
+            avg_surprise = sum([s.get("surprise_pct") or 0 for s in surprise_hist[:4]]) / min(4, len(surprise_hist))
             lines.append(f"Avg Surprise (4Q): {avg_surprise:+.1f}%")
 
         return "\n".join(lines) if lines else "Limited data"
@@ -783,10 +783,10 @@ class ManagerAnalyzer:
             lines.append(f"Ratings ({total} analysts): {strong_buy} StrongBuy, {buy} Buy, {hold} Hold, {sell} Sell - Consensus: {consensus_rating.upper()}")
 
         if targets:
-            avg = targets.get("average", 0)
-            high = targets.get("high", 0)
-            low = targets.get("low", 0)
-            upside = targets.get("upside_to_average", 0)
+            avg = targets.get("average") or 0
+            high = targets.get("high") or 0
+            low = targets.get("low") or 0
+            upside = targets.get("upside_to_average") or 0
             lines.append(f"Price Targets: Avg ${avg:.2f} ({upside:+.1f}%), Range: ${low:.2f}-${high:.2f}")
 
         return "\n".join(lines) if lines else "Limited data"
@@ -807,11 +807,11 @@ class ManagerAnalyzer:
             lines.append(f"Recent Activity: {trend.upper()} (net shares: {net_shares:+,.0f})")
 
         if ownership:
-            total_pct = ownership.get("total_institutional_pct", 0)
+            total_pct = ownership.get("total_institutional_pct") or 0
             top_holders = ownership.get("top_5_holders", [])
             lines.append(f"Ownership: {total_pct:.1f}% institutional")
             if top_holders:
-                top_3 = ", ".join([f"{h.get('name', 'N/A')} ({h.get('pct_held', 0):.1f}%)" for h in top_holders[:3]])
+                top_3 = ", ".join([f"{h.get('name', 'N/A')} ({h.get('pct_held') or 0:.1f}%)" for h in top_holders[:3]])
                 lines.append(f"Top Holders: {top_3}")
 
         return "\n".join(lines) if lines else "Limited data"
@@ -829,7 +829,7 @@ class ManagerAnalyzer:
 
         buys = six_month.get("total_buys", 0)
         sells = six_month.get("total_sells", 0)
-        net_value = six_month.get("net_value_change", 0)
+        net_value = six_month.get("net_value_change") or 0
         signal = six_month.get("signal", "neutral")
 
         return f"6-Month Activity: {buys} buys, {sells} sells (net: ${net_value/1e6:.1f}M) - {signal.upper()}"
@@ -840,9 +840,9 @@ class ManagerAnalyzer:
         if not mgmt:
             return "Management quality not available"
 
-        tone = mgmt.get("overall_tone_score", 5.0)
+        tone = mgmt.get("overall_tone_score") or 5.0
         guidance = mgmt.get("guidance_track_record", {})
-        capital_alloc = mgmt.get("capital_allocation_score", 5.0)
+        capital_alloc = mgmt.get("capital_allocation_score") or 5.0
         overall = mgmt.get("overall_assessment", "neutral")
 
         lines = []
@@ -861,10 +861,10 @@ class ManagerAnalyzer:
         if not short:
             return "Short interest not available"
 
-        current_pct = short.get("current_short_pct", 0)
+        current_pct = short.get("current_short_pct") or 0
         trend = short.get("trend", "stable")
         squeeze_risk = short.get("squeeze_risk", "low")
-        days_to_cover = short.get("days_to_cover", 0)
+        days_to_cover = short.get("days_to_cover") or 0
 
         return f"Short Interest: {current_pct:.1f}% of float, {days_to_cover:.1f} days to cover - {trend.upper()} trend, {squeeze_risk.upper()} squeeze risk"
 
@@ -896,9 +896,9 @@ class ManagerAnalyzer:
         if not ma:
             return "N/A"
 
-        sma_50 = ma.get("sma_50", 0)
-        sma_200 = ma.get("sma_200", 0)
-        current = ma.get("current_price", 0)
+        sma_50 = ma.get("sma_50") or 0
+        sma_200 = ma.get("sma_200") or 0
+        current = ma.get("current_price") or 0
         signal = ma.get("crossover_signal", "none")
 
         return f"SMA50: ${sma_50:.2f}, SMA200: ${sma_200:.2f}, Price: ${current:.2f}, Signal: {signal}"
@@ -913,7 +913,7 @@ class ManagerAnalyzer:
 
         parts = []
         if rsi:
-            rsi_val = rsi.get("rsi_14", 50)
+            rsi_val = rsi.get("rsi_14") or 50
             rsi_sig = rsi.get("rsi_signal", "neutral")
             parts.append(f"RSI: {rsi_val:.1f} ({rsi_sig})")
 
@@ -922,7 +922,7 @@ class ManagerAnalyzer:
             parts.append(f"MACD: {macd_sig}")
 
         if stoch:
-            k_val = stoch.get("k_value", 50)
+            k_val = stoch.get("k_value") or 50
             stoch_sig = stoch.get("stochastic_signal", "neutral")
             parts.append(f"Stochastic: {k_val:.1f} ({stoch_sig})")
 
@@ -937,7 +937,7 @@ class ManagerAnalyzer:
             return "N/A"
 
         position = bb.get("position", "middle")
-        bandwidth = bb.get("bandwidth", 0)
+        bandwidth = bb.get("bandwidth") or 0
 
         return f"Position: {position}, Bandwidth: {bandwidth:.2%}"
 
@@ -949,9 +949,9 @@ class ManagerAnalyzer:
         if not vp:
             return "N/A"
 
-        poc = vp.get("poc", 0)
-        va_high = vp.get("value_area_high", 0)
-        va_low = vp.get("value_area_low", 0)
+        poc = vp.get("poc") or 0
+        va_high = vp.get("value_area_high") or 0
+        va_low = vp.get("value_area_low") or 0
 
         return f"POC: ${poc:.2f}, Value Area: ${va_low:.2f}-${va_high:.2f}"
 
@@ -963,8 +963,8 @@ class ManagerAnalyzer:
         if not rs:
             return "N/A"
 
-        vs_sector_3m = rs.get("vs_sector_3m", 0)
-        vs_market_3m = rs.get("vs_market_3m", 0)
+        vs_sector_3m = rs.get("vs_sector_3m") or 0
+        vs_market_3m = rs.get("vs_market_3m") or 0
 
         return f"vs Sector (3M): {vs_sector_3m:+.1f}pp, vs Market (3M): {vs_market_3m:+.1f}pp"
 
