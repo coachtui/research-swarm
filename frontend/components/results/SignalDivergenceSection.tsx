@@ -243,6 +243,17 @@ export function SignalDivergenceSection({
   // Issue 5: Reconciliation statement
   const reconciliation = hasDivergence ? buildReconciliationStatement(breakdown) : null
 
+  // High-signal pattern: insiders selling while analysts are uniformly bullish.
+  // This specific pairing has outsized predictive weight vs generic signal count conflicts.
+  const isInsiderAnalystDivergence = Boolean(
+    hasDivergence &&
+    breakdown.insider_has_data !== false &&
+    breakdown.analyst_has_data !== false &&
+    breakdown.insider_score < 3.0 &&
+    breakdown.analyst_score > 7.0 &&
+    (breakdown.analyst_score - breakdown.insider_score) > 4.0
+  )
+
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
@@ -391,8 +402,30 @@ export function SignalDivergenceSection({
                 }`} />
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-text-primary">
-                    Signal Conflict — {bearishSignals.length} of {signals.filter(s => s.hasData).length} signals disagree
+                    {isInsiderAnalystDivergence
+                      ? 'Signal Conflict — High-Signal Insider/Analyst Divergence Detected'
+                      : `Signal Conflict — ${bearishSignals.length} of ${signals.filter(s => s.hasData).length} signals disagree`}
                   </p>
+
+                  {/* High-signal callout: surfaces ABOVE generic divergence text when the
+                      insider-selling / analyst-bullish pattern is detected. This pairing has
+                      distinct predictive weight vs. a generic signal count conflict. */}
+                  {isInsiderAnalystDivergence && (
+                    <div className="flex items-start gap-2.5 p-3 rounded-md bg-warning/8 border border-warning/30">
+                      <span className="text-base leading-none mt-0.5 flex-shrink-0">⚡</span>
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold text-warning">High-Signal Pattern</p>
+                        <p className="text-xs text-text-secondary leading-relaxed">
+                          Insiders selling while analysts are bullish — this specific divergence
+                          (Insider: {breakdown.insider_score.toFixed(1)} vs Analyst: {breakdown.analyst_score.toFixed(1)}) carries
+                          elevated predictive weight. Insiders operate with material non-public context
+                          that sell-side coverage does not reflect. This pattern historically resolves
+                          toward insider direction more frequently than generic signal conflicts.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   <p className="text-sm text-text-secondary leading-relaxed">
                     {breakdown.divergence_explanation}
                   </p>

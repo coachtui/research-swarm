@@ -30,6 +30,9 @@ class DecisionIntelligenceCalculator:
         entry_zone_low: float,
         entry_zone_high: float,
         signal_breakdown: Optional[Dict[str, Any]] = None,
+        value_area_high: Optional[float] = None,
+        bb_upper: Optional[float] = None,
+        regime_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Produce explicit guidance for current holders and new buyers.
@@ -84,15 +87,41 @@ class DecisionIntelligenceCalculator:
             ]
         else:
             holder_action = "HOLD"
-            holder_detail = (
-                f"Maintain current position. Moat score {moat_score:.1f}/10 "
-                f"supports continued ownership but doesn't justify adding at current signal levels."
-            )
-            holder_conditions = [
-                f"Maintain hard stop at ${stop_loss:.2f}",
-                "No additions until support holds on volume and signals align",
-                "Watch for rating upgrade triggers before adding",
-            ]
+            # MOMENTUM regime: stock is technically extended above intrinsic value.
+            # Surface specific trim levels so holders have an actionable risk management posture.
+            if regime_mode == "MOMENTUM" and (value_area_high or bb_upper):
+                holder_detail = (
+                    f"Thesis intact but technically extended. "
+                    f"Risk management posture recommended."
+                )
+                holder_conditions = []
+                if value_area_high:
+                    holder_conditions.append(
+                        f"Consider trimming 15–20% of position above ${value_area_high:.0f} "
+                        f"(Value Area High) into strength"
+                    )
+                if bb_upper:
+                    holder_conditions.append(
+                        f"Upper Bollinger Band (${bb_upper:.0f}) represents secondary trim target "
+                        f"if momentum continues"
+                    )
+                holder_conditions.append(
+                    f"Maintain core position with hard stop at ${stop_loss:.0f}"
+                )
+                holder_conditions.append(
+                    f"Do not add to position at current levels — wait for pullback to "
+                    f"${entry_zone_low:.0f}–${entry_zone_high:.0f} preferred entry zone"
+                )
+            else:
+                holder_detail = (
+                    f"Maintain current position. Moat score {moat_score:.1f}/10 "
+                    f"supports continued ownership but doesn't justify adding at current signal levels."
+                )
+                holder_conditions = [
+                    f"Maintain hard stop at ${stop_loss:.2f}",
+                    "No additions until support holds on volume and signals align",
+                    "Watch for rating upgrade triggers before adding",
+                ]
 
         # --- New buyers guidance ---
         buyer_caveat = None
@@ -830,6 +859,11 @@ class DecisionIntelligenceCalculator:
         entry_zone_low = entry_strategy.get("ideal_zone", {}).get("low", current_price * 0.90)
         entry_zone_high = entry_strategy.get("ideal_zone", {}).get("high", current_price * 0.95)
 
+        # Technical trim levels for MOMENTUM HOLD guidance — derived from same sources as trade setup
+        _val_high = volume_profile.get("value_area_high") if volume_profile else None
+        _bb_upper = technical_indicators.get("bollinger_bands", {}).get("upper_band")
+        _regime_mode = signal_breakdown.get("regime_mode") if signal_breakdown else None
+
         decision_framework = None
         try:
             decision_framework = self.calculate_decision_framework(
@@ -845,6 +879,9 @@ class DecisionIntelligenceCalculator:
                 entry_zone_low=entry_zone_low,
                 entry_zone_high=entry_zone_high,
                 signal_breakdown=signal_breakdown,
+                value_area_high=_val_high,
+                bb_upper=_bb_upper,
+                regime_mode=_regime_mode,
             )
         except Exception as e:
             logger.warning(f"Decision framework calculation failed: {e}")

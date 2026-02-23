@@ -24,6 +24,33 @@ function detectStructuralPremium(
   return (currentPrice - fv) / fv > 0.5 && calibration.regime === 'Growth' && financialHealthScore > 7.0
 }
 
+/** Returns score-appropriate valuation context text and visual variant.
+ *  Renders in every report — removes ambiguity about what the score means. */
+function getValuationContext(score: number): { text: string; variant: 'warning' | 'default' | 'success' } {
+  if (score < 3.0) {
+    return {
+      text: `⚠️ Valuation score of ${score.toFixed(1)} signals extreme premium pricing. The market is embedding near-zero execution risk and sustained above-consensus growth into the current multiple. Any deceleration in revenue growth, margin compression, or guidance reduction could trigger rapid multiple compression — this is the highest-risk valuation configuration.`,
+      variant: 'warning',
+    }
+  }
+  if (score < 5.0) {
+    return {
+      text: `Valuation score of ${score.toFixed(1)} reflects a stock priced for continued strong execution — not a signal that the stock should trade lower imminently. The margin of safety is narrow and the cost of disappointment is elevated. The structural anchor, not the valuation score, defines mean-reversion risk.`,
+      variant: 'default',
+    }
+  }
+  if (score < 7.0) {
+    return {
+      text: `Valuation score of ${score.toFixed(1)} reflects approximate fair value pricing. Risk/reward is roughly symmetric from current levels — upside requires fundamental outperformance while downside is limited by valuation support.`,
+      variant: 'default',
+    }
+  }
+  return {
+    text: `Valuation score of ${score.toFixed(1)} signals a meaningful discount to intrinsic value. The margin of safety is intact — downside is bounded by fundamental floor while upside reflects re-rating potential as the discount closes.`,
+    variant: 'success',
+  }
+}
+
 /** Heuristic confidence score (0–100) derived from existing backend signal fields. */
 function computeModelConfidence(breakdown: SignalBreakdown): number {
   const strength = (breakdown.signal_strength ?? 5) / 10           // 0–1
@@ -99,8 +126,7 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
   const hasStructuredThesis = typeof thesis !== 'string'
   const hasTriggers = (upgradeTriggers?.length ?? 0) > 0 || (downgradeTriggers?.length ?? 0) > 0
   const confidence = signalBreakdown ? computeModelConfidence(signalBreakdown) : null
-  const isStructuralPremium = detectStructuralPremium(calibration, currentPrice, financialHealthScore)
-  const showValuationReframe = isStructuralPremium && valuationScore != null && valuationScore < 5.0
+  const valuationContext = valuationScore != null ? getValuationContext(valuationScore) : null
 
   return (
     <Card className="border border-border-subtle shadow-sm">
@@ -155,15 +181,17 @@ export function AnalystVerdict({ thesis, upgradeTriggers, downgradeTriggers, sig
               <p className="text-text-secondary leading-relaxed" style={{ fontSize: 'var(--text-base)' }}>
                 {(thesis as InvestmentThesisStructured).valuation_signal_analysis}
               </p>
-              {/* Fix 6: Reframe low valuation score for Structural Premium Regime stocks */}
-              {showValuationReframe && (
-                <div className="mt-3 rounded-md p-3 bg-primary/5 border border-primary/15 text-xs text-text-tertiary leading-relaxed">
+              {/* Valuation Context: standard component for every report, score-tier-appropriate text */}
+              {valuationContext && (
+                <div className={`mt-3 rounded-md p-3 text-xs text-text-tertiary leading-relaxed border ${
+                  valuationContext.variant === 'warning'
+                    ? 'bg-error/5 border-error/20'
+                    : valuationContext.variant === 'success'
+                    ? 'bg-success/5 border-success/20'
+                    : 'bg-primary/5 border-primary/15'
+                }`}>
                   <span className="font-medium text-text-secondary">Valuation Context: </span>
-                  A valuation score of {valuationScore!.toFixed(1)} reflects a stock priced for continued
-                  exceptional execution — not a signal that the stock should trade lower imminently.
-                  The margin of safety is narrow and the cost of disappointment is elevated, but this
-                  is characteristic of high-quality businesses operating in a sustained growth regime.
-                  The structural anchor, not the valuation score, defines the mean-reversion risk.
+                  {valuationContext.text}
                 </div>
               )}
             </div>
