@@ -173,7 +173,16 @@ export function DecisionAction({
               <Badge variant="secondary">Conviction: {convictionLevel}</Badge>
             )}
           </div>
+          {/* Issue 2: Clean non-contradictory primary statement */}
           <p className="text-base font-semibold text-text-primary leading-relaxed">{one_liner}</p>
+          {/* Structured per-reader-type subtext — replaces the pipe-delimited multi-audience line */}
+          {framework.action_subtext && framework.action_subtext.length > 0 && (
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+              {framework.action_subtext.map((line: string, i: number) => (
+                <p key={i} className="text-xs text-text-tertiary leading-relaxed">{line}</p>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Signal Status Strip — inline, links to signals section below */}
@@ -326,6 +335,20 @@ export function DecisionAction({
                 <span className="font-medium text-text-secondary">Structural vs. Tactical Context:</span> Current price (+{dislocationPct}% above structural value zone) reflects market pricing outside the model's intrinsic framework.
                 {' '}Zones above represent the <span className="italic">long-term mean reversion basis</span> — not near-term actionable levels.
                 {' '}Interpret against the applicable thesis horizon before using as entry signals.
+              </p>
+            )}
+
+            {/* Issue 3: Opportunity Envelope clarification — reconciles envelope range with avoid threshold.
+                The Opportunity Envelope shows the full model-derived value range where the thesis is
+                favorably priced. The Avoid Above threshold marks where risk/reward deteriorates.
+                Prefer entries in the lower portion of the envelope for maximum margin of safety.
+                Entries near or above the Avoid threshold require price confirmation before acting. */}
+            {opportunityEnvelope && avoidAbove && !isStructuralDislocation && (
+              <p className="text-[10px] text-text-tertiary leading-relaxed mt-2 pl-1 border-l-2 border-border-subtle">
+                <span className="font-medium text-text-secondary">Entry Zone Note:</span>{' '}
+                The Opportunity Envelope marks the full intrinsic value range.
+                Entries in the <span className="font-medium">lower portion offer maximum margin of safety</span>.
+                Above the Avoid Above threshold, risk/reward deteriorates — wait for price confirmation (sustained close above {avoidAbove}) before initiating new positions at the upper end.
               </p>
             )}
           </div>

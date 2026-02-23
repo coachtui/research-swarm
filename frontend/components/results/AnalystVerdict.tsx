@@ -41,7 +41,19 @@ function computeModelConfidence(breakdown: SignalBreakdown): number {
   return Math.round(Math.min(100, Math.max(0, raw)))
 }
 
+// Issue 5: Model Confidence reference frame.
+// The typical operational range is 55–85%. Showing where the current score sits
+// within that range prevents "68% — is that good?" confusion.
+const CONFIDENCE_TYPICAL_LOW = 55
+const CONFIDENCE_TYPICAL_HIGH = 85
+
 function ConfidencePill({ pct }: { pct: number }) {
+  const label =
+    pct >= 72 ? 'Moderate–High' :
+    pct >= 58 ? 'Moderate' :
+    pct >= 45 ? 'Low–Moderate' :
+    'Low'
+
   const color =
     pct >= 70
       ? 'text-success bg-success/10 border-success/20'
@@ -49,13 +61,37 @@ function ConfidencePill({ pct }: { pct: number }) {
       ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20'
       : 'text-warning bg-warning/10 border-warning/20'
 
+  const barColor =
+    pct >= 70 ? 'bg-success' :
+    pct >= 50 ? 'bg-yellow-400' :
+    'bg-warning'
+
+  // Position of the marker within the typical range band (0–100%)
+  const markerPos = Math.min(100, Math.max(0,
+    ((pct - CONFIDENCE_TYPICAL_LOW) / (CONFIDENCE_TYPICAL_HIGH - CONFIDENCE_TYPICAL_LOW)) * 100
+  ))
+
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded border ${color}`}
-      title="Heuristic score derived from signal strength, stability, data completeness, and divergence magnitude. Not backtested."
+    <div
+      className={`inline-flex flex-col gap-1 text-xs font-medium px-2.5 py-1.5 rounded border ${color}`}
+      title="Heuristic score derived from signal strength, stability, data completeness, and divergence magnitude. Typical operational range: 55–85%. Not backtested."
     >
-      Model Confidence: {pct}%
-    </span>
+      <div className="flex items-center gap-1.5">
+        <span>Model Confidence: {pct}%</span>
+        <span className="text-[10px] opacity-70">({label})</span>
+      </div>
+      {/* Visual reference bar showing position within typical 55–85% range */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[9px] opacity-50 shrink-0">55</span>
+        <div className="relative flex-1 h-1 bg-current/10 rounded-full overflow-hidden">
+          <div
+            className={`absolute h-full w-1 ${barColor} rounded-full`}
+            style={{ left: `calc(${markerPos}% - 2px)` }}
+          />
+        </div>
+        <span className="text-[9px] opacity-50 shrink-0">85</span>
+      </div>
+    </div>
   )
 }
 

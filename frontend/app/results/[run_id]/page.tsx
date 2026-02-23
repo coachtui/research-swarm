@@ -27,6 +27,7 @@ import { AddToWatchlistButton } from '@/components/dashboard/AddToWatchlistButto
 import { OnboardingPanel } from '@/components/knowledge/OnboardingPanel'
 import { SmartMoneyAlert } from '@/components/results/SmartMoneyAlert'
 import { WatchForSummary } from '@/components/results/WatchForSummary'
+import { DeltaSummaryBox } from '@/components/results/DeltaSummaryBox'
 
 interface ResultsPageProps {
   params: { run_id: string }
@@ -215,6 +216,18 @@ function ResultsContent({ runId }: { runId: string }) {
             />
           </div>
         </div>
+
+        {/* ── LONGITUDINAL DELTA — Since Last Analysis ──────────────
+            Shown when the same user has a prior completed analysis for
+            this ticker. Opens the report with a thesis comparison summary.
+            Trader-tier differentiator: transforms snapshots into a living
+            thesis tracker. */}
+        {full_output?.previous_analysis_delta && (
+          <DeltaSummaryBox
+            delta={full_output.previous_analysis_delta}
+            ticker={result.ticker}
+          />
+        )}
 
         {/* ══════════════════════════════════════════════════════════
             LAYER 1 — DECISION STACK

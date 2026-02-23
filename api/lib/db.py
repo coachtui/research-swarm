@@ -9,6 +9,9 @@ from prisma import Prisma
 from typing import Optional
 from contextlib import asynccontextmanager
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Global Prisma client instance
 _db_client: Optional[Prisma] = None
@@ -247,6 +250,101 @@ async def save_analysis_result(
                         "totalCostUsd": result.get('cost_usd', 0.0),
                     }
                 )
+
+            # --- Longitudinal Delta Tracking ---
+            # Query for the most recent prior completed analysis by this user for the same ticker.
+            # Compute delta metrics and inject into full_output before saving.
+            if user_id and result.get('status') == 'completed':
+                try:
+                    prior_results = await db.stockresult.find_many(
+                        where={
+                            "ticker": ticker,
+                            "userId": user_id,
+                            "status": "completed",
+                        },
+                        order={"createdAt": "desc"},
+                        take=1,
+                    )
+                    if prior_results:
+                        prior = prior_results[0]
+                        prior_fo_raw = prior.fullOutput
+                        if prior_fo_raw:
+                            prior_fo = prior_fo_raw if isinstance(prior_fo_raw, dict) else json.loads(prior_fo_raw)
+
+                            from datetime import datetime, timezone
+                            prior_date = prior.createdAt
+                            now = datetime.now(timezone.utc)
+                            if prior_date.tzinfo is None:
+                                prior_date = prior_date.replace(tzinfo=timezone.utc)
+                            days_since = max(0, (now - prior_date).days)
+
+                            # Extract comparable metrics
+                            prior_di = prior_fo.get('decision_intelligence') or {}
+                            cur_fo = result.get('full_output') or {}
+                            cur_di = cur_fo.get('decision_intelligence') or {}
+
+                            prior_rating = prior_di.get('rating', 'HOLD')
+                            cur_rating = cur_di.get('rating', 'HOLD')
+                            prior_price = prior_di.get('current_price') or 0.0
+                            cur_price = cur_di.get('current_price') or 0.0
+
+                            def _sm_score(fo: dict) -> Optional[float]:
+                                sb = fo.get('signal_breakdown') or {}
+                                inst = sb.get('institutional_score')
+                                ins = sb.get('insider_score')
+                                dp = sb.get('dark_pool_score')
+                                if inst is not None and ins is not None and dp is not None:
+                                    return round((inst + ins + dp) / 3, 1)
+                                return None
+
+                            prior_sm = _sm_score(prior_fo)
+                            cur_sm = _sm_score(cur_fo)
+                            prior_moat = prior_fo.get('moat_score') or prior.moatScore
+                            cur_moat = result.get('moat_score')
+
+                            rating_map = {
+                                'STRONG BUY': 5, 'BUY': 4, 'HOLD': 3, 'SELL': 2, 'STRONG SELL': 1
+                            }
+                            prior_rv = rating_map.get(prior_rating, 3)
+                            cur_rv = rating_map.get(cur_rating, 3)
+
+                            if abs(cur_rv - prior_rv) >= 2:
+                                thesis_direction = 'reversed'
+                            elif cur_rv > prior_rv:
+                                thesis_direction = 'strengthened'
+                            elif cur_rv < prior_rv:
+                                thesis_direction = 'weakened'
+                            else:
+                                thesis_direction = 'held'
+
+                            price_change_pct = (
+                                round((cur_price - prior_price) / prior_price * 100, 1)
+                                if prior_price and prior_price > 0 else None
+                            )
+
+                            delta = {
+                                'prior_run_id': str(prior.runId),
+                                'prior_analysis_date': prior.createdAt.isoformat(),
+                                'prior_recommendation': prior_rating,
+                                'current_recommendation': cur_rating,
+                                'prior_price': prior_price if prior_price else None,
+                                'current_price': cur_price if cur_price else None,
+                                'price_change_pct': price_change_pct,
+                                'prior_smart_money_score': prior_sm,
+                                'current_smart_money_score': cur_sm,
+                                'prior_moat_score': float(prior_moat) if prior_moat is not None else None,
+                                'current_moat_score': float(cur_moat) if cur_moat is not None else None,
+                                'thesis_direction': thesis_direction,
+                                'days_since_last': days_since,
+                            }
+
+                            # Inject delta into full_output dict
+                            if isinstance(result.get('full_output'), dict):
+                                result['full_output']['previous_analysis_delta'] = delta
+                            logger.info(f"Delta computed for {ticker}: {thesis_direction} over {days_since} days")
+
+                except Exception as delta_err:
+                    logger.warning(f"Delta computation failed (non-critical) for {ticker}: {delta_err}")
 
             # Create stock result (excluding supply chain per user request)
             # Serialize full_output to JSON if it exists

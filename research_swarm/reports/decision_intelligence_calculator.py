@@ -29,6 +29,7 @@ class DecisionIntelligenceCalculator:
         current_price: float,
         entry_zone_low: float,
         entry_zone_high: float,
+        signal_breakdown: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Produce explicit guidance for current holders and new buyers.
@@ -106,6 +107,33 @@ class DecisionIntelligenceCalculator:
                 f"Do not initiate position. {rating} rating with "
                 f"moat score {moat_score:.1f}/10 indicates unfavorable risk/reward."
             )
+        elif rating == "HOLD":
+            # HOLD = mixed signals — cap new buyer action at SCALE IN regardless of discount.
+            # A deeply discounted HOLD is an opportunity to build gradually, not to rush in.
+            if discount_to_target_pct >= 5:
+                buyer_action = "SCALE IN"
+                buyer_urgency = "Low"
+                buyer_detail = (
+                    f"Meaningful discount ({discount_to_target_pct:.0f}%) to fair value, but mixed signals "
+                    f"warrant a patient approach. Build position gradually — start with 25-30% allocation "
+                    f"at ${current_price:.2f}, add on confirmed dips to ${_buy_limit:.2f}. "
+                    f"Wait for signal alignment before committing full position."
+                )
+            elif discount_to_target_pct >= 0:
+                buyer_action = "WAIT"
+                buyer_urgency = "Low"
+                buyer_detail = (
+                    f"Near fair value with mixed signals — no compelling entry here. "
+                    f"Wait for either a pullback to ${_buy_limit:.2f} or clearer signal alignment "
+                    f"before initiating a position."
+                )
+            else:
+                buyer_action = "WAIT"
+                buyer_urgency = "Low"
+                buyer_detail = (
+                    f"Trading {abs(discount_to_target_pct):.0f}% above fair value with mixed signals. "
+                    f"Wait for pullback to ${entry_zone_high:.2f} before considering entry."
+                )
         elif discount_to_target_pct >= 15 and conviction_level in ("High", "Medium"):
             buyer_action = "BUY NOW"
             buyer_urgency = "High"
@@ -145,7 +173,55 @@ class DecisionIntelligenceCalculator:
                 buyer_urgency = "Low"
                 buyer_caveat = fund_tech_divergence.get("recommendation", "")
 
-        one_liner = f"{rating} | {buyer_action} for new buyers | {holder_action} for holders"
+        # Market regime overlay: when macro signals are Risk-Off + Contraction/Stress,
+        # downgrade holder ADD → HOLD (don't add into active institutional selling)
+        regime_caveat = None
+        if signal_breakdown:
+            overall_sig = signal_breakdown.get("overall_score", 5.0)
+            institutional_sig = signal_breakdown.get("institutional_score", 5.0)
+            dark_pool_sig = signal_breakdown.get("dark_pool_score", 5.0)
+            signal_spread_val = signal_breakdown.get("signal_spread", 0.0)
+
+            is_risk_off = overall_sig < 4.0
+            is_contraction = (institutional_sig + dark_pool_sig) / 2 < 4.2
+            is_stress = signal_spread_val >= 3.5
+
+            if is_risk_off and (is_contraction or is_stress):
+                regime_parts = ["Risk-Off signal environment"]
+                if is_contraction:
+                    regime_parts.append("institutional selling (Contraction)")
+                if is_stress:
+                    regime_parts.append("high signal divergence (Stress)")
+                regime_desc = ", ".join(regime_parts)
+
+                # Downgrade ADD → HOLD for current holders
+                if holder_action == "ADD":
+                    holder_action = "HOLD"
+                    holder_detail = (
+                        f"Hold current position — the underlying thesis remains intact ({rating} rating), "
+                        f"but the current market regime shows {regime_desc}. "
+                        f"Adding into active selling pressure reduces risk/reward. "
+                        f"Resume adding when market regime stabilizes."
+                    )
+                    holder_conditions = [
+                        f"Maintain stop loss at ${stop_loss:.2f}",
+                        "Resume adding when market regime shifts to Risk-On or Neutral",
+                        "Monitor institutional flow for accumulation signal",
+                    ]
+                    regime_caveat = regime_desc
+
+                # Warn buyers about unfavorable macro backdrop
+                if buyer_action in ("BUY NOW", "SCALE IN") and not buyer_caveat:
+                    buyer_caveat = (
+                        f"Market regime is currently {regime_desc} — "
+                        f"consider waiting for stabilization before initiating new positions."
+                    )
+
+        one_liner = self._build_clean_one_liner(rating, buyer_action, holder_action)
+        action_subtext = self._build_action_subtext(
+            rating, buyer_action, holder_action,
+            entry_zone_low, entry_zone_high, _buy_limit, stop_loss,
+        )
 
         return {
             "current_holders": {
@@ -160,6 +236,8 @@ class DecisionIntelligenceCalculator:
                 "caveat": buyer_caveat,
             },
             "one_liner": one_liner,
+            "action_subtext": action_subtext,
+            "regime_caveat": regime_caveat,
         }
 
     def calculate_enhanced_trade_setup(
@@ -624,6 +702,7 @@ class DecisionIntelligenceCalculator:
                 current_price=current_price,
                 entry_zone_low=entry_zone_low,
                 entry_zone_high=entry_zone_high,
+                signal_breakdown=signal_breakdown,
             )
         except Exception as e:
             logger.warning(f"Decision framework calculation failed: {e}")
@@ -671,6 +750,79 @@ class DecisionIntelligenceCalculator:
         }
 
     # --- Private helpers ---
+
+    @staticmethod
+    def _build_clean_one_liner(rating: str, buyer_action: str, holder_action: str) -> str:
+        """
+        Build a clean, non-contradictory one-liner headline.
+
+        Eliminates the "HOLD | BUY NOW for new buyers | HOLD for holders" pattern
+        that confuses readers by presenting a single primary action statement.
+        """
+        if rating in ("STRONG SELL", "SELL"):
+            return f"{rating} — Reduce exposure"
+
+        if rating == "HOLD":
+            if buyer_action == "WAIT":
+                return "HOLD — Wait for better entry"
+            elif buyer_action == "SCALE IN":
+                return "HOLD — Scale in on confirmed weakness"
+            elif buyer_action == "BUY NOW":
+                return "HOLD — Discounted entry; proceed cautiously"
+            else:
+                return "HOLD — Maintain current position"
+
+        # BUY / STRONG BUY
+        if buyer_action == "BUY NOW":
+            return f"{rating} — Enter at current levels"
+        elif buyer_action == "SCALE IN":
+            return f"{rating} — Build position gradually"
+        elif buyer_action == "WAIT":
+            return f"{rating} — Wait for pullback entry"
+
+        # Fallback
+        return f"{rating} — {holder_action.title()} position"
+
+    @staticmethod
+    def _build_action_subtext(
+        rating: str,
+        buyer_action: str,
+        holder_action: str,
+        entry_zone_low: float,
+        entry_zone_high: float,
+        buy_limit: float,
+        stop_loss: float,
+    ) -> list:
+        """
+        Build concise per-reader-type guidance lines shown below the one_liner.
+
+        Separates New Positions / Current Holders / Traders without contradiction.
+        """
+        lines = []
+
+        # New positions guidance
+        if buyer_action == "WAIT":
+            lines.append(f"New positions: Target ${entry_zone_low:.0f}–${entry_zone_high:.0f} entry zone")
+        elif buyer_action == "SCALE IN":
+            lines.append(f"New positions: Start 25–30% at market, add on dips to ${buy_limit:.0f}")
+        elif buyer_action == "BUY NOW":
+            lines.append(f"New positions: Enter at market or set buy limit at ${buy_limit:.0f}")
+        elif buyer_action == "AVOID":
+            lines.append("New positions: Avoid — unfavorable risk/reward")
+
+        # Current holders guidance
+        if holder_action == "HOLD":
+            lines.append(f"Current holders: Maintain with stop at ${stop_loss:.0f}")
+        elif holder_action == "ADD":
+            lines.append(f"Current holders: Add on pullbacks below ${entry_zone_high:.0f}")
+        elif holder_action == "REDUCE":
+            lines.append(f"Current holders: Trim position to reduce risk")
+
+        # Traders (only when signals conflict or negative)
+        if rating in ("HOLD", "SELL", "STRONG SELL"):
+            lines.append(f"Traders: Avoid until trend reversal above ${entry_zone_high:.0f}")
+
+        return lines
 
     @staticmethod
     def _best_of(

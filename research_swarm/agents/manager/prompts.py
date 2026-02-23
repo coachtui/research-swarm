@@ -187,6 +187,13 @@ Synthesize these three comprehensive perspectives into a unified investment anal
 - Avoid time precision for price targets (e.g., "will break out this week") — use "if price holds above $X over the coming sessions"
 - When discussing scenarios, frame as probabilities: "bear case (25% probability)" not "the stock will fall to $X"
 
+**PRICE TARGET FEASIBILITY RULES (apply before setting any target):**
+- **T1 / Bull target (near-term)**: Cap at the first meaningful technical resistance visible in the data (e.g., Bollinger Band middle, 50-day SMA, prior POC). Maximum ~15–20% from current price for targets implying a 1-3 month move. Targets requiring overhead supply clearance at multiple resistance levels are NOT 3-month targets — they are 12-month targets.
+- **T2 / Base target (medium-term)**: Anchor at SMA confluence (e.g., 50-day/200-day convergence), analyst consensus mean, or blended valuation midpoint. This is the 6–12 month scenario.
+- **Large upside (>50% from current)**: ALWAYS label as "3–5 year regime expansion scenario" in assumptions, NOT "12–24 months." Targets that require major multiple expansion beyond current sector norms to be reached within 24 months are structurally long-duration — label them honestly.
+- **Death cross / overhead supply**: If a death cross is confirmed or significant overhead supply exists at a level (e.g., prior POC, heavy resistance zone), that level IS the feasibility ceiling for near-term targets. Do not project through it without acknowledging the resistance must be cleared first.
+- In `*_technical_level` fields: always name the specific resistance/support that anchors each target and state what must happen for price to clear it.
+
 Return your response as a JSON object:
 
 {{
@@ -229,24 +236,24 @@ Return your response as a JSON object:
     }}
   ],
   "price_targets": {{
-    "bull_target": <12-month bull case price as float>,
+    "bull_target": <bull case price — see feasibility rules below>,
     "bull_probability": <apply calibration rules above — 0.15 to 0.45>,
     "bull_assumptions": "<Re-rating Scenario: key assumptions — multiple expansion, earnings inflection, market share gains>",
     "bull_growth_assumption": "<revenue/earnings projection, e.g. '25% revenue growth, EPS of $X'>",
     "bull_valuation_multiple": "<P/E or P/S multiple driving this price, e.g. '28x forward P/E'>",
-    "bull_technical_level": "<key resistance level with timeframe, e.g. '$185 breakout target within 6 months'>",
-    "base_target": <12-month Continuation Scenario price as float>,
+    "bull_technical_level": "<first meaningful resistance that must be cleared AND what timeframe — e.g. '$86 Bollinger Band middle must close above for 3 consecutive days'>",
+    "base_target": <base case price — see feasibility rules below>,
     "base_probability": <apply calibration rules above — 0.40 to 0.50>,
     "base_assumptions": "<Continuation Scenario: key assumptions — business executes as modeled, no multiple expansion>",
     "base_growth_assumption": "<revenue/earnings projection, e.g. '12% revenue growth, EPS of $X'>",
     "base_valuation_multiple": "<P/E or P/S multiple driving this price, e.g. '22x forward P/E'>",
-    "base_technical_level": "<Intrinsic Value Estimate range / consolidation zone, e.g. '$145–$155 range'>",
-    "bear_target": <12-month Risk Scenario price as float>,
+    "base_technical_level": "<SMA confluence or analyst consensus range that anchors this target — e.g. '$105–$106 50-day/200-day SMA convergence zone'>",
+    "bear_target": <downside scenario price>,
     "bear_probability": <apply calibration rules above — 0.15 to 0.40>,
     "bear_assumptions": "<Risk Scenario: key assumptions — thesis underdelivers, competitive pressure, margin headwinds>",
     "bear_growth_assumption": "<revenue/earnings projection, e.g. 'Revenue contraction 5%, EPS of $X'>",
     "bear_valuation_multiple": "<P/E or P/S multiple driving this price, e.g. '15x forward P/E'>",
-    "bear_technical_level": "<key support level with timeframe, e.g. '$120 support, breakdown risk within 3 months'>",
+    "bear_technical_level": "<key support level with breakdown risk timeframe — e.g. '$65 200-week MA, breakdown risk if held below for 2+ weeks'>",
     "probability_rationale": "<1-2 sentences explaining why these probabilities were chosen based on signal divergence>",
     "methodology": "<DCF / P/E Multiple / Comparable / Blended>"
   }}
@@ -269,6 +276,7 @@ INVESTMENT_THESIS_PROMPT = """You are a senior investment analyst writing a fina
 {company_overview}
 
 **Overall Moat Score**: {moat_score:.1f}/10 (Watchlist Candidate: {is_watchlist})
+**Model Rating**: {model_rating} (this is the authoritative, deterministic rating — your recommendation_summary MUST open with this exact rating word)
 **Analysis Confidence**: {confidence:.0%}
 
 **Component Scores**:
@@ -300,6 +308,18 @@ INVESTMENT_THESIS_PROMPT = """You are a senior investment analyst writing a fina
 
 ---
 
+## ANTI-REPETITION RULES (CRITICAL — follow exactly)
+
+**These rules prevent the same finding from appearing in full across multiple sections.**
+
+1. **Signal conflict count** (e.g., "X of Y signals disagree"): State the count ONCE, only in `valuation_signal_analysis`. In `recommendation_summary`, `investment_highlights`, and `entry_strategy` — reference it only as "the active signal conflict" or "mixed signals" without restating the count or explaining its implications again.
+
+2. **Technical bearish patterns** (death cross, POC overhead supply, key resistance, bearish formations): State each finding ONCE, only in `key_risks`. If referenced in other sections, use a maximum one-phrase reference (e.g., "given the confirmed death cross") — never re-explain the setup, its implications, or its significance a second time.
+
+3. **No finding should appear in full in more than ONE section.** Every subsequent mention must be a brief reference ("given the signal conflict noted in the analysis," "as flagged in Key Risks") — never a complete restatement. A reader who reads the full thesis should encounter each key finding exactly once in depth.
+
+---
+
 ## YOUR TASK
 
 Write a structured, data-driven investment thesis organized into these sections:
@@ -311,17 +331,19 @@ Write a structured, data-driven investment thesis organized into these sections:
 ### 2. RECOMMENDATION & OVERALL SCORE
 - State clear recommendation: BUY, HOLD, or AVOID
 - Current price and overall score with context
+- Do NOT restate signal counts or technical bearish patterns here — mention them briefly only if already stated fully in a later section
 
 ### 3. INVESTMENT HIGHLIGHTS (2-4 bullet points)
 - Key strengths backed by specific data
 - Reference standout component scores (if any score ≥8, explain WHY with data)
 - Cite moat score, key signals (earnings revisions, institutional flow, technical setup)
 - Note signal convergence if fundamentals/technicals/sentiment align powerfully
+- If signals conflict: mention "mixed signals" without restating the exact count (save that for section 4)
 
 ### 4. VALUATION & SIGNAL ANALYSIS (2-3 sentences)
 - **CRITICAL**: Explain every score that stands out (≥8 or ≤4) in plain language
 - Example: If Valuation is 3.5/10 while Financial Health is 9.2/10, explain: "The low valuation score reflects a P/E of 35x vs sector median of 28x—stock trades at premium despite strong fundamentals"
-- Address signal convergence/divergence: Are metrics aligned or conflicting?
+- Address signal convergence/divergence: **THIS IS THE ONE PLACE** to state the signal conflict count (e.g., "X of Y signals currently disagree") — do not repeat it elsewhere
 - Reference price targets if compelling
 
 ### 5. KEY RISKS (2-3 bullet points)
@@ -338,24 +360,13 @@ ADDITIONALLY, identify 2-3 **Strategic Catalysts** — forward-looking developme
 - **Competitive positioning shifts** (market share gains, new technology adoption, regulatory changes favoring the company)
 - Label these clearly as **forward-looking and speculative** — they represent potential upside but carry execution risk
 
-**Enhanced Guidelines for Recommendation**:
-- **BUY (moat_score >= 8.0)**:
-  - Strong moat + positive earnings revisions + bullish technical setup
-  - Institutional accumulation and/or positive insider activity
-  - Clear catalysts ahead with achievable upside to price targets
-  - Watchlist candidate for high conviction
+**Recommendation Alignment**:
+The model has already determined the authoritative rating: **{model_rating}**. Your `recommendation_summary` field MUST open with this exact word (BUY, HOLD, SELL, STRONG BUY, or STRONG SELL). You may add nuance around timing or conditions, but never contradict this rating. The rating reflects the model's weighted multi-factor assessment — your role is to explain WHY it deserves this rating, not to re-derive it independently.
 
-- **HOLD (6.0 <= moat_score < 8.0)**:
-  - Mixed signals across agents (e.g., good fundamentals but weak technicals)
-  - Earnings revisions neutral or institutional activity mixed
-  - Upside exists but not compelling risk/reward
-  - Wait for better entry point or catalyst confirmation
-
-- **AVOID (moat_score < 6.0)**:
-  - Weak moat + negative earnings revisions + bearish technical setup
-  - Institutional distribution and/or negative insider selling
-  - Price targets below current levels or high supply chain risk
-  - Better opportunities elsewhere
+**Rating Context Guide**:
+- **STRONG BUY / BUY**: All or most signals align bullishly — explain the strongest supporting evidence
+- **HOLD**: Mixed signals — explain the tension (e.g., strong fundamentals vs weak technicals) and what would resolve it
+- **SELL / STRONG SELL**: Deteriorating fundamentals or clear overvaluation — explain the specific risks driving the downgrade
 
 **Tone & Style**:
 - Professional, balanced, and evidence-based

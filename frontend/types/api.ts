@@ -163,6 +163,9 @@ export interface ManagerOutput {
 
   // Decision Intelligence (computed on-the-fly by API)
   decision_intelligence?: DecisionIntelligence
+
+  // Longitudinal delta tracking — populated when user has a prior analysis for this ticker
+  previous_analysis_delta?: PreviousAnalysisDelta
 }
 
 export interface FairValueCalibration {
@@ -310,6 +313,26 @@ export interface DecisionFramework {
     caveat: string | null
   }
   one_liner: string
+  /** Structured per-reader-type guidance lines: New positions · Current holders · Traders */
+  action_subtext?: string[]
+  regime_caveat?: string | null
+}
+
+/** Previous analysis comparison for longitudinal delta tracking */
+export interface PreviousAnalysisDelta {
+  prior_run_id: string
+  prior_analysis_date: string
+  prior_recommendation: string
+  current_recommendation: string
+  prior_price: number | null
+  current_price: number | null
+  price_change_pct: number | null
+  prior_smart_money_score: number | null
+  current_smart_money_score: number | null
+  prior_moat_score: number | null
+  current_moat_score: number | null
+  thesis_direction: 'strengthened' | 'weakened' | 'held' | 'reversed'
+  days_since_last: number
 }
 
 export interface TradeTarget {
