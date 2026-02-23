@@ -170,34 +170,60 @@ class ManagerScorer:
         else:
             return "Very Weak - Avoid"
 
-    @classmethod
-    def determine_rating(cls, moat_score: float) -> Tuple[str, float]:
-        """
-        Convert moat score to 5-tier rating system.
+    # Tier order for downgrade logic
+    _TIER_ORDER = ["STRONG SELL", "SELL", "HOLD", "BUY", "STRONG BUY"]
 
-        Rating Methodology (v2.0):
+    @classmethod
+    def determine_rating(
+        cls,
+        moat_score: float,
+        technical_score: float = None,
+    ) -> Tuple[str, float]:
+        """
+        Convert moat score to 5-tier rating system with manager-level adjustment.
+
+        Base Rating Methodology (v2.0):
         - STRONG BUY (8.5-10.0): High conviction, all signals align
         - BUY (7.0-8.4): Positive outlook, minor concerns
         - HOLD (5.0-6.9): Mixed signals, wait for clarity
         - SELL (3.0-4.9): Deteriorating fundamentals or overvalued
         - STRONG SELL (0-2.9): Broken thesis, exit immediately
 
+        Manager Technical Override:
+        When technical_score < 4.0 (clearly bearish chart structure), the manager
+        steps the rating down one tier. A fundamentally strong company in a confirmed
+        technical breakdown is not actionably a BUY — strong balance sheets don't
+        stop downtrends. The rating is downgraded to reflect the current investable
+        reality, not just the long-term quality.
+
         Args:
             moat_score: The calculated moat score (0-10)
+            technical_score: Technical/momentum score from quant agent (0-10). When
+                provided and below 4.0, triggers a one-tier downgrade.
 
         Returns:
             Tuple of (rating_name, numeric_score)
         """
+        # Base rating from moat score
         if moat_score >= 8.5:
-            return "STRONG BUY", moat_score
+            base_rating = "STRONG BUY"
         elif moat_score >= 7.0:
-            return "BUY", moat_score
+            base_rating = "BUY"
         elif moat_score >= 5.0:
-            return "HOLD", moat_score
+            base_rating = "HOLD"
         elif moat_score >= 3.0:
-            return "SELL", moat_score
+            base_rating = "SELL"
         else:
-            return "STRONG SELL", moat_score
+            base_rating = "STRONG SELL"
+
+        # Manager technical override: broken technicals drop the actionable rating
+        # one tier for BUY-or-above stocks. HOLD/SELL/STRONG SELL are already cautious.
+        if technical_score is not None and technical_score < 4.0:
+            idx = cls._TIER_ORDER.index(base_rating)
+            if idx >= 3:  # BUY or STRONG BUY → downgrade one step
+                base_rating = cls._TIER_ORDER[idx - 1]
+
+        return base_rating, moat_score
 
     @classmethod
     def determine_risk_level(

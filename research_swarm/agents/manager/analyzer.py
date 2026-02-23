@@ -309,6 +309,7 @@ class ManagerAnalyzer:
         synthesis_narrative: str,
         key_insights: List[str],
         risk_factors: List[str],
+        rating: str = "HOLD",
         # Enhanced context
         fundamentalist_output: Dict[str, Any] = None,
         news_hound_output: Dict[str, Any] = None,
@@ -425,6 +426,7 @@ class ManagerAnalyzer:
             ticker=ticker,
             analysis_date=analysis_date,
             moat_score=moat_score,
+            model_rating=rating,
             confidence=confidence,
             earnings_momentum_score=earnings_momentum_score,
             financial_health_score=financial_health_score,
