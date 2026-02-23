@@ -31,6 +31,7 @@ class DecisionIntelligenceCalculator:
         entry_zone_high: float,
         signal_breakdown: Optional[Dict[str, Any]] = None,
         value_area_high: Optional[float] = None,
+        value_area_low: Optional[float] = None,
         bb_upper: Optional[float] = None,
         regime_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -251,6 +252,9 @@ class DecisionIntelligenceCalculator:
         action_subtext = self._build_action_subtext(
             rating, buyer_action, holder_action,
             entry_zone_low, entry_zone_high, _buy_limit, stop_loss,
+            value_area_high=value_area_high,
+            value_area_low=value_area_low,
+            regime_mode=regime_mode,
         )
 
         return {
@@ -861,6 +865,7 @@ class DecisionIntelligenceCalculator:
 
         # Technical trim levels for MOMENTUM HOLD guidance — derived from same sources as trade setup
         _val_high = volume_profile.get("value_area_high") if volume_profile else None
+        _val_low = volume_profile.get("value_area_low") if volume_profile else None
         _bb_upper = technical_indicators.get("bollinger_bands", {}).get("upper_band")
         _regime_mode = signal_breakdown.get("regime_mode") if signal_breakdown else None
 
@@ -880,6 +885,7 @@ class DecisionIntelligenceCalculator:
                 entry_zone_high=entry_zone_high,
                 signal_breakdown=signal_breakdown,
                 value_area_high=_val_high,
+                value_area_low=_val_low,
                 bb_upper=_bb_upper,
                 regime_mode=_regime_mode,
             )
@@ -990,11 +996,17 @@ class DecisionIntelligenceCalculator:
         entry_zone_high: float,
         buy_limit: float,
         stop_loss: float,
+        value_area_high: Optional[float] = None,
+        value_area_low: Optional[float] = None,
+        regime_mode: Optional[str] = None,
     ) -> list:
         """
         Build concise per-reader-type guidance lines shown below the one_liner.
 
         Separates New Positions / Current Holders / Traders without contradiction.
+        In MOMENTUM regime, Current Holders line uses market-price-anchored levels
+        (value_area_high trim trigger, value_area_low stop) instead of the structural
+        value-zone levels which are irrelevant to a holder at a significantly higher price.
         """
         lines = []
 
@@ -1014,7 +1026,18 @@ class DecisionIntelligenceCalculator:
 
         # Current holders guidance
         if holder_action == "HOLD":
-            if rating == "HOLD":
+            if rating == "HOLD" and regime_mode == "MOMENTUM" and value_area_high:
+                # MOMENTUM HOLD: derive all levels from current market price zone.
+                # value_area_low (or entry_zone_high as fallback) is the natural floor stop —
+                # the structural stop_loss is irrelevant to a holder at a significantly higher price.
+                momentum_stop = value_area_low or entry_zone_high
+                lines.append(
+                    f"Current holders: Thesis intact — consider trimming above ${value_area_high:.0f} "
+                    f"(Value Area High). Core stop at ${momentum_stop:.0f}. "
+                    f"No additions at current levels — preferred re-entry "
+                    f"${entry_zone_low:.0f}–${entry_zone_high:.0f} on any pullback."
+                )
+            elif rating == "HOLD":
                 lines.append(f"Current holders: Maintain with hard stop at ${stop_loss:.0f} — no additions until ${buy_limit:.0f} support holds on volume")
             else:
                 lines.append(f"Current holders: Maintain with stop at ${stop_loss:.0f}")
