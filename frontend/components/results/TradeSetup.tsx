@@ -657,11 +657,12 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
   const tacticalBand = entryZoneDisplay
 
   // Fix 3: Validate Tactical Band against Avoid Zone before rendering.
-  // Avoid threshold = opportunity envelope high × 1.05.
-  // If the tactical band's lower bound falls at or above the avoid threshold,
-  // the band sits inside the avoid zone — suppress it and show a conflict note instead.
+  // Avoid threshold = opportunity envelope high × 1.05, where .high is the upper
+  // entry boundary (the field named "high" in ideal_zone, matching DecisionAction's formula).
+  // Use Math.min to pick the lower numeric value — this matches the $78 Avoid Above
+  // shown in DecisionAction rather than the $90 that Math.max would produce.
   const avoidAboveThreshold = opportunityEnvelope
-    ? Math.max(opportunityEnvelope.low, opportunityEnvelope.high) * 1.05
+    ? Math.min(opportunityEnvelope.low, opportunityEnvelope.high) * 1.05
     : null
   const tacticalBandInsideAvoidZone = Boolean(
     tacticalBand && avoidAboveThreshold !== null && tacticalBand.low >= avoidAboveThreshold * 0.98

@@ -44,6 +44,36 @@ function ratingToBadgeVariant(rating: string): 'success' | 'warning' | 'error' |
   return 'error'
 }
 
+/**
+ * Maps (rating, raw_action, signal_spread_label) to a concise, reader-friendly
+ * tab badge label that never contradicts the headline recommendation.
+ *
+ * Raw action drives the detail text; this label drives the tab badge only.
+ */
+function buyerTabLabel(
+  rating: string | null,
+  action: string,
+  spreadLabel: string | null | undefined,
+): string {
+  const r = rating ?? 'HOLD'
+  const spread = spreadLabel ?? 'Low'
+
+  if (r === 'STRONG SELL' || r === 'SELL') return action === 'AVOID' ? 'EXIT' : 'REDUCE'
+
+  if (r === 'HOLD') {
+    if (spread === 'High') return 'WATCH ONLY'
+    return 'CAUTIOUS'
+  }
+
+  // BUY / STRONG BUY
+  if (action === 'BUY NOW') return 'BUY NOW'
+  if (action === 'SCALE IN') {
+    if (spread === 'High') return 'START POSITION'
+    return 'SCALE IN'
+  }
+  return action
+}
+
 function formatZone(low: number | undefined, high: number | undefined): string | null {
   if (!low && !high) return null
   if (low && high) return `$${Math.round(low).toLocaleString()} – $${Math.round(high).toLocaleString()}`
@@ -367,7 +397,7 @@ export function DecisionAction({
             >
               New Buyers
               <Badge variant={actionToBadgeVariant(new_buyers.action)} className="ml-2 text-xs">
-                {new_buyers.action}
+                {buyerTabLabel(rating, new_buyers.action, signalBreakdown?.signal_spread_label)}
               </Badge>
             </button>
             <button
