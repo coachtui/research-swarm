@@ -382,9 +382,10 @@ class SECClient:
             response.raise_for_status()
             forms = response.json().get("filings", {}).get("recent", {}).get("form", [])
 
-            is_foreign = "20-F" in forms
+            is_foreign = "20-F" in forms or "40-F" in forms
             cache.set("sec_filer_type", cache_key, {"is_foreign": is_foreign}, ttl_days=365)
-            logger.info(f"{ticker} filer type: {'foreign (20-F)' if is_foreign else 'domestic (10-K)'}")
+            form_label = "20-F" if "20-F" in forms else ("40-F" if "40-F" in forms else "10-K")
+            logger.info(f"{ticker} filer type: {form_label} ({'foreign' if is_foreign else 'domestic'})")
             return is_foreign
 
         except Exception as e:
@@ -431,9 +432,12 @@ class SECClient:
             accession_numbers = filings.get("accessionNumber", [])
             primary_documents = filings.get("primaryDocument", [])
 
+            # Match 20-F or 40-F (Canadian companies file 40-F under MJDS)
+            annual_form_types = {"20-F", "40-F"}
             target_filing = None
+            detected_form = None
             for i, form in enumerate(forms):
-                if form == "20-F":
+                if form in annual_form_types:
                     filing_date = filing_dates[i]
                     primary_doc = primary_documents[i]
 
@@ -442,7 +446,7 @@ class SECClient:
                     if match:
                         fiscal_year = int(match.group(1))
                     else:
-                        # 20-F filing date is typically 4-6 months after fiscal year end
+                        # Annual filing date is typically 4-6 months after fiscal year end
                         fiscal_year = int(filing_date.split("-")[0]) - 1
 
                     if fiscal_year == year:
@@ -451,22 +455,24 @@ class SECClient:
                             "filing_date": filing_date,
                             "primary_document": primary_doc
                         }
+                        detected_form = form
                         break
 
             if not target_filing:
-                # Try matching most recent 20-F if exact year not found
+                # Try matching most recent annual filing if exact year not found
                 for i, form in enumerate(forms):
-                    if form == "20-F":
+                    if form in annual_form_types:
                         target_filing = {
                             "accession_number": accession_numbers[i],
                             "filing_date": filing_dates[i],
                             "primary_document": primary_documents[i]
                         }
-                        logger.warning(f"No 20-F found for {ticker} year {year}, using most recent")
+                        detected_form = form
+                        logger.warning(f"No {form} found for {ticker} year {year}, using most recent")
                         break
 
             if not target_filing:
-                logger.error(f"No 20-F found for {ticker}")
+                logger.error(f"No 20-F or 40-F found for {ticker}")
                 return None
 
             accession = target_filing["accession_number"].replace("-", "")
@@ -488,7 +494,7 @@ class SECClient:
                 "ticker": ticker,
                 "cik": cik,
                 "year": year,
-                "filing_type": "20-F",
+                "filing_type": detected_form or "20-F",
                 "filing_date": target_filing["filing_date"],
                 "accession_number": target_filing["accession_number"],
                 "text": text,
@@ -497,7 +503,7 @@ class SECClient:
             }
 
             cache.set("sec_20f", cache_key, result, ttl_days=90)
-            logger.success(f"✓ Downloaded 20-F for {ticker} year {year} ({len(text):,} chars)")
+            logger.success(f"✓ Downloaded {detected_form or '20-F'} for {ticker} year {year} ({len(text):,} chars)")
             return result
 
         except requests.exceptions.RequestException as e:

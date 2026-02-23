@@ -156,8 +156,8 @@ class FilingParser:
             # For 10-Q, only parse MD&A and financials (no business description or risk factors)
             sections_to_parse = ["Item 7", "Item 8"]
             section_patterns = SECTION_PATTERNS_10Q
-        elif filing_type == "20-F":
-            # For 20-F (foreign annual), parse all sections using 20-F item numbers
+        elif filing_type in ("20-F", "40-F"):
+            # For 20-F / 40-F (Canadian MJDS annual), parse all sections using 20-F item numbers
             sections_to_parse = ["Item 1", "Item 1A", "Item 7", "Item 8"]
             section_patterns = SECTION_PATTERNS_20F
         elif filing_type == "6-K":
@@ -213,6 +213,8 @@ class FilingParser:
         # Check for foreign filings first (more specific)
         if "FORM 20-F" in header or ("20-F" in header and "10-K" not in header and "10-Q" not in header):
             return "20-F"
+        elif "FORM 40-F" in header or ("40-F" in header and "10-K" not in header and "10-Q" not in header):
+            return "20-F"  # 40-F (Canadian MJDS) uses same section structure as 20-F
         elif "FORM 6-K" in header or ("6-K" in header and "10-K" not in header and "10-Q" not in header):
             return "6-K"
         # Check for domestic filings
