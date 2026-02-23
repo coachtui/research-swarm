@@ -37,7 +37,7 @@ export function WatchlistView() {
     <div className="space-y-6">
       {/* Action buttons */}
       <div className="flex gap-2">
-        <Link href="/analyze">
+        <Link href="/dashboard">
           <Button variant="outline" size="sm">
             <Plus className="h-4 w-4 mr-2" />
             Add Stock
@@ -70,7 +70,7 @@ function WatchlistEmpty() {
         <p className="text-text-secondary mb-6">
           Add stocks to your watchlist to track score changes and get alerts when analysis updates.
         </p>
-        <Link href="/analyze">
+        <Link href="/dashboard">
           <Button>
             <Plus className="h-4 w-4 mr-2" />
             Analyze Your First Stock

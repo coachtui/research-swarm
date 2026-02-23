@@ -36,7 +36,7 @@ export function AnalysisHistoryView() {
         <div>
           <h3 className="text-base font-semibold text-text-primary mb-1">No analysis history yet</h3>
           <p className="text-sm text-text-secondary mb-5">Your completed analyses will appear here.</p>
-          <Link href="/analyze">
+          <Link href="/dashboard">
             <Button>Analyze Your First Stock</Button>
           </Link>
         </div>
