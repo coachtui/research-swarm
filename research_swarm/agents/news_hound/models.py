@@ -251,6 +251,10 @@ class AnalystConsensus(BaseModel):
                 data['target_trend'] = "stable"
             if data.get('consensus_confidence') is None:
                 data['consensus_confidence'] = "medium"
+            # Coerce float confidence (e.g. 0.5) to string label
+            elif isinstance(data.get('consensus_confidence'), (int, float)):
+                val = data['consensus_confidence']
+                data['consensus_confidence'] = "high" if val >= 0.7 else ("low" if val < 0.4 else "medium")
         return data
 
 
@@ -336,6 +340,9 @@ class DarkPoolActivity(BaseModel):
                 data['dark_pool_sentiment'] = "neutral"
             if data.get('confidence') is None:
                 data['confidence'] = "medium"
+            elif isinstance(data.get('confidence'), (int, float)):
+                val = data['confidence']
+                data['confidence'] = "high" if val >= 0.7 else ("low" if val < 0.4 else "medium")
         return data
 
 
@@ -399,6 +406,9 @@ class InsiderActivity(BaseModel):
                 data['insider_sentiment'] = "neutral"
             if data.get('confidence') is None:
                 data['confidence'] = "medium"
+            elif isinstance(data.get('confidence'), (int, float)):
+                val = data['confidence']
+                data['confidence'] = "high" if val >= 0.7 else ("low" if val < 0.4 else "medium")
         return data
 
 
@@ -466,6 +476,9 @@ class ManagementCommentary(BaseModel):
                 data['competitive_position'] = "neutral"
             if data.get('confidence') is None:
                 data['confidence'] = "medium"
+            elif isinstance(data.get('confidence'), (int, float)):
+                val = data['confidence']
+                data['confidence'] = "high" if val >= 0.7 else ("low" if val < 0.4 else "medium")
         return data
 
 
