@@ -9,20 +9,20 @@ import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { AnalysisHistoryView } from '@/components/dashboard/AnalysisHistoryView'
 import { useQuota } from '@/lib/hooks/useQuota'
 import { apiClient } from '@/lib/api/client'
+import { TickerSearchForm } from '@/components/analyze/TickerSearchForm'
+import { UserInfo } from '@/types/api'
+import { Lock, TrendingUp } from 'lucide-react'
 
 export default function DashboardPage() {
   const router = useRouter()
   const { getToken } = useAuth()
   const [tokenReady, setTokenReady] = useState(false)
+  const [currentUser, setCurrentUser] = useState<UserInfo | null>(null)
 
-  // Set auth token and check admin status
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        // Register token getter so every API request gets a fresh Clerk token
         apiClient.setTokenGetter(getToken)
-
-        // Check if user is admin and redirect
         const user = await apiClient.getCurrentUser()
 
         if (user.is_admin) {
@@ -30,17 +30,17 @@ export default function DashboardPage() {
           return
         }
 
+        setCurrentUser(user)
         setTokenReady(true)
       } catch (error) {
         console.error('Failed to initialize auth:', error)
-        setTokenReady(true) // Still render dashboard even if check fails
+        setTokenReady(true)
       }
     }
 
     initializeAuth()
   }, [getToken, router])
 
-  // Wait for token to be set before rendering dashboard
   if (!tokenReady) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -49,11 +49,44 @@ export default function DashboardPage() {
     )
   }
 
-  return <DashboardContent />
+  return <DashboardContent currentUser={currentUser} />
 }
 
-function DashboardContent() {
+function NoSubscriptionPanel() {
+  const router = useRouter()
+  return (
+    <div className="max-w-2xl mx-auto mt-8">
+      <div className="rounded-lg border border-border bg-surface p-8 text-center space-y-4">
+        <div className="flex justify-center">
+          <div className="rounded-full bg-surface-elevated p-3">
+            <Lock className="h-6 w-6 text-text-secondary" />
+          </div>
+        </div>
+        <div>
+          <h3 className="text-lg font-semibold text-text-primary">Subscription Required</h3>
+          <p className="text-sm text-text-secondary mt-1">
+            Purchase a plan to start running institutional-quality stock analyses.
+          </p>
+        </div>
+        <button
+          onClick={() => router.push('/#pricing-tiers')}
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-button text-sm font-medium hover:bg-primary/90 transition-colors"
+        >
+          <TrendingUp className="h-4 w-4" />
+          View Plans
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function DashboardContent({ currentUser }: { currentUser: UserInfo | null }) {
   const { data: quota, isLoading: quotaLoading } = useQuota()
+
+  const PAID_STATUSES = ['active', 'trialing']
+  const hasSubscription = currentUser
+    ? PAID_STATUSES.includes(currentUser.stripe_subscription_status ?? '')
+    : false
 
   return (
     <div className="min-h-screen bg-background">
@@ -69,7 +102,7 @@ function DashboardContent() {
               History
             </TabsTrigger>
             <TabsTrigger value="analyze">
-              Analyze
+              {hasSubscription ? 'Analyze' : 'Analyze 🔒'}
             </TabsTrigger>
           </TabsList>
 
@@ -82,14 +115,7 @@ function DashboardContent() {
           </TabsContent>
 
           <TabsContent value="analyze">
-            <div className="rounded-card p-8 text-center" style={{ border: '1px solid var(--border)', background: 'var(--surface-1)' }}>
-              <p className="text-text-secondary mb-4">
-                Quick analyze form coming soon
-              </p>
-              <p className="text-sm text-text-tertiary">
-                For now, visit <a href="/analyze" className="text-primary hover:underline">/analyze</a>
-              </p>
-            </div>
+            {hasSubscription ? <TickerSearchForm /> : <NoSubscriptionPanel />}
           </TabsContent>
         </Tabs>
       </main>

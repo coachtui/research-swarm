@@ -586,6 +586,7 @@ export interface UserInfo {
   email: string
   full_name: string | null
   tier: string
+  stripe_subscription_status: string | null
   is_active: boolean
   is_admin: boolean
 }
