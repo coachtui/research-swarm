@@ -285,6 +285,53 @@ def check_agents_complete_node(state: ManagerState) -> ManagerState:
 
     state["agent_processing_times"] = agent_times
 
+    # Consensus target fallback: if fundamentalist calibration has no consensus_target
+    # (yfinance returned no targetMeanPrice), try the news_hound's LLM-extracted avg_price_target.
+    # Both agents are fully complete at this fan-in point, so all data is available.
+    try:
+        fv_calib = (state.get("fundamentalist_output") or {}).get("fair_value_calibration")
+        if isinstance(fv_calib, dict) and fv_calib.get("consensus_target") is None:
+            nh_consensus = (state.get("news_hound_output") or {}).get("analyst_consensus")
+            fallback_target = (nh_consensus or {}).get("avg_price_target") if isinstance(nh_consensus, dict) else None
+            if fallback_target and float(fallback_target) > 0:
+                internal_fv = fv_calib.get("internal_fair_value", 0)
+                consensus_target = round(float(fallback_target), 2)
+                divergence_ratio = round(internal_fv / consensus_target, 4) if consensus_target else None
+                divergence_pct = round((internal_fv - consensus_target) / consensus_target * 100.0, 1) if consensus_target else None
+                # Classify using same ±20% threshold as FairValueCalibrator.ALIGNED_THRESHOLD
+                if divergence_ratio is not None:
+                    if divergence_ratio < 0.80:
+                        divergence_state = "Model-Conservative Regime"
+                    elif divergence_ratio > 1.20:
+                        divergence_state = "Model-Driven Upside Scenario"
+                    else:
+                        divergence_state = "Consensus Validated ✓"
+                else:
+                    divergence_state = "No Consensus Data"
+                # Derive analyst count from rating distribution (AnalystConsensus has no num_analysts field)
+                num_analysts = None
+                if isinstance(nh_consensus, dict):
+                    rating_total = sum(
+                        nh_consensus.get(k, 0) or 0
+                        for k in ("strong_buy", "buy", "hold", "sell", "strong_sell")
+                    )
+                    if rating_total > 0:
+                        num_analysts = rating_total
+                # Patch the calibration dict in-place
+                state["fundamentalist_output"]["fair_value_calibration"].update({
+                    "consensus_target": consensus_target,
+                    "num_analysts": num_analysts,
+                    "divergence_ratio": divergence_ratio,
+                    "divergence_pct": divergence_pct,
+                    "divergence_state": divergence_state,
+                })
+                logger.info(
+                    f"[fan-in] Patched consensus_target from news_hound: "
+                    f"${consensus_target} → divergence_state={divergence_state}"
+                )
+    except Exception as _patch_err:
+        logger.warning(f"[fan-in] Consensus fallback patch failed (non-fatal): {_patch_err}")
+
     logger.success(f"✓ All agents complete for {state['ticker']} (Total tokens: {total_tokens})")
 
     return state
