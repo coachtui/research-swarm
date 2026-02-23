@@ -261,6 +261,8 @@ export interface SignalBreakdown {
   }>
   // P2: Insider anomaly note
   insider_anomaly_note?: string | null
+  // ADR / foreign listing flag — drives differentiated N/A display for insider + dark pool
+  is_adr?: boolean
   // Divergence analysis
   alignment_status: string
   has_divergence: boolean

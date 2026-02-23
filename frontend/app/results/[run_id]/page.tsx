@@ -322,6 +322,7 @@ function ResultsContent({ runId }: { runId: string }) {
             calibration={full_output.fair_value_calibration}
             currentPrice={decision_intelligence?.current_price}
             financialHealthScore={moat_breakdown?.financial_health}
+            idealEntryZone={decision_intelligence?.recommended_strategy?.entry?.ideal_zone}
           />
         )}
 

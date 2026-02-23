@@ -314,6 +314,19 @@ function computeHorizonBoundGain(
   return Math.round(totalGain * 100) / 100
 }
 
+// FIX 2 + FIX 4: Calculate estimated R/R at a different entry price, using the same
+// proportional stop distance as the current setup.
+function calcRRAtEntry(newEntry: number, currentEntry: number, currentStop: number, t2Price: number): number | null {
+  if (currentEntry <= 0 || newEntry <= 0 || newEntry >= currentEntry) return null
+  const stopPct = (currentEntry - currentStop) / currentEntry
+  if (stopPct <= 0) return null
+  const newStop = newEntry * (1 - stopPct)
+  const risk = newEntry - newStop
+  const gain = t2Price - newEntry
+  if (risk <= 0 || gain <= 0) return null
+  return Math.round((gain / risk) * 10) / 10
+}
+
 function SetupColumn({
   side,
   variant,
@@ -323,6 +336,7 @@ function SetupColumn({
   currentPrice,
   isDeepEntry,
   structuralFairValue,
+  opportunityEnvelopeLow,
 }: {
   side: TradeSetupSide
   variant: 'conservative' | 'aggressive'
@@ -332,6 +346,7 @@ function SetupColumn({
   currentPrice?: number
   isDeepEntry?: boolean
   structuralFairValue?: number | null
+  opportunityEnvelopeLow?: number | null
 }) {
   // Fix 2: Deep entry (structural reversion) uses visually subordinate styling — muted border and lighter treatment
   const borderColor = isDeepEntry
@@ -376,6 +391,20 @@ function SetupColumn({
   // Horizon-bound gain: realistic 12-month outcome from primary window targets only.
   // Extended / regime expansion targets are excluded and demoted to "tail outcome" framing.
   const horizonBoundGain = computeHorizonBoundGain(side.entry, side.targets)
+
+  // FIX 2 + FIX 4: Compressed asymmetry callout — shown when rr < 2.5 for BUY/STRONG BUY.
+  // Quantifies the improvement in risk/reward at the preferred entry zone, giving users a
+  // concrete mathematical reason to wait rather than a qualitative recommendation.
+  const isCompressedAsymmetry =
+    !isDeepEntry &&
+    side.risk_reward < 2.5 &&
+    (rating === 'BUY' || rating === 'STRONG BUY')
+
+  const t2Price = side.targets[1]?.price ?? null
+  const rrAtIdeal =
+    isCompressedAsymmetry && opportunityEnvelopeLow != null && t2Price != null
+      ? calcRRAtEntry(opportunityEnvelopeLow, side.entry, side.stop_loss, t2Price)
+      : null
 
   // C2: Setup unavailable state — show instead of normal setup when risk buffer is insufficient
   const setupUnavailable = side.setup_unavailable
@@ -424,8 +453,40 @@ function SetupColumn({
           </div>
         </div>
       )}
+      {/* FIX 2 + FIX 4: Compressed asymmetry callout */}
+      {isCompressedAsymmetry && (
+        <div className="px-4 pt-3 pb-0">
+          <div className="rounded-md bg-amber-500/8 border border-amber-500/25 p-2.5 text-xs leading-relaxed">
+            <span className="font-semibold text-amber-400 block mb-1">
+              ⚠ Compressed Asymmetry ({side.risk_reward}:1) — Staged Entry Preferred
+            </span>
+            <span className="text-text-tertiary">
+              Current entry near fair value limits near-term risk/reward. Asymmetry improves
+              significantly at preferred entry zones:
+            </span>
+            {rrAtIdeal != null && opportunityEnvelopeLow != null && (
+              <div className="mt-1.5 space-y-0.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-text-tertiary">
+                    Entry at ~${Math.round(opportunityEnvelopeLow).toLocaleString()} (preferred zone)
+                  </span>
+                  <span className="font-semibold text-text-secondary ml-2">
+                    est. {rrAtIdeal}:1
+                  </span>
+                </div>
+                <p className="text-text-tertiary/70 italic mt-1">
+                  Staged entry toward support improves the T2 risk-reward from {side.risk_reward}:1
+                  to ~{rrAtIdeal}:1 — a meaningful improvement in probability-weighted outcome for
+                  the same underlying thesis.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <div className={`px-4 py-3 ${headerBg} ${isDeepEntry ? 'mt-2' : ''}`}>
+      <div className={`px-4 py-3 ${headerBg} ${isDeepEntry || isCompressedAsymmetry ? 'mt-2' : ''}`}>
         {/* Row 1: Label + R/R badge on same line */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -841,6 +902,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             currentPrice={currentPrice}
             isDeepEntry={isDeepConservativeEntry}
             structuralFairValue={structuralFV}
+            opportunityEnvelopeLow={opportunityEnvelope ? Math.min(opportunityEnvelope.low, opportunityEnvelope.high) : null}
           />
           <SetupColumn
             side={setup.aggressive}
@@ -850,6 +912,7 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             holdingPeriod={strategy?.exit?.holding_period}
             currentPrice={currentPrice}
             structuralFairValue={structuralFV}
+            opportunityEnvelopeLow={opportunityEnvelope ? Math.min(opportunityEnvelope.low, opportunityEnvelope.high) : null}
           />
         </div>
       </CardContent>

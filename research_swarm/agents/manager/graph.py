@@ -377,7 +377,8 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
         signal_breakdown = calculate_signal_divergence(
             fundamentalist_output=state["fundamentalist_output"],
             news_hound_output=state["news_hound_output"],
-            quant_output=state["quant_output"]
+            quant_output=state["quant_output"],
+            is_adr=state.get("shared_swarm_data", {}).get("is_foreign", False),
         )
         if signal_breakdown:
             state["signal_breakdown"] = signal_breakdown

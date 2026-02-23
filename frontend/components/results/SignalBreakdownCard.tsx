@@ -248,6 +248,19 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
           </div>
         )}
 
+        {/* ADR notice — shown when is_adr flag is set */}
+        {breakdown.is_adr && (
+          <div className="mb-3 p-2.5 rounded-md bg-surface-elevated border border-border/60 flex items-start gap-2">
+            <span className="text-text-tertiary/60 mt-0.5 text-sm leading-none shrink-0">ℹ</span>
+            <p className="text-xs text-text-tertiary leading-relaxed">
+              <span className="font-medium text-text-secondary">ADR / Foreign-Listed Security — </span>
+              Certain smart money signals (insider transactions, some dark pool feeds) may have limited
+              data availability for foreign-listed companies. Affected signals are marked N/A and excluded
+              from the overall score.
+            </p>
+          </div>
+        )}
+
         {/* ── Signal Bars — grouped by analytical category ── */}
         <div className="space-y-4">
           {SIGNAL_GROUPS.map(({ group, reliabilityTag, reliabilityNote, signals }) => (
@@ -309,6 +322,25 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
                               {score.toFixed(1)}
                             </span>
                           </>
+                        ) : breakdown.is_adr && (key === 'insider' || key === 'dark_pool') ? (
+                          <>
+                            <div className="flex-1 flex items-center gap-1.5">
+                              <span className="text-xs text-text-tertiary bg-surface-elevated border border-border/50 rounded px-2 py-0.5">
+                                N/A — Foreign Listing
+                              </span>
+                              <span
+                                className="text-text-tertiary/60 cursor-help text-sm leading-none"
+                                title={
+                                  key === 'insider'
+                                    ? 'Insider transaction data is unavailable for ADR and foreign-listed securities. US Form 4 filing requirements apply only to SEC-registered domestic companies. Insider disclosures for foreign issuers are filed with their home country regulator under different reporting standards and are not captured in the current data pipeline.'
+                                    : 'Dark pool flow data coverage may be limited for ADR securities whose primary liquidity is on foreign exchanges. US alternative trading system (ATS) reporting reflects domestic market activity only.'
+                                }
+                              >
+                                ℹ
+                              </span>
+                            </div>
+                            <span className="w-8 text-right text-xs text-text-tertiary">—</span>
+                          </>
                         ) : (
                           <>
                             <div className="flex-1">
@@ -326,7 +358,11 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
                         <p className="ml-[9.5rem] text-xs text-text-tertiary mt-0.5">
                           {hasData
                             ? interpretation
-                            : 'Data unavailable. Excluded from overall score — not defaulted to neutral.'}
+                            : breakdown.is_adr && (key === 'insider' || key === 'dark_pool')
+                              ? key === 'insider'
+                                ? 'Insider transaction data is unavailable for ADR and foreign-listed securities. US Form 4 filing requirements apply only to SEC-registered domestic companies. Insider disclosures for foreign issuers are filed with their home country regulator under different reporting standards and are not captured in the current data pipeline.'
+                                : 'Dark pool flow data coverage may be limited for ADR securities whose primary liquidity is on foreign exchanges. US ATS reporting reflects domestic market activity only.'
+                              : 'Data unavailable. Excluded from overall score — not defaulted to neutral.'}
                         </p>
                       )}
                     </div>

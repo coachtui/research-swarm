@@ -10,6 +10,7 @@ interface FairValueRegimeCheckProps {
   calibration: FairValueCalibration
   currentPrice?: number
   financialHealthScore?: number
+  idealEntryZone?: { low: number; high: number } | null
 }
 
 function fmt(n: number | null | undefined): string {
@@ -125,7 +126,7 @@ function DivergenceBadge({ pct }: { pct: number | null }) {
   )
 }
 
-export function FairValueRegimeCheck({ calibration, currentPrice, financialHealthScore }: FairValueRegimeCheckProps) {
+export function FairValueRegimeCheck({ calibration, currentPrice, financialHealthScore, idealEntryZone }: FairValueRegimeCheckProps) {
   const [expanded, setExpanded] = useState(false)
 
   const isStructuralPremium = detectStructuralPremium(calibration, currentPrice, financialHealthScore)
@@ -279,6 +280,35 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
               </div>
             </div>
           )}
+
+          {/* FIX 3: Trading at fair value — amber warning when within 2% of FV */}
+          {(() => {
+            const fv = calibration.internal_fair_value
+            if (!fv || !currentPrice || isStructuralPremium) return null
+            const deviation = Math.abs(fv - currentPrice) / currentPrice
+            if (deviation >= 0.02) return null
+
+            // Derive preferred entry prices from idealEntryZone or fall back to 7–10% below FV
+            const entryHigh = idealEntryZone ? Math.round(Math.max(idealEntryZone.low, idealEntryZone.high)) : Math.round(fv * 0.93)
+            const entryLow  = idealEntryZone ? Math.round(Math.min(idealEntryZone.low, idealEntryZone.high)) : Math.round(fv * 0.90)
+            const moSLow  = Math.round(((fv - entryHigh) / fv) * 100)
+            const moSHigh = Math.round(((fv - entryLow)  / fv) * 100)
+
+            return (
+              <div className="rounded-md p-3.5 bg-amber-500/8 border border-amber-500/25">
+                <p className="text-amber-400 font-medium text-sm mb-1.5">
+                  ⚠ Trading at Fair Value — No Margin of Safety
+                </p>
+                <p className="text-text-secondary text-xs leading-relaxed">
+                  The stock is trading at or within 2% of intrinsic fair value ({fmt(fv)}).
+                  The structural thesis is intact but current entry offers no fundamental discount.
+                  Downside risk and upside potential are approximately symmetric from this level.
+                  Preferred entry at ${entryLow.toLocaleString()}–${entryHigh.toLocaleString()} would
+                  provide a {moSLow}–{moSHigh}% margin of safety.
+                </p>
+              </div>
+            )
+          })()}
 
           {/* Metadata strip */}
           <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-xs text-text-tertiary">

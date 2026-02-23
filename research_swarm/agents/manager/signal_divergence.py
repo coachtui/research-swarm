@@ -22,7 +22,8 @@ from loguru import logger
 def calculate_signal_divergence(
     fundamentalist_output: Dict[str, Any],
     news_hound_output: Dict[str, Any],
-    quant_output: Dict[str, Any]
+    quant_output: Dict[str, Any],
+    is_adr: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """
     Calculate signal divergence from agent outputs.
@@ -272,6 +273,8 @@ def calculate_signal_divergence(
             "confidence_reduction_log": confidence_reduction_log,
             # P2: Insider anomaly note
             "insider_anomaly_note": insider_anomaly_note,
+            # ADR / foreign listing flag — drives differentiated N/A display for insider + dark pool
+            "is_adr": is_adr,
             # Divergence analysis
             "alignment_status": alignment_status,
             "has_divergence": has_divergence,
