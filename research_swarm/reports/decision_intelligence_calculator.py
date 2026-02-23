@@ -86,11 +86,12 @@ class DecisionIntelligenceCalculator:
             holder_action = "HOLD"
             holder_detail = (
                 f"Maintain current position. Moat score {moat_score:.1f}/10 "
-                f"supports continued ownership but doesn't justify adding."
+                f"supports continued ownership but doesn't justify adding at current signal levels."
             )
             holder_conditions = [
-                f"Maintain stop loss at ${stop_loss:.2f}",
-                "Watch for rating upgrade triggers to add",
+                f"Maintain hard stop at ${stop_loss:.2f}",
+                "No additions until support holds on volume and signals align",
+                "Watch for rating upgrade triggers before adding",
             ]
 
         # --- New buyers guidance ---
@@ -114,10 +115,10 @@ class DecisionIntelligenceCalculator:
                 buyer_action = "SCALE IN"
                 buyer_urgency = "Low"
                 buyer_detail = (
-                    f"Meaningful discount ({discount_to_target_pct:.0f}%) to fair value, but mixed signals "
-                    f"warrant a patient approach. Build position gradually — start with 25-30% allocation "
-                    f"at ${current_price:.2f}, add on confirmed dips to ${_buy_limit:.2f}. "
-                    f"Wait for signal alignment before committing full position."
+                    f"Discount of {discount_to_target_pct:.0f}% to fair value, but mixed signals "
+                    f"warrant a patient, staged approach. Initiate cautiously only at support "
+                    f"(${_buy_limit:.2f} zone) — no more than 10-15% of intended position "
+                    f"until thesis confirms through signal alignment or price reclaim above ${entry_zone_high:.2f}."
                 )
             elif discount_to_target_pct >= 0:
                 buyer_action = "WAIT"
@@ -313,6 +314,9 @@ class DecisionIntelligenceCalculator:
         tech_entry = technical_levels.get("entry")
         tech_stop = technical_levels.get("stop_loss")
         tech_take_profit = technical_levels.get("take_profit")
+        bb_middle = technical_levels.get("bb_middle")
+        sma_50 = technical_levels.get("sma_50")
+        sma_200 = technical_levels.get("sma_200")
 
         poc = volume_profile_data.get("poc")
         val_low = volume_profile_data.get("value_area_low")
@@ -339,35 +343,79 @@ class DecisionIntelligenceCalculator:
         # Stop must be at least stop_pct below entry (guarantees > 5% risk buffer)
         conservative_stop = min(conservative_stop, conservative_entry * (1 - stop_pct))
 
-        # 3 conservative targets (progressively higher)
-        conservative_t1 = self._best_of(
-            [poc, tech_take_profit, val_high],
-            fallback=current_price * 1.07,
-            prefer="lowest",
-        )
-        # T1 must be above entry
+        # Build sorted technical resistance levels above conservative entry.
+        # These route T1 and T2 through sequential technical gates before
+        # falling back to fundamental targets for T3. T4 = regime expansion.
+        _resistance_candidates = [bb_middle, sma_50, sma_200, poc, val_high, tech_take_profit]
+        conservative_resistances = sorted([
+            r for r in _resistance_candidates
+            if r is not None and r > conservative_entry * 1.01
+        ])
+
+        # T1: first technical resistance above entry (tactical bounce / near-term)
+        if conservative_resistances:
+            conservative_t1 = conservative_resistances[0]
+            conservative_t1_label = "T1 — Tactical Bounce Target"
+        else:
+            conservative_t1 = max(
+                poc or 0, tech_take_profit or 0, val_high or 0, conservative_entry * 1.08
+            )
+            conservative_t1_label = "T1 — Continuation Scenario"
         conservative_t1 = max(conservative_t1, conservative_entry * 1.05)
 
-        # T2 must be above T1 (use base_target but ensure it's higher)
-        conservative_t2 = max(base_target, conservative_t1 * 1.05)
+        # T2: second technical resistance (trend repair / moving average reclaim)
+        if len(conservative_resistances) >= 2:
+            conservative_t2 = conservative_resistances[1]
+            conservative_t2_label = "T2 — Trend Repair Target"
+        else:
+            conservative_t2 = min(base_target, max(conservative_t1 * 1.15, conservative_t1 * 1.20))
+            conservative_t2_label = "T2 — Re-rating Scenario"
+        conservative_t2 = max(conservative_t2, conservative_t1 * 1.05)
 
-        # T3 must be above T2 (use bull_target but ensure it's higher)
-        conservative_t3 = max(bull_target, conservative_t2 * 1.10)
+        # T3: fundamental fair value (base-case intrinsic value)
+        conservative_t3 = max(base_target, conservative_t2 * 1.05)
+        conservative_t3_label = "T3 — Fundamental Re-rating Target"
+
+        # T4: regime expansion (bull-case — conditional, muted in display)
+        conservative_t4 = max(bull_target, conservative_t3 * 1.15)
+        conservative_t4_label = "T4 — Regime Expansion Scenario"
 
         # --- Aggressive setup: market entry, tighter stops ---
         aggressive_entry = current_price
         aggressive_stop_pct = {"Low": 0.10, "Medium": 0.08, "High": 0.05}.get(risk_level, 0.08)
         aggressive_stop = current_price * (1 - aggressive_stop_pct)
 
-        # 3 aggressive targets (progressively higher)
-        # T1 must be above entry (use base_target but ensure it's higher)
-        aggressive_t1 = max(base_target, aggressive_entry * 1.05)
+        # Build resistance levels above aggressive entry (current price)
+        aggressive_resistances = sorted([
+            r for r in _resistance_candidates
+            if r is not None and r > aggressive_entry * 1.01
+        ])
 
-        # T2 must be above T1 (use bull_target but ensure it's higher)
-        aggressive_t2 = max(bull_target, aggressive_t1 * 1.07)
+        # T1: first technical resistance (tactical bounce)
+        if aggressive_resistances:
+            aggressive_t1 = aggressive_resistances[0]
+            aggressive_t1_label = "T1 — Tactical Bounce Target"
+        else:
+            aggressive_t1 = aggressive_entry * 1.10
+            aggressive_t1_label = "T1 — Continuation Scenario"
+        aggressive_t1 = max(aggressive_t1, aggressive_entry * 1.05)
 
-        # T3 must be above T2 (10% beyond T2)
-        aggressive_t3 = aggressive_t2 * 1.10
+        # T2: second technical resistance or trend repair
+        if len(aggressive_resistances) >= 2:
+            aggressive_t2 = aggressive_resistances[1]
+            aggressive_t2_label = "T2 — Trend Repair Target"
+        else:
+            aggressive_t2 = min(base_target, max(aggressive_t1 * 1.15, aggressive_t1 * 1.20))
+            aggressive_t2_label = "T2 — Re-rating Scenario"
+        aggressive_t2 = max(aggressive_t2, aggressive_t1 * 1.05)
+
+        # T3: fundamental fair value
+        aggressive_t3 = max(base_target, aggressive_t2 * 1.05)
+        aggressive_t3_label = "T3 — Fundamental Re-rating Target"
+
+        # T4: regime expansion
+        aggressive_t4 = max(bull_target, aggressive_t3 * 1.15)
+        aggressive_t4_label = "T4 — Regime Expansion Scenario"
 
         _MIN_RISK_BUFFER = 0.05  # 5% minimum gap between entry and stop
 
@@ -444,12 +492,13 @@ class DecisionIntelligenceCalculator:
                 "entry_anchor": conservative_entry_anchor,
                 "stop_loss": round(conservative_stop, 2),
                 "targets": [
-                    {"price": round(conservative_t1, 2), "sell_pct": 30, "label": "T1 — Continuation Scenario"},
-                    {"price": round(conservative_t2, 2), "sell_pct": 40, "label": "T2 — Re-rating Scenario"},
-                    {"price": round(conservative_t3, 2), "sell_pct": 30, "label": "T3 — Regime Expansion Scenario"},
+                    {"price": round(conservative_t1, 2), "sell_pct": 30, "label": conservative_t1_label},
+                    {"price": round(conservative_t2, 2), "sell_pct": 40, "label": conservative_t2_label},
+                    {"price": round(conservative_t3, 2), "sell_pct": 30, "label": conservative_t3_label},
+                    {"price": round(conservative_t4, 2), "sell_pct": 0, "label": conservative_t4_label},
                 ],
                 "max_loss_per_100": per_100(conservative_entry, conservative_stop),
-                "max_gain_per_100": per_100(conservative_entry, conservative_t3),
+                "max_gain_per_100": per_100(conservative_entry, conservative_t4),
                 "risk_reward": risk_reward(conservative_entry, conservative_stop, conservative_t2),
                 "setup_unavailable": conservative_setup_unavailable,
             },
@@ -459,25 +508,31 @@ class DecisionIntelligenceCalculator:
                 "entry_anchor": "Market Order (Current Price)",
                 "stop_loss": round(aggressive_stop, 2),
                 "targets": [
-                    {"price": round(aggressive_t1, 2), "sell_pct": 33, "label": "T1 — Continuation Scenario"},
-                    {"price": round(aggressive_t2, 2), "sell_pct": 34, "label": "T2 — Re-rating Scenario"},
-                    {"price": round(aggressive_t3, 2), "sell_pct": 33, "label": "T3 — Regime Expansion Scenario"},
+                    {"price": round(aggressive_t1, 2), "sell_pct": 33, "label": aggressive_t1_label},
+                    {"price": round(aggressive_t2, 2), "sell_pct": 34, "label": aggressive_t2_label},
+                    {"price": round(aggressive_t3, 2), "sell_pct": 33, "label": aggressive_t3_label},
+                    {"price": round(aggressive_t4, 2), "sell_pct": 0, "label": aggressive_t4_label},
                 ],
                 "max_loss_per_100": per_100(aggressive_entry, aggressive_stop),
-                "max_gain_per_100": per_100(aggressive_entry, aggressive_t3),
+                "max_gain_per_100": per_100(aggressive_entry, aggressive_t4),
                 "risk_reward": risk_reward(aggressive_entry, aggressive_stop, aggressive_t2),
                 "setup_unavailable": aggressive_setup_unavailable,
             },
             # Taxonomy clarification for display
             "scenario_taxonomy": (
-                "T1 (Continuation Scenario): Business executes as modeled — price reaches near-term "
-                "technical target or Intrinsic Value Estimate midpoint. "
-                "T2 (Re-rating Scenario): Market recognizes fundamental value — multiple expansion "
-                "from current levels drives price to base-case Intrinsic Value Estimate. "
-                "T3 (Regime Expansion Scenario): Full bullish regime — earnings growth and multiple "
-                "expansion compound; price reaches the upper bound of the probabilistic outcome path. "
-                "These targets represent probabilistic outcome paths, not direct fair value forecasts."
+                "T1 (Tactical Bounce Target): First meaningful technical resistance above entry — "
+                "typically Bollinger Band midline or nearest resistance level. Requires RSI reclaim "
+                "above 50 with volume confirmation. "
+                "T2 (Trend Repair Target): Second resistance or moving average reclaim (SMA 50/200 "
+                "confluence) — signals trend reversal confirmation. Requires sustained close above "
+                "both moving averages. "
+                "T3 (Fundamental Re-rating Target): Base-case intrinsic value — requires trend repair "
+                "and catalyst-driven re-rating; conditional on earnings thesis validation. "
+                "T4 (Regime Expansion Scenario): Bull-case regime expansion — extended timeline "
+                "(24-36 months), conditional on full thesis validation and favorable macro. "
+                "Displayed as reference only; not a primary position management target."
             ),
+            "technical_resistance_levels": conservative_resistances,
             "report_qa_flags": qa_flags,
         }
         return result
@@ -711,7 +766,24 @@ class DecisionIntelligenceCalculator:
         enhanced_trade_setup = None
         report_qa_flags: list = []
         try:
-            tech_levels = entry_exit.get("key_levels", {})
+            tech_levels = dict(entry_exit.get("key_levels", {}))  # copy to avoid mutation
+            # Inject Bollinger Band midline and SMA levels for sequential T1/T2/T3 resistance routing
+            _bb = technical_indicators.get("bollinger_bands", {})
+            _bb_middle = _bb.get("middle_band")
+            if not _bb_middle:
+                _upper = _bb.get("upper_band")
+                _lower = _bb.get("lower_band")
+                if _upper and _lower:
+                    _bb_middle = (_upper + _lower) / 2
+            _ma = technical_indicators.get("moving_averages", {})
+            _sma_50 = _ma.get("sma_50")
+            _sma_200 = _ma.get("sma_200")
+            if _bb_middle:
+                tech_levels["bb_middle"] = _bb_middle
+            if _sma_50:
+                tech_levels["sma_50"] = _sma_50
+            if _sma_200:
+                tech_levels["sma_200"] = _sma_200
             _setup_result = self.calculate_enhanced_trade_setup(
                 current_price=current_price,
                 entry_strategy=entry_strategy,
@@ -766,7 +838,7 @@ class DecisionIntelligenceCalculator:
             if buyer_action == "WAIT":
                 return "HOLD — Wait for better entry"
             elif buyer_action == "SCALE IN":
-                return "HOLD — Scale in on confirmed weakness"
+                return "HOLD — Wait for signal resolution"
             elif buyer_action == "BUY NOW":
                 return "HOLD — Discounted entry; proceed cautiously"
             else:
@@ -804,7 +876,11 @@ class DecisionIntelligenceCalculator:
         if buyer_action == "WAIT":
             lines.append(f"New positions: Target ${entry_zone_low:.0f}–${entry_zone_high:.0f} entry zone")
         elif buyer_action == "SCALE IN":
-            lines.append(f"New positions: Start 25–30% at market, add on dips to ${buy_limit:.0f}")
+            if rating == "HOLD":
+                # HOLD + SCALE IN: conservative support-anchored language, never "25-30% at market"
+                lines.append(f"New positions: Initiate cautiously at ${buy_limit:.0f} support only — 10-15% max until thesis confirms")
+            else:
+                lines.append(f"New positions: Start 25–30% at market, add on dips to ${buy_limit:.0f}")
         elif buyer_action == "BUY NOW":
             lines.append(f"New positions: Enter at market or set buy limit at ${buy_limit:.0f}")
         elif buyer_action == "AVOID":
@@ -812,7 +888,10 @@ class DecisionIntelligenceCalculator:
 
         # Current holders guidance
         if holder_action == "HOLD":
-            lines.append(f"Current holders: Maintain with stop at ${stop_loss:.0f}")
+            if rating == "HOLD":
+                lines.append(f"Current holders: Maintain with hard stop at ${stop_loss:.0f} — no additions until ${buy_limit:.0f} support holds on volume")
+            else:
+                lines.append(f"Current holders: Maintain with stop at ${stop_loss:.0f}")
         elif holder_action == "ADD":
             lines.append(f"Current holders: Add on pullbacks below ${entry_zone_high:.0f}")
         elif holder_action == "REDUCE":
@@ -820,7 +899,7 @@ class DecisionIntelligenceCalculator:
 
         # Traders (only when signals conflict or negative)
         if rating in ("HOLD", "SELL", "STRONG SELL"):
-            lines.append(f"Traders: Avoid until trend reversal above ${entry_zone_high:.0f}")
+            lines.append(f"Traders: Avoid until trend reversal confirmed above ${entry_zone_high:.0f}")
 
         return lines
 

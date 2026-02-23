@@ -115,21 +115,24 @@ function formatAnchor(price: number): string {
 // Returns a short string for display. This is interpretive only — no calculation.
 function inferTargetHorizon(label: string, index: number): string {
   const l = label.toLowerCase()
-  if (l.includes('near') || l.includes('short') || l.includes('t1')) return '1–3 mo'
-  if (l.includes('base') || l.includes('t2') || l.includes('mid')) return '6–12 mo'
-  if (l.includes('bull') || l.includes('t3') || l.includes('stretch') || l.includes('extended') || l.includes('upside')) return '12–24 mo'
+  if (l.startsWith('t1') || l.includes('t1 —') || l.includes('tactical bounce') || l.includes('near') || l.includes('short')) return '1–3 mo'
+  if (l.startsWith('t2') || l.includes('t2 —') || l.includes('trend repair') || l.includes('base') || l.includes('mid')) return '6–12 mo'
+  if (l.startsWith('t3') || l.includes('t3 —') || l.includes('fundamental re-rating')) return '12–24 mo'
+  if (l.startsWith('t4') || l.includes('t4 —') || l.includes('regime expansion') || l.includes('bull') || l.includes('stretch') || l.includes('extended') || l.includes('upside')) return '24–36 mo'
   // Fallback by position
   if (index === 0) return '1–3 mo'
   if (index === 1) return '6–12 mo'
-  return '12–24 mo'
+  if (index === 2) return '12–24 mo'
+  return '24–36 mo'
 }
 
 // Determine whether a target is within the primary holding period window.
-// Targets beyond ~12 months are labelled as regime expansion scenarios.
+// T4 (regime expansion) and legacy "bull"/"stretch" labels are extended.
+// T3 (fundamental re-rating) is a primary target — NOT extended.
 function isExtendedTarget(label: string, index: number): boolean {
   const l = label.toLowerCase()
-  if (l.includes('bull') || l.includes('stretch') || l.includes('extended') || l.includes('upside')) return true
-  if (index >= 2) return true
+  if (l.startsWith('t4') || l.includes('t4 —') || l.includes('regime expansion') || l.includes('bull') || l.includes('stretch') || l.includes('extended') || l.includes('upside')) return true
+  if (index >= 3) return true  // T4+ (0-indexed) are extended
   return false
 }
 
@@ -137,12 +140,14 @@ function isExtendedTarget(label: string, index: number): boolean {
 // Extended targets use regime framing rather than promotional outcome language.
 function inferTargetType(label: string, index: number): string {
   const l = label.toLowerCase()
-  if (l.includes('bull') || l.includes('stretch') || l.includes('extended') || l.includes('upside') || index >= 2)
+  if (l.startsWith('t4') || l.includes('t4 —') || l.includes('regime expansion') || l.includes('bull') || l.includes('stretch') || l.includes('extended') || l.includes('upside') || index >= 3)
     return 'Regime Expansion'
-  if (l.includes('near') || l.includes('t1') || l.includes('short') || index === 0)
+  if (l.startsWith('t3') || l.includes('t3 —') || l.includes('fundamental re-rating') || (l.includes('t3') && index === 2))
+    return 'Fundamental Re-rating'
+  if (l.startsWith('t2') || l.includes('t2 —') || l.includes('trend repair') || l.includes('base') || l.includes('mid') || index === 1)
+    return 'Trend Repair'
+  if (l.startsWith('t1') || l.includes('t1 —') || l.includes('tactical bounce') || l.includes('near') || l.includes('short') || index === 0)
     return 'Tactical Reversion'
-  if (l.includes('base') || l.includes('t2') || l.includes('mid') || index === 1)
-    return 'Momentum Continuation'
   return 'Thesis'
 }
 
@@ -544,7 +549,11 @@ function SetupColumn({
                     <span className={`font-medium ${extended ? 'text-success/60' : 'text-success'}`}>
                       {formatCurrency(t.price)}
                     </span>
-                    <span className="text-xs text-text-tertiary">Sell {t.sell_pct}%</span>
+                    {t.sell_pct > 0 ? (
+                      <span className="text-xs text-text-tertiary">Sell {t.sell_pct}%</span>
+                    ) : (
+                      <span className="text-xs text-text-tertiary/50 italic">Extended</span>
+                    )}
                   </div>
                 </div>
                 {/* Type + conditionality subrow */}
@@ -647,6 +656,17 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
   const opportunityEnvelope = strategy?.entry?.ideal_zone
   const tacticalBand = entryZoneDisplay
 
+  // Fix 3: Validate Tactical Band against Avoid Zone before rendering.
+  // Avoid threshold = opportunity envelope high × 1.05.
+  // If the tactical band's lower bound falls at or above the avoid threshold,
+  // the band sits inside the avoid zone — suppress it and show a conflict note instead.
+  const avoidAboveThreshold = opportunityEnvelope
+    ? Math.max(opportunityEnvelope.low, opportunityEnvelope.high) * 1.05
+    : null
+  const tacticalBandInsideAvoidZone = Boolean(
+    tacticalBand && avoidAboveThreshold !== null && tacticalBand.low >= avoidAboveThreshold * 0.98
+  )
+
   // Structural Premium Regime detection (Fix 2, 4, 5)
   const isStructuralPremium = detectStructuralPremium(calibration, currentPrice, financialHealthScore)
   const structuralFV = calibration?.internal_fair_value ?? null
@@ -714,13 +734,27 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
               )
             })()}
             {tacticalBand && (
-              <div className="flex items-center justify-between">
-                <div>
-                  <span className="text-text-secondary font-medium">Tactical Band</span>
-                  <span className="block text-text-tertiary">Model-optimized entry zone</span>
+              tacticalBandInsideAvoidZone ? (
+                // Fix 3 (Option A): Tactical Band falls inside the Avoid Zone — suppress display,
+                // redirect to Execution Anchor instead. Do NOT show both simultaneously.
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-text-secondary font-medium">Tactical Band</span>
+                    <span className="block text-[11px] text-warning/80 mt-0.5 leading-tight">
+                      Currently inside Avoid Zone — entry deferred to Execution Anchor ({formatAnchor(setup.conservative.entry)}) or below
+                    </span>
+                  </div>
+                  <span className="text-xs text-text-tertiary font-mono shrink-0">Inactive</span>
                 </div>
-                <span className="font-medium text-text-secondary font-mono">{tacticalBand.label}</span>
-              </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-text-secondary font-medium">Tactical Band</span>
+                    <span className="block text-text-tertiary">Model-optimized entry zone</span>
+                  </div>
+                  <span className="font-medium text-text-secondary font-mono">{tacticalBand.label}</span>
+                </div>
+              )
             )}
             {(() => {
               const envHigh = opportunityEnvelope
