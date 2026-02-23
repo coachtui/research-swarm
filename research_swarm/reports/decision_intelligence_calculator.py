@@ -1037,10 +1037,10 @@ class DecisionIntelligenceCalculator:
 
         # Current holders guidance
         if holder_action == "HOLD":
-            if rating == "HOLD" and regime_mode == "MOMENTUM" and value_area_high:
-                # MOMENTUM HOLD: derive all levels from current market price zone.
-                # value_area_low (or entry_zone_high as fallback) is the natural floor stop —
-                # the structural stop_loss is irrelevant to a holder at a significantly higher price.
+            if regime_mode == "MOMENTUM" and value_area_high:
+                # MOMENTUM regime (price > 1.5× fair value): structural stop_loss is anchored to
+                # intrinsic value zone — irrelevant to any holder at current market price.
+                # Apply to all ratings (BUY or HOLD) — holder_action drives this, not rating.
                 momentum_stop = value_area_low or entry_zone_high
                 lines.append(
                     f"Current holders: Thesis intact — consider trimming above ${value_area_high:.0f} "
