@@ -195,6 +195,88 @@ export interface FairValueCalibration {
   display_label: string
 }
 
+// --- Institutional Risk System Types ---
+
+export interface FactorDiagnostics {
+  beta_estimate: number
+  beta_label: 'High' | 'Above-Market' | 'Market-Rate' | 'Below-Market'
+  growth_factor_loading: number
+  growth_factor_label: string
+  momentum_factor_loading: number
+  momentum_factor_label: string
+  quality_factor_proxy: number
+  quality_factor_label: string
+  vol_sensitivity: 'High' | 'Moderate' | 'Low'
+  vol_sensitivity_note: string
+  crowding_proxy: 'Elevated' | 'Moderate' | 'Low' | 'Unknown'
+  crowding_proxy_note: string
+  correlation_sensitivity: 'High' | 'Moderate' | 'Low'
+  portfolio_interaction: 'Concentrating' | 'Neutral' | 'Diversifying'
+  portfolio_interaction_note: string
+  regime_sensitivity_flags: string[]
+  estimation_note: string
+}
+
+export interface VolatilityRegimeDynamics {
+  vol_trend: 'Expanding' | 'Contracting' | 'Stable'
+  vol_trend_note: string
+  event_vol_condition: boolean
+  event_vol_note: string | null
+  implied_realized_spread: 'Elevated' | 'Normal' | 'Compressed'
+  implied_realized_note: string
+  compression_probability: 'High' | 'Moderate' | 'Low'
+  compression_note: string
+  ev_reliability_impact: string
+  stop_probability_modifier: string
+  regime_label: string
+}
+
+export interface LiquidityMicrostructure {
+  volume_participation: 'Above-ADV' | 'Normal' | 'Sub-ADV'
+  volume_participation_note: string
+  volume_state: 'Expansion' | 'Stable' | 'Contraction' | 'Suspect'
+  volume_state_note: string
+  thin_volume_risk: 'High' | 'Moderate' | 'Low'
+  thin_volume_note: string
+  block_flow_proxy: 'Active' | 'Normal' | 'Limited' | 'Unavailable'
+  block_flow_note: string
+  spread_impact_proxy: 'Tight' | 'Normal' | 'Wide'
+  spread_impact_note: string
+  accumulation_distribution_bias: 'Accumulation' | 'Mild Accumulation' | 'Neutral' | 'Mild Distribution' | 'Distribution'
+  bias_note: string
+  stability_modifier_effect: string
+  ev_confidence_effect: string
+}
+
+export interface ModelSensitivityAttribution {
+  overall_sensitivity: 'High' | 'Moderate' | 'Low'
+  dominant_driver: string
+  dominant_driver_rationale: string
+  sensitivity_drivers: Array<{
+    factor: string
+    sensitivity: 'High' | 'Moderate' | 'Low'
+    elasticity_note: string
+    rank: number
+  }>
+  confidence_degradation_rationale: string
+  model_failure_risk: string
+}
+
+export interface PortfolioAction {
+  allocation_bias: 'Add' | 'Hold' | 'Reduce' | 'Avoid'
+  allocation_bias_note: string
+  conviction_scaling_multiplier: number
+  conviction_scaling_label: 'Full Conviction' | 'Standard Conviction' | 'Reduced Conviction' | 'Low Conviction' | 'Minimal Conviction'
+  conviction_scaling_rationale: string
+  conviction_multiplier_drivers: string[]
+  risk_budget_impact: 'High' | 'Moderate' | 'Low'
+  risk_budget_note: string
+  mandate_fit: 'Core Holding' | 'Satellite Position' | 'Tactical Trade' | 'Watchlist Only'
+  mandate_fit_rationale: string
+  sizing_guidance: string
+  regime_break_condition: string
+}
+
 // --- Signal Breakdown Types ---
 
 export interface RsiExtremeFlag {
@@ -291,6 +373,12 @@ export interface SignalBreakdown {
     diversification_note: string
     estimation_note: string
   }
+  // Institutional Risk System modules
+  factor_diagnostics?: FactorDiagnostics
+  volatility_regime_dynamics?: VolatilityRegimeDynamics
+  liquidity_microstructure?: LiquidityMicrostructure
+  model_sensitivity_attribution?: ModelSensitivityAttribution
+  portfolio_action?: PortfolioAction
 }
 
 export interface ConvictionStatement {

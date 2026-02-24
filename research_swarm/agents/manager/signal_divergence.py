@@ -219,6 +219,57 @@ def calculate_signal_divergence(
             "Incomplete"
         )
 
+        # ── Extended Institutional Risk Modules ──────────────────────────
+        factor_diagnostics = _compute_factor_diagnostics(
+            fundamentalist_output=fundamentalist_output,
+            institutional_score=institutional_score,
+            institutional_has_data=institutional_has_data,
+            dark_pool_score=dark_pool_score,
+            dark_pool_has_data=dark_pool_has_data,
+            tech_div_score=tech_div_score,
+            tech_div_has_data=tech_div_has_data,
+            signal_strength=signal_strength,
+            signal_spread=signal_spread,
+        )
+        volatility_regime_dynamics = _compute_volatility_regime_dynamics(
+            signal_stability=signal_stability,
+            signal_spread=signal_spread,
+            rsi_extreme_flag=rsi_extreme_flag,
+            volume_data_quality=volume_data_quality,
+        )
+        liquidity_microstructure = _compute_liquidity_microstructure(
+            quant_output=quant_output,
+            news_hound_output=news_hound_output,
+            fundamentalist_output=fundamentalist_output,
+            dark_pool_score=dark_pool_score,
+            dark_pool_has_data=dark_pool_has_data,
+            institutional_score=institutional_score,
+            institutional_has_data=institutional_has_data,
+        )
+        model_sensitivity_attribution = _compute_model_sensitivity_attribution(
+            signal_spread=signal_spread,
+            signal_stability=signal_stability,
+            data_integrity_confidence_factor=data_integrity_confidence_factor,
+            missing_signal_count=missing_signal_count,
+            overall_score=overall_score,
+            rsi_extreme_flag=rsi_extreme_flag,
+            volume_data_quality=volume_data_quality,
+        )
+        portfolio_action = _compute_portfolio_action(
+            overall_score=overall_score,
+            signal_strength=signal_strength,
+            signal_stability=signal_stability,
+            signal_spread=signal_spread,
+            data_integrity_confidence_factor=data_integrity_confidence_factor,
+            institutional_score=institutional_score,
+            institutional_has_data=institutional_has_data,
+            dark_pool_score=dark_pool_score,
+            dark_pool_has_data=dark_pool_has_data,
+            factor_diagnostics=factor_diagnostics,
+            liquidity_microstructure=liquidity_microstructure,
+            vol_regime=volatility_regime_dynamics,
+        )
+
         signal_breakdown = {
             "overall_score": round(overall_score, 1),
             # Signal scores
@@ -359,6 +410,12 @@ def calculate_signal_divergence(
                 tech_div_has_data=tech_div_has_data,
                 signal_strength=signal_strength,
             ),
+            # ── Institutional Risk System Modules ──
+            "factor_diagnostics": factor_diagnostics,
+            "volatility_regime_dynamics": volatility_regime_dynamics,
+            "liquidity_microstructure": liquidity_microstructure,
+            "model_sensitivity_attribution": model_sensitivity_attribution,
+            "portfolio_action": portfolio_action,
         }
 
         logger.info(
@@ -1249,4 +1306,1012 @@ def _compute_factor_exposure(
         "diversification_benefit": diversification_benefit,
         "diversification_note": div_note,
         "estimation_note": "Beta contribution proxied from technical momentum and signal strength. Factor tilt derived from VGM factor scores. All values are approximations — not market-data-sourced measurements.",
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODULE 1 — Factor & Exposure Diagnostics
+# Extends base factor_exposure with granular loading estimates, portfolio
+# interaction classification, and regime sensitivity flags.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _compute_factor_diagnostics(
+    fundamentalist_output: Dict[str, Any],
+    institutional_score: float,
+    institutional_has_data: bool,
+    dark_pool_score: float,
+    dark_pool_has_data: bool,
+    tech_div_score: float,
+    tech_div_has_data: bool,
+    signal_strength: float,
+    signal_spread: float,
+) -> Dict[str, Any]:
+    """
+    Extended factor & exposure diagnostics for portfolio-level interpretability.
+
+    Provides granular loading estimates for growth, momentum, and quality factors,
+    plus portfolio interaction classification and regime sensitivity flags.
+    All values are heuristic approximations — not regression-sourced measurements.
+    """
+    vgm: dict = {}
+    financial_health = None
+    sector = ""
+    if isinstance(fundamentalist_output, dict):
+        vgm = fundamentalist_output.get("vgm_scores") or {}
+        if not isinstance(vgm, dict):
+            vgm = {}
+        financial_health = fundamentalist_output.get("financial_health_score")
+        sector = str(fundamentalist_output.get("sector", "") or "")
+
+    value_s = float(vgm.get("value_score", 5.0))
+    growth_s = float(vgm.get("growth_score", 5.0))
+    momentum_s = float(vgm.get("momentum_score", 5.0))
+
+    # Beta estimate — sector baseline + momentum adjustment + signal strength
+    SECTOR_BETA: Dict[str, float] = {
+        "Technology": 1.30, "Information Technology": 1.30,
+        "Healthcare": 0.90, "Health Care": 0.90,
+        "Financial": 1.10, "Financials": 1.10,
+        "Energy": 1.20,
+        "Consumer Discretionary": 1.15,
+        "Consumer Staples": 0.65,
+        "Utilities": 0.50,
+        "Real Estate": 0.85,
+        "Materials": 1.05,
+        "Industrials": 1.00,
+        "Communication": 1.10, "Communication Services": 1.10,
+    }
+    sector_beta = SECTOR_BETA.get(sector, 1.00)
+    if tech_div_has_data:
+        mom_adj = (
+            0.25 if tech_div_score >= 7.5 else
+            0.10 if tech_div_score >= 6.0 else
+            -0.20 if tech_div_score <= 3.0 else
+            -0.10 if tech_div_score <= 4.5 else
+            0.0
+        )
+    else:
+        mom_adj = 0.0
+    str_adj = (signal_strength - 5.0) / 5.0 * 0.10
+    beta_estimate = round(max(0.30, min(2.50, sector_beta + mom_adj + str_adj)), 2)
+    beta_label = (
+        "High" if beta_estimate >= 1.4 else
+        "Above-Market" if beta_estimate >= 1.1 else
+        "Market-Rate" if beta_estimate >= 0.8 else
+        "Below-Market"
+    )
+
+    # Factor loadings
+    growth_factor_loading = round(growth_s, 1)
+    growth_factor_label = (
+        "High" if growth_s >= 7.5 else
+        "Moderate" if growth_s >= 5.5 else
+        "Low"
+    )
+    momentum_factor_loading = round(
+        momentum_s * 0.5 + tech_div_score * 0.5 if tech_div_has_data else momentum_s, 1
+    )
+    momentum_factor_label = (
+        "High — trend-following positioning likely" if momentum_factor_loading >= 7.0 else
+        "Moderate — mixed momentum signal" if momentum_factor_loading >= 5.0 else
+        "Low — momentum headwind present"
+    )
+    if financial_health is not None:
+        quality_factor_proxy = round(float(financial_health), 1)
+        quality_factor_label = (
+            "High — strong balance sheet and earnings quality" if quality_factor_proxy >= 7.5 else
+            "Moderate" if quality_factor_proxy >= 5.5 else
+            "Low — quality concerns may suppress institutional demand"
+        )
+    else:
+        quality_factor_proxy = 5.0
+        quality_factor_label = "Not estimated — financial health score unavailable"
+
+    # Vol sensitivity
+    vol_sens_score = beta_estimate * (1.0 + signal_spread / 5.0)
+    if vol_sens_score >= 2.0:
+        vol_sensitivity = "High"
+        vol_sensitivity_note = (
+            f"Estimated \u03b2={beta_estimate:.2f} combined with elevated signal dispersion "
+            f"(\u03c3={signal_spread:.2f}) \u2014 position amplifies portfolio vol significantly"
+        )
+    elif vol_sens_score >= 1.3:
+        vol_sensitivity = "Moderate"
+        vol_sensitivity_note = (
+            f"\u03b2={beta_estimate:.2f} \u2014 moderate vol contribution; manageable within normal allocation"
+        )
+    else:
+        vol_sensitivity = "Low"
+        vol_sensitivity_note = (
+            f"\u03b2={beta_estimate:.2f} combined with low signal dispersion \u2014 below-market vol contribution"
+        )
+
+    # Crowding proxy
+    crowding_inputs_fd: List[float] = []
+    if institutional_has_data:
+        crowding_inputs_fd.append(institutional_score)
+    if dark_pool_has_data:
+        crowding_inputs_fd.append(dark_pool_score)
+    if crowding_inputs_fd:
+        ca = sum(crowding_inputs_fd) / len(crowding_inputs_fd)
+        if ca >= 7.5:
+            crowding_proxy = "Elevated"
+            crowding_proxy_note = "High institutional and dark pool positioning — exit liquidity risk on adverse catalyst"
+        elif ca >= 6.0:
+            crowding_proxy = "Moderate"
+            crowding_proxy_note = "Moderate smart-money presence — watch for positioning concentration on adverse catalyst"
+        else:
+            crowding_proxy = "Low"
+            crowding_proxy_note = "Institutional positioning does not indicate elevated crowding at current levels"
+    else:
+        crowding_proxy = "Unknown"
+        crowding_proxy_note = "Insufficient positioning data to assess crowding"
+
+    # Correlation sensitivity
+    corr_pressure = 0
+    if beta_estimate >= 1.3:
+        corr_pressure += 2
+    elif beta_estimate >= 1.1:
+        corr_pressure += 1
+    if crowding_proxy == "Elevated":
+        corr_pressure += 2
+    elif crowding_proxy == "Moderate":
+        corr_pressure += 1
+    if momentum_factor_loading >= 7.0:
+        corr_pressure += 1
+    correlation_sensitivity = (
+        "High" if corr_pressure >= 4 else
+        "Moderate" if corr_pressure >= 2 else
+        "Low"
+    )
+
+    # Portfolio interaction
+    conc = 0
+    if beta_label in ("High", "Above-Market"):
+        conc += 2
+    if momentum_factor_loading >= 7.0:
+        conc += 1
+    if crowding_proxy == "Elevated":
+        conc += 2
+    if growth_factor_label == "High":
+        conc += 1
+    div_fd = 0
+    if beta_label in ("Below-Market", "Market-Rate"):
+        div_fd += 2
+    if value_s >= 6.5:
+        div_fd += 2
+    if quality_factor_label.startswith("High"):
+        div_fd += 1
+    if crowding_proxy == "Low":
+        div_fd += 1
+    if conc >= 4:
+        portfolio_interaction = "Concentrating"
+        portfolio_interaction_note = "High beta + momentum + crowding overlap — position amplifies existing portfolio factor exposures"
+    elif div_fd >= 4:
+        portfolio_interaction = "Diversifying"
+        portfolio_interaction_note = "Value + quality tilt with low beta — position reduces portfolio factor concentration"
+    else:
+        portfolio_interaction = "Neutral"
+        portfolio_interaction_note = "Mixed factor profile — moderate interaction with existing portfolio exposures"
+
+    # Regime sensitivity flags
+    flags_fd: List[str] = []
+    if beta_estimate >= 1.3:
+        flags_fd.append(f"High beta (est. {beta_estimate:.2f}) — sensitive to broad market risk-off episodes")
+    if crowding_proxy == "Elevated":
+        flags_fd.append("Elevated crowding — exit liquidity may compress in high-vol regimes")
+    if momentum_factor_loading >= 7.5:
+        flags_fd.append("High momentum loading — vulnerable to momentum factor rotation / style reversal")
+    if financial_health is not None and float(financial_health) < 5.5:
+        flags_fd.append("Low quality proxy — elevated sensitivity to credit spread widening and risk-off")
+    if signal_spread >= 2.5:
+        flags_fd.append("High signal dispersion — model assumptions less stable under regime transition")
+    if not flags_fd:
+        flags_fd.append("No elevated regime sensitivity flags at current positioning")
+
+    return {
+        "beta_estimate": beta_estimate,
+        "beta_label": beta_label,
+        "growth_factor_loading": growth_factor_loading,
+        "growth_factor_label": growth_factor_label,
+        "momentum_factor_loading": momentum_factor_loading,
+        "momentum_factor_label": momentum_factor_label,
+        "quality_factor_proxy": quality_factor_proxy,
+        "quality_factor_label": quality_factor_label,
+        "vol_sensitivity": vol_sensitivity,
+        "vol_sensitivity_note": vol_sensitivity_note,
+        "crowding_proxy": crowding_proxy,
+        "crowding_proxy_note": crowding_proxy_note,
+        "correlation_sensitivity": correlation_sensitivity,
+        "portfolio_interaction": portfolio_interaction,
+        "portfolio_interaction_note": portfolio_interaction_note,
+        "regime_sensitivity_flags": flags_fd,
+        "estimation_note": (
+            "All factor loading values are heuristic approximations derived from VGM scores, signal data, "
+            "and sector classification. Beta is estimated from sector baseline adjusted for momentum signals "
+            "— not regression-sourced. Use as portfolio interaction guide, not precise risk measurement."
+        ),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODULE 2 — Volatility Regime Dynamics
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _compute_volatility_regime_dynamics(
+    signal_stability: float,
+    signal_spread: float,
+    rsi_extreme_flag: Optional[Dict[str, Any]],
+    volume_data_quality: str,
+) -> Dict[str, Any]:
+    """
+    Volatility regime dynamics — extends beyond static percentile analysis.
+
+    Models vol trend (Expanding / Contracting / Stable), event vs baseline vol,
+    implied/realized spread proxy, and compression probability. Explicitly ties
+    vol state to EV reliability and stop trigger probability behavior.
+    """
+    expanding_score = 0
+    contracting_score = 0
+    if signal_stability < 4.0:
+        expanding_score += 2
+    elif signal_stability < 7.0:
+        expanding_score += 1
+    else:
+        contracting_score += 1
+    if signal_spread >= 2.5:
+        expanding_score += 2
+    elif signal_spread >= 1.5:
+        expanding_score += 1
+    elif signal_spread < 1.0:
+        contracting_score += 2
+    if rsi_extreme_flag:
+        expanding_score += 2
+    if volume_data_quality == "SUSPECT":
+        expanding_score += 1
+    elif volume_data_quality == "ELEVATED":
+        expanding_score += 1
+
+    if expanding_score >= 4:
+        vol_trend = "Expanding"
+        vol_trend_note = (
+            "Multiple indicators suggest volatility expansion \u2014 signal instability, cross-signal "
+            "dispersion, or RSI extreme conditions are driving elevated uncertainty in this regime."
+        )
+    elif contracting_score >= 3 and expanding_score == 0:
+        vol_trend = "Contracting"
+        vol_trend_note = (
+            "Signal stability and low dispersion indicate volatility contracting toward baseline \u2014 "
+            "supportive regime for trend-following and momentum persistence."
+        )
+    else:
+        vol_trend = "Stable"
+        vol_trend_note = (
+            "Volatility regime is stable \u2014 neither expanding nor contracting. "
+            "Base-case probability anchoring is intact at current signal configuration."
+        )
+
+    event_vol_condition = bool(rsi_extreme_flag) or volume_data_quality == "ELEVATED"
+    if event_vol_condition:
+        if rsi_extreme_flag:
+            event_vol_note: Optional[str] = (
+                f"RSI at statistical extreme ({rsi_extreme_flag['rsi_value']:.1f}) indicates event-driven "
+                "volatility \u2014 baseline vol assumptions may understate actual realized vol during this period."
+            )
+        else:
+            event_vol_note = (
+                "Elevated volume detected \u2014 potential event-driven volatility. "
+                "Realized vol may temporarily exceed baseline assumptions around near-term catalysts."
+            )
+    else:
+        event_vol_note = None
+
+    if signal_spread >= 2.5 or (rsi_extreme_flag and signal_spread >= 1.5):
+        implied_realized_spread = "Elevated"
+        implied_realized_note = (
+            "Cross-signal dispersion proxy suggests market may be pricing tail risk above current "
+            "realized vol \u2014 potential vol premium environment."
+        )
+    elif signal_spread < 1.0 and signal_stability > 7.0:
+        implied_realized_spread = "Compressed"
+        implied_realized_note = (
+            "Low signal dispersion and high stability suggest vol is compressed below baseline \u2014 "
+            "mean-reversion to higher vol is probable; complacency risk is elevated."
+        )
+    else:
+        implied_realized_spread = "Normal"
+        implied_realized_note = (
+            "Signal dispersion proxy consistent with normal implied/realized vol relationship \u2014 "
+            "no material vol premium or compression anomaly detected."
+        )
+
+    if vol_trend == "Contracting" and implied_realized_spread == "Compressed":
+        compression_probability = "High"
+        compression_note = (
+            "Both vol trend and dispersion proxy indicate compressed conditions \u2014 "
+            "vol expansion event probability is elevated."
+        )
+    elif vol_trend == "Expanding" or implied_realized_spread == "Elevated":
+        compression_probability = "Low"
+        compression_note = "Expanding regime or elevated dispersion \u2014 vol compression is unlikely near term."
+    elif signal_stability > 7.0 and signal_spread < 1.5:
+        compression_probability = "Moderate"
+        compression_note = "Stable regime with moderate signals \u2014 some compression risk present, no acute catalyst."
+    else:
+        compression_probability = "Low"
+        compression_note = "Current regime does not indicate imminent volatility compression event."
+
+    if vol_trend == "Expanding":
+        ev_reliability_impact = (
+            "Reduced \u2014 expanding volatility widens the effective outcome distribution, reducing EV "
+            "reliability. Scenario boundaries may shift materially before realization."
+        )
+        stop_probability_modifier = (
+            "Elevated \u2014 expanding vol increases intraday gap-risk and stop-trigger frequency "
+            "by an estimated +15 to +25% above baseline probability."
+        )
+    elif vol_trend == "Contracting":
+        ev_reliability_impact = (
+            "Maintained \u2014 contracting vol preserves scenario boundary integrity. "
+            "EV estimates carry higher realizability in this regime."
+        )
+        stop_probability_modifier = (
+            "Compressed \u2014 contracting vol suppresses stop-trigger frequency. "
+            "Standard stop distances provide greater protection than typical."
+        )
+    else:
+        ev_reliability_impact = (
+            "Adequate \u2014 stable volatility regime supports base-case probability anchoring. "
+            "EV estimates carry normal model uncertainty without amplification."
+        )
+        stop_probability_modifier = (
+            "Baseline \u2014 stable vol regime. Stop trigger probability tracks modeled estimates "
+            "without significant regime amplification."
+        )
+
+    if vol_trend == "Expanding" and event_vol_condition:
+        regime_label = "Event-Driven Volatility Expansion"
+    elif vol_trend == "Expanding":
+        regime_label = "Expanding Volatility Regime"
+    elif vol_trend == "Contracting":
+        regime_label = "Volatility Contraction Regime"
+    elif implied_realized_spread == "Compressed":
+        regime_label = "Vol Compression Warning"
+    else:
+        regime_label = "Stable Volatility Regime"
+
+    return {
+        "vol_trend": vol_trend,
+        "vol_trend_note": vol_trend_note,
+        "event_vol_condition": event_vol_condition,
+        "event_vol_note": event_vol_note,
+        "implied_realized_spread": implied_realized_spread,
+        "implied_realized_note": implied_realized_note,
+        "compression_probability": compression_probability,
+        "compression_note": compression_note,
+        "ev_reliability_impact": ev_reliability_impact,
+        "stop_probability_modifier": stop_probability_modifier,
+        "regime_label": regime_label,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODULE 3 — Liquidity & Microstructure
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _compute_liquidity_microstructure(
+    quant_output: Dict[str, Any],
+    news_hound_output: Dict[str, Any],
+    fundamentalist_output: Dict[str, Any],
+    dark_pool_score: float,
+    dark_pool_has_data: bool,
+    institutional_score: float,
+    institutional_has_data: bool,
+) -> Dict[str, Any]:
+    """
+    Liquidity and microstructure analysis.
+
+    Quantifies participation quality via volume participation vs ADV, detects
+    accumulation/distribution patterns from dark pool and institutional flow,
+    and assesses how liquidity conditions affect signal reliability and EV confidence.
+    """
+    tech_indicators = quant_output.get("technical_indicators") or {}
+    if not isinstance(tech_indicators, dict):
+        tech_indicators = {}
+    volume_data = tech_indicators.get("volume") or {}
+    if not isinstance(volume_data, dict):
+        volume_data = {}
+    volume_ratio = float(volume_data.get("volume_ratio", 1.0) or 1.0)
+    volume_quality = str(volume_data.get("volume_quality", "NORMAL") or "NORMAL")
+
+    dark_pool_data = news_hound_output.get("dark_pool_activity") or {}
+    if not isinstance(dark_pool_data, dict):
+        dark_pool_data = {}
+    avg_ats_pct = dark_pool_data.get("avg_ats_pct")
+    dp_trend = str(dark_pool_data.get("trend", "stable") or "stable").lower()
+
+    market_cap_billions = 10.0
+    if isinstance(fundamentalist_output, dict):
+        mc = fundamentalist_output.get("market_cap_billions")
+        if mc is not None:
+            try:
+                market_cap_billions = float(mc)
+            except (TypeError, ValueError):
+                pass
+
+    # Volume participation vs ADV
+    if volume_ratio >= 1.5:
+        volume_participation = "Above-ADV"
+        volume_participation_note = (
+            f"Volume {volume_ratio:.1f}\u00d7 above average daily volume \u2014 elevated participation "
+            "supports price discovery quality and reduces market impact costs."
+        )
+    elif volume_ratio >= 0.8:
+        volume_participation = "Normal"
+        volume_participation_note = (
+            f"Volume tracking near average ({volume_ratio:.1f}\u00d7 ADV) \u2014 "
+            "normal participation conditions, no anomalies detected."
+        )
+    else:
+        volume_participation = "Sub-ADV"
+        volume_participation_note = (
+            f"Volume {volume_ratio:.1f}\u00d7 below average \u2014 thin participation increases "
+            "market impact per trade and elevates spread risk."
+        )
+
+    # Volume expansion / contraction state
+    if volume_quality == "SUSPECT":
+        volume_state = "Suspect"
+        volume_state_note = "Volume data flagged as suspect \u2014 expansion/contraction state cannot be reliably determined."
+    elif volume_ratio >= 1.3:
+        volume_state = "Expansion"
+        volume_state_note = "Volume expanding relative to historical average \u2014 consistent with active positioning or event-driven flow."
+    elif volume_ratio <= 0.7:
+        volume_state = "Contraction"
+        volume_state_note = "Volume contracting below average \u2014 reduced participation may indicate low-conviction price movement."
+    else:
+        volume_state = "Stable"
+        volume_state_note = "Volume at normal seasonal range \u2014 no material expansion or contraction detected."
+
+    # Thin volume risk
+    if volume_quality == "SUSPECT" or volume_ratio < 0.5:
+        thin_volume_risk = "High"
+        thin_volume_note = (
+            "Abnormally thin participation \u2014 market impact costs are elevated, "
+            "and price movements may not reflect genuine supply/demand balance."
+        )
+    elif volume_ratio < 0.8:
+        thin_volume_risk = "Moderate"
+        thin_volume_note = "Below-average participation creates moderate market impact risk \u2014 entry/exit may face wider effective spreads."
+    else:
+        thin_volume_risk = "Low"
+        thin_volume_note = "Participation levels adequate \u2014 normal market impact and spread conditions."
+
+    # Block / institutional activity proxy
+    if avg_ats_pct is not None:
+        if avg_ats_pct >= 35:
+            block_flow_proxy = "Active"
+            block_flow_note = (
+                f"Dark pool ATS at {avg_ats_pct:.1f}% of total volume \u2014 elevated institutional block "
+                "flow suggests active smart-money positioning."
+            )
+        elif avg_ats_pct >= 20:
+            block_flow_proxy = "Normal"
+            block_flow_note = f"ATS at {avg_ats_pct:.1f}% \u2014 normal institutional participation, no anomalous block activity."
+        else:
+            block_flow_proxy = "Limited"
+            block_flow_note = (
+                f"ATS at {avg_ats_pct:.1f}% \u2014 limited institutional block flow; "
+                "retail-dominated or low-participation environment."
+            )
+    elif dark_pool_has_data:
+        block_flow_proxy = "Normal"
+        block_flow_note = "Dark pool data available but ATS percentage not quantified \u2014 qualitative signal only."
+    else:
+        block_flow_proxy = "Unavailable"
+        block_flow_note = "Dark pool / ATS data unavailable \u2014 institutional block activity cannot be assessed."
+
+    # Spread / impact proxy
+    if market_cap_billions >= 100:
+        spread_impact_proxy = "Tight"
+        spread_impact_note = f"Large-cap (est. ${market_cap_billions:.0f}B) \u2014 typical bid-ask spread and impact costs are low."
+    elif market_cap_billions >= 10:
+        spread_impact_proxy = "Normal"
+        spread_impact_note = f"Mid-to-large cap (est. ${market_cap_billions:.0f}B) \u2014 normal spread and impact; manageable for institutional size."
+    else:
+        spread_impact_proxy = "Wide"
+        spread_impact_note = f"Small/mid-cap (est. ${market_cap_billions:.1f}B) \u2014 spread and market impact are material for institutional position sizes."
+
+    # Accumulation / distribution bias
+    bull_lm = 0
+    bear_lm = 0
+    if dark_pool_has_data:
+        if dark_pool_score >= 6.5:
+            bull_lm += 2
+        elif dark_pool_score <= 3.5:
+            bear_lm += 2
+    if institutional_has_data:
+        if institutional_score >= 6.5:
+            bull_lm += 1
+        elif institutional_score <= 3.5:
+            bear_lm += 1
+    if "increasing" in dp_trend:
+        bull_lm += 1
+    elif "decreasing" in dp_trend:
+        bear_lm += 1
+    if bull_lm >= 3:
+        acc_dist = "Accumulation"
+        bias_note = "Dark pool and institutional signals converge on accumulation \u2014 smart money appears to be building positions."
+    elif bear_lm >= 3:
+        acc_dist = "Distribution"
+        bias_note = "Dark pool and institutional signals suggest distribution \u2014 smart money appears to be reducing exposure."
+    elif bull_lm > bear_lm:
+        acc_dist = "Mild Accumulation"
+        bias_note = "Mild accumulation bias in institutional flow \u2014 directional conviction present but not definitive."
+    elif bear_lm > bull_lm:
+        acc_dist = "Mild Distribution"
+        bias_note = "Mild distribution bias detected in institutional flow \u2014 monitor for escalation."
+    else:
+        acc_dist = "Neutral"
+        bias_note = "No clear accumulation or distribution pattern detected \u2014 positioning appears balanced."
+
+    # Downstream effects
+    if thin_volume_risk == "High" and acc_dist in ("Distribution", "Mild Distribution"):
+        stability_modifier_effect = (
+            "Negative \u2014 thin-volume distribution reduces effective signal stability; "
+            "dark pool and momentum signals carry lower reliability weight in this regime."
+        )
+    elif block_flow_proxy == "Active" and acc_dist in ("Accumulation", "Mild Accumulation"):
+        stability_modifier_effect = (
+            "Positive \u2014 active block flow corroborates institutional positioning signals, "
+            "improving overall signal reliability."
+        )
+    else:
+        stability_modifier_effect = "Neutral \u2014 no material liquidity-driven adjustment to signal stability."
+
+    if thin_volume_risk == "High":
+        ev_confidence_effect = (
+            "Reduced \u2014 thin-volume conditions increase execution risk and may prevent scenario "
+            "target realization at modeled price levels."
+        )
+    elif volume_state == "Contraction" and acc_dist in ("Distribution", "Mild Distribution"):
+        ev_confidence_effect = "Reduced \u2014 volume contraction with distribution pattern creates asymmetric downside liquidity risk."
+    else:
+        ev_confidence_effect = "Adequate \u2014 liquidity conditions do not materially impair expected value scenario execution."
+
+    return {
+        "volume_participation": volume_participation,
+        "volume_participation_note": volume_participation_note,
+        "volume_state": volume_state,
+        "volume_state_note": volume_state_note,
+        "thin_volume_risk": thin_volume_risk,
+        "thin_volume_note": thin_volume_note,
+        "block_flow_proxy": block_flow_proxy,
+        "block_flow_note": block_flow_note,
+        "spread_impact_proxy": spread_impact_proxy,
+        "spread_impact_note": spread_impact_note,
+        "accumulation_distribution_bias": acc_dist,
+        "bias_note": bias_note,
+        "stability_modifier_effect": stability_modifier_effect,
+        "ev_confidence_effect": ev_confidence_effect,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODULE 4 — Model Error Sensitivity Attribution
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _compute_model_sensitivity_attribution(
+    signal_spread: float,
+    signal_stability: float,
+    data_integrity_confidence_factor: float,
+    missing_signal_count: int,
+    overall_score: float,
+    rsi_extreme_flag: Optional[Dict[str, Any]],
+    volume_data_quality: str,
+) -> Dict[str, Any]:
+    """
+    Model error sensitivity attribution — decomposes instability sources.
+
+    Estimates EV elasticity vs five error sources and ranks them by impact.
+    Provides dominant driver, model failure risk, and confidence degradation rationale.
+    """
+    if signal_spread >= 2.5:
+        prob_sens = "High"
+        prob_note = (
+            "High cross-signal dispersion (\u03c3\u22652.5) \u2014 a 10% probability reallocation between "
+            "scenarios produces material EV change. Bear/bull weights are unreliable at this dispersion level."
+        )
+    elif signal_spread >= 1.5:
+        prob_sens = "Moderate"
+        prob_note = (
+            "Moderate signal dispersion \u2014 probability weights carry meaningful uncertainty. "
+            "EV is sensitive to 15\u201320% shifts in scenario allocation."
+        )
+    else:
+        prob_sens = "Low"
+        prob_note = "Low signal dispersion \u2014 probability weights are relatively stable. EV is robust to minor allocation shifts."
+
+    if rsi_extreme_flag or signal_stability < 4.0:
+        vol_sens = "High"
+        vol_note = (
+            "RSI extreme condition or low signal stability creates high vol assumption uncertainty. "
+            "A 20% vol overestimate could suppress stop placement by 15\u201325%, materially altering EV."
+        )
+    elif signal_stability < 7.0:
+        vol_sens = "Moderate"
+        vol_note = "Moderate signal stability introduces meaningful vol assumption risk. EV shifts by ~10\u201315% under realistic vol assumption errors."
+    else:
+        vol_sens = "Low"
+        vol_note = "High signal stability supports reliable vol assumptions. EV is relatively insensitive to normal vol estimation error."
+
+    if signal_stability < 4.0:
+        stop_sens = "High"
+        stop_note = (
+            "Low signal stability makes stop placement highly uncertain. A \u00b110% stop distance change "
+            "produces significant EV shift \u2014 stop is the dominant EV variable in this regime."
+        )
+    elif signal_stability < 7.0:
+        stop_sens = "Moderate"
+        stop_note = "Moderate stability creates meaningful stop distance uncertainty. Stop placement should be validated against support/resistance levels."
+    else:
+        stop_sens = "Low"
+        stop_note = "High stability supports reliable stop placement. Stop distance sensitivity is within normal model tolerance."
+
+    if signal_spread >= 2.5 or missing_signal_count >= 3:
+        payoff_sens = "High"
+        payoff_note = (
+            "High signal dispersion or significant missing data creates wide scenario payoff variability. "
+            "Bull/bear scenario returns may differ by 40\u201380% \u2014 EV is highly sensitive to which scenario materializes."
+        )
+    elif signal_spread >= 1.5 or missing_signal_count >= 1:
+        payoff_sens = "Moderate"
+        payoff_note = "Moderate scenario payoff variability \u2014 EV is sensitive to which scenario materializes."
+    else:
+        payoff_sens = "Low"
+        payoff_note = "Low scenario payoff variability \u2014 signal alignment constrains the scenario range. EV is robust across the scenario set."
+
+    if data_integrity_confidence_factor < 0.75 or volume_data_quality == "SUSPECT":
+        regime_sens = "High"
+        regime_note = (
+            "Low data integrity or suspect volume data \u2014 model is vulnerable to regime change. "
+            "A factor rotation or liquidity event could invalidate current signal positioning."
+        )
+    elif data_integrity_confidence_factor < 0.90:
+        regime_sens = "Moderate"
+        regime_note = "Moderate data coverage \u2014 some regime transition risk remains. Confidence in signal persistence is reduced by incomplete data."
+    else:
+        regime_sens = "Low"
+        regime_note = "Full data integrity \u2014 model is robust to normal factor rotation. Regime shift risk is within expected bounds."
+
+    sev_order = {"High": 3, "Moderate": 2, "Low": 1}
+    drivers: List[Dict[str, Any]] = [
+        {"factor": "Probability Allocation Error", "sensitivity": prob_sens, "elasticity_note": prob_note},
+        {"factor": "Volatility Assumption Error", "sensitivity": vol_sens, "elasticity_note": vol_note},
+        {"factor": "Stop Distance Sensitivity", "sensitivity": stop_sens, "elasticity_note": stop_note},
+        {"factor": "Scenario Payoff Variability", "sensitivity": payoff_sens, "elasticity_note": payoff_note},
+        {"factor": "Factor / Regime Shift Risk", "sensitivity": regime_sens, "elasticity_note": regime_note},
+    ]
+    drivers.sort(key=lambda d: -sev_order[d["sensitivity"]])
+    for i, d in enumerate(drivers):
+        d["rank"] = i + 1
+
+    high_count = sum(1 for d in drivers if d["sensitivity"] == "High")
+    moderate_count = sum(1 for d in drivers if d["sensitivity"] == "Moderate")
+    if high_count >= 3:
+        overall_sensitivity = "High"
+    elif high_count >= 1 or moderate_count >= 3:
+        overall_sensitivity = "Moderate"
+    else:
+        overall_sensitivity = "Low"
+
+    dominant = drivers[0]
+    if overall_sensitivity == "High":
+        confidence_degradation = (
+            f"Multiple high-sensitivity factors detected ({high_count} of 5). "
+            "EV confidence is materially degraded \u2014 the model's probabilistic framework is operating "
+            "under elevated parameter uncertainty. All scenario estimates carry wide confidence intervals."
+        )
+    elif overall_sensitivity == "Moderate":
+        confidence_degradation = (
+            "Moderate model sensitivity detected. One or more core parameters carry meaningful uncertainty. "
+            "EV estimates are directionally valid but should be treated with a \u00b120\u201330% confidence band."
+        )
+    else:
+        confidence_degradation = (
+            "Low model sensitivity \u2014 all five factors are in the Low range. "
+            "EV estimates carry normal model uncertainty without elevated parameter instability."
+        )
+
+    if high_count >= 2:
+        failure_risk = (
+            "Elevated \u2014 two or more high-sensitivity parameters create correlated failure risk. "
+            "A single adverse regime shift could invalidate multiple assumptions simultaneously."
+        )
+    elif high_count == 1:
+        failure_risk = (
+            "Moderate \u2014 one high-sensitivity parameter identified. Model failure risk is concentrated "
+            "in that variable \u2014 monitor the dominant driver closely."
+        )
+    else:
+        failure_risk = (
+            "Low \u2014 no single parameter dominates model error. "
+            "Failure requires simultaneous adverse shifts across multiple independent variables."
+        )
+
+    return {
+        "overall_sensitivity": overall_sensitivity,
+        "dominant_driver": dominant["factor"],
+        "dominant_driver_rationale": dominant["elasticity_note"],
+        "sensitivity_drivers": drivers,
+        "confidence_degradation_rationale": confidence_degradation,
+        "model_failure_risk": failure_risk,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MODULE 5 — Decision Translation Layer
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _compute_portfolio_action(
+    overall_score: float,
+    signal_strength: float,
+    signal_stability: float,
+    signal_spread: float,
+    data_integrity_confidence_factor: float,
+    institutional_score: float,
+    institutional_has_data: bool,
+    dark_pool_score: float,
+    dark_pool_has_data: bool,
+    factor_diagnostics: Dict[str, Any],
+    liquidity_microstructure: Dict[str, Any],
+    vol_regime: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Decision Translation Layer \u2014 translates multi-dimensional analytics into portfolio action.
+
+    Generates allocation bias, conviction scaling multiplier, risk budget impact,
+    mandate fit classification, and sizing guidance. Outputs are portfolio construction
+    decision aids \u2014 NOT buy/sell signals.
+    """
+    # Conviction multiplier
+    multiplier = 1.0
+    multiplier_drivers: List[str] = []
+    if data_integrity_confidence_factor < 0.80:
+        multiplier -= 0.20
+        multiplier_drivers.append(f"Low data integrity ({data_integrity_confidence_factor:.0%}): \u22120.20\u00d7")
+    elif data_integrity_confidence_factor < 0.90:
+        multiplier -= 0.10
+        multiplier_drivers.append(f"Partial data coverage ({data_integrity_confidence_factor:.0%}): \u22120.10\u00d7")
+    if signal_spread >= 2.5:
+        multiplier -= 0.20
+        multiplier_drivers.append(f"High signal dispersion (\u03c3={signal_spread:.2f}): \u22120.20\u00d7")
+    elif signal_spread >= 1.5:
+        multiplier -= 0.10
+        multiplier_drivers.append(f"Moderate signal dispersion (\u03c3={signal_spread:.2f}): \u22120.10\u00d7")
+    dp_bull = dark_pool_has_data and dark_pool_score >= 7.5
+    inst_bull = institutional_has_data and institutional_score >= 7.0
+    if dp_bull and inst_bull:
+        multiplier += 0.20
+        multiplier_drivers.append("Dark pool + institutional accumulation convergence: +0.20\u00d7")
+    elif dp_bull or inst_bull:
+        multiplier += 0.10
+        multiplier_drivers.append("Smart money accumulation signal: +0.10\u00d7")
+    vol_trend = vol_regime.get("vol_trend", "Stable")
+    if vol_trend == "Expanding":
+        multiplier -= 0.15
+        multiplier_drivers.append("Expanding volatility regime: \u22120.15\u00d7")
+    thin_vol_risk = liquidity_microstructure.get("thin_volume_risk", "Low")
+    if thin_vol_risk == "High":
+        multiplier -= 0.15
+        multiplier_drivers.append("High thin-volume risk: \u22120.15\u00d7")
+    multiplier = round(max(0.25, min(1.50, multiplier)), 2)
+
+    if multiplier >= 1.25:
+        conviction_label = "Full Conviction"
+        conviction_rationale = (
+            "All conviction modifiers are favorable \u2014 data integrity, signal alignment, and smart money "
+            "confirm the thesis. Deploy at full intended allocation."
+        )
+    elif multiplier >= 1.0:
+        conviction_label = "Standard Conviction"
+        conviction_rationale = "No material conviction penalties \u2014 position sizing at normal weight is appropriate."
+    elif multiplier >= 0.75:
+        conviction_label = "Reduced Conviction"
+        conviction_rationale = "One or more conviction penalties applied \u2014 reduce position size relative to a clean signal environment."
+    elif multiplier >= 0.50:
+        conviction_label = "Low Conviction"
+        conviction_rationale = "Multiple conviction penalties active \u2014 size at 50\u201375% of normal allocation until signals resolve."
+    else:
+        conviction_label = "Minimal Conviction"
+        conviction_rationale = "Severely degraded conviction \u2014 token-size or watchlist positioning only until key uncertainties resolve."
+
+    # Allocation bias
+    crowding_proxy = factor_diagnostics.get("crowding_proxy", "Low")
+    acc_dist_bias = liquidity_microstructure.get("accumulation_distribution_bias", "Neutral")
+    if overall_score >= 7.5 and signal_stability >= 7.0 and signal_spread <= 1.5:
+        allocation_bias = "Add"
+        allocation_note = (
+            f"High-conviction setup \u2014 overall score {overall_score:.1f}/10 with stable, aligned signals. "
+            "Conditions support adding to or initiating a position at current levels."
+        )
+    elif overall_score >= 6.5 and signal_stability >= 5.5:
+        allocation_bias = "Add"
+        allocation_note = (
+            f"Favorable signal environment ({overall_score:.1f}/10) with adequate stability \u2014 "
+            "incremental adding is appropriate as thesis conditions are met."
+        )
+    elif overall_score >= 5.5 and (signal_spread <= 2.0 or signal_stability >= 6.0):
+        allocation_bias = "Hold"
+        allocation_note = (
+            f"Adequate signal score ({overall_score:.1f}/10) with moderate stability \u2014 "
+            "maintain position, avoid aggressive sizing changes."
+        )
+    elif overall_score >= 4.5:
+        allocation_bias = "Hold"
+        allocation_note = (
+            f"Neutral signal environment ({overall_score:.1f}/10) \u2014 hold current exposure, "
+            "defer adding until signal clarity improves."
+        )
+    elif overall_score >= 3.5:
+        allocation_bias = "Reduce"
+        allocation_note = (
+            f"Weak signal score ({overall_score:.1f}/10) \u2014 reduce exposure to manage downside risk. "
+            "Maintain residual position only if stop discipline is in place."
+        )
+    else:
+        allocation_bias = "Avoid"
+        allocation_note = (
+            f"Poor signal environment ({overall_score:.1f}/10) \u2014 avoid initiation or maintain full "
+            "exit discipline. Risk/reward does not support new capital deployment."
+        )
+    if acc_dist_bias == "Distribution" and thin_vol_risk == "High" and allocation_bias == "Hold":
+        allocation_bias = "Reduce"
+        allocation_note += " Elevated distribution signal in thin-volume conditions overrides Hold \u2192 Reduce."
+
+    # Risk budget impact
+    beta_estimate = factor_diagnostics.get("beta_estimate", 1.0)
+    vol_expanding = vol_trend == "Expanding"
+    if beta_estimate >= 1.4 or (beta_estimate >= 1.2 and vol_expanding):
+        risk_budget_impact = "High"
+        risk_budget_note = (
+            f"Estimated \u03b2={beta_estimate:.2f}"
+            f"{' + expanding vol' if vol_expanding else ''}"
+            " \u2014 position consumes significant risk budget. Size carefully vs portfolio VaR limits."
+        )
+    elif beta_estimate >= 1.1 or (beta_estimate >= 1.0 and signal_spread >= 2.0):
+        risk_budget_impact = "Moderate"
+        risk_budget_note = (
+            f"\u03b2={beta_estimate:.2f} with moderate signal conditions \u2014 normal risk budget consumption. "
+            "Monitor in context of overall factor exposure."
+        )
+    else:
+        risk_budget_impact = "Low"
+        risk_budget_note = (
+            f"\u03b2={beta_estimate:.2f} \u2014 below-market risk contribution. "
+            "Position can carry greater weight without outsized VaR impact."
+        )
+
+    # Mandate fit
+    portfolio_interaction = factor_diagnostics.get("portfolio_interaction", "Neutral")
+    momentum_loading = factor_diagnostics.get("momentum_factor_loading", 5.0)
+    core_s = satellite_s = tactical_s = watchlist_s = 0
+    if overall_score >= 7.0:
+        core_s += 3
+    elif overall_score >= 6.0:
+        core_s += 1
+    if signal_stability >= 7.0:
+        core_s += 2
+    if data_integrity_confidence_factor >= 0.92:
+        core_s += 1
+    if multiplier >= 1.0:
+        core_s += 1
+    if crowding_proxy == "Low":
+        core_s += 1
+    if portfolio_interaction == "Diversifying":
+        core_s += 1
+    if 5.5 <= overall_score < 7.0:
+        satellite_s += 3
+    elif overall_score >= 7.0:
+        satellite_s += 1
+    if 4.0 <= signal_stability < 7.0:
+        satellite_s += 2
+    if signal_spread >= 1.5:
+        satellite_s += 1
+    if crowding_proxy in ("Moderate", "Elevated"):
+        satellite_s += 1
+    if 5.0 <= overall_score < 6.5:
+        tactical_s += 2
+    if momentum_loading >= 7.0:
+        tactical_s += 2
+    if portfolio_interaction == "Concentrating":
+        tactical_s += 1
+    if vol_expanding:
+        tactical_s += 1
+    if overall_score < 5.0:
+        watchlist_s += 3
+    if data_integrity_confidence_factor < 0.75:
+        watchlist_s += 2
+    if signal_stability < 4.0:
+        watchlist_s += 2
+    if multiplier < 0.50:
+        watchlist_s += 2
+    mandate_scores = {
+        "Core Holding": core_s, "Satellite Position": satellite_s,
+        "Tactical Trade": tactical_s, "Watchlist Only": watchlist_s,
+    }
+    mandate_fit = max(mandate_scores, key=lambda k: mandate_scores[k])
+    if mandate_fit == "Core Holding" and core_s == satellite_s:
+        mandate_fit = "Satellite Position"
+    mandate_rationale = {
+        "Core Holding": (
+            f"Signal strength ({overall_score:.1f}/10), high stability, and strong data integrity support "
+            "long-duration core allocation. Appropriate for foundational positions with multi-quarter holding horizon."
+        ),
+        "Satellite Position": (
+            f"Signal setup is favorable but uncertainty (spread \u03c3={signal_spread:.2f}, "
+            f"stability={signal_stability:.1f}/10) suggests satellite rather than core sizing. "
+            "Monitor for upgrade on signal convergence."
+        ),
+        "Tactical Trade": (
+            "Momentum-driven setup with time-limited favorable conditions. Size for tactical duration "
+            "(weeks to months) rather than core logic. Stop discipline is critical."
+        ),
+        "Watchlist Only": (
+            f"Current risk/reward ({overall_score:.1f}/10 signal, {multiplier:.2f}\u00d7 conviction) "
+            "does not support capital deployment. Monitor for setup improvement before initiating."
+        ),
+    }
+
+    # Sizing guidance
+    if allocation_bias == "Add" and mandate_fit in ("Core Holding", "Satellite Position"):
+        sizing_guidance = (
+            f"Deploy at {multiplier:.2f}\u00d7 standard weight in 2\u20133 tranches over 2\u20134 weeks to manage "
+            "timing risk. Reserve capacity to add on pullback to ideal entry zone."
+        )
+    elif allocation_bias == "Hold":
+        sizing_guidance = (
+            f"Maintain existing position at {multiplier:.2f}\u00d7 weight. No new capital deployment \u2014 "
+            "allow existing thesis to develop."
+        )
+    elif allocation_bias == "Reduce":
+        reduced = round(max(0.25, multiplier * 0.5), 2)
+        sizing_guidance = (
+            f"Reduce to {reduced:.2f}\u00d7 standard weight. Prioritize tax efficiency and reinvest into higher-conviction setups."
+        )
+    else:
+        sizing_guidance = (
+            "Avoid new positions \u2014 exit existing exposure systematically. Do not add under any "
+            "circumstances until signal environment recovers above 5.0/10 overall score."
+        )
+
+    # Regime break condition
+    break_conds_pa: List[str] = []
+    if signal_spread >= 2.0:
+        break_conds_pa.append("Further signal divergence escalation across analytical groups")
+    if vol_expanding:
+        break_conds_pa.append("Continued volatility expansion breaking stop levels")
+    if crowding_proxy == "Elevated":
+        break_conds_pa.append("Institutional de-risking event triggering crowded exit")
+    if momentum_loading >= 7.0:
+        break_conds_pa.append("Momentum factor rotation away from growth/momentum cluster")
+    if thin_vol_risk == "High":
+        break_conds_pa.append("Liquidity deterioration preventing orderly position adjustment")
+    if not break_conds_pa:
+        break_conds_pa.append("Fundamental deterioration in earnings trend or financial health")
+        break_conds_pa.append("Broad market risk-off episode amplified by estimated beta")
+
+    return {
+        "allocation_bias": allocation_bias,
+        "allocation_bias_note": allocation_note,
+        "conviction_scaling_multiplier": multiplier,
+        "conviction_scaling_label": conviction_label,
+        "conviction_scaling_rationale": conviction_rationale,
+        "conviction_multiplier_drivers": multiplier_drivers,
+        "risk_budget_impact": risk_budget_impact,
+        "risk_budget_note": risk_budget_note,
+        "mandate_fit": mandate_fit,
+        "mandate_fit_rationale": mandate_rationale[mandate_fit],
+        "sizing_guidance": sizing_guidance,
+        "regime_break_condition": " \u00b7 ".join(break_conds_pa[:3]),
     }
