@@ -182,6 +182,24 @@ function inferTargetConditionality(
   return null
 }
 
+// Target validity classification — ensures only actionable targets appear in "Profit Targets".
+// Drives scenario-branch separation and the Structural References subsection.
+type TargetValidity = 'VALID' | 'NOT_APPLICABLE' | 'REFERENCE_ONLY' | 'SUPPRESSED'
+
+function classifyTargetValidity(
+  target: { price: number; suppressed?: boolean },
+  currentPrice: number | undefined,
+  regimeMode: string | null | undefined,
+  isDeepEntry: boolean,
+): TargetValidity {
+  if (target.suppressed) return 'SUPPRESSED'
+  // Long setup: target at or below current price is not a profit target
+  if (currentPrice && currentPrice > 0 && target.price <= currentPrice) return 'NOT_APPLICABLE'
+  // Structural reversion targets in MOMENTUM regime are structural anchors, not actionable
+  if (regimeMode === 'MOMENTUM' && isDeepEntry) return 'REFERENCE_ONLY'
+  return 'VALID'
+}
+
 // H2: Weighted realized R/R using staged sell percentages.
 // Formula: Σ(target_gain_per_share × sell_fraction) / risk_per_share
 // Normalised by total sell fraction in case percentages don't add to 100.
@@ -424,6 +442,11 @@ function SetupColumn({
   const rrFromCurrent = side.asymmetry_from_current_price ?? null
   const structuralAnchorPrice = side.structural_anchor_price ?? null
 
+  // Pre-classify each target before rendering to drive scenario branching + exclusion logic
+  const targetValidities: TargetValidity[] = side.targets.map(t =>
+    classifyTargetValidity(t, currentPrice, regimeMode, isDeepEntry ?? false)
+  )
+
   // C2: Setup unavailable state — show instead of normal setup when risk buffer is insufficient
   const setupUnavailable = side.setup_unavailable
 
@@ -613,8 +636,12 @@ function SetupColumn({
           </div>
         </div>
 
-        {/* Targets — precise prices are defined objectives, not estimates.
-            Two-line layout prevents label truncation at normal breakpoints. */}
+        {/* Target Validation + Scenario-Branched Rendering
+            VALID primary (T1/T2/T3) → Profit Targets.
+            VALID extended (T4) → Expansion Scenario block with separator.
+            NOT_APPLICABLE (price ≤ current price) → silently excluded.
+            REFERENCE_ONLY (structural targets in MOMENTUM regime) → Structural References.
+            SUPPRESSED (backend-flagged) → existing suppression UI. */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-xs text-text-tertiary">Profit Targets</span>
@@ -624,34 +651,36 @@ function SetupColumn({
               </span>
             )}
           </div>
+
+          {/* Primary scenario: T1 / T2 / T3 — non-extended, actionable targets */}
+          {side.targets.every((_, i) =>
+            targetValidities[i] === 'NOT_APPLICABLE' || targetValidities[i] === 'REFERENCE_ONLY'
+          ) && (
+            <p className="text-xs text-text-tertiary italic py-1">No actionable targets above current price.</p>
+          )}
+
           {side.targets.map((t, i) => {
-            // Fix 1: Deep entry (structural reversion) targets are anchored to long-term recovery —
-            // minimum horizon is 12–24 mo regardless of label. Prevents short-horizon framing on
-            // targets that are measured from a structural entry far below current market price.
+            const validity = targetValidities[i]
+            // Exclude non-actionable — silently skip
+            if (validity === 'NOT_APPLICABLE') return null
+            // Reference-only rendered below
+            if (validity === 'REFERENCE_ONLY') return null
+            // Extended targets rendered in Expansion Scenario block below
+            if (isExtendedTarget(t.label, i)) return null
+
             const horizon = isDeepEntry
               ? (i === 0 ? '12–24 mo' : '24–36 mo')
               : inferTargetHorizon(t.label, i)
-            const extended = isExtendedTarget(t.label, i)
             const targetType = inferTargetType(t.label, i)
             const conditionality = inferTargetConditionality(t.label, i, rating, variant)
             const sanitizedLabel = sanitizeTargetLabel(t.label)
-            const dimExtra = rating === 'HOLD' && extended
-            const isSuppressed = t.suppressed === true
 
-            // FIX 2: Suppressed targets (price < current price in a long position).
-            // Show suppression message in place of the price — never display downside
-            // values as profit targets; it is logically incoherent for a long position.
-            if (isSuppressed) {
+            if (validity === 'SUPPRESSED') {
               return (
-                <div
-                  key={i}
-                  className="rounded px-2 py-1.5 text-xs bg-error/5 border border-error/15"
-                >
+                <div key={i} className="rounded px-2 py-1.5 text-xs bg-error/5 border border-error/15">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <span className="text-text-tertiary">{sanitizedLabel}</span>
-                    <span className="bg-error/10 text-error/70 text-[10px] px-1.5 py-0.5 rounded font-semibold">
-                      Suppressed
-                    </span>
+                    <span className="bg-error/10 text-error/70 text-[10px] px-1.5 py-0.5 rounded font-semibold">Suppressed</span>
                   </div>
                   <p className="text-text-tertiary/70 leading-relaxed">
                     {t.suppression_reason ?? 'Target below current price — not a valid profit target at current market levels.'}
@@ -661,61 +690,102 @@ function SetupColumn({
             }
 
             return (
-              <div
-                key={i}
-                className={`rounded px-2 py-1.5 text-sm ${extended ? 'bg-surface-elevated/60' : ''} ${dimExtra ? 'opacity-50' : ''}`}
-              >
-                {/* Label row — wraps on narrow screens to keep full label visible */}
+              <div key={i} className="rounded px-2 py-1.5 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <span className={`${extended ? 'text-text-tertiary' : 'text-text-secondary'}`}>
-                      {sanitizedLabel}
-                    </span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded font-mono shrink-0 ${
-                      extended
-                        ? 'bg-surface-elevated text-text-tertiary'
-                        : 'bg-primary/10 text-primary/70'
-                    }`}>
-                      {horizon}
-                    </span>
+                    <span className="text-text-secondary">{sanitizedLabel}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded font-mono shrink-0 bg-primary/10 text-primary/70">{horizon}</span>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className={`font-medium ${extended ? 'text-success/60' : 'text-success'}`}>
-                      {formatCurrency(t.price)}
-                    </span>
-                    {t.sell_pct > 0 ? (
-                      <span className="text-xs text-text-tertiary">Sell {t.sell_pct}%</span>
-                    ) : (
-                      <span className="text-xs text-text-tertiary/50 italic">Extended</span>
-                    )}
+                    <span className="font-medium text-success">{formatCurrency(t.price)}</span>
+                    {t.sell_pct > 0
+                      ? <span className="text-xs text-text-tertiary">Sell {t.sell_pct}%</span>
+                      : <span className="text-xs text-text-tertiary/50 italic">Extended</span>
+                    }
                   </div>
                 </div>
-                {/* Type + conditionality subrow */}
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[11px] text-text-tertiary">
-                    {targetType} Target
-                  </span>
+                  <span className="text-[11px] text-text-tertiary">{targetType} Target</span>
                   {conditionality && (
-                    <span className="text-[10px] text-text-tertiary/60 italic">
-                      — {conditionality}
-                    </span>
+                    <span className="text-[10px] text-text-tertiary/60 italic">— {conditionality}</span>
                   )}
                 </div>
               </div>
             )
           })}
-          {side.targets.some((t, i) => isExtendedTarget(t.label, i)) && !isDeepEntry && (
-            <p className="text-xs text-text-tertiary pt-1 leading-relaxed">
-              Regime Expansion targets (muted) extend beyond the primary holding window — conditional on thesis validation and favorable macro regime.
-            </p>
+
+          {/* Expansion Scenario — T4 / Regime Expansion, visually separated from primary */}
+          {side.targets.some((t, i) => targetValidities[i] === 'VALID' && isExtendedTarget(t.label, i)) && (
+            <>
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-[10px] font-semibold text-text-tertiary/60 uppercase tracking-wide">Expansion Scenario</span>
+                <div className="flex-1 h-px bg-border/40" />
+              </div>
+              {side.targets.map((t, i) => {
+                if (targetValidities[i] !== 'VALID' || !isExtendedTarget(t.label, i)) return null
+                const horizon = inferTargetHorizon(t.label, i)
+                const targetType = inferTargetType(t.label, i)
+                const conditionality = inferTargetConditionality(t.label, i, rating, variant)
+                const sanitizedLabel = sanitizeTargetLabel(t.label)
+                const dimExtra = rating === 'HOLD'
+                return (
+                  <div key={i} className={`rounded px-2 py-1.5 text-sm bg-surface-elevated/60 ${dimExtra ? 'opacity-50' : ''}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-text-tertiary">{sanitizedLabel}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded font-mono shrink-0 bg-surface-elevated text-text-tertiary">{horizon}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="font-medium text-success/60">{formatCurrency(t.price)}</span>
+                        {t.sell_pct > 0
+                          ? <span className="text-xs text-text-tertiary">Sell {t.sell_pct}%</span>
+                          : <span className="text-xs text-text-tertiary/50 italic">Extended</span>
+                        }
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[11px] text-text-tertiary">{targetType} Target</span>
+                      {conditionality && (
+                        <span className="text-[10px] text-text-tertiary/60 italic">— {conditionality}</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              <p className="text-[10px] text-text-tertiary/60 leading-relaxed italic">
+                Expansion Scenario targets extend beyond the primary holding window — conditional on thesis validation and sustained macro regime.
+              </p>
+            </>
           )}
-          {/* Fix 1: Structural entry disclaimer — targets anchored to entry, not market regime */}
+
+          {/* Structural References — MOMENTUM regime only; not actionable at current price */}
+          {side.targets.some((_, i) => targetValidities[i] === 'REFERENCE_ONLY') && (
+            <div className="pt-2 border-t border-border/40">
+              <p className="text-[10px] font-semibold text-text-tertiary/60 uppercase tracking-wide mb-1.5">Structural References</p>
+              {side.targets.map((t, i) => {
+                if (targetValidities[i] !== 'REFERENCE_ONLY') return null
+                const sanitizedLabel = sanitizeTargetLabel(t.label)
+                return (
+                  <div key={i} className="rounded px-2 py-1.5 text-xs bg-surface-elevated/30 opacity-70">
+                    <div className="flex items-center justify-between">
+                      <span className="text-text-tertiary">{sanitizedLabel}</span>
+                      <span className="font-medium text-text-tertiary/70 font-mono">{formatCurrency(t.price)}</span>
+                    </div>
+                    <p className="text-[10px] text-text-tertiary/50 mt-0.5 italic">
+                      Mean-reversion reference — not actionable in current momentum regime
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Context footnotes */}
           {isDeepEntry && (
             <p className="text-[11px] text-text-tertiary/80 pt-1.5 leading-relaxed border-t border-border/50 italic">
               Targets calculated from structural entry — not comparable to market-regime setup targets.
             </p>
           )}
-          {/* Coherence label when targets operate in market pricing regime, not structural FV zone */}
           {allTargetsAboveStructuralFV && !isDeepEntry && (
             <p className="text-[10px] text-text-tertiary/70 pt-1 italic leading-relaxed">
               Targets reflect current market pricing path — not anchored to structural fair value.
@@ -850,6 +920,33 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             market-assigned growth premium. Tactical targets and stops operate within the current
             market pricing regime, not the structural zone.
           </p>
+        )}
+
+        {/* Regime Mode Banner — frames the anchor framework for both setup cards */}
+        {setup.regime_mode && (
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs border ${
+            setup.regime_mode === 'MOMENTUM'
+              ? 'bg-amber-500/8 border-amber-500/25 text-amber-400'
+              : setup.regime_mode === 'DISTRESSED'
+              ? 'bg-error/8 border-error/25 text-error'
+              : 'bg-primary/8 border-primary/25 text-primary'
+          }`}>
+            <span className="font-semibold">
+              {setup.regime_mode === 'MOMENTUM'
+                ? 'Momentum Regime'
+                : setup.regime_mode === 'DISTRESSED'
+                ? 'Distressed Setup'
+                : 'Structural Regime'}
+            </span>
+            <span className="opacity-50 mx-0.5">—</span>
+            <span className="opacity-75">
+              {setup.regime_mode === 'MOMENTUM'
+                ? 'Targets anchored to current market price'
+                : setup.regime_mode === 'DISTRESSED'
+                ? 'Entry anchored at distressed support levels'
+                : 'Targets anchored to intrinsic / structural entry'}
+            </span>
+          </div>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

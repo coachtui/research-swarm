@@ -29,6 +29,37 @@ function fmtRatio(r: number | null | undefined): string {
   return r.toFixed(3) + 'x'
 }
 
+// ─── Valuation State Classification ────────────────────────────────────────
+// Primary regime descriptor — shown before intrinsic value to frame the number
+// as a classification, not a direct price expectation.
+type ValuationState = 'DISCOUNT' | 'FAIRLY_VALUED' | 'STRUCTURAL_PREMIUM' | 'EXTREME_STRUCTURAL_PREMIUM'
+
+const VALUATION_STATE_CONFIG: Record<ValuationState, { label: string; color: string; bg: string; border: string }> = {
+  DISCOUNT:                    { label: 'Discount to Intrinsic Anchor',   color: 'text-success',      bg: 'bg-success/10',      border: 'border-success/25' },
+  FAIRLY_VALUED:               { label: 'Fairly Valued',                  color: 'text-primary',      bg: 'bg-primary/10',      border: 'border-primary/20' },
+  STRUCTURAL_PREMIUM:          { label: 'Structural Premium',             color: 'text-yellow-400',   bg: 'bg-yellow-500/10',   border: 'border-yellow-500/25' },
+  EXTREME_STRUCTURAL_PREMIUM:  { label: 'Extreme Structural Premium',     color: 'text-amber-400',    bg: 'bg-amber-500/10',    border: 'border-amber-500/25' },
+}
+
+function getValuationState(currentPrice: number | undefined, fairValue: number | null | undefined): ValuationState | null {
+  if (!currentPrice || !fairValue || fairValue <= 0) return null
+  const ratio = (currentPrice - fairValue) / fairValue
+  if (ratio < -0.10) return 'DISCOUNT'
+  if (ratio < 0.15)  return 'FAIRLY_VALUED'
+  if (ratio < 0.60)  return 'STRUCTURAL_PREMIUM'
+  return 'EXTREME_STRUCTURAL_PREMIUM'
+}
+
+function ValuationStateChip({ state }: { state: ValuationState }) {
+  const cfg = VALUATION_STATE_CONFIG[state]
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${cfg.color} ${cfg.bg} border ${cfg.border}`}>
+      {cfg.label}
+    </span>
+  )
+}
+// ───────────────────────────────────────────────────────────────────────────
+
 /**
  * Structural Premium Regime: stock is a high-quality growth business trading
  * at a significant premium to intrinsic value — not a valuation problem,
@@ -130,6 +161,7 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
   const [expanded, setExpanded] = useState(false)
 
   const isStructuralPremium = detectStructuralPremium(calibration, currentPrice, financialHealthScore)
+  const valuationState = getValuationState(currentPrice, calibration.internal_fair_value)
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
@@ -164,11 +196,10 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
         onClick={toggle}
         className="w-full flex items-center justify-between px-5 py-4 bg-surface hover:bg-surface-elevated transition-colors text-left"
       >
-        <div className="flex items-center gap-2.5">
-          <Scale className="h-4 w-4 text-text-tertiary" />
-          <span className="text-sm font-medium text-text-primary">
-            {isStructuralPremium ? 'Long-Term Valuation Reference' : 'Fair Value Reference'}
-          </span>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <Scale className="h-4 w-4 text-text-tertiary shrink-0" />
+          <span className="text-sm font-medium text-text-primary">Valuation Regime</span>
+          {valuationState && <ValuationStateChip state={valuationState} />}
           {isStructuralPremium
             ? <StructuralPremiumChip />
             : <StateChip state={divergence_state} warning={model_stability_warning} />
@@ -211,16 +242,13 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
           <div className="grid grid-cols-3 gap-3">
             <div className="text-center">
               <div className="text-xs text-text-tertiary mb-1">
-                {isStructuralPremium ? 'Mean Reversion Reference' : 'Intrinsic Fair Value'}
+                {isStructuralPremium ? 'Mean Reversion Reference' : 'Intrinsic Anchor'}
               </div>
               <div className="text-xl font-mono font-semibold text-text-primary">
                 {fmt(calibration.internal_fair_value)}
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                {isStructuralPremium
-                  ? '12–36mo reference — non-actionable near-term'
-                  : '12–36mo structural estimate'
-                }
+                Reference only — not a price target
               </div>
             </div>
             <div className="text-center">

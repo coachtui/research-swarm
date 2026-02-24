@@ -19,37 +19,42 @@ interface ScoreBreakdownBarsProps {
   overallScore: number
 }
 
+// Driver tags per score band — shown inside tooltip for each component row.
+// These are score-range qualitative descriptors, not model-computed signals.
+const DRIVER_TAGS: Record<keyof ScoreBreakdownBarsProps['breakdown'], { strong: string[]; moderate: string[]; weak: string[] }> = {
+  earnings_momentum: {
+    strong:   ['Consistent beats', 'Upward revisions', 'Guidance raised'],
+    moderate: ['In-line execution', 'Mixed revisions', 'Stable guidance'],
+    weak:     ['EPS misses', 'Downward revisions', 'Guidance cut'],
+  },
+  financial_health: {
+    strong:   ['Strong FCF', 'Low leverage', 'High margins'],
+    moderate: ['Adequate liquidity', 'Moderate debt', 'Stable margins'],
+    weak:     ['FCF pressure', 'Elevated leverage', 'Margin compression'],
+  },
+  valuation: {
+    strong:   ['Discount to peers', 'Low P/E vs. sector', 'DCF upside'],
+    moderate: ['Near fair value', 'Sector-median multiples', 'Limited margin of safety'],
+    weak:     ['Premium vs. peers', 'Stretched multiples', 'DCF headwind'],
+  },
+  technical_strength: {
+    strong:   ['Uptrend intact', 'Institutional bid', 'Volume confirmation'],
+    moderate: ['Neutral structure', 'Range-bound', 'Mixed momentum'],
+    weak:     ['Distribution phase', 'Below key MAs', 'Weak volume'],
+  },
+  sentiment_catalysts: {
+    strong:   ['Positive news flow', 'Near-term catalyst', 'Analyst upgrades'],
+    moderate: ['Neutral sentiment', 'Limited catalysts', 'Mixed news'],
+    weak:     ['Negative headlines', 'Downgrade risk', 'No catalyst near-term'],
+  },
+}
+
 const COMPONENTS = [
-  {
-    key: 'earnings_momentum' as const,
-    label: 'Earnings Momentum',
-    primary: true,
-    tooltip: 'Tracks whether the company is beating earnings expectations and raising guidance. Higher scores indicate consistent earnings beats and positive revisions.',
-  },
-  {
-    key: 'financial_health' as const,
-    label: 'Financial Health',
-    primary: false,
-    tooltip: 'Measures balance sheet strength, profitability, and cash flow stability. Strong companies have low debt, high margins, and growing free cash flow.',
-  },
-  {
-    key: 'valuation' as const,
-    label: 'Valuation',
-    primary: false,
-    tooltip: 'Compares current price to intrinsic value using P/E, PEG, DCF, and peer multiples. Higher scores signal more attractive valuation vs. fundamentals.',
-  },
-  {
-    key: 'technical_strength' as const,
-    label: 'Technical / Momentum',
-    primary: false,
-    tooltip: 'Analyzes price trends, volume patterns, and momentum indicators (RSI, MACD). Strong technicals suggest institutional accumulation.',
-  },
-  {
-    key: 'sentiment_catalysts' as const,
-    label: 'Sentiment / Catalysts',
-    primary: false,
-    tooltip: 'Evaluates market sentiment, news flow, and upcoming catalysts (earnings, product launches, regulatory). Positive sentiment can drive near-term moves.',
-  },
+  { key: 'earnings_momentum' as const,  label: 'Earnings Momentum',    primary: true  },
+  { key: 'financial_health' as const,   label: 'Financial Health',     primary: false },
+  { key: 'valuation' as const,          label: 'Valuation',            primary: false },
+  { key: 'technical_strength' as const, label: 'Technical / Momentum', primary: false },
+  { key: 'sentiment_catalysts' as const,label: 'Sentiment / Catalysts',primary: false },
 ]
 
 function getBarColor(score: number): string {
@@ -131,9 +136,11 @@ export function ScoreBreakdownBars({ breakdown, overallScore }: ScoreBreakdownBa
         </CardHeader>
         <CardContent>
           <div className="space-y-5">
-            {COMPONENTS.map(({ key, label, primary, tooltip }) => {
+            {COMPONENTS.map(({ key, label, primary }) => {
               const score = breakdown[key]
               const contextLabel = getContextLabel(key, score)
+              const band = score >= 7.0 ? 'strong' : score >= 4.0 ? 'moderate' : 'weak'
+              const driverTags = DRIVER_TAGS[key][band]
               return (
                 <div key={key} className="space-y-1.5">
                   <div className="flex justify-between items-start">
@@ -150,8 +157,24 @@ export function ScoreBreakdownBars({ breakdown, overallScore }: ScoreBreakdownBa
                             <HelpCircle className="h-3.5 w-3.5" />
                           </button>
                         </TooltipTrigger>
-                        <TooltipContent className="max-w-xs">
-                          <p className="text-xs leading-relaxed">{tooltip}</p>
+                        <TooltipContent className="max-w-xs space-y-2">
+                          <p className="text-xs font-medium text-text-primary">{label} — Key Drivers</p>
+                          <div className="flex flex-wrap gap-1">
+                            {driverTags.map(tag => (
+                              <span
+                                key={tag}
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${
+                                  band === 'strong'
+                                    ? 'bg-success/15 text-success border-success/25'
+                                    : band === 'moderate'
+                                    ? 'bg-warning/15 text-warning border-warning/25'
+                                    : 'bg-error/15 text-error border-error/25'
+                                }`}
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
                         </TooltipContent>
                       </Tooltip>
                     </div>

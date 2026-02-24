@@ -374,8 +374,8 @@ function getValuationInterpretation(
   } else if (premium <= 5) {
     return `The security trades approximately in line with our estimated fair value, indicating balanced valuation. The valuation score of ${valuationScore.toFixed(1)}/10 reflects ${valuationScore >= 6.0 ? 'reasonable value' : 'fair pricing'}. Decisions should be guided by conviction in business fundamentals and catalyst potential.`
   } else if (premium <= 15) {
-    return `The security commands a ${premium.toFixed(0)}% premium to our estimated fair value. The valuation score of ${valuationScore.toFixed(1)}/10 reflects this positioning. Investors should assess whether growth prospects and competitive advantages justify the current valuation.`
+    return `The security commands a Structural Premium of ${premium.toFixed(0)}% above the Intrinsic Anchor. The valuation score of ${valuationScore.toFixed(1)}/10 reflects this positioning. This is a regime classification — not a signal of overvaluation. Assess whether growth execution and competitive positioning justify the premium regime.`
   } else {
-    return `The security trades at a significant ${premium.toFixed(0)}% premium to estimated fair value, indicating stretched valuation metrics. The valuation score of ${valuationScore.toFixed(1)}/10 reflects this elevated positioning. Investors should evaluate whether exceptional growth prospects warrant the premium.`
+    return `The security operates in an Extreme Structural Premium regime — ${premium.toFixed(0)}% above the Intrinsic Anchor. The valuation score of ${valuationScore.toFixed(1)}/10 reflects this elevated regime classification. Tactical targets and analyst consensus operate within the current market pricing framework; the Intrinsic Anchor is a long-cycle mean-reversion reference only.`
   }
 }
