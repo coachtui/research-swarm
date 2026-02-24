@@ -347,10 +347,10 @@ function calcRRAtEntry(newEntry: number, currentEntry: number, currentStop: numb
   return Math.round((gain / risk) * 10) / 10
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Module 1–4: Outcome Distribution Model
-// Replaces static "Modeled Asymmetry" with probabilistic outcome table + EV engine.
-// ──────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────
+// Module 1–4 + 6–9: Outcome Distribution Model
+// Probability-weighted outcome table + EV engine + context layers.
+// ──────────────────────────────────────────────────────────────
 
 function OutcomeDistributionPanel({ dist, variant }: {
   dist: OutcomeDistribution
@@ -382,6 +382,25 @@ function OutcomeDistributionPanel({ dist, variant }: {
     dist.riskEfficiency > 0.10  ? 'text-warning'  :
     dist.riskEfficiency > -0.10 ? 'text-text-tertiary' : 'text-error'
 
+  // Module 7: Volatility state styling
+  const volStateColor =
+    dist.volatilityContext.state === 'Stress'     ? 'text-error' :
+    dist.volatilityContext.state === 'Elevated'   ? 'text-warning' :
+    dist.volatilityContext.state === 'Suppressed' ? 'text-text-tertiary' : 'text-success/80'
+
+  // Module 9: Stability tier styling
+  const stabilityColor =
+    dist.probabilityStability.tier === 'Robust'          ? 'text-success/80' :
+    dist.probabilityStability.tier === 'Stable'          ? 'text-success/60' :
+    dist.probabilityStability.tier === 'Moderate'        ? 'text-warning' :
+    dist.probabilityStability.tier === 'Fragile'         ? 'text-error/70' : 'text-error'
+
+  // Module 6: Horizon efficiency styling
+  const horizonEffColor =
+    dist.horizonContext.horizonEfficiencyFlag === 'Efficient'  ? 'text-success/70' :
+    dist.horizonContext.horizonEfficiencyFlag === 'Acceptable' ? 'text-warning' :
+    dist.horizonContext.horizonEfficiencyFlag === 'Extended'   ? 'text-text-tertiary' : 'text-error/60'
+
   // Short T-label extraction for table rows
   function shortLabel(label: string, i: number): string {
     const m = label.match(/^[Tt](\d+)/)
@@ -403,7 +422,7 @@ function OutcomeDistributionPanel({ dist, variant }: {
         </button>
       </div>
 
-      {/* EV summary — always visible */}
+      {/* EV summary — always visible (primary metrics) */}
       <div className={`rounded-md px-3 py-2 border ${
         variant === 'conservative'
           ? 'bg-success/5 border-success/15'
@@ -431,11 +450,74 @@ function OutcomeDistributionPanel({ dist, variant }: {
             </span>
           </div>
         </div>
+
+        {/* Module 6 / 7 / 9: Context layer — always visible, provides reliability framing */}
+        <div className="grid grid-cols-4 gap-2 text-xs mt-2 pt-2 border-t border-border/20">
+          <div>
+            <span className="text-text-tertiary/60 block text-[9px] uppercase tracking-wide">Horizon</span>
+            <span className="text-[10px] font-medium text-text-secondary">
+              {dist.horizonContext.primaryHorizon}
+            </span>
+          </div>
+          <div>
+            <span className="text-text-tertiary/60 block text-[9px] uppercase tracking-wide">Vol Regime</span>
+            <span className={`text-[10px] font-medium ${volStateColor}`}>
+              {dist.volatilityContext.state}
+            </span>
+          </div>
+          <div>
+            <span className="text-text-tertiary/60 block text-[9px] uppercase tracking-wide">Stability</span>
+            <span className={`text-[10px] font-medium ${stabilityColor}`}>
+              {dist.probabilityStability.tier}
+            </span>
+          </div>
+          <div>
+            <span className="text-text-tertiary/60 block text-[9px] uppercase tracking-wide">EV Pctile</span>
+            <span className="text-[10px] font-medium text-text-secondary">
+              {dist.universePercentiles.evPercentile}th
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* Expanded: full probability table + stop risk + gain/loss decomposition */}
+      {/* Expanded: full probability table + context layers */}
       {expanded && (
         <div className="space-y-3">
+
+          {/* Module 6: EV Horizon Anchoring */}
+          <div className="rounded-md border border-border/40 bg-surface/30 px-3 py-2.5 space-y-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/70">
+              EV Horizon Context
+            </p>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Time-Bound EV</span>
+                <span className={`font-semibold ${evColor}`}>
+                  {evPositive ? '+' : ''}{dist.ev.toFixed(2)}%{" "}
+                  <span className="font-normal text-[10px] text-text-tertiary">
+                    ({dist.horizonContext.primaryHorizon})
+                  </span>
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Annualized Equiv.</span>
+                <span className={`font-semibold ${dist.horizonContext.annualizedExpectation > 0 ? evColor : 'text-error'}`}>
+                  {dist.horizonContext.annualizedExpectation > 0 ? '+' : ''}{dist.horizonContext.annualizedExpectation.toFixed(1)}%<span className="font-normal text-text-tertiary"> /yr</span>
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Horizon Efficiency</span>
+                <span className={`font-semibold text-[10px] ${horizonEffColor}`}>
+                  {dist.horizonContext.horizonEfficiencyFlag}
+                </span>
+              </div>
+            </div>
+            <p className="text-[9px] text-text-tertiary/50 italic leading-relaxed">
+              Annualized expectation is a heuristic normalization — not a realized return forecast.
+              Horizon derived from target count and regime state.
+            </p>
+          </div>
+
           {/* Probability × Return × EV table */}
           <div className="rounded-md border border-border/50 overflow-hidden">
             <div className="grid grid-cols-4 gap-0 px-2 py-1 bg-surface-elevated/50">
@@ -478,7 +560,57 @@ function OutcomeDistributionPanel({ dist, variant }: {
             </div>
           </div>
 
-          {/* Module 3: Stop risk detail */}
+          {/* Module 9 + 6: Probability Reliability & EV Confidence */}
+          <div className="rounded-md border border-border/40 p-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/70">
+                Probability Reliability
+              </span>
+              <div className="flex items-center gap-1.5">
+                {dist.probabilityStability.modelSensitivityFlag && (
+                  <span className="text-[10px] font-semibold text-error bg-error/10 px-1.5 py-0.5 rounded">
+                    Model Sensitivity Elevated
+                  </span>
+                )}
+                {dist.probabilityStability.stabilityModifierActive && !dist.probabilityStability.modelSensitivityFlag && (
+                  <span className="text-[10px] font-semibold text-warning bg-warning/10 px-1.5 py-0.5 rounded">
+                    Stability Modifier Active
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Probability Stability</span>
+                <span className={`font-semibold ${stabilityColor}`}>
+                  {dist.probabilityStability.tier}
+                  <span className="font-normal text-text-tertiary text-[10px]">
+                    {" "}({dist.probabilityStability.score}/100)
+                  </span>
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">EV Confidence</span>
+                <span className={`font-semibold ${stabilityColor}`}>
+                  {dist.probabilityStability.evConfidenceLevel}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Stability-Adjusted EV</span>
+                <span className={`font-semibold ${dist.probabilityStability.stabilityAdjustedEV > 0 ? 'text-success/70' : 'text-error'}`}>
+                  {dist.probabilityStability.stabilityAdjustedEV > 0 ? '+' : ''}{dist.probabilityStability.stabilityAdjustedEV.toFixed(2)}%
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">EV Uncertainty Band</span>
+                <span className="font-medium text-text-secondary text-[10px] font-mono">
+                  [{dist.probabilityStability.evBandLow > 0 ? '+' : ''}{dist.probabilityStability.evBandLow.toFixed(1)}%, {dist.probabilityStability.evBandHigh > 0 ? '+' : ''}{dist.probabilityStability.evBandHigh.toFixed(1)}%]
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Module 7 + 3: Stop risk detail with vol context */}
           <div className="rounded-md border border-border/40 p-2.5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/70">
@@ -497,17 +629,38 @@ function OutcomeDistributionPanel({ dist, variant }: {
                   {Math.round(dist.stopTriggerProb * 100)}%
                 </span>
               </div>
-              {/* Visual probability bar */}
-              <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
+              {/* Minimal probability bar — institutional, not gamified */}
+              <div className="h-1 bg-surface-elevated rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${dist.stopTailRiskFlag ? 'bg-error/60' : 'bg-warning/40'}`}
+                  className={`h-full rounded-full transition-all ${dist.stopTailRiskFlag ? 'bg-error/50' : 'bg-border/60'}`}
                   style={{ width: `${stopBarWidth}%` }}
                 />
               </div>
-              <div className="flex justify-between text-[9px] text-text-tertiary/50 mt-0.5">
+              <div className="flex justify-between text-[9px] text-text-tertiary/40 mt-0.5">
                 <span>0%</span>
                 <span>Typical range: 15–35%</span>
                 <span>80%+</span>
+              </div>
+            </div>
+            {/* Module 7: Volatility regime context */}
+            <div className="grid grid-cols-3 gap-2 text-xs pt-1 border-t border-border/30">
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Volatility State</span>
+                <span className={`font-medium ${volStateColor}`}>
+                  {dist.volatilityContext.state}
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Vol Percentile</span>
+                <span className="font-medium text-text-secondary">
+                  {dist.volatilityContext.percentile}th
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Regime Modifier</span>
+                <span className={`font-medium ${dist.volatilityContext.regimeModifierActive ? 'text-warning' : 'text-text-tertiary'}`}>
+                  {dist.volatilityContext.regimeModifierActive ? 'Active' : 'Inactive'}
+                </span>
               </div>
             </div>
             <div className="text-[10px] text-text-tertiary leading-relaxed">
@@ -516,18 +669,57 @@ function OutcomeDistributionPanel({ dist, variant }: {
             </div>
           </div>
 
+          {/* Module 8: Cross-Universe Benchmarking */}
+          <div className="rounded-md border border-border/40 bg-surface/30 px-3 py-2.5 space-y-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/70">
+              Universe Context
+            </p>
+            <div className="grid grid-cols-4 gap-2 text-xs">
+              <div>
+                <span className="text-[10px] text-text-tertiary block">EV Rank</span>
+                <span className="font-medium text-text-secondary">
+                  {dist.universePercentiles.evPercentile}th pctile
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Risk Eff. Rank</span>
+                <span className="font-medium text-text-secondary">
+                  {dist.universePercentiles.riskEfficiencyPercentile}th pctile
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Stop Risk Rank</span>
+                <span className="font-medium text-text-secondary">
+                  {dist.universePercentiles.stopRiskPercentile}th pctile
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Skew Rank</span>
+                <span className="font-medium text-text-secondary">
+                  {dist.universePercentiles.payoffSkewPercentile}th pctile
+                </span>
+              </div>
+            </div>
+            <p className="text-[9px] text-text-tertiary/50 italic leading-relaxed">
+              Ranked vs. calibrated reference distribution — not a live cross-sectional universe.
+              Higher = more favorable relative to typical institutional setup parameters.
+              Stop Risk rank: higher = lower relative stop risk.
+            </p>
+          </div>
+
           {/* Module 4: Risk efficiency detail */}
           <div className="text-[10px] text-text-tertiary/70 leading-relaxed italic border-t border-border/30 pt-2">
             <span className="font-medium text-text-tertiary not-italic">Volatility-Adjusted Expectation: </span>
             EV of {dist.ev > 0 ? '+' : ''}{dist.ev.toFixed(2)}% / expected vol of ±{dist.expectedVolatility.toFixed(1)}%
-            {' '}= <span className={`font-semibold not-italic ${effColor}`}>{dist.riskEfficiency.toFixed(2)} return per unit of risk</span>.
-            {' '}Typical institutional threshold: ≥0.30.
+            {" "}= <span className={`font-semibold not-italic ${effColor}`}>{dist.riskEfficiency.toFixed(2)} return per unit of risk</span>.
+            {" "}Typical institutional threshold: ≥0.30.
           </div>
         </div>
       )}
     </div>
   )
 }
+
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Module 7: Model Transparency Panel
@@ -674,6 +866,7 @@ function SetupColumn({
     regimeMode,
     hasDivergence: hasHighDivergence,
     bearishSignalCount,
+    signalSpread: signalBreakdown?.signal_spread ?? 1.5,  // Module 9: stability input
   })
 
   // Conditional qualifier takes precedence over pure realism qualifier

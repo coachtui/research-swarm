@@ -321,40 +321,81 @@ export function PortfolioContext({
           </div>
         </div>
 
-        {/* Module 5: Portfolio Risk Contribution */}
-        <div className="rounded-lg border border-border/60 bg-surface/30 p-3 space-y-2">
+        {/* Module 5 + 10: Portfolio Risk Contribution (refined — Risk + Diversification split) */}
+        <div className="rounded-lg border border-border/60 bg-surface/30 p-3 space-y-3">
           <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-semibold">
             Portfolio Risk Contribution
           </p>
-          <div className="grid grid-cols-3 gap-3 text-xs">
-            <div>
-              <span className="text-[10px] text-text-tertiary block">Beta Impact</span>
-              <span className={`font-semibold ${
-                portfolioRiskMetrics.betaCategory === 'Elevated' ? 'text-warning' :
-                portfolioRiskMetrics.betaCategory === 'Low' ? 'text-success' : 'text-text-primary'
-              }`}>
-                {portfolioRiskMetrics.betaCategory}
-              </span>
-              <span className="text-[10px] text-text-tertiary/60 block">{portfolioRiskMetrics.betaEstimate}β — {sector}</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-text-tertiary block">Vol. Contribution</span>
-              <span className="font-semibold text-text-primary">
-                ~{portfolioRiskMetrics.volContribution.toFixed(1)}%
-              </span>
-              <span className="text-[10px] text-text-tertiary/60 block">of portfolio vol. (est.)</span>
-            </div>
-            <div>
-              <span className="text-[10px] text-text-tertiary block">Corr. Sensitivity</span>
-              <span className={`font-semibold ${
-                portfolioRiskMetrics.corrImpact === 'Concentrating' ? 'text-warning' :
-                portfolioRiskMetrics.corrImpact === 'Diversifying' ? 'text-success' : 'text-text-primary'
-              }`}>
-                {portfolioRiskMetrics.corrImpact}
-              </span>
-              <span className="text-[10px] text-text-tertiary/60 block">vs. broad market</span>
+
+          {/* Risk Contribution sub-section */}
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/50 mb-1.5 font-medium">Risk Contribution</p>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Beta Contribution</span>
+                <span className={`font-semibold ${
+                  portfolioRiskMetrics.betaCategory === 'Elevated' ? 'text-warning' :
+                  portfolioRiskMetrics.betaCategory === 'Low' ? 'text-success' : 'text-text-primary'
+                }`}>
+                  {portfolioRiskMetrics.betaCategory}
+                </span>
+                <span className="text-[10px] text-text-tertiary/60 block">
+                  {portfolioRiskMetrics.betaEstimate}β · ~{portfolioRiskMetrics.betaContributionPct.toFixed(1)}% sys. exp.
+                </span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Vol. Contribution</span>
+                <span className="font-semibold text-text-primary">
+                  ~{portfolioRiskMetrics.volContribution.toFixed(1)}%
+                </span>
+                <span className="text-[10px] text-text-tertiary/60 block">of portfolio vol. (est.)</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Drawdown Contribution</span>
+                <span className={`font-semibold ${
+                  portfolioRiskMetrics.drawdownContribution > 1.5 ? 'text-warning' : 'text-text-primary'
+                }`}>
+                  ~{portfolioRiskMetrics.drawdownContribution.toFixed(1)}%
+                </span>
+                <span className="text-[10px] text-text-tertiary/60 block">tail drawdown impact</span>
+              </div>
             </div>
           </div>
+
+          {/* Diversification Profile sub-section */}
+          <div className="pt-2 border-t border-border/40">
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/50 mb-1.5 font-medium">Diversification Profile</p>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Correlation Sensitivity</span>
+                <span className={`font-semibold ${
+                  portfolioRiskMetrics.corrImpact === 'Concentrating' ? 'text-warning' :
+                  portfolioRiskMetrics.corrImpact === 'Diversifying' ? 'text-success' : 'text-text-primary'
+                }`}>
+                  {portfolioRiskMetrics.corrImpact}
+                </span>
+                <span className="text-[10px] text-text-tertiary/60 block">vs. broad market</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Factor Tilt</span>
+                <span className="font-semibold text-text-secondary">
+                  {portfolioRiskMetrics.factorTilt}
+                </span>
+                <span className="text-[10px] text-text-tertiary/60 block">{sector}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-text-tertiary block">Concentration Impact</span>
+                <span className={`font-semibold ${
+                  portfolioRiskMetrics.concentrationImpact === 'Elevated' ? 'text-warning' :
+                  portfolioRiskMetrics.concentrationImpact === 'Minimal' ? 'text-success/70' : 'text-text-primary'
+                }`}>
+                  {portfolioRiskMetrics.concentrationImpact}
+                </span>
+                <span className="text-[10px] text-text-tertiary/60 block">{allocation.max}% position size</span>
+              </div>
+            </div>
+          </div>
+
           <div className="pt-1 border-t border-border/40 text-[10px] text-text-tertiary leading-relaxed">
             <span className="text-text-secondary font-medium">Expected Drawdown Path: </span>
             {portfolioRiskMetrics.expectedDrawdownPath}
@@ -369,7 +410,7 @@ export function PortfolioContext({
             </span>
           </div>
           <p className="text-[10px] text-text-tertiary/50 italic">
-            Beta and vol. contribution are heuristic approximations — sector proxies, not realized factor exposures.
+            Beta, vol., and drawdown contributions are heuristic approximations — sector proxies, not realized factor exposures. Systematic exposure = position weight × beta × 15% market vol proxy.
           </p>
         </div>
 
