@@ -100,6 +100,16 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
 function ResultsContent({ runId }: { runId: string }) {
   const { data: run, isLoading, error } = useAnalysis(runId)
+  const [isReadingMode, setReadingMode] = useState(false)
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'r' || e.key === 'R') setReadingMode(prev => !prev)
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [])
 
   if (error) {
     return (
@@ -253,6 +263,17 @@ function ResultsContent({ runId }: { runId: string }) {
                 {decision_intelligence.rating}
               </Badge>
             )}
+            <button
+              onClick={() => setReadingMode(r => !r)}
+              className={`text-[10px] font-mono border rounded px-1.5 py-0.5 transition-colors ${
+                isReadingMode
+                  ? 'bg-primary/10 text-primary border-primary/30'
+                  : 'text-text-tertiary border-border hover:text-text-secondary hover:border-border-subtle'
+              }`}
+              title="Toggle Reading Mode (R)"
+            >
+              {isReadingMode ? 'EXIT' : '[R]'}
+            </button>
             <AddToWatchlistButton
               ticker={result.ticker}
               companyName={full_output?.fundamentalist_output?.company_name}
@@ -262,12 +283,14 @@ function ResultsContent({ runId }: { runId: string }) {
         </div>
 
         {/* ══ LONGITUDINAL DELTA ════════════════════════════════════════ */}
-        {full_output?.previous_analysis_delta && (
-          <DeltaSummaryBox
-            delta={full_output.previous_analysis_delta}
-            ticker={result.ticker}
-          />
-        )}
+        <div className={`transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+          {full_output?.previous_analysis_delta && (
+            <DeltaSummaryBox
+              delta={full_output.previous_analysis_delta}
+              ticker={result.ticker}
+            />
+          )}
+        </div>
 
         {/* ══ DECISION SUMMARY CARD (Above-the-Fold) ════════════════════
             PM-first: rating + 1-sentence thesis + primary catalyst/risk.
@@ -307,46 +330,50 @@ function ResultsContent({ runId }: { runId: string }) {
             />
           )}
 
-          {/* Smart Money Divergence — core differentiator, shown when gap > 3pts */}
-          {signal_breakdown && (
-            <SmartMoneyAlert signalBreakdown={signal_breakdown} />
-          )}
+          {/* Supporting analysis — dimmed in Reading Mode */}
+          <div className={`space-y-6 transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
 
-          {/* Watch For: top-2 upgrade/downgrade catalysts surfaced early */}
-          {(upgrade_triggers || downgrade_triggers) && (
-            <WatchForSummary
-              upgradeTriggers={upgrade_triggers}
-              downgradeTriggers={downgrade_triggers}
+            {/* Smart Money Divergence — core differentiator, shown when gap > 3pts */}
+            {signal_breakdown && (
+              <SmartMoneyAlert signalBreakdown={signal_breakdown} />
+            )}
+
+            {/* Watch For: top-2 upgrade/downgrade catalysts surfaced early */}
+            {(upgrade_triggers || downgrade_triggers) && (
+              <WatchForSummary
+                upgradeTriggers={upgrade_triggers}
+                downgradeTriggers={downgrade_triggers}
+              />
+            )}
+
+            {/* Score Scoreboard — 5-factor breakdown */}
+            {moat_breakdown && moat_score !== null && (
+              <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
+            )}
+
+            {/* Signal Matrix — 7-signal alignment + conflict detection */}
+            {signal_breakdown && (
+              <SignalDivergenceSection
+                breakdown={signal_breakdown}
+                recentNews={[]}
+                nextEarningsDate={undefined}
+              />
+            )}
+
+            {/* Historical Pattern Framing */}
+            {signal_breakdown && (
+              <HistoricalAnalogPanel breakdown={signal_breakdown} />
+            )}
+
+            {/* Strengths vs. Concerns */}
+            <KeyTakeaways strengths={strengths} concerns={concerns} />
+
+            {/* Recent Developments + Upcoming Catalysts */}
+            <RecentDevelopments
+              recentItems={whatsNewItems}
+              upcomingEvents={watchCalendarEvents}
             />
-          )}
-
-          {/* Score Scoreboard — 5-factor breakdown */}
-          {moat_breakdown && moat_score !== null && (
-            <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
-          )}
-
-          {/* Signal Matrix — 7-signal alignment + conflict detection */}
-          {signal_breakdown && (
-            <SignalDivergenceSection
-              breakdown={signal_breakdown}
-              recentNews={[]}
-              nextEarningsDate={undefined}
-            />
-          )}
-
-          {/* Historical Pattern Framing */}
-          {signal_breakdown && (
-            <HistoricalAnalogPanel breakdown={signal_breakdown} />
-          )}
-
-          {/* Strengths vs. Concerns */}
-          <KeyTakeaways strengths={strengths} concerns={concerns} />
-
-          {/* Recent Developments + Upcoming Catalysts */}
-          <RecentDevelopments
-            recentItems={whatsNewItems}
-            upcomingEvents={watchCalendarEvents}
-          />
+          </div>
         </div>
 
         {/* ══════════════════════════════════════════════════════════════
@@ -354,7 +381,7 @@ function ResultsContent({ runId }: { runId: string }) {
             Valuation anchors, mean reversion references, scenario targets.
             Visually de-emphasized — NOT near-term actionable levels.
         ══════════════════════════════════════════════════════════════ */}
-        <div className="space-y-5 pt-2" style={{ opacity: 0.93 }}>
+        <div className={`space-y-5 pt-2 transition-opacity duration-200 ${isReadingMode ? 'opacity-30 pointer-events-none' : 'opacity-[0.93]'}`}>
           <SectionDivider
             label="Long-Term Structural Framework"
             sublabel="12–36 Month Reference — Non-Actionable Near-Term"
@@ -406,42 +433,53 @@ function ResultsContent({ runId }: { runId: string }) {
             EXECUTION (collapsed by default)
             PM View (simplified allocation) / Trader View (full math)
         ══════════════════════════════════════════════════════════════ */}
-        {decision_intelligence && moat_breakdown && (
-          <ExecutionLayer
-            ticker={result.ticker}
-            rating={decision_intelligence.rating || 'HOLD'}
-            moatScore={moat_score || 5.0}
-            financialHealthScore={moat_breakdown.financial_health}
-            sector="Technology"
-            currentPrice={decision_intelligence.current_price || 0}
-            convictionPosition={decision_intelligence.conviction_position}
-            enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
-            strategy={decision_intelligence.recommended_strategy}
-            signalBreakdown={signal_breakdown}
-            calibration={full_output.fair_value_calibration}
-          />
-        )}
+        <div className={`space-y-6 transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+          {decision_intelligence && moat_breakdown && (
+            <ExecutionLayer
+              ticker={result.ticker}
+              rating={decision_intelligence.rating || 'HOLD'}
+              moatScore={moat_score || 5.0}
+              financialHealthScore={moat_breakdown.financial_health}
+              sector="Technology"
+              currentPrice={decision_intelligence.current_price || 0}
+              convictionPosition={decision_intelligence.conviction_position}
+              enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
+              strategy={decision_intelligence.recommended_strategy}
+              signalBreakdown={signal_breakdown}
+              calibration={full_output.fair_value_calibration}
+            />
+          )}
 
-        {/* CTA */}
-        <div className="flex justify-center pt-2">
-          <Link href="/analyze">
-            <Button variant="outline" size="lg">Analyze Another Stock</Button>
-          </Link>
+          {/* CTA */}
+          <div className="flex justify-center pt-2">
+            <Link href="/analyze">
+              <Button variant="outline" size="lg">Analyze Another Stock</Button>
+            </Link>
+          </div>
+
+          {/* Disclaimer */}
+          <Card className="bg-surface-elevated/50">
+            <CardContent className="pt-6">
+              <p className="text-xs text-text-tertiary text-center">
+                <strong>Disclaimer:</strong> This analysis is for informational purposes only and
+                should not be considered financial advice. Past performance is not indicative of
+                future results. Please consult with a qualified financial advisor before making
+                investment decisions.
+              </p>
+            </CardContent>
+          </Card>
         </div>
-
-        {/* Disclaimer */}
-        <Card className="bg-surface-elevated/50">
-          <CardContent className="pt-6">
-            <p className="text-xs text-text-tertiary text-center">
-              <strong>Disclaimer:</strong> This analysis is for informational purposes only and
-              should not be considered financial advice. Past performance is not indicative of
-              future results. Please consult with a qualified financial advisor before making
-              investment decisions.
-            </p>
-          </CardContent>
-        </Card>
       </div>
     </div>
+
+    {/* Reading Mode indicator — fixed bottom pill, visible only when active */}
+    {isReadingMode && (
+      <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 bg-gray-900 border border-border rounded-full text-xs shadow-xl select-none">
+        <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+        <span className="font-medium text-text-primary">Reading Mode</span>
+        <span className="text-text-tertiary">· Press R or click EXIT to return</span>
+      </div>
+    )}
     </OnboardingPanel>
   )
 }

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { InvestmentThesisStructured, SignalBreakdown, TriggerItem, FairValueCalibration } from '@/types/api'
 import { MarketRegimeOverlay } from './MarketRegimeOverlay'
 
@@ -99,27 +100,34 @@ function ConfidencePill({ pct }: { pct: number }) {
   ))
 
   return (
-    <div
-      className={`inline-flex flex-col gap-1 text-xs font-medium px-2.5 py-1.5 rounded border ${color}`}
-      title={`Confidence Level: ${levelLabel}. Driven by: (1) signal dispersion & cross-category alignment, (2) volatility regime dynamics, (3) earnings/event compression in signal timing, (4) regime consistency across fundamental, technical, and flow signals. Typical operational range: 55–85%. Not a probability estimate — reflects analytical confidence, not outcome certainty.`}
-    >
-      <div className="flex items-center gap-1.5">
-        <span>Confidence Level: {levelLabel}</span>
-      </div>
-      <div className="opacity-60 text-[9px] font-normal leading-none -mt-0.5">
-        Signal Stability &amp; Regime Alignment
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className="text-[9px] opacity-50 shrink-0">55</span>
-        <div className="relative flex-1 h-1 bg-current/10 rounded-full overflow-hidden">
-          <div
-            className={`absolute h-full w-1 ${barColor} rounded-full`}
-            style={{ left: `calc(${markerPos}% - 2px)` }}
-          />
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div
+          className={`inline-flex flex-col gap-1 text-xs font-medium px-2.5 py-1.5 rounded border ${color}`}
+        >
+          <div className="flex items-center gap-1.5">
+            <span>Confidence Level: {levelLabel}</span>
+          </div>
+          <div className="opacity-60 text-[9px] font-normal leading-none -mt-0.5">
+            Signal Stability &amp; Regime Alignment
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] opacity-50 shrink-0">55</span>
+            <div className="relative flex-1 h-1 bg-current/10 rounded-full overflow-hidden">
+              <div
+                className={`absolute h-full w-1 ${barColor} rounded-full`}
+                style={{ left: `calc(${markerPos}% - 2px)` }}
+              />
+            </div>
+            <span className="text-[9px] opacity-50 shrink-0">85</span>
+          </div>
         </div>
-        <span className="text-[9px] opacity-50 shrink-0">85</span>
-      </div>
-    </div>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs" side="bottom">
+        <p className="text-xs font-medium leading-snug">Signal coherence integrity under current regime. Not a directional probability.</p>
+        <p className="text-xs leading-relaxed mt-1 opacity-75">Driven by cross-signal alignment, signal stability, data completeness, and inverse signal spread. Typical operational range: 55–85%. A high-confidence cautious thesis is high confidence in that cautious thesis — directionally neutral.</p>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

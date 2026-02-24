@@ -6,8 +6,10 @@
 // and Signal Regime Context header for fragility vs confirmation state framing.
 
 import { useState } from 'react'
+import { Info } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { SignalBreakdown } from '@/types/api'
 
 interface SignalBreakdownCardProps {
@@ -137,7 +139,20 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Multi-Factor Signal Assessment</CardTitle>
+            <div className="flex items-center gap-1.5">
+              <CardTitle>Multi-Factor Signal Assessment</CardTitle>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" className="text-text-tertiary/40 hover:text-text-tertiary/70 transition-colors flex-shrink-0">
+                    <Info className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs" side="bottom">
+                  <p className="text-xs font-medium leading-snug">Cross-category evaluation of fundamental, flow, and technical signal alignment.</p>
+                  <p className="text-xs leading-relaxed mt-1 opacity-75">Synthesizes 7 independent signal dimensions weighted by analytical category and regime sensitivity. Signal disagreement in uncertain regimes is expected — the composite reflects weight of evidence, not a binary outcome.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <p className="text-[10px] text-text-tertiary/70 mt-0.5">
               7-signal cross-category evaluation · regime-conditioned weighting
             </p>
@@ -438,7 +453,15 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-xs">
                   <div>
-                    <span className="text-text-tertiary block">Signal Strength</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-text-tertiary block cursor-default">Signal Strength</span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs" side="top">
+                        <p className="text-xs font-medium leading-snug">Cross-signal coherence measure. High readings indicate alignment — not return magnitude.</p>
+                        <p className="text-xs leading-relaxed mt-1 opacity-75">Measures agreement across independent signal dimensions under current regime weighting. Strong readings indicate internal analytical consistency — not the expected direction or size of price movement.</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <span
                       className={`font-semibold ${
                         (breakdown.signal_strength ?? 5) >= 7
@@ -452,7 +475,15 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
                     </span>
                   </div>
                   <div>
-                    <span className="text-text-tertiary block">Signal Stability</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-text-tertiary block cursor-default">Signal Stability</span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs" side="top">
+                        <p className="text-xs font-medium leading-snug">Persistence measure of signal readings over time. Stable signals reduce expected outcome variance.</p>
+                        <p className="text-xs leading-relaxed mt-1 opacity-75">Characterizes the temporal consistency of signal readings across recent periods. High stability indicates signals have maintained their directional stance — reducing the probability of abrupt reversal. Low stability indicates a regime in transition.</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <span
                       className={`font-semibold ${
                         (breakdown.signal_stability ?? 5) >= 7
@@ -466,7 +497,15 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
                     </span>
                   </div>
                   <div>
-                    <span className="text-text-tertiary block">Data Integrity</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-text-tertiary block cursor-default">Data Integrity</span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs" side="top">
+                        <p className="text-xs font-medium leading-snug">Proportion of signal inputs confirmed by available data. Drives composite reliability.</p>
+                        <p className="text-xs leading-relaxed mt-1 opacity-75">Reflects the fraction of the 7-signal composite with confirmed data coverage. Excluded signals are not defaulted to neutral — lower integrity reduces composite reliability without invalidating confirmed signals.</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <span
                       className={`font-semibold ${
                         breakdown.data_integrity_label === 'Complete'

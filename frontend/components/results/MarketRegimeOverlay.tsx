@@ -10,7 +10,8 @@ interface RegimeItem {
   label: string
   value: string
   color: RegimeColor
-  tooltip: string
+  tooltipL1: string
+  tooltipL2: string
 }
 
 function deriveRiskEnvironment(breakdown: SignalBreakdown): RegimeItem {
@@ -20,8 +21,8 @@ function deriveRiskEnvironment(breakdown: SignalBreakdown): RegimeItem {
       label: 'Risk Environment',
       value: 'Risk-On',
       color: 'success',
-      tooltip:
-        'Broad signal consensus points to favorable conditions for risk assets. Bullish signals dominate the matrix, indicating market participants are positioned for upside.',
+      tooltipL1: 'Broad signal consensus reflects favorable structural conditions. Characterizes alignment — not return probability.',
+      tooltipL2: 'Signal matrix reflects broad alignment toward favorable conditions for risk assets. Characterizes the prevailing signal environment — not a directional mandate, expected return magnitude, or entry timing signal.',
     }
   }
   if (score <= 4.0) {
@@ -29,16 +30,16 @@ function deriveRiskEnvironment(breakdown: SignalBreakdown): RegimeItem {
       label: 'Risk Environment',
       value: 'Risk-Off',
       color: 'error',
-      tooltip:
-        'Signal consensus indicates defensive positioning is warranted. Bearish readings across multiple signals suggest elevated caution. Risk assets may face headwinds.',
+      tooltipL1: 'Signal consensus reflects defensive structural conditions. Not a directive to reduce exposure.',
+      tooltipL2: 'Broad signals reflect structural alignment toward defensive conditions. Characterizes prevailing signal weight — not a loss-magnitude indicator or position instruction. Conditions warrant analytical caution, not automatic de-risking.',
     }
   }
   return {
     label: 'Risk Environment',
     value: 'Neutral',
     color: 'neutral',
-    tooltip:
-      'Signal matrix is balanced without a clear directional conviction. Neither risk-on nor risk-off conditions dominate. Await a cleaner signal before establishing directional positioning.',
+    tooltipL1: 'Signal matrix is balanced without directional conviction. Outcome distribution is approximately symmetric.',
+    tooltipL2: 'Broad signal weight reflects no structural dominance in either direction. Neither risk-on nor risk-off conditions prevail — outcome distribution remains symmetric from current conditions.',
   }
 }
 
@@ -55,8 +56,8 @@ function deriveLiquidityState(breakdown: SignalBreakdown): RegimeItem {
       label: 'Liquidity State',
       value: 'Expansion',
       color: 'cyan',
-      tooltip:
-        'Institutional and dark pool activity indicate net accumulation. Large capital flows suggest expanding liquidity — institutions are adding exposure, which historically supports price.',
+      tooltipL1: 'Net institutional accumulation detected. Characterizes capital flow direction — not asset quality.',
+      tooltipL2: 'Institutional and dark pool activity indicate net accumulation. Expansion characterizes capital flow directionality — not company financial quality or near-term return certainty. Net inflows historically support price, but correlation is not causation.',
     }
   }
   if (avg <= 4.2) {
@@ -64,16 +65,16 @@ function deriveLiquidityState(breakdown: SignalBreakdown): RegimeItem {
       label: 'Liquidity State',
       value: 'Contraction',
       color: 'warning',
-      tooltip:
-        'Institutional selling pressure and reduced dark pool activity point to liquidity contraction. Smart money appears to be reducing exposure, which can create supply overhang.',
+      tooltipL1: 'Institutional distribution detected. Characterizes flow directionality — not fundamental deterioration.',
+      tooltipL2: 'Institutional and dark pool signals indicate net distribution. Contraction characterizes capital flow directionality — not company quality impairment. Smart money reduction can create supply overhang independent of fundamental thesis validity.',
     }
   }
   return {
     label: 'Liquidity State',
     value: 'Neutral',
     color: 'neutral',
-    tooltip:
-      'Institutional and dark pool activity show no strong directional bias. Liquidity conditions are balanced — neither aggressive accumulation nor distribution is detected.',
+    tooltipL1: 'Capital flows show no strong directional bias. Neither accumulation nor distribution dominates.',
+    tooltipL2: 'Institutional and dark pool activity show balanced directionality — neither aggressive accumulation nor distribution is structurally detectable. Liquidity conditions are symmetric relative to prevailing baseline.',
   }
 }
 
@@ -86,8 +87,8 @@ function deriveVolatilityState(breakdown: SignalBreakdown): RegimeItem {
       label: 'Volatility State',
       value: 'Stress',
       color: 'error',
-      tooltip:
-        'High signal dispersion indicates elevated uncertainty. Wide spread between bullish and bearish signals historically corresponds to periods of elevated realized volatility and larger intraday price swings.',
+      tooltipL1: 'Wide signal dispersion indicates elevated outcome uncertainty. Not a directional signal.',
+      tooltipL2: 'High signal dispersion reflects elevated outcome variance across the analytical composite. Stress characterizes uncertainty breadth — not direction. Both recovery and further weakness are statistically plausible. Position sizing should reflect the uncertainty envelope.',
     }
   }
   if (spread >= 2.0 || spreadLabel === 'Moderate') {
@@ -95,16 +96,16 @@ function deriveVolatilityState(breakdown: SignalBreakdown): RegimeItem {
       label: 'Volatility State',
       value: 'Elevated',
       color: 'warning',
-      tooltip:
-        'Moderate signal divergence is present. Uncertainty is above baseline — expect more variable price action until signals converge. Not a stress condition, but noteworthy.',
+      tooltipL1: 'Signal divergence is above baseline. Expect wider outcome range until signals converge.',
+      tooltipL2: 'Moderate signal divergence indicates above-baseline outcome variance. Not a stress condition, but noteworthy. Signal convergence typically precedes trend clarification — Elevated state warrants monitoring, not immediate position changes.',
     }
   }
   return {
     label: 'Volatility State',
     value: 'Low',
     color: 'success',
-    tooltip:
-      'Signal convergence suggests low volatility conditions. When signals broadly agree, realized volatility tends to be lower and trending conditions are more reliable.',
+    tooltipL1: 'Signal convergence indicates low variability environment. Trending conditions are more reliable.',
+    tooltipL2: 'Broad signal agreement reflects compressed outcome variance and structurally lower realized volatility. When signals align, trending conditions are historically more durable and momentum signals carry higher informational weight.',
   }
 }
 
@@ -133,7 +134,8 @@ function RegimeBadge({ item }: { item: RegimeItem }) {
         </div>
       </TooltipTrigger>
       <TooltipContent className="max-w-xs" side="bottom">
-        <p className="text-xs leading-relaxed">{item.tooltip}</p>
+        <p className="text-xs font-medium leading-snug">{item.tooltipL1}</p>
+        <p className="text-xs leading-relaxed mt-1 opacity-75">{item.tooltipL2}</p>
       </TooltipContent>
     </Tooltip>
   )
@@ -229,9 +231,17 @@ export function MarketRegimeOverlay({ breakdown }: MarketRegimeOverlayProps) {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-4 py-3 px-4 rounded-md bg-surface-elevated/60 border border-border-subtle">
-        <span className="text-xs font-medium text-text-tertiary uppercase tracking-wide shrink-0">
-          Market Regime
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-xs font-medium text-text-tertiary uppercase tracking-wide shrink-0 cursor-default">
+              Market Regime
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs" side="bottom">
+            <p className="text-xs font-medium leading-snug">Structural assessment of market behavior across risk, liquidity, and volatility dimensions.</p>
+            <p className="text-xs leading-relaxed mt-1 opacity-75">Descriptive, not predictive. Regime conditions characterize the prevailing analytical environment — they do not imply continuation, transition timing, or directional instruction.</p>
+          </TooltipContent>
+        </Tooltip>
         <div className="flex items-center gap-6 flex-wrap justify-end">
           <RegimeBadge item={risk} />
           <RegimeBadge item={liquidity} />

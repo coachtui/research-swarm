@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ChevronDown, ChevronUp, Scale, AlertTriangle, TrendingUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Scale, AlertTriangle, TrendingUp, Info } from 'lucide-react'
 import type { FairValueCalibration } from '@/types/api'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 const STORAGE_KEY = 'dvrg_fv_regime_check_expanded'
 
@@ -198,7 +199,21 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
       >
         <div className="flex items-center gap-2.5 flex-wrap">
           <Scale className="h-4 w-4 text-text-tertiary shrink-0" />
-          <span className="text-sm font-medium text-text-primary">Valuation Regime</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="text-sm font-medium text-text-primary inline-flex items-center gap-1"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Valuation Regime
+                <Info className="h-3 w-3 text-text-tertiary opacity-40 flex-shrink-0" />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs" side="bottom">
+              <p className="text-xs font-medium leading-snug">Structural regime classification derived from price-to-intrinsic-value positioning.</p>
+              <p className="text-xs leading-relaxed mt-1 opacity-75">Classifies the current valuation environment based on the relationship between current price and the blended intrinsic anchor. Regime label describes structural positioning — not a directional catalyst or near-term price prediction.</p>
+            </TooltipContent>
+          </Tooltip>
           {valuationState && <ValuationStateChip state={valuationState} />}
           {isStructuralPremium
             ? <StructuralPremiumChip />
@@ -241,9 +256,18 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
           {/* 3-column comparison: Structural Anchor | Analyst Consensus | Divergence */}
           <div className="grid grid-cols-3 gap-3">
             <div className="text-center">
-              <div className="text-xs text-text-tertiary mb-1">
-                {isStructuralPremium ? 'Mean Reversion Reference' : 'Intrinsic Anchor'}
-              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="text-xs text-text-tertiary mb-1 inline-flex items-center gap-1 cursor-default">
+                    {isStructuralPremium ? 'Mean Reversion Reference' : 'Intrinsic Anchor'}
+                    <Info className="h-2.5 w-2.5 opacity-40 flex-shrink-0" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[260px]" side="top">
+                  <p className="text-xs font-medium leading-snug">Blended intrinsic estimate under modeled assumptions. Not a price target.</p>
+                  <p className="text-xs leading-relaxed mt-1 opacity-75">Synthesized across forward P/E, EV/EBITDA, and DCF inputs. Divergence from current price reflects market premium or discount to model inputs — not forecast certainty or analytical bias toward either direction.</p>
+                </TooltipContent>
+              </Tooltip>
               <div className="text-xl font-mono font-semibold text-text-primary">
                 {fmt(calibration.internal_fair_value)}
               </div>
@@ -263,7 +287,18 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
               </div>
             </div>
             <div className="text-center">
-              <div className="text-xs text-text-tertiary mb-1">Divergence</div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="text-xs text-text-tertiary mb-1 inline-flex items-center gap-1 cursor-default">
+                    Divergence
+                    <Info className="h-2.5 w-2.5 opacity-40 flex-shrink-0" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-[260px]" side="top">
+                  <p className="text-xs font-medium leading-snug">Premium or discount between intrinsic anchor and analyst consensus. Informational only.</p>
+                  <p className="text-xs leading-relaxed mt-1 opacity-75">Measures the structural gap between the model-derived intrinsic anchor and sell-side consensus. High divergence does not indicate error in either estimate — both are independently valid within their respective frameworks. Does not modify either figure.</p>
+                </TooltipContent>
+              </Tooltip>
               <div className="text-xl font-mono font-semibold">
                 <DivergenceBadge pct={calibration.divergence_pct} />
               </div>
