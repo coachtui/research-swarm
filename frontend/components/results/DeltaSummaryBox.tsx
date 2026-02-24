@@ -1,6 +1,6 @@
 'use client'
 
-import type { PreviousAnalysisDelta } from '@/types/api'
+import type { PreviousAnalysisDelta, EVAttributionDriver, StopProbDriftDecomposition } from '@/types/api'
 
 interface DeltaSummaryBoxProps {
   delta: PreviousAnalysisDelta
@@ -36,12 +36,258 @@ function scoreDeltaColor(delta: number | null): string {
   return 'text-text-secondary'
 }
 
+/** Arrow + color for a metric where higher is WORSE (stop prob, noise, instability) */
+function riskDeltaDisplay(prior: number | null | undefined, current: number | null | undefined, unit = '%') {
+  if (prior == null || current == null) return { arrow: '–', color: 'text-text-tertiary', label: 'N/A' }
+  const d = current - prior
+  if (Math.abs(d) < 0.5) return { arrow: '→', color: 'text-text-secondary', label: `${d > 0 ? '+' : ''}${d.toFixed(1)}${unit}` }
+  if (d > 0) return { arrow: '↑', color: 'text-error', label: `+${d.toFixed(1)}${unit}` }
+  return { arrow: '↓', color: 'text-success', label: `${d.toFixed(1)}${unit}` }
+}
+
+/** Arrow + color for a metric where higher is BETTER (confidence) */
+function qualityDeltaDisplay(prior: number | null | undefined, current: number | null | undefined, unit = '') {
+  if (prior == null || current == null) return { arrow: '–', color: 'text-text-tertiary', label: 'N/A' }
+  const d = current - prior
+  if (Math.abs(d) < 0.5) return { arrow: '→', color: 'text-text-secondary', label: `${d > 0 ? '+' : ''}${d.toFixed(1)}${unit}` }
+  if (d > 0) return { arrow: '↑', color: 'text-success', label: `+${d.toFixed(1)}${unit}` }
+  return { arrow: '↓', color: 'text-warning', label: `${d.toFixed(1)}${unit}` }
+}
+
+function driftLevelColor(level: string | null | undefined): string {
+  if (level === 'Significant') return 'text-error'
+  if (level === 'Moderate') return 'text-warning'
+  if (level === 'Modest') return 'text-amber-400'
+  return 'text-success'
+}
+
+function driftLevelBg(level: string | null | undefined): string {
+  if (level === 'Significant') return 'bg-error/10 border-error/30'
+  if (level === 'Moderate') return 'bg-warning/10 border-warning/30'
+  if (level === 'Modest') return 'bg-amber-400/10 border-amber-400/30'
+  return 'bg-success/10 border-success/30'
+}
+
+function attributionDriverColor(dir: string): string {
+  if (dir === 'bearish') return 'text-error'
+  if (dir === 'bullish') return 'text-success'
+  return 'text-text-secondary'
+}
+
+function componentDeltaColor(delta: number): string {
+  if (delta > 1) return 'text-error'
+  if (delta < -1) return 'text-success'
+  return 'text-text-secondary'
+}
+
+// ── MODEL DRIFT SUMMARY sub-section ─────────────────────────────────────────
+
+function ModelDriftSummary({ delta }: { delta: PreviousAnalysisDelta }) {
+  const {
+    prior_stop_probability_pct,
+    current_stop_probability_pct,
+    prior_confidence_pct,
+    current_confidence_pct,
+    prior_stability_score,
+    current_stability_score,
+    prior_stability_class,
+    current_stability_class,
+    prior_scenario_weights,
+    current_scenario_weights,
+    model_drift_level,
+    scenario_rotation_label,
+    ev_attribution,
+    stop_prob_drift_decomposition,
+  } = delta
+
+  // Only render if we have at least some probabilistic data
+  const hasProbData = prior_stop_probability_pct != null || prior_confidence_pct != null || prior_stability_score != null
+
+  if (!hasProbData) return null
+
+  const stopDelta   = riskDeltaDisplay(prior_stop_probability_pct, current_stop_probability_pct)
+  const confDelta   = qualityDeltaDisplay(prior_confidence_pct, current_confidence_pct)
+  // For instability score: lower is better, so treat like risk (higher = worse)
+  const stabDelta   = riskDeltaDisplay(prior_stability_score, current_stability_score, '')
+
+  const stabilityClassChanged = prior_stability_class && current_stability_class && prior_stability_class !== current_stability_class
+
+  // Interpretive regime note
+  let driftInterpretation = ''
+  if (model_drift_level === 'Significant') {
+    driftInterpretation = 'Substantial model state change detected. Treat current output as a materially different setup from the prior run.'
+  } else if (model_drift_level === 'Moderate') {
+    driftInterpretation = 'Meaningful model drift observed. Output reflects updated regime conditions — review key changes before acting.'
+  } else if (model_drift_level === 'Modest') {
+    driftInterpretation = 'Minor model evolution detected. Inputs shifted incrementally — core thesis unchanged but risk parameters updated.'
+  } else {
+    driftInterpretation = 'Model state is stable. Output variation within normal recalculation tolerance — thesis continuity maintained.'
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* MODEL DRIFT SUMMARY header */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-[10px] font-bold text-text-secondary uppercase tracking-wide">Model Drift Summary</p>
+        {model_drift_level && (
+          <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border ${driftLevelBg(model_drift_level)} ${driftLevelColor(model_drift_level)}`}>
+            {model_drift_level} Drift
+          </span>
+        )}
+      </div>
+
+      {/* 3-metric drift grid */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-md bg-surface/60 border border-border p-2">
+          <p className="text-[9px] text-text-tertiary uppercase tracking-wide mb-1">Stop Probability</p>
+          {prior_stop_probability_pct != null && current_stop_probability_pct != null ? (
+            <>
+              <p className="text-xs font-bold text-text-primary">
+                {prior_stop_probability_pct.toFixed(0)}% → {current_stop_probability_pct.toFixed(0)}%
+              </p>
+              <p className={`text-[10px] font-semibold ${stopDelta.color}`}>
+                {stopDelta.arrow} {stopDelta.label}
+              </p>
+            </>
+          ) : <p className="text-xs text-text-tertiary">N/A</p>}
+        </div>
+
+        <div className="rounded-md bg-surface/60 border border-border p-2">
+          <p className="text-[9px] text-text-tertiary uppercase tracking-wide mb-1">Model Confidence</p>
+          {prior_confidence_pct != null && current_confidence_pct != null ? (
+            <>
+              <p className="text-xs font-bold text-text-primary">
+                {prior_confidence_pct.toFixed(0)} → {current_confidence_pct.toFixed(0)}
+              </p>
+              <p className={`text-[10px] font-semibold ${confDelta.color}`}>
+                {confDelta.arrow} {confDelta.label}
+              </p>
+            </>
+          ) : <p className="text-xs text-text-tertiary">N/A</p>}
+        </div>
+
+        <div className="rounded-md bg-surface/60 border border-border p-2">
+          <p className="text-[9px] text-text-tertiary uppercase tracking-wide mb-1">Instability Score</p>
+          {prior_stability_score != null && current_stability_score != null ? (
+            <>
+              <p className="text-xs font-bold text-text-primary">
+                {prior_stability_score.toFixed(1)} → {current_stability_score.toFixed(1)}
+              </p>
+              <p className={`text-[10px] font-semibold ${stabDelta.color}`}>
+                {stabDelta.arrow} Δ{stabDelta.label}
+              </p>
+            </>
+          ) : <p className="text-xs text-text-tertiary">N/A</p>}
+        </div>
+      </div>
+
+      {/* Stability class transition */}
+      {stabilityClassChanged && (
+        <div className="rounded-md bg-warning/8 border border-warning/25 px-3 py-2">
+          <p className="text-[10px] font-semibold text-warning">
+            EV Stability Regime Shift: {prior_stability_class} → {current_stability_class}
+          </p>
+        </div>
+      )}
+
+      {/* Scenario weights delta */}
+      {prior_scenario_weights && current_scenario_weights && (
+        <div className="rounded-md bg-surface/40 border border-border p-2.5 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <p className="text-[9px] font-bold text-text-tertiary uppercase tracking-wide">Scenario Weights</p>
+            {scenario_rotation_label && (
+              <span className={`text-[9px] font-bold uppercase tracking-wide ${
+                scenario_rotation_label === 'SIGNIFICANT' ? 'text-warning' :
+                scenario_rotation_label === 'MODERATE' ? 'text-amber-400' : 'text-success'
+              }`}>
+                {scenario_rotation_label} Rotation
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-1 text-center">
+            {(['bear', 'base', 'bull'] as const).map(s => {
+              const prior = prior_scenario_weights[s]
+              const cur = current_scenario_weights[s]
+              const d = (cur - prior) * 100
+              const isRisk = s === 'bear'
+              const color = Math.abs(d) < 1 ? 'text-text-secondary' : (isRisk ? (d > 0 ? 'text-error' : 'text-success') : (d > 0 ? 'text-success' : 'text-warning'))
+              return (
+                <div key={s}>
+                  <p className="text-[9px] text-text-tertiary capitalize">{s}</p>
+                  <p className="text-[10px] font-bold text-text-primary">{(prior * 100).toFixed(0)}% → {(cur * 100).toFixed(0)}%</p>
+                  <p className={`text-[9px] font-semibold ${color}`}>{d > 0 ? '+' : ''}{d.toFixed(0)}%</p>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* EV Change Attribution */}
+      {ev_attribution && ev_attribution.length > 0 && (
+        <div className="rounded-md border border-primary/15 bg-surface/40 p-2.5 space-y-1.5">
+          <p className="text-[9px] font-bold text-primary uppercase tracking-wide">EV Change Drivers</p>
+          <div className="space-y-1">
+            {ev_attribution.map((attr: EVAttributionDriver, i: number) => (
+              <div key={i} className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-text-secondary">• {attr.driver}</span>
+                <span className={`text-[10px] font-semibold font-mono shrink-0 ${attributionDriverColor(attr.direction)}`}>
+                  {attr.delta != null ? (attr.delta > 0 ? `+${attr.delta}` : `${attr.delta}`) : attr.direction}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Stop Probability Drift Decomposition */}
+      {stop_prob_drift_decomposition && (
+        prior_stop_probability_pct != null && current_stop_probability_pct != null &&
+        Math.abs(current_stop_probability_pct - prior_stop_probability_pct) >= 3
+      ) && (
+        <div className="rounded-md bg-surface/40 border border-border p-2.5 space-y-1.5">
+          <p className="text-[9px] font-bold text-text-secondary uppercase tracking-wide">
+            Stop Risk Change Decomposition
+          </p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            {[
+              { label: 'BaseStopRisk', delta: stop_prob_drift_decomposition.base_delta },
+              { label: 'VolatilityPressure', delta: stop_prob_drift_decomposition.volatility_pressure_delta },
+              { label: 'TrendModifier', delta: stop_prob_drift_decomposition.trend_modifier_delta },
+              { label: 'SupportModifier', delta: stop_prob_drift_decomposition.support_modifier_delta },
+            ].map(c => (
+              <div key={c.label} className="flex items-center justify-between gap-1">
+                <span className="text-[9px] text-text-tertiary">{c.label}</span>
+                <span className={`text-[9px] font-mono font-semibold ${componentDeltaColor(c.delta)}`}>
+                  {c.delta > 0 ? '+' : ''}{c.delta.toFixed(1)}%
+                </span>
+              </div>
+            ))}
+          </div>
+          {stop_prob_drift_decomposition.prior_stop_label && stop_prob_drift_decomposition.current_stop_label &&
+            stop_prob_drift_decomposition.prior_stop_label !== stop_prob_drift_decomposition.current_stop_label && (
+            <p className="text-[9px] text-text-tertiary pt-0.5 border-t border-border/30">
+              {stop_prob_drift_decomposition.prior_stop_label} → {stop_prob_drift_decomposition.current_stop_label}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Interpretation */}
+      <p className="text-[10px] text-text-tertiary leading-relaxed italic">{driftInterpretation}</p>
+    </div>
+  )
+}
+
 /**
  * DeltaSummaryBox — opens the report with a "Since Last Analysis" summary
  * when the same user has a prior analysis for the same ticker.
  *
- * This is DVRG's longitudinal thesis tracker — transforms point-in-time snapshots
- * into a living thesis timeline for Trader-tier subscribers.
+ * Includes MODEL DRIFT SUMMARY (Sensitivity Attribution & Drift Diagnostics Engine):
+ * - Run-to-run deltas for stop probability, model confidence, instability score
+ * - Scenario weight rotation tracking
+ * - EV change attribution by driver
+ * - Stop probability drift decomposition (per-component deltas)
  */
 export function DeltaSummaryBox({ delta, ticker }: DeltaSummaryBoxProps) {
   const {
@@ -232,6 +478,9 @@ export function DeltaSummaryBox({ delta, ticker }: DeltaSummaryBoxProps) {
           )}
         </div>
       )}
+
+      {/* MODEL DRIFT SUMMARY — probabilistic engine run-to-run diagnostics */}
+      <ModelDriftSummary delta={delta} />
 
       {/* Thesis direction note */}
       <p className="text-[10px] text-text-tertiary leading-relaxed">

@@ -367,9 +367,12 @@ function ResultsContent({ runId }: { runId: string }) {
               <InstitutionalRiskDashboard breakdown={signal_breakdown} />
             )}
 
-            {/* Probabilistic Engine — EV stability, confidence, scenario weights, stop prob, noise */}
+            {/* Probabilistic Engine — EV stability, confidence, scenario weights, stop prob, noise, model drift */}
             {signal_breakdown && (
-              <ProbabilisticEngineDashboard breakdown={signal_breakdown} />
+              <ProbabilisticEngineDashboard
+                breakdown={signal_breakdown}
+                delta={full_output?.previous_analysis_delta ?? null}
+              />
             )}
 
             {/* Historical Pattern Framing */}

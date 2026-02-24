@@ -377,6 +377,144 @@ async def save_analysis_result(
                                         f"Price movement ({px_pct:+.1f}%) may have shifted distance factors"
                                     )
 
+                            # ── Probabilistic Module Drift (Sensitivity Attribution & Drift Diagnostics) ──
+                            prior_stop_data = (prior_sb.get('stop_probability') or {})
+                            cur_stop_data = (cur_sb.get('stop_probability') or {})
+                            prior_ev_stab = (prior_sb.get('ev_stability') or {})
+                            cur_ev_stab = (cur_sb.get('ev_stability') or {})
+                            prior_conf_int = (prior_sb.get('confidence_integrity') or {})
+                            cur_conf_int = (cur_sb.get('confidence_integrity') or {})
+                            prior_noise = (prior_sb.get('noise_filter') or {})
+                            cur_noise = (cur_sb.get('noise_filter') or {})
+                            prior_scenario_wd = (prior_sb.get('scenario_weight_diagnostics') or {})
+                            cur_scenario_wd = (cur_sb.get('scenario_weight_diagnostics') or {})
+
+                            prior_stop_pct = prior_stop_data.get('effective_stop_probability_pct')
+                            cur_stop_pct = cur_stop_data.get('effective_stop_probability_pct')
+                            prior_instability = prior_ev_stab.get('instability_score')
+                            cur_instability = cur_ev_stab.get('instability_score')
+                            prior_conf_pct = prior_conf_int.get('effective_confidence_pct')
+                            cur_conf_pct = cur_conf_int.get('effective_confidence_pct')
+                            prior_noise_score = prior_noise.get('noise_score')
+                            cur_noise_score = cur_noise.get('noise_score')
+                            prior_stab_class = prior_ev_stab.get('stability_class')
+                            cur_stab_class = cur_ev_stab.get('stability_class')
+
+                            # Scenario weights (bear/base/bull effective probabilities)
+                            prior_scenario_weights = None
+                            cur_scenario_weights = None
+                            if prior_scenario_wd:
+                                prior_scenario_weights = {
+                                    'bear': prior_scenario_wd.get('effective_bear_prob', 0.25),
+                                    'base': prior_scenario_wd.get('effective_base_prob', 0.50),
+                                    'bull': prior_scenario_wd.get('effective_bull_prob', 0.25),
+                                }
+                            if cur_scenario_wd:
+                                cur_scenario_weights = {
+                                    'bear': cur_scenario_wd.get('effective_bear_prob', 0.25),
+                                    'base': cur_scenario_wd.get('effective_base_prob', 0.50),
+                                    'bull': cur_scenario_wd.get('effective_bull_prob', 0.25),
+                                }
+
+                            # Model drift level — composite severity score
+                            drift_score = 0
+                            if prior_stop_pct is not None and cur_stop_pct is not None:
+                                sd = abs(float(cur_stop_pct) - float(prior_stop_pct))
+                                drift_score += 3 if sd >= 15 else 2 if sd >= 8 else 1 if sd >= 3 else 0
+                            if prior_instability is not None and cur_instability is not None:
+                                id_ = abs(float(cur_instability) - float(prior_instability))
+                                drift_score += 2 if id_ >= 3 else 1 if id_ >= 1.5 else 0
+                            if prior_conf_pct is not None and cur_conf_pct is not None:
+                                cd = abs(float(cur_conf_pct) - float(prior_conf_pct))
+                                drift_score += 2 if cd >= 20 else 1 if cd >= 10 else 0
+                            if prior_stab_class and cur_stab_class and prior_stab_class != cur_stab_class:
+                                drift_score += 2
+                            model_drift_level = (
+                                'Significant' if drift_score >= 5 else
+                                'Moderate' if drift_score >= 3 else
+                                'Modest' if drift_score >= 1 else
+                                'Stable'
+                            )
+
+                            # Scenario rotation label from current rotation index
+                            scenario_rotation_label = None
+                            if cur_scenario_wd:
+                                rot_idx = cur_scenario_wd.get('scenario_rotation_index', 0)
+                                scenario_rotation_label = (
+                                    'SIGNIFICANT' if rot_idx >= 15 else
+                                    'MODERATE' if rot_idx >= 5 else
+                                    'STABLE'
+                                )
+
+                            # EV change attribution — component-level drivers
+                            ev_attribution = []
+                            if prior_stop_pct is not None and cur_stop_pct is not None:
+                                sd = float(cur_stop_pct) - float(prior_stop_pct)
+                                if abs(sd) >= 3:
+                                    ev_attribution.append({
+                                        'driver': 'Stop Probability Drift',
+                                        'delta': round(sd, 1),
+                                        'direction': 'bearish' if sd > 0 else 'bullish',
+                                    })
+                            if prior_vol_trend and cur_vol_trend and prior_vol_trend != cur_vol_trend:
+                                ev_attribution.append({
+                                    'driver': 'Volatility Regime Shift',
+                                    'delta': None,
+                                    'direction': 'bearish' if cur_vol_trend == 'expanding' else 'bullish',
+                                })
+                            if prior_signal_spread is not None and cur_signal_spread is not None:
+                                sp_d = float(cur_signal_spread) - float(prior_signal_spread)
+                                if abs(sp_d) >= 0.3:
+                                    ev_attribution.append({
+                                        'driver': 'ConflictFactor Adjustment',
+                                        'delta': round(sp_d, 2),
+                                        'direction': 'bearish' if sp_d > 0 else 'bullish',
+                                    })
+                            if prior_price and cur_price and prior_price > 0:
+                                px = (cur_price - prior_price) / prior_price * 100
+                                if abs(px) >= 3:
+                                    ev_attribution.append({
+                                        'driver': 'Price Movement Impact',
+                                        'delta': round(px, 1),
+                                        'direction': 'neutral',
+                                    })
+                            if prior_conf_pct is not None and cur_conf_pct is not None:
+                                cp_d = float(cur_conf_pct) - float(prior_conf_pct)
+                                if abs(cp_d) >= 8:
+                                    ev_attribution.append({
+                                        'driver': 'Probability Reweighting',
+                                        'delta': round(cp_d, 1),
+                                        'direction': 'bearish' if cp_d < 0 else 'bullish',
+                                    })
+                            if prior_signal_stability is not None and cur_signal_stability is not None:
+                                ss_d = float(cur_signal_stability) - float(prior_signal_stability)
+                                if abs(ss_d) >= 0.8:
+                                    ev_attribution.append({
+                                        'driver': 'DistanceFactor Decay' if ss_d < 0 else 'Signal Stability Improvement',
+                                        'delta': round(ss_d, 1),
+                                        'direction': 'bearish' if ss_d < 0 else 'bullish',
+                                    })
+
+                            # Stop probability drift decomposition (per-component deltas)
+                            stop_prob_drift_decomposition = None
+                            if prior_stop_data and cur_stop_data:
+                                stop_prob_drift_decomposition = {
+                                    'base_delta': round(
+                                        float(cur_stop_data.get('base_stop_risk_pct', 25)) -
+                                        float(prior_stop_data.get('base_stop_risk_pct', 25)), 1),
+                                    'volatility_pressure_delta': round(
+                                        float(cur_stop_data.get('volatility_pressure_pct', 0)) -
+                                        float(prior_stop_data.get('volatility_pressure_pct', 0)), 1),
+                                    'trend_modifier_delta': round(
+                                        float(cur_stop_data.get('trend_modifier_pct', 0)) -
+                                        float(prior_stop_data.get('trend_modifier_pct', 0)), 1),
+                                    'support_modifier_delta': round(
+                                        float(cur_stop_data.get('support_modifier_pct', 0)) -
+                                        float(prior_stop_data.get('support_modifier_pct', 0)), 1),
+                                    'prior_stop_label': prior_stop_data.get('stop_probability_label'),
+                                    'current_stop_label': cur_stop_data.get('stop_probability_label'),
+                                }
+
                             delta = {
                                 'prior_run_id': str(prior.runId),
                                 'prior_analysis_date': prior.createdAt.isoformat(),
@@ -401,6 +539,23 @@ async def save_analysis_result(
                                 'prior_vol_trend': prior_vol_trend,
                                 'current_vol_trend': cur_vol_trend,
                                 'sensitivity_attribution': attribution,
+                                # Probabilistic module drift fields
+                                'prior_stop_probability_pct': float(prior_stop_pct) if prior_stop_pct is not None else None,
+                                'current_stop_probability_pct': float(cur_stop_pct) if cur_stop_pct is not None else None,
+                                'prior_confidence_pct': float(prior_conf_pct) if prior_conf_pct is not None else None,
+                                'current_confidence_pct': float(cur_conf_pct) if cur_conf_pct is not None else None,
+                                'prior_stability_score': float(prior_instability) if prior_instability is not None else None,
+                                'current_stability_score': float(cur_instability) if cur_instability is not None else None,
+                                'prior_noise_score': float(prior_noise_score) if prior_noise_score is not None else None,
+                                'current_noise_score': float(cur_noise_score) if cur_noise_score is not None else None,
+                                'prior_stability_class': prior_stab_class,
+                                'current_stability_class': cur_stab_class,
+                                'prior_scenario_weights': prior_scenario_weights,
+                                'current_scenario_weights': cur_scenario_weights,
+                                'model_drift_level': model_drift_level,
+                                'scenario_rotation_label': scenario_rotation_label,
+                                'ev_attribution': ev_attribution if ev_attribution else None,
+                                'stop_prob_drift_decomposition': stop_prob_drift_decomposition,
                             }
 
                             # Inject delta into full_output dict

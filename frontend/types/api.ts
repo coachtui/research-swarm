@@ -499,6 +499,23 @@ export interface DecisionFramework {
   regime_caveat?: string | null
 }
 
+/** Sensitivity attribution driver (EV change decomposition) */
+export interface EVAttributionDriver {
+  driver: string
+  delta: number | null
+  direction: 'bearish' | 'bullish' | 'neutral'
+}
+
+/** Stop probability drift decomposition — per-component deltas */
+export interface StopProbDriftDecomposition {
+  base_delta: number
+  volatility_pressure_delta: number
+  trend_modifier_delta: number
+  support_modifier_delta: number
+  prior_stop_label?: string | null
+  current_stop_label?: string | null
+}
+
 /** Previous analysis comparison for longitudinal delta tracking */
 export interface PreviousAnalysisDelta {
   prior_run_id: string
@@ -524,6 +541,23 @@ export interface PreviousAnalysisDelta {
   prior_vol_trend?: string | null
   current_vol_trend?: string | null
   sensitivity_attribution?: string[]
+  // Probabilistic module drift (Sensitivity Attribution & Drift Diagnostics Engine)
+  prior_stop_probability_pct?: number | null
+  current_stop_probability_pct?: number | null
+  prior_confidence_pct?: number | null
+  current_confidence_pct?: number | null
+  prior_stability_score?: number | null
+  current_stability_score?: number | null
+  prior_noise_score?: number | null
+  current_noise_score?: number | null
+  prior_stability_class?: string | null
+  current_stability_class?: string | null
+  prior_scenario_weights?: { bear: number; base: number; bull: number } | null
+  current_scenario_weights?: { bear: number; base: number; bull: number } | null
+  model_drift_level?: 'Stable' | 'Modest' | 'Moderate' | 'Significant' | null
+  scenario_rotation_label?: string | null
+  ev_attribution?: EVAttributionDriver[] | null
+  stop_prob_drift_decomposition?: StopProbDriftDecomposition | null
 }
 
 export interface TradeTarget {
