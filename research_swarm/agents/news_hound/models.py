@@ -368,10 +368,10 @@ class InsiderActivity(BaseModel):
     )
     key_transactions: List[str] = Field(
         default_factory=list,
-        description="Key transactions from OpenInsider scoring (mirrors notable_transactions for OpenInsider path)"
+        description="Key transactions from OpenInsider scoring"
     )
 
-    # Ownership (LLM-parsed fields)
+    # Ownership
     insider_ownership_pct: Optional[float] = Field(None, description="Total insider ownership %")
     ceo_ownership_pct: Optional[float] = Field(None, description="CEO ownership %")
     ownership_trend: str = Field("stable", description="Increasing/Stable/Decreasing")
@@ -380,18 +380,12 @@ class InsiderActivity(BaseModel):
     insider_sentiment: str = Field("neutral", description="Bullish/Neutral/Bearish")
     confidence: str = Field("medium", description="High/Medium/Low - based on transaction patterns")
 
-    # OpenInsider calculated score (0-10 scale) — preserved through serialization
+    # OpenInsider calculated score and layer breakdown — preserved through serialization
     insider_score: Optional[float] = Field(None, description="Calculated insider activity score (0-10)")
     has_data: bool = Field(False, description="Whether real transaction data was found")
-
-    # Layer 4: Ownership alignment fields — must survive Pydantic round-trip to reach signal_divergence
-    ownership_pct: Optional[float] = Field(None, description="Insider ownership % from yfinance heldPercentInsiders")
-    ownership_confidence: Optional[str] = Field(None, description="Ownership data confidence: high/medium/low")
     layer1_dollar_volume: Optional[float] = Field(None, description="Layer 1 dollar volume score")
     layer2_pattern: Optional[float] = Field(None, description="Layer 2 transaction pattern delta")
     layer3_role: Optional[float] = Field(None, description="Layer 3 role-based amplification delta")
-    layer4_ownership_alignment: Optional[float] = Field(None, description="Layer 4 ownership alignment delta")
-    floor_applied: bool = Field(False, description="Whether the ownership floor was triggered (ownership ≥5%, score floored at 4.0)")
 
     @model_validator(mode='before')
     @classmethod

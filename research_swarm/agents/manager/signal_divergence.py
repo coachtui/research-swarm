@@ -206,24 +206,6 @@ def calculate_signal_divergence(
                     "Open-market purchases by C-suite officers carry highest signal weight."
                 )
 
-        # P2b: Insider ownership anomaly flags — cross-reference ownership level with transaction signal
-        insider_ownership_pct = None
-        _insider_data = news_hound_output.get("insider_activity")
-        if isinstance(_insider_data, dict):
-            insider_ownership_pct = _insider_data.get("ownership_pct")
-
-        insider_ownership_anomaly = None
-        if insider_has_data and insider_ownership_pct is not None:
-            if insider_ownership_pct >= 0.10 and insider_score <= 3.5:
-                insider_ownership_anomaly = (
-                    "high_ownership_low_activity — founder/insider conviction intact despite light buying; "
-                    "monitor for distribution"
-                )
-            elif insider_ownership_pct < 0.01 and insider_score >= 8.0:
-                insider_ownership_anomaly = (
-                    "low_ownership_high_buying — unusual signal; verify open-market vs. grant-related purchases"
-                )
-
         data_integrity_label = (
             "Complete" if missing_signal_count == 0 else
             "Partial" if missing_signal_count <= 2 else
@@ -289,10 +271,8 @@ def calculate_signal_divergence(
             "volume_data_flag": volume_data_flag,
             # P1: Confidence reduction audit trail
             "confidence_reduction_log": confidence_reduction_log,
-            # P2: Insider anomaly notes
+            # P2: Insider anomaly note
             "insider_anomaly_note": insider_anomaly_note,
-            "insider_ownership_anomaly": insider_ownership_anomaly,
-            "insider_ownership_pct": insider_ownership_pct,
             # ADR / foreign listing flag — drives differentiated N/A display for insider + dark pool
             "is_adr": is_adr,
             # Divergence analysis

@@ -2,7 +2,7 @@
 Calculate insider activity metrics from transaction data.
 """
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from loguru import logger
 
 
@@ -10,7 +10,6 @@ def calculate_insider_metrics(
     insider_transactions: pd.DataFrame,
     days_back: int = 90,
     market_cap: float = None,
-    ticker_symbol: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Calculate insider activity metrics from transaction data.
@@ -214,58 +213,6 @@ def calculate_insider_metrics(
     if context_notes:
         logger.info(f"Context: {'; '.join(context_notes)}")
 
-    # ========== LAYER 4: OWNERSHIP ALIGNMENT (fallback path) ==========
-    # Derive a baseline score from the legacy sentiment so Layer 4 has something to anchor on
-    if net_value_usd > 5_000_000:
-        legacy_score = 8.5
-    elif net_value_usd > 2_000_000:
-        legacy_score = 7.5
-    elif net_value_usd > 1_000_000:
-        legacy_score = 7.0
-    elif net_value_usd < -5_000_000:
-        legacy_score = 1.5
-    elif net_value_usd < -2_000_000:
-        legacy_score = 2.5
-    elif net_value_usd < -1_000_000:
-        legacy_score = 3.0
-    elif net_value_usd > 500_000:
-        legacy_score = 6.0
-    elif net_value_usd < -500_000:
-        legacy_score = 4.0
-    else:
-        legacy_score = 5.0
-
-    ownership_pct = None
-    ownership_confidence = "low"
-    layer4_delta = 0.0
-    floor_applied = False
-
-    if ticker_symbol:
-        try:
-            from research_swarm.data.openinsider_client import (
-                get_insider_ownership_data,
-                calculate_ownership_alignment_score,
-            )
-            ownership_data = get_insider_ownership_data(ticker_symbol)
-            if ownership_data:
-                ownership_pct = ownership_data["ownership_pct"]
-                ownership_confidence = ownership_data["confidence"]
-
-                l4_adjustment, floor_applies = calculate_ownership_alignment_score(ownership_pct, legacy_score)
-                legacy_score += l4_adjustment
-                layer4_delta = l4_adjustment
-
-                if floor_applies and legacy_score < 4.0:
-                    legacy_score = 4.0
-                    floor_applied = True
-
-                if ownership_pct < 0.01 and legacy_score >= 7.0:
-                    legacy_score = min(legacy_score, 7.5)
-
-                legacy_score = max(0.0, min(10.0, legacy_score))
-        except Exception as e:
-            logger.warning(f"[{ticker_symbol}] Layer 4 ownership fetch failed in fallback calculator: {e}")
-
     return {
         "buy_transactions": buy_transactions,
         "sell_transactions": sell_transactions,
@@ -278,12 +225,6 @@ def calculate_insider_metrics(
         "insider_sentiment": insider_sentiment,
         "ownership_trend": ownership_trend,
         "has_data": True,
-        # Layer 4 fields — consistent with OpenInsider path
-        "insider_score": round(legacy_score, 1),
-        "layer4_ownership_alignment": round(layer4_delta, 1),
-        "ownership_pct": ownership_pct,
-        "ownership_confidence": ownership_confidence,
-        "floor_applied": floor_applied,
         # Context
         "context_notes": context_notes,
         "ceo_transactions": ceo_transactions,

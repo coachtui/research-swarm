@@ -6,94 +6,11 @@ which is more reliable and detailed than yfinance.
 """
 import requests
 import pandas as pd
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from loguru import logger
 from bs4 import BeautifulSoup
 import time
-
-
-def get_insider_ownership_data(ticker_symbol: str) -> Optional[Dict[str, Any]]:
-    """
-    Fetch insider ownership percentage from yfinance.
-
-    Uses heldPercentInsiders from ticker.info as the primary ownership signal.
-    Falls back gracefully — never crashes the scoring pipeline.
-
-    Returns:
-        Dict with ownership_pct (float), data_source (str), confidence (str)
-        or None if the fetch fails or data is unavailable.
-    """
-    try:
-        import yfinance as yf
-        ticker = yf.Ticker(ticker_symbol)
-        info = ticker.info
-
-        held_pct = info.get('heldPercentInsiders')
-        if held_pct is None:
-            logger.warning(f"[{ticker_symbol}] heldPercentInsiders not available in yfinance info")
-            return None
-
-        held_pct = float(held_pct)
-
-        # yfinance info reflects 13F/proxy filings — generally current within 1 quarter
-        confidence = "high" if held_pct > 0 else "medium"
-
-        logger.info(f"[{ticker_symbol}] Insider ownership fetched: {held_pct:.2%} (confidence: {confidence})")
-        return {
-            "ownership_pct": held_pct,
-            "data_source": "yfinance_heldPercentInsiders",
-            "confidence": confidence,
-        }
-
-    except Exception as e:
-        logger.warning(f"[{ticker_symbol}] Failed to fetch insider ownership data: {e}")
-        return None
-
-
-def calculate_ownership_alignment_score(
-    ownership_pct: Optional[float],
-    existing_transaction_score: float,
-) -> Tuple[float, bool]:
-    """
-    Layer 4: Ownership alignment adjustment.
-
-    Ownership tiers:
-        >= 10%  → +1.0  (founder / controlling insider — strong skin-in-the-game)
-        5–9.9%  → +0.5  (meaningful stake — aligns incentives)
-        1–4.9%  → 0.0   (neutral — no change to transaction signal)
-        < 1%    → -0.5  (low alignment — tempers bullish reads)
-        None    → 0.0   (missing data — never penalise)
-
-    Floor rule:  if ownership_pct >= 5%, final score cannot go below 4.0
-                 (significant holders profit-taking shouldn't read as strongly bearish)
-    Ceiling rule: if ownership_pct < 1% AND existing score >= 7.0, cap final score at 7.5
-                  (low-skin insiders buying aggressively warrants verification, not blind confidence)
-
-    Note: Floor/ceiling are enforced by the caller after adding the adjustment.
-
-    Args:
-        ownership_pct: Fractional insider ownership (e.g., 0.087 = 8.7%).
-        existing_transaction_score: Score value after Layers 1–3.
-
-    Returns:
-        Tuple of (base_adjustment, floor_applies_flag).
-        floor_applies_flag is True when the floor rule is relevant (ownership >= 5%).
-    """
-    if ownership_pct is None:
-        return 0.0, False
-
-    if ownership_pct >= 0.10:
-        base_adjustment = +1.0
-    elif ownership_pct >= 0.05:
-        base_adjustment = +0.5
-    elif ownership_pct >= 0.01:
-        base_adjustment = 0.0
-    else:
-        base_adjustment = -0.5
-
-    floor_applies = ownership_pct >= 0.05
-    return base_adjustment, floor_applies
 
 
 class OpenInsiderClient:
@@ -515,58 +432,20 @@ class OpenInsiderClient:
             score -= 0.5  # 10% owner selling (less significant than C-level)
             layer3_delta -= 0.5
 
-        # ========== LAYER 4: OWNERSHIP ALIGNMENT ==========
-        ownership_pct = None
-        ownership_confidence = "low"
-        layer4_delta = 0.0
-        floor_applied = False
-
-        try:
-            ownership_data = get_insider_ownership_data(ticker)
-            if ownership_data:
-                ownership_pct = ownership_data["ownership_pct"]
-                ownership_confidence = ownership_data["confidence"]
-
-                l4_adjustment, floor_applies = calculate_ownership_alignment_score(ownership_pct, score)
-                score += l4_adjustment
-                layer4_delta = l4_adjustment
-
-                # Floor: meaningful holders' profit-taking shouldn't read as strongly bearish
-                if floor_applies and score < 4.0:
-                    score = 4.0
-                    floor_applied = True
-                    logger.debug(f"[{ticker}] Layer 4 floor applied: ownership {ownership_pct:.1%} >= 5%, score floored at 4.0")
-
-                # Ceiling: low-skin insiders buying aggressively warrants verification
-                if ownership_pct < 0.01 and score >= 7.0:
-                    score = min(score, 7.5)
-                    logger.debug(f"[{ticker}] Layer 4 ceiling applied: ownership {ownership_pct:.1%} < 1%, score capped at 7.5")
-
-        except Exception as e:
-            logger.warning(f"[{ticker}] Layer 4 ownership fetch failed — proceeding without adjustment: {e}")
-
         # Cap score at 0-10 range
         score = max(0.0, min(10.0, score))
 
-        # Determine sentiment (ownership context can tip ambiguous middle ground)
-        if ownership_pct is not None and layer4_delta > 0 and 6.5 <= score < 7.0:
-            # Positive ownership alignment tips ambiguous 6.5–6.9 range to Bullish
-            sentiment = 'bullish'
-        elif ownership_pct is not None and layer4_delta < 0 and 7.0 <= score < 7.5:
-            # Low-skin insiders buying doesn't fully confirm Bullish at 7.0–7.4
-            sentiment = 'neutral'
-        elif score >= 7.0:
+        # Determine sentiment
+        if score >= 7.0:
             sentiment = 'bullish'
         elif score <= 3.0:
             sentiment = 'bearish'
         else:
             sentiment = 'neutral'
 
-        ownership_display = f"{ownership_pct:.1%}" if ownership_pct is not None else "N/A"
         logger.info(
             f"Insider score for {ticker}: {score:.1f}/10 ({sentiment}) — "
-            f"L1={layer1_score:.1f} L2Δ={layer2_delta:+.1f} L3Δ={layer3_delta:+.1f} "
-            f"L4Δ={layer4_delta:+.1f} (ownership={ownership_display}) — "
+            f"L1={layer1_score:.1f} L2Δ={layer2_delta:+.1f} L3Δ={layer3_delta:+.1f} — "
             f"{buy_count} buys, {sell_count} sells, net ${net_value:,.0f}"
         )
 
@@ -582,10 +461,6 @@ class OpenInsiderClient:
             'layer1_dollar_volume': round(layer1_score, 1),
             'layer2_pattern': round(layer2_delta, 1),
             'layer3_role': round(layer3_delta, 1),
-            'layer4_ownership_alignment': round(layer4_delta, 1),
-            'ownership_pct': ownership_pct,
-            'ownership_confidence': ownership_confidence,
-            'floor_applied': floor_applied,
         }
 
 
