@@ -485,13 +485,14 @@ export function ProbabilisticEngineDashboard({ breakdown }: ProbabilisticEngineD
     return null
   }
 
-  const tabs: Array<{ id: TabId; label: string; icon: React.ReactNode; available: boolean }> = [
+  const allTabs: Array<{ id: TabId; label: string; icon: React.ReactNode; available: boolean }> = [
     { id: 'ev', label: 'EV Stability', icon: <Activity className="w-3.5 h-3.5" />, available: !!evStability },
     { id: 'confidence', label: 'Confidence', icon: <Shield className="w-3.5 h-3.5" />, available: !!confidenceInt },
     { id: 'scenarios', label: 'Scenario Weights', icon: <BarChart3 className="w-3.5 h-3.5" />, available: !!scenarioWeights },
     { id: 'stop', label: 'Stop Probability', icon: <TrendingDown className="w-3.5 h-3.5" />, available: !!stopProb },
     { id: 'noise', label: 'Noise Filter', icon: <AlertTriangle className="w-3.5 h-3.5" />, available: !!noiseFilter },
-  ].filter(t => t.available)
+  ]
+  const tabs = allTabs.filter(t => t.available)
 
   // Keep active tab valid if data isn't present
   const validTab = tabs.find(t => t.id === activeTab) ? activeTab : (tabs[0]?.id ?? 'ev')
