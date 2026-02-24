@@ -394,6 +394,7 @@ function ResultsContent({ runId }: { runId: string }) {
               priceTargets={full_output.price_targets}
               currentPrice={decision_intelligence.current_price}
               ticker={result.ticker}
+              signalBreakdown={signal_breakdown}
             />
           )}
 

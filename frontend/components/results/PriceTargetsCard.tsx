@@ -2,7 +2,11 @@
 
 // All calculations are IDENTICAL to the original — only visual presentation is refined.
 // Changes: institutional header, layered tier labels, probability micro-context strips,
-// visual probability allocation bar. No numbers or weights were altered.
+// visual probability allocation bar, probability construction framework, effective EV table,
+// and distribution shape profile. No scenario numbers or weights were altered.
+
+import { useState } from 'react'
+import type { SignalBreakdown } from '@/types/api'
 
 interface PriceTargetsCardProps {
   priceTargets: {
@@ -19,9 +23,12 @@ interface PriceTargetsCardProps {
   }
   currentPrice: number
   ticker: string
+  signalBreakdown?: SignalBreakdown
 }
 
-export function PriceTargetsCard({ priceTargets, currentPrice }: PriceTargetsCardProps) {
+export function PriceTargetsCard({ priceTargets, currentPrice, signalBreakdown }: PriceTargetsCardProps) {
+  const [showProbFramework, setShowProbFramework] = useState(false)
+
   const baseUpside = ((priceTargets.base_target - currentPrice) / currentPrice) * 100
   const bullUpside = ((priceTargets.bull_target - currentPrice) / currentPrice) * 100
   const bearDownside = ((priceTargets.bear_target - currentPrice) / currentPrice) * 100
@@ -35,6 +42,62 @@ export function PriceTargetsCard({ priceTargets, currentPrice }: PriceTargetsCar
     priceTargets.base_target * baseW +
     priceTargets.bull_target * bullW
   const evVsCurrent = ((probWeightedEV - currentPrice) / currentPrice) * 100
+
+  // Effective EV: stability modifier dampens EV magnitude (instability reduces outcome magnitude, not just confidence)
+  const stabilityModifier = signalBreakdown?.data_integrity_confidence_factor ?? 1.0
+  const rawEvPct = evVsCurrent
+  const effectiveEvPct = rawEvPct * stabilityModifier
+  const effectiveEV = currentPrice * (1 + effectiveEvPct / 100)
+
+  // Distribution shape profile — derived from scenario geometry
+  const bullDistance = priceTargets.bull_target - priceTargets.base_target
+  const bearDistance = priceTargets.base_target - priceTargets.bear_target
+  const asymmetryRatio = bearDistance > 0 ? bullDistance / bearDistance : 1.0
+
+  // Probability-weighted moments (3rd moment skewness approximation)
+  const varianceProxy =
+    bearW * Math.pow(priceTargets.bear_target - probWeightedEV, 2) +
+    baseW * Math.pow(priceTargets.base_target - probWeightedEV, 2) +
+    bullW * Math.pow(priceTargets.bull_target - probWeightedEV, 2)
+  const stdDev = Math.sqrt(varianceProxy)
+  const skewnessProxy = stdDev > 0
+    ? (bearW * Math.pow(priceTargets.bear_target - probWeightedEV, 3) +
+       baseW * Math.pow(priceTargets.base_target - probWeightedEV, 3) +
+       bullW * Math.pow(priceTargets.bull_target - probWeightedEV, 3)) / Math.pow(stdDev, 3)
+    : 0
+
+  const scenarioSpreadPct = priceTargets.base_target > 0
+    ? ((priceTargets.bull_target - priceTargets.bear_target) / priceTargets.base_target) * 100
+    : 0
+
+  let leftTailLabel: string
+  let rightTailLabel: string
+  let distributionShapeLabel: string
+  let distributionShapeColor: string
+
+  if (skewnessProxy < -0.25) {
+    leftTailLabel = 'Thick — elevated downside event risk'
+    rightTailLabel = 'Thin — limited re-rating convexity'
+    distributionShapeLabel = 'Negatively skewed / concentrated downside'
+    distributionShapeColor = 'text-error'
+  } else if (skewnessProxy > 0.25) {
+    leftTailLabel = 'Thin — limited downside tail risk'
+    rightTailLabel = 'Thick — asymmetric upside convexity'
+    distributionShapeLabel = 'Positively skewed / convex upside'
+    distributionShapeColor = 'text-success'
+  } else {
+    leftTailLabel = 'Moderate — balanced downside risk'
+    rightTailLabel = 'Moderate — balanced upside potential'
+    distributionShapeLabel = 'Approximately symmetric distribution'
+    distributionShapeColor = 'text-text-secondary'
+  }
+
+  const kurtosisNote =
+    scenarioSpreadPct > 60
+      ? 'High kurtosis — wide tail events are material'
+      : scenarioSpreadPct > 30
+        ? 'Moderate kurtosis — meaningful tail outcomes'
+        : 'Low kurtosis — tight scenario band, limited tail risk'
 
   const bearPct  = Math.round(bearW * 100)
   const basePct  = Math.round(baseW * 100)
@@ -194,9 +257,11 @@ export function PriceTargetsCard({ priceTargets, currentPrice }: PriceTargetsCar
         </div>
       </div>
 
-      {/* Scenario-weighted EV summary — unchanged calculation */}
-      <div className="mt-4 pt-4 border-t border-border">
-        <div className="flex items-center justify-between flex-wrap gap-2 text-xs mb-1.5">
+      {/* ── EV Summary + Effective EV Table ── */}
+      <div className="mt-4 pt-4 border-t border-border space-y-3">
+
+        {/* Raw EV row */}
+        <div className="flex items-center justify-between flex-wrap gap-2 text-xs mb-0.5">
           <div className="flex items-center gap-2">
             <span className="text-text-tertiary">Scenario-Weighted Expected Value</span>
             <span className="font-semibold text-text-primary font-mono">
@@ -210,6 +275,54 @@ export function PriceTargetsCard({ priceTargets, currentPrice }: PriceTargetsCar
             {bearPct}/{basePct}/{bullPct} risk·cont·rerating
           </span>
         </div>
+
+        {/* Effective EV table — shows stability impact on EV magnitude */}
+        {signalBreakdown && (
+          <div className="rounded-md border border-border/50 bg-surface-elevated overflow-hidden">
+            <div className="px-3 py-1.5 border-b border-border/40 flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
+                EV → Stability Interaction
+              </span>
+              <span className="text-[9px] text-text-tertiary/50 italic">
+                Instability reduces EV magnitude, not only confidence
+              </span>
+            </div>
+            <div className="divide-y divide-border/30">
+              <div className="flex items-center justify-between px-3 py-1.5 text-xs">
+                <span className="text-text-tertiary">Raw EV</span>
+                <span className="font-mono text-text-primary">
+                  {rawEvPct > 0 ? '+' : ''}{rawEvPct.toFixed(2)}%
+                </span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-1.5 text-xs">
+                <span className="text-text-tertiary">
+                  Stability Modifier
+                  <span className="ml-1 text-text-tertiary/50 text-[10px]">
+                    ({signalBreakdown.valid_signal_count ?? '—'}/{((signalBreakdown.valid_signal_count ?? 0) + (signalBreakdown.missing_signal_count ?? 0))} signals confirmed)
+                  </span>
+                </span>
+                <span className={`font-mono font-semibold ${stabilityModifier >= 0.9 ? 'text-success' : stabilityModifier >= 0.75 ? 'text-warning' : 'text-error'}`}>
+                  {stabilityModifier.toFixed(2)}×
+                </span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2 text-xs bg-surface-elevated/60">
+                <span className="font-medium text-text-secondary">
+                  Effective EV
+                  <span className="ml-1 text-text-tertiary font-normal text-[10px]">(raw × modifier)</span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-semibold text-text-primary">
+                    ${effectiveEV.toFixed(2)}
+                  </span>
+                  <span className={`font-mono font-semibold text-sm ${effectiveEvPct >= 0 ? 'text-success' : 'text-error'}`}>
+                    {effectiveEvPct > 0 ? '+' : ''}{effectiveEvPct.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="text-[10px] text-text-tertiary">
           Current:{' '}
           <span className="font-mono">${currentPrice.toFixed(2)}</span>
@@ -224,6 +337,99 @@ export function PriceTargetsCard({ priceTargets, currentPrice }: PriceTargetsCar
           </span>
         </div>
       </div>
+
+      {/* ── Distribution Shape Profile ── */}
+      <div className="mt-4 pt-3 border-t border-border/40">
+        <div className="text-[10px] text-text-tertiary mb-2 uppercase tracking-wider font-medium">
+          Outcome Distribution Profile
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+          <div className="bg-surface-elevated rounded p-2 border border-border/40">
+            <div className="text-[9px] uppercase tracking-wider text-text-tertiary/70 mb-0.5 font-medium">
+              Left Tail
+            </div>
+            <div className="text-text-secondary leading-tight text-[11px]">{leftTailLabel}</div>
+          </div>
+          <div className="bg-surface-elevated rounded p-2 border border-border/40">
+            <div className="text-[9px] uppercase tracking-wider text-text-tertiary/70 mb-0.5 font-medium">
+              Right Tail
+            </div>
+            <div className="text-text-secondary leading-tight text-[11px]">{rightTailLabel}</div>
+          </div>
+          <div className="bg-surface-elevated rounded p-2 border border-border/40">
+            <div className="text-[9px] uppercase tracking-wider text-text-tertiary/70 mb-0.5 font-medium">
+              Kurtosis
+            </div>
+            <div className="text-text-secondary leading-tight text-[11px]">{kurtosisNote}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-text-tertiary">Distribution Shape:</span>
+          <span className={`font-medium ${distributionShapeColor}`}>
+            {distributionShapeLabel}
+          </span>
+          <span className="text-[10px] text-text-tertiary/50 font-mono">
+            (skew={skewnessProxy.toFixed(2)}, spread={scenarioSpreadPct.toFixed(0)}%)
+          </span>
+        </div>
+        <p className="text-[10px] text-text-tertiary/50 italic mt-1">
+          Derived from 3-scenario probability geometry · asymmetry ratio {asymmetryRatio.toFixed(2)}:1 (bull:bear distance)
+        </p>
+      </div>
+
+      {/* ── Probability Construction Framework (expandable) ── */}
+      {signalBreakdown?.probability_construction_framework && (
+        <div className="mt-3 pt-3 border-t border-border/40">
+          <button
+            onClick={() => setShowProbFramework(!showProbFramework)}
+            className="text-xs text-primary hover:text-primary-light transition-colors"
+          >
+            {showProbFramework ? 'Hide Probability Framework ↑' : 'Probability Construction Framework →'}
+          </button>
+
+          {showProbFramework && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
+                  Probability Derivation Logic
+                </span>
+                <span className="text-[9px] text-text-tertiary/50 italic">
+                  Structural — not opinion-based
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                {signalBreakdown.probability_construction_framework.factors.map((factor, i) => (
+                  <div key={i} className="rounded border border-border/40 bg-surface-elevated px-3 py-2">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-xs font-medium text-text-secondary">
+                        {factor.name}
+                      </span>
+                      <span className={`text-[10px] font-semibold px-1.5 py-0 rounded ${
+                        factor.impact_level === 'High' ? 'text-error bg-error/10 border border-error/20' :
+                        factor.impact_level === 'Moderate' ? 'text-warning bg-warning/10 border border-warning/20' :
+                        factor.impact_level === 'None' ? 'text-success bg-success/10 border border-success/20' :
+                        'text-text-tertiary border border-border/50'
+                      }`}>
+                        {factor.impact_level} Impact
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-text-tertiary mb-0.5">{factor.description}</div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-[11px] text-text-primary">{factor.current_value}</span>
+                    </div>
+                    <p className="text-[10px] text-text-tertiary/70 italic mt-0.5">{factor.effect}</p>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-[10px] text-text-tertiary/60 leading-relaxed border-l-2 border-border pl-2 mt-2">
+                {signalBreakdown.probability_construction_framework.derivation_note}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

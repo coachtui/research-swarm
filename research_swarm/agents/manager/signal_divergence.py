@@ -102,6 +102,13 @@ def calculate_signal_divergence(
         if rsi_extreme_flag:
             signal_stability = round(max(0.0, signal_stability - 1.5), 1)
 
+        # P3: Signal stability label (pre-computed as local var — used in both dict and probability_construction_framework)
+        signal_stability_label = (
+            "Stable" if signal_stability >= 7.0 else
+            "Mixed" if signal_stability >= 4.0 else
+            "Unstable"
+        )
+
         # P0: Divergence metric labeling — three distinct constructs, each labeled clearly
         # 1. signal_spread (σ): standard deviation across all 7 signal scores
         #    Drives the headline has_divergence flag — measures disagreement breadth
@@ -252,11 +259,7 @@ def calculate_signal_divergence(
                 "Weak"
             ),
             "signal_stability": signal_stability,
-            "signal_stability_label": (
-                "Stable" if signal_stability >= 7.0 else
-                "Mixed" if signal_stability >= 4.0 else
-                "Unstable"
-            ),
+            "signal_stability_label": signal_stability_label,
             # P1: RSI extreme condition flag
             "rsi_extreme_flag": rsi_extreme_flag,
             # P0: Divergence metric labeling — three clearly named constructs
@@ -281,6 +284,81 @@ def calculate_signal_divergence(
             "divergence_explanation": divergence_explanation,
             "divergence_recommendation": divergence_recommendation,
             "direction_consensus": direction_consensus,
+            # ── Probability Construction Framework ──
+            # Structural explanation of how scenario probability weights are derived.
+            # Each factor maps to an existing computed value — no new math, just explicit linkage.
+            "probability_construction_framework": {
+                "factors": [
+                    {
+                        "name": "Signal Agreement Dispersion",
+                        "description": "Standard deviation across all 7 signal scores (σ)",
+                        "current_value": f"σ={signal_spread:.2f} ({signal_spread_label} dispersion)",
+                        "effect": (
+                            "High dispersion → bear/bull weights elevated, base case probability compressed"
+                            if std_dev >= 2.0 else
+                            "Low-to-moderate dispersion → base case weight intact at 50%, mild tail adjustment"
+                        ),
+                        "impact_level": "High" if std_dev >= 2.0 else "Low",
+                    },
+                    {
+                        "name": "Volatility State Conditioning",
+                        "description": "Signal stability index (inverse of cross-signal variance)",
+                        "current_value": f"{signal_stability:.1f}/10 ({signal_stability_label} stability)",
+                        "effect": (
+                            "Low stability → base probability dampened, scenario tails widened"
+                            if signal_stability < 4.0 else
+                            "Stable regime → base probability maintained, outcome distribution tighter"
+                        ),
+                        "impact_level": "High" if signal_stability < 4.0 else "Low",
+                    },
+                    {
+                        "name": "Data Integrity Factor",
+                        "description": f"{valid_signal_count}/{len(all_scores)} confirmed signals",
+                        "current_value": f"{data_integrity_confidence_factor:.0%} confidence retained (vs 100% with full data)",
+                        "effect": (
+                            "Incomplete data widens effective confidence interval around all scenario estimates"
+                            if missing_signal_count > 0 else
+                            "Full signal coverage — no confidence penalty applied"
+                        ),
+                        "impact_level": "Moderate" if missing_signal_count > 0 else "None",
+                    },
+                    {
+                        "name": "Trend Persistence Factor",
+                        "description": "Technical momentum signal — measures direction continuity",
+                        "current_value": (
+                            f"{tech_div_score:.1f}/10 (momentum-aligned regime)"
+                            if tech_div_has_data else "Signal unavailable"
+                        ),
+                        "effect": (
+                            "Strong momentum → scenario distribution tilts toward trend-continuation outcome"
+                            if tech_div_has_data and tech_div_score >= 6.5 else
+                            "Weak/absent momentum → scenario weights revert to fundamental base"
+                        ),
+                        "impact_level": (
+                            "High" if tech_div_has_data and (tech_div_score >= 7.0 or tech_div_score <= 3.0) else
+                            "Low"
+                        ),
+                    },
+                ],
+                "derivation_note": (
+                    "Base case anchored at 50% (regime-continuation prior). "
+                    "Signal agreement dispersion and stability conditioning apply symmetric adjustments "
+                    "to bear/bull allocation. Data integrity factor scales the effective confidence "
+                    "interval without shifting scenario midpoints."
+                ),
+            },
+            # ── Factor Exposure ──
+            # Portfolio-level risk context derived from signal positioning and VGM factor scores.
+            "factor_exposure": _compute_factor_exposure(
+                fundamentalist_output=fundamentalist_output,
+                institutional_score=institutional_score,
+                institutional_has_data=institutional_has_data,
+                dark_pool_score=dark_pool_score,
+                dark_pool_has_data=dark_pool_has_data,
+                tech_div_score=tech_div_score,
+                tech_div_has_data=tech_div_has_data,
+                signal_strength=signal_strength,
+            ),
         }
 
         logger.info(
@@ -1061,3 +1139,114 @@ def _get_sentiment(score: float) -> str:
         return "moderately bearish"
     else:
         return "strongly bearish"
+
+
+def _compute_factor_exposure(
+    fundamentalist_output: Dict[str, Any],
+    institutional_score: float,
+    institutional_has_data: bool,
+    dark_pool_score: float,
+    dark_pool_has_data: bool,
+    tech_div_score: float,
+    tech_div_has_data: bool,
+    signal_strength: float,
+) -> Dict[str, Any]:
+    """
+    Compute portfolio-level factor exposure context.
+
+    Derives:
+    - Factor Tilt: from VGM scores (Value / Growth / Momentum classification)
+    - Crowding Risk: from institutional + dark pool positioning intensity
+    - Beta Contribution: proxied from technical momentum + signal strength
+    - Diversification Benefit: inverse of momentum/beta proxy
+
+    All values are approximations — flagged as estimates, not precise measurements.
+    """
+    # Factor tilt from VGM scores in fundamentalist output
+    vgm = {}
+    if isinstance(fundamentalist_output, dict):
+        vgm = fundamentalist_output.get("vgm_scores") or {}
+        if not isinstance(vgm, dict):
+            vgm = {}
+
+    value_s = float(vgm.get("value_score", 5.0))
+    growth_s = float(vgm.get("growth_score", 5.0))
+    momentum_s = float(vgm.get("momentum_score", 5.0))
+    style = vgm.get("best_fit_style", "") or ""
+
+    tilt: list = []
+    if growth_s >= 6.5:
+        tilt.append("Growth")
+    if momentum_s >= 6.5:
+        tilt.append("Momentum")
+    if value_s >= 6.5:
+        tilt.append("Value")
+    if not tilt:
+        tilt = ["Blended / Neutral"]
+
+    # Enrich with style label if available
+    if style and style not in tilt:
+        tilt_display = f"{', '.join(tilt)} ({style})"
+    else:
+        tilt_display = ", ".join(tilt)
+
+    # Crowding risk: high institutional + dark pool activity → elevated crowding
+    crowding_inputs = []
+    if institutional_has_data:
+        crowding_inputs.append(institutional_score)
+    if dark_pool_has_data:
+        crowding_inputs.append(dark_pool_score)
+
+    if crowding_inputs:
+        crowding_avg = sum(crowding_inputs) / len(crowding_inputs)
+        if crowding_avg >= 7.5:
+            crowding_risk = "Elevated"
+            crowding_note = "High institutional positioning and dark pool activity → potential for crowded exit if sentiment shifts"
+        elif crowding_avg >= 6.0:
+            crowding_risk = "Moderate"
+            crowding_note = "Moderate smart-money interest — watch for positioning concentration risk on adverse catalyst"
+        else:
+            crowding_risk = "Low"
+            crowding_note = "Institutional positioning does not indicate elevated crowding at current levels"
+    else:
+        crowding_risk = "Unknown"
+        crowding_note = "Insufficient positioning data to assess crowding risk"
+
+    # Beta contribution proxy: use tech_div (momentum) + signal_strength as beta proxies
+    # High momentum/strength → high beta behavior → low diversification benefit
+    if tech_div_has_data:
+        beta_proxy = tech_div_score * 0.55 + signal_strength * 0.45
+    else:
+        beta_proxy = signal_strength
+
+    if beta_proxy >= 7.5:
+        beta_contribution = "High"
+        beta_note = "High momentum/directional conviction — stock likely amplifies portfolio moves (β > 1.2 est.)"
+        diversification_benefit = "Low"
+        div_note = "High-beta characteristics — adds concentrated directional exposure, limited diversification"
+    elif beta_proxy >= 6.0:
+        beta_contribution = "Above-Market"
+        beta_note = "Moderate-high momentum — likely market-sensitive with some amplification (β ~1.0–1.2 est.)"
+        diversification_benefit = "Low–Moderate"
+        div_note = "Moderate diversification benefit — correlated with growth/momentum factor clusters"
+    elif beta_proxy >= 4.0:
+        beta_contribution = "Market-Rate"
+        beta_note = "Signals suggest market-rate sensitivity — directionally aligned with broad market (β ~0.8–1.0 est.)"
+        diversification_benefit = "Moderate"
+        div_note = "Moderate diversification benefit — market-correlated but not extreme factor tilt"
+    else:
+        beta_contribution = "Below-Market"
+        beta_note = "Weak momentum signals — defensively positioned relative to market momentum (β < 0.8 est.)"
+        diversification_benefit = "Moderate–High"
+        div_note = "Better diversification potential — lower directional correlation with risk-on factor clusters"
+
+    return {
+        "beta_contribution": beta_contribution,
+        "beta_note": beta_note,
+        "factor_tilt": tilt_display,
+        "crowding_risk": crowding_risk,
+        "crowding_note": crowding_note,
+        "diversification_benefit": diversification_benefit,
+        "diversification_note": div_note,
+        "estimation_note": "Beta contribution proxied from technical momentum and signal strength. Factor tilt derived from VGM factor scores. All values are approximations — not market-data-sourced measurements.",
+    }

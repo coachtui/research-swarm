@@ -269,6 +269,28 @@ export interface SignalBreakdown {
   divergence_explanation: string
   divergence_recommendation: string
   direction_consensus: string
+  // Probability Construction Framework — structural derivation of scenario weights
+  probability_construction_framework?: {
+    factors: Array<{
+      name: string
+      description: string
+      current_value: string
+      effect: string
+      impact_level: 'High' | 'Moderate' | 'Low' | 'None'
+    }>
+    derivation_note: string
+  }
+  // Factor Exposure — portfolio-level risk context
+  factor_exposure?: {
+    beta_contribution: string        // High / Above-Market / Market-Rate / Below-Market / Unknown
+    beta_note: string
+    factor_tilt: string              // "Growth, Momentum (Growth/Momentum)" etc
+    crowding_risk: string            // Elevated / Moderate / Low / Unknown
+    crowding_note: string
+    diversification_benefit: string  // Low / Low–Moderate / Moderate / Moderate–High
+    diversification_note: string
+    estimation_note: string
+  }
 }
 
 export interface ConvictionStatement {

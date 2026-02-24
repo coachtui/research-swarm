@@ -441,7 +441,86 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
               </div>
             )}
 
-            {/* Model confidence dimensions */}
+            {/* Factor Exposure panel — portfolio-level risk context */}
+            {breakdown.factor_exposure && (
+              <div className="mt-4 pt-3 border-t border-surface-elevated space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-xs font-semibold text-text-secondary">Portfolio Risk Impact</p>
+                  <span className="text-[10px] text-text-tertiary/60 italic">
+                    Approx. — signal-derived estimates
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Beta Contribution */}
+                  <div className="rounded border border-border/40 bg-surface-elevated px-2.5 py-2">
+                    <div className="text-[9px] uppercase tracking-wider text-text-tertiary/70 mb-0.5 font-medium">
+                      Beta Contribution
+                    </div>
+                    <div className={`text-xs font-semibold ${
+                      breakdown.factor_exposure.beta_contribution === 'High' ? 'text-error' :
+                      breakdown.factor_exposure.beta_contribution === 'Above-Market' ? 'text-warning' :
+                      breakdown.factor_exposure.beta_contribution === 'Below-Market' ? 'text-success' :
+                      'text-text-secondary'
+                    }`}>
+                      {breakdown.factor_exposure.beta_contribution}
+                    </div>
+                    <p className="text-[10px] text-text-tertiary/70 mt-0.5 leading-tight">
+                      {breakdown.factor_exposure.beta_note}
+                    </p>
+                  </div>
+                  {/* Factor Tilt */}
+                  <div className="rounded border border-border/40 bg-surface-elevated px-2.5 py-2">
+                    <div className="text-[9px] uppercase tracking-wider text-text-tertiary/70 mb-0.5 font-medium">
+                      Factor Tilt
+                    </div>
+                    <div className="text-xs font-semibold text-text-secondary">
+                      {breakdown.factor_exposure.factor_tilt}
+                    </div>
+                    <p className="text-[10px] text-text-tertiary/70 mt-0.5 leading-tight">
+                      Derived from VGM value / growth / momentum scores
+                    </p>
+                  </div>
+                  {/* Crowding Risk */}
+                  <div className="rounded border border-border/40 bg-surface-elevated px-2.5 py-2">
+                    <div className="text-[9px] uppercase tracking-wider text-text-tertiary/70 mb-0.5 font-medium">
+                      Crowding Risk
+                    </div>
+                    <div className={`text-xs font-semibold ${
+                      breakdown.factor_exposure.crowding_risk === 'Elevated' ? 'text-error' :
+                      breakdown.factor_exposure.crowding_risk === 'Moderate' ? 'text-warning' :
+                      breakdown.factor_exposure.crowding_risk === 'Low' ? 'text-success' :
+                      'text-text-tertiary'
+                    }`}>
+                      {breakdown.factor_exposure.crowding_risk}
+                    </div>
+                    <p className="text-[10px] text-text-tertiary/70 mt-0.5 leading-tight">
+                      {breakdown.factor_exposure.crowding_note}
+                    </p>
+                  </div>
+                  {/* Diversification Benefit */}
+                  <div className="rounded border border-border/40 bg-surface-elevated px-2.5 py-2">
+                    <div className="text-[9px] uppercase tracking-wider text-text-tertiary/70 mb-0.5 font-medium">
+                      Diversification Benefit
+                    </div>
+                    <div className={`text-xs font-semibold ${
+                      breakdown.factor_exposure.diversification_benefit.startsWith('Moderate–High') ? 'text-success' :
+                      breakdown.factor_exposure.diversification_benefit.startsWith('Moderate') ? 'text-warning' :
+                      'text-error'
+                    }`}>
+                      {breakdown.factor_exposure.diversification_benefit}
+                    </div>
+                    <p className="text-[10px] text-text-tertiary/70 mt-0.5 leading-tight">
+                      {breakdown.factor_exposure.diversification_note}
+                    </p>
+                  </div>
+                </div>
+                <p className="text-[10px] text-text-tertiary/50 italic leading-relaxed">
+                  {breakdown.factor_exposure.estimation_note}
+                </p>
+              </div>
+            )}
+
+          {/* Model confidence dimensions */}
             {(breakdown.signal_strength !== undefined ||
               breakdown.signal_stability !== undefined) && (
               <div className="mt-4 pt-3 border-t border-surface-elevated space-y-2">
