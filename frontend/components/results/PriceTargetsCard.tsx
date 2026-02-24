@@ -59,7 +59,7 @@ export function PriceTargetsCard({ priceTargets, currentPrice }: PriceTargetsCar
       </div>
 
       <p className="text-xs text-text-tertiary mb-4 leading-relaxed border-l-2 border-border pl-2.5">
-        Probabilistic outcome paths calibrated to signal divergence — not direct fair value forecasts.
+        Probabilistic outcome paths calibrated to signal divergence — not Structural Valuation Reference forecasts.
         <span className="block text-text-tertiary/60 italic mt-0.5">
           Scenario weights: heuristic-derived · regime-conditioned reliability
         </span>

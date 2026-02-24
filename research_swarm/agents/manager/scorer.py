@@ -186,7 +186,7 @@ class ManagerScorer:
         - STRONG BUY (8.5-10.0): High conviction, all signals align
         - BUY (7.0-8.4): Positive outlook, minor concerns
         - HOLD (5.0-6.9): Mixed signals, wait for clarity
-        - SELL (3.0-4.9): Deteriorating fundamentals or overvalued
+        - SELL (3.0-4.9): Deteriorating fundamentals or Extreme Structural Premium with weakening thesis
         - STRONG SELL (0-2.9): Broken thesis, exit immediately
 
         Manager Technical Override:

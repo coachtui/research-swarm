@@ -55,7 +55,7 @@ export default function AboutPage() {
                 step: '03',
                 title: 'Actionable Thesis',
                 description:
-                  'Results are synthesized into a structured investment thesis with a clear recommendation, fair value estimate, price targets, and key risks — not just raw data.',
+                  'Results are synthesized into a structured investment thesis with a clear recommendation, structural valuation reference, price targets, and key risks — not just raw data.',
               },
             ].map((item) => (
               <div key={item.step} className="bg-surface rounded-card p-6 space-y-3">

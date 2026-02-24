@@ -224,8 +224,8 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
                 {/* Fix 4: Structural Premium regime gets a regime-context explanation rather than
                     a data quality implication. Non-premium stocks keep the anomaly-focused copy. */}
                 {isStructuralPremium
-                  ? 'This analysis operates in Structural Premium Regime. The Structural Value Anchor reflects long-term intrinsic basis — not a near-term price expectation. Fair value and price targets are valid within their respective frameworks.'
-                  : 'The following anomalies were detected. This does not affect the reported values — fair value and price targets are unchanged. Magnitude deviations reflect regime classification dynamics.'
+                  ? 'This analysis operates in Structural Premium Regime. The Structural Value Anchor reflects long-term intrinsic basis — not a near-term price expectation. Structural Valuation References and price targets are valid within their respective frameworks.'
+                  : 'The following anomalies were detected. This does not affect the reported values — Structural Valuation References and price targets are unchanged. Magnitude deviations reflect regime classification dynamics.'
                 }
               </p>
               <ul className="space-y-1">
@@ -325,10 +325,10 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
             return (
               <div className="rounded-md p-3.5 bg-amber-500/8 border border-amber-500/25">
                 <p className="text-amber-400 font-medium text-sm mb-1.5">
-                  ⚠ Trading at Fair Value — No Margin of Safety
+                  ⚠ Price at Structural Valuation Reference — Symmetric Risk/Reward
                 </p>
                 <p className="text-text-secondary text-xs leading-relaxed">
-                  The stock is trading at or within 2% of intrinsic fair value ({fmt(fv)}).
+                  Price is at or within 2% of the Structural Valuation Reference ({fmt(fv)}).
                   The structural thesis is intact but current entry offers no fundamental discount.
                   Downside risk and upside potential are approximately symmetric from this level.
                   Preferred entry at ${entryLow.toLocaleString()}–${entryHigh.toLocaleString()} would
@@ -372,12 +372,12 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
             <div className="rounded-md p-3.5 text-sm bg-yellow-500/8 border border-yellow-500/20">
               <p className="text-yellow-300 font-medium mb-1">Model-Conservative Regime</p>
               <p className="text-text-secondary leading-relaxed text-xs">
-                Intrinsic fair value ({fmt(calibration.internal_fair_value)}) is{' '}
+                The Structural Valuation Reference ({fmt(calibration.internal_fair_value)}) is{' '}
                 {fmtPct(Math.abs(calibration.divergence_pct ?? 0))} below the analyst consensus
-                target ({fmt(calibration.consensus_target)}). The model assigns lower economic
-                worth than market participants expect. This is structurally valid — growth
+                target ({fmt(calibration.consensus_target)}). The model assigns a lower structural
+                anchor than market participants expect. This is structurally valid — growth
                 premiums and execution optionality are not captured in fundamental multiples.
-                Divergence is informational only. Fair value and price targets are unchanged.
+                Divergence is informational only. Structural Valuation Reference and price targets are unchanged.
               </p>
             </div>
           )}
@@ -386,10 +386,10 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
             <div className="rounded-md p-3.5 text-sm bg-cyan-500/8 border border-cyan-500/20">
               <p className="text-cyan-300 font-medium mb-1">Model-Driven Upside Scenario</p>
               <p className="text-text-secondary leading-relaxed text-xs">
-                Intrinsic fair value ({fmt(calibration.internal_fair_value)}) is{' '}
+                The Structural Valuation Reference ({fmt(calibration.internal_fair_value)}) is{' '}
                 {fmtPct(calibration.divergence_pct ?? 0, true)} above the analyst consensus
-                target ({fmt(calibration.consensus_target)}). The model identifies more
-                fundamental value than the sell-side consensus. Verify assumptions; if supported
+                target ({fmt(calibration.consensus_target)}). The model identifies a higher
+                structural anchor than sell-side consensus. Verify assumptions; if supported
                 by earnings quality and balance sheet, this is a contrarian setup worth examining.
               </p>
             </div>
@@ -399,7 +399,7 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
             <div className="rounded-md p-3.5 text-sm bg-success/8 border border-success/20">
               <p className="text-success font-medium mb-1">Consensus Validated ✓</p>
               <p className="text-text-secondary text-xs">
-                Intrinsic fair value ({fmt(calibration.internal_fair_value)}) and analyst
+                The Structural Valuation Reference ({fmt(calibration.internal_fair_value)}) and analyst
                 consensus target ({fmt(calibration.consensus_target)}) are within the aligned
                 threshold. Structural and market-implied estimates are in agreement.
               </p>

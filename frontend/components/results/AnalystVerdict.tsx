@@ -44,12 +44,12 @@ function getValuationContext(score: number): { text: string; variant: 'warning' 
   }
   if (score < 7.0) {
     return {
-      text: `Valuation score of ${score.toFixed(1)} reflects approximate fair value pricing. Risk/reward is roughly symmetric from current levels — upside requires fundamental outperformance while downside is limited by valuation support.`,
+      text: `Valuation score of ${score.toFixed(1)} reflects pricing near the Structural Valuation Reference. Risk/reward is roughly symmetric from current levels — upside requires fundamental outperformance while downside is bounded by the structural anchor.`,
       variant: 'default',
     }
   }
   return {
-    text: `Valuation score of ${score.toFixed(1)} signals a meaningful discount to intrinsic value. The margin of safety is intact — downside is bounded by fundamental floor while upside reflects re-rating potential as the discount closes.`,
+    text: `Valuation score of ${score.toFixed(1)} signals favorable positioning relative to the Structural Valuation Reference. The margin of safety is intact — downside is bounded by the structural floor while upside reflects re-rating potential as the discount normalizes.`,
     variant: 'success',
   }
 }

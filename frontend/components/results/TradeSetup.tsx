@@ -447,6 +447,14 @@ function SetupColumn({
     classifyTargetValidity(t, currentPrice, regimeMode, isDeepEntry ?? false)
   )
 
+  // Sort targets ascending by price for display — prevents visual regression when backend
+  // computes T-n prices out of ascending order (e.g., T3 < T2). All logic functions
+  // (inferTargetHorizon, isExtendedTarget, etc.) continue to use originalIndex so
+  // label-matching and index-fallback behaviour is preserved exactly.
+  const sortedTargetData = side.targets
+    .map((t, i) => ({ t, validity: targetValidities[i], originalIndex: i }))
+    .sort((a, b) => a.t.price - b.t.price)
+
   // C2: Setup unavailable state — show instead of normal setup when risk buffer is insufficient
   const setupUnavailable = side.setup_unavailable
 
@@ -512,7 +520,7 @@ function SetupColumn({
               ⚠ Compressed Asymmetry ({side.risk_reward}:1) — Staged Entry Preferred
             </span>
             <span className="text-text-tertiary">
-              Current entry near fair value limits near-term risk/reward. Asymmetry improves
+              Entry near the Structural Valuation Reference compresses near-term asymmetry. Asymmetry improves
               significantly at preferred entry zones:
             </span>
             {rrAtIdeal != null && opportunityEnvelopeLow != null && (
@@ -653,14 +661,13 @@ function SetupColumn({
           </div>
 
           {/* Primary scenario: T1 / T2 / T3 — non-extended, actionable targets */}
-          {side.targets.every((_, i) =>
-            targetValidities[i] === 'NOT_APPLICABLE' || targetValidities[i] === 'REFERENCE_ONLY'
+          {sortedTargetData.every(({ validity }) =>
+            validity === 'NOT_APPLICABLE' || validity === 'REFERENCE_ONLY'
           ) && (
             <p className="text-xs text-text-tertiary italic py-1">No actionable targets above current price.</p>
           )}
 
-          {side.targets.map((t, i) => {
-            const validity = targetValidities[i]
+          {sortedTargetData.map(({ t, validity, originalIndex: i }) => {
             // Exclude non-actionable — silently skip
             if (validity === 'NOT_APPLICABLE') return null
             // Reference-only rendered below
@@ -715,14 +722,14 @@ function SetupColumn({
           })}
 
           {/* Expansion Scenario — T4 / Regime Expansion, visually separated from primary */}
-          {side.targets.some((t, i) => targetValidities[i] === 'VALID' && isExtendedTarget(t.label, i)) && (
+          {sortedTargetData.some(({ t, validity, originalIndex: i }) => validity === 'VALID' && isExtendedTarget(t.label, i)) && (
             <>
               <div className="flex items-center gap-2 pt-1">
                 <span className="text-[10px] font-semibold text-text-tertiary/60 uppercase tracking-wide">Expansion Scenario</span>
                 <div className="flex-1 h-px bg-border/40" />
               </div>
-              {side.targets.map((t, i) => {
-                if (targetValidities[i] !== 'VALID' || !isExtendedTarget(t.label, i)) return null
+              {sortedTargetData.map(({ t, validity, originalIndex: i }) => {
+                if (validity !== 'VALID' || !isExtendedTarget(t.label, i)) return null
                 const horizon = inferTargetHorizon(t.label, i)
                 const targetType = inferTargetType(t.label, i)
                 const conditionality = inferTargetConditionality(t.label, i, rating, variant)
@@ -759,14 +766,14 @@ function SetupColumn({
           )}
 
           {/* Structural References — MOMENTUM regime only; not actionable at current price */}
-          {side.targets.some((_, i) => targetValidities[i] === 'REFERENCE_ONLY') && (
+          {sortedTargetData.some(({ validity }) => validity === 'REFERENCE_ONLY') && (
             <div className="pt-2 border-t border-border/40">
               <p className="text-[10px] font-semibold text-text-tertiary/60 uppercase tracking-wide mb-1.5">Structural References</p>
-              {side.targets.map((t, i) => {
-                if (targetValidities[i] !== 'REFERENCE_ONLY') return null
+              {sortedTargetData.map(({ t, validity, originalIndex }) => {
+                if (validity !== 'REFERENCE_ONLY') return null
                 const sanitizedLabel = sanitizeTargetLabel(t.label)
                 return (
-                  <div key={i} className="rounded px-2 py-1.5 text-xs bg-surface-elevated/30 opacity-70">
+                  <div key={originalIndex} className="rounded px-2 py-1.5 text-xs bg-surface-elevated/30 opacity-70">
                     <div className="flex items-center justify-between">
                       <span className="text-text-tertiary">{sanitizedLabel}</span>
                       <span className="font-medium text-text-tertiary/70 font-mono">{formatCurrency(t.price)}</span>
@@ -788,7 +795,7 @@ function SetupColumn({
           )}
           {allTargetsAboveStructuralFV && !isDeepEntry && (
             <p className="text-[10px] text-text-tertiary/70 pt-1 italic leading-relaxed">
-              Targets reflect current market pricing path — not anchored to structural fair value.
+              Targets reflect current market pricing path — not anchored to the Structural Valuation Reference.
             </p>
           )}
         </div>

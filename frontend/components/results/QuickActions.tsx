@@ -202,7 +202,7 @@ export function QuickActions({
 
             {typeof key_levels.ideal_entry === 'number' && (
               <ActionCheckbox
-                label={`Entry: $${key_levels.ideal_entry.toFixed(2)} (on pullback)`}
+                label={`Entry: $${key_levels.ideal_entry.toFixed(2)} (on weakness / dislocation)`}
                 description="Best risk/reward entry point"
               />
             )}

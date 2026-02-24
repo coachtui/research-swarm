@@ -43,9 +43,9 @@ export const TOOLTIP_DEFINITIONS: Record<string, TooltipDefinition> = {
     example: 'Multiple insiders buying after earnings = very bullish. They rarely buy before bad news.',
   },
   fair_value: {
-    term: 'Fair Value',
-    definition: 'What we estimate the stock is really worth based on financial models. Trading below fair value = discount, above = premium.',
-    example: 'If fair value is $150 and stock trades at $120, that\'s a 20% discount opportunity.',
+    term: 'Structural Valuation Reference',
+    definition: 'A long-term anchor derived from fundamental models (P/E, DCF, EV/EBITDA). Represents a structural reference point, not a "correct" price. High-quality growth stocks routinely trade above this anchor — that is a regime classification, not a valuation error.',
+    example: 'If the Structural Valuation Reference is $150 and stock trades at $250, the stock operates in a Structural Premium regime — not overvalued, but priced for continued execution.',
   },
   divergence: {
     term: 'Signal Divergence',

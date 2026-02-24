@@ -34,7 +34,7 @@ const DRIVER_TAGS: Record<keyof ScoreBreakdownBarsProps['breakdown'], { strong: 
   },
   valuation: {
     strong:   ['Discount to peers', 'Low P/E vs. sector', 'DCF upside'],
-    moderate: ['Near fair value', 'Sector-median multiples', 'Limited margin of safety'],
+    moderate: ['Near Structural Reference', 'Sector-median multiples', 'Limited margin of safety'],
     weak:     ['Premium vs. peers', 'Stretched multiples', 'DCF headwind'],
   },
   technical_strength: {
@@ -98,8 +98,8 @@ function getContextLabel(key: keyof ScoreBreakdownBarsProps['breakdown'], score:
 
     case 'valuation':
       if (score >= 8.5) return 'Significant discount to fundamentals'
-      if (score >= 7.0) return 'Attractive vs. intrinsic value'
-      if (score >= 5.5) return 'Approximate fair value'
+      if (score >= 7.0) return 'Favorable vs. Structural Reference'
+      if (score >= 5.5) return 'At Structural Reference Zone'
       if (score >= 4.0) return 'Slight premium to peers'
       return 'Stretched vs. fundamentals'
 

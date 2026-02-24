@@ -61,16 +61,16 @@ export function ProfessionalValuation({
         <div className="bg-surface-elevated rounded-lg p-6 space-y-3">
           <p className="text-sm text-text-primary leading-relaxed">
             {pt?.methodology
-              ? `${pt.methodology}. Fair value band: $${fairValueLow.toFixed(0)}–$${fairValueHigh.toFixed(0)} (${pt.confidence ?? 'Moderate'} confidence, ${pt.confidence_score ?? '—'}/100).`
+              ? `${pt.methodology}. Structural Valuation Reference Band: $${fairValueLow.toFixed(0)}–$${fairValueHigh.toFixed(0)} (${pt.confidence ?? 'Moderate'} confidence, ${pt.confidence_score ?? '—'}/100).`
               : 'The valuation analysis employs a multi-factor approach incorporating discounted cash flow (DCF) modeling, comparable company analysis, and technical price levels.'}
           </p>
           <p className="text-sm text-text-primary leading-relaxed">
             Scenario analysis uses probability-weighted outcomes across Re-rating ({bullProb}%),
             Continuation ({baseProb}%), and Risk ({bearProb}%) scenarios. The Continuation Scenario
-            anchors at the Intrinsic Value Estimate midpoint. The Risk Scenario represents a downside
-            probabilistic path structurally below intrinsic value. The Re-rating Scenario reflects
+            anchors at the Structural Value Anchor midpoint. The Risk Scenario represents a downside
+            probabilistic path structurally below the Structural Value Anchor. The Re-rating Scenario reflects
             multiple expansion from current levels. These are probabilistic outcome paths, not direct
-            fair value forecasts. Expected value = Risk×{bearProb}% + Continuation×{baseProb}% + Re-rating×{bullProb}%.
+            Structural Valuation Reference forecasts. Expected value = Risk×{bearProb}% + Continuation×{baseProb}% + Re-rating×{bullProb}%.
           </p>
           {chainNotes && chainNotes.length > 0 && (
             <div className="mt-2 p-2.5 rounded-md bg-primary/5 border border-primary/20">
@@ -120,7 +120,7 @@ export function ProfessionalValuation({
               </span>
               {dispersionLabel === 'High' && (
                 <span className="text-xs text-error">
-                  → Fair value band widened, confidence reduced
+                  → Structural valuation reference band widened, confidence reduced
                 </span>
               )}
             </div>
@@ -161,9 +161,9 @@ export function ProfessionalValuation({
                 </tr>
                 <tr>
                   <td className="border border-border px-4 py-3">
-                    Fair Value Band
+                    Structural Valuation Reference
                     <span className="block text-xs text-text-tertiary font-normal">
-                      Normalized Intrinsic Value
+                      Long-Term Structural Anchor
                     </span>
                   </td>
                   <td className="border border-border px-4 py-3 text-right text-text-primary">
@@ -174,7 +174,7 @@ export function ProfessionalValuation({
                   <td className="border border-border px-4 py-3">
                     Continuation Scenario Target
                     <span className="block text-xs text-text-tertiary font-normal">
-                      Intrinsic Value Estimate Midpoint
+                      Structural Value Anchor Midpoint
                     </span>
                   </td>
                   <td className="border border-border px-4 py-3 text-right font-semibold text-text-primary">
@@ -368,11 +368,11 @@ function getValuationInterpretation(
   const premium = ((currentPrice - fairValue) / fairValue) * 100
 
   if (discount >= 15) {
-    return `The security currently trades at an approximately ${discount.toFixed(0)}% discount to our estimated fair value, presenting a potentially attractive entry opportunity. The valuation score of ${valuationScore.toFixed(1)}/10 ${valuationScore >= 6.0 ? 'supports' : 'reflects'} this assessment. Investors should consider underlying assumptions and risk factors that may justify current market pricing.`
+    return `The security currently trades at an approximately ${discount.toFixed(0)}% discount to the Structural Valuation Reference, presenting a potentially attractive entry opportunity with favorable margin of safety. The valuation score of ${valuationScore.toFixed(1)}/10 ${valuationScore >= 6.0 ? 'supports' : 'reflects'} this positioning. Investors should assess underlying assumptions and risk factors that may justify current market pricing relative to the structural anchor.`
   } else if (discount >= 5) {
-    return `The security trades at a modest ${discount.toFixed(0)}% discount to estimated fair value, suggesting reasonable value at current levels. The valuation score of ${valuationScore.toFixed(1)}/10 indicates ${valuationScore >= 6.0 ? 'favorable' : 'balanced'} risk-reward dynamics.`
+    return `The security trades at a modest ${discount.toFixed(0)}% discount to the Structural Valuation Reference, suggesting constructive positioning at current levels. The valuation score of ${valuationScore.toFixed(1)}/10 indicates ${valuationScore >= 6.0 ? 'favorable' : 'balanced'} risk-reward dynamics within the current regime.`
   } else if (premium <= 5) {
-    return `The security trades approximately in line with our estimated fair value, indicating balanced valuation. The valuation score of ${valuationScore.toFixed(1)}/10 reflects ${valuationScore >= 6.0 ? 'reasonable value' : 'fair pricing'}. Decisions should be guided by conviction in business fundamentals and catalyst potential.`
+    return `The security trades approximately at the Structural Valuation Reference, indicating symmetric positioning. The valuation score of ${valuationScore.toFixed(1)}/10 reflects ${valuationScore >= 6.0 ? 'reasonable structural alignment' : 'balanced regime conditions'}. Decisions should be guided by conviction in business fundamentals and catalyst potential.`
   } else if (premium <= 15) {
     return `The security commands a Structural Premium of ${premium.toFixed(0)}% above the Intrinsic Anchor. The valuation score of ${valuationScore.toFixed(1)}/10 reflects this positioning. This is a regime classification — not a signal of overvaluation. Assess whether growth execution and competitive positioning justify the premium regime.`
   } else {

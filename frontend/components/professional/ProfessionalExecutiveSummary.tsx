@@ -242,7 +242,7 @@ export function ProfessionalExecutiveSummary({
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs">
                           <p className="text-xs leading-relaxed">
-                            Compares current price to intrinsic value using P/E, PEG, DCF, and peer multiples. Lower scores mean expensive relative to fundamentals.
+                            Measures price positioning relative to Structural Valuation References derived from P/E, PEG, DCF, and peer multiples. Lower scores indicate a Structural Premium regime; higher scores signal proximity to the Structural Value Anchor.
                           </p>
                         </TooltipContent>
                       </Tooltip>

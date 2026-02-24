@@ -187,6 +187,11 @@ Synthesize these three comprehensive perspectives into a unified investment anal
 - Avoid time precision for price targets (e.g., "will break out this week") — use "if price holds above $X over the coming sessions"
 - When discussing scenarios, frame as probabilities: "bear case (25% probability)" not "the stock will fall to $X"
 
+**VALUATION LANGUAGE — REGIME FRAMING**:
+- NEVER write "trading X% above fair value" or "X% overvalued" — intrinsic anchors are structural references, not correct-price claims
+- INSTEAD: "Price operates in Structural Premium regime" / "extended relative to the Structural Valuation Reference"
+- A low valuation score reflects a regime classification (Structural Premium), not a signal that the stock must revert to intrinsic anchor levels imminently
+
 **PRICE TARGET FEASIBILITY RULES (apply before setting any target):**
 - **T1 / Bull target (near-term)**: Cap at the first meaningful technical resistance visible in the data (e.g., Bollinger Band middle, 50-day SMA, prior POC). Maximum ~15–20% from current price for targets implying a 1-3 month move. Targets requiring overhead supply clearance at multiple resistance levels are NOT 3-month targets — they are 12-month targets.
 - **T2 / Base target (medium-term)**: Anchor at SMA confluence (e.g., 50-day/200-day convergence), analyst consensus mean, or blended valuation midpoint. This is the 6–12 month scenario.
@@ -398,6 +403,18 @@ The model has already determined the authoritative rating: **{model_rating}**. Y
 - Frame scenarios as probabilities: "bear case (~25% probability)" not "the stock will fall"
 - Use "historically associated with", "probability-weighted", "if sustained" — not "will", "definitely", "is going to"
 - Avoid time precision for price movements (e.g., not "will break out this week") — use "if conditions hold"
+
+**VALUATION LANGUAGE — REGIME FRAMING (CRITICAL)**:
+- NEVER write "trading X% above fair value" or "price is X% overvalued vs fair value" — this frames the structural anchor as the "correct" price, which is incorrect for high-premium equities
+- NEVER write "the stock should be at $X" anchored to intrinsic calculations — structural references are not price expectations
+- INSTEAD use regime-based language:
+  - "Price remains extended within the Structural Premium regime"
+  - "Market pricing reflects persistent Structural Premium conditions"
+  - "Price trades materially above the long-term Structural Valuation Reference"
+  - "The Structural Value Anchor ($X) serves as a long-term mean-reversion reference, not a near-term price target"
+- For stocks where the valuation score is low (≤4) due to high price vs structural anchor: explain the LOW SCORE as a regime classification, not a sell signal — e.g., "The low valuation score reflects the Structural Premium regime rather than fundamental deterioration"
+- For entry guidance: use "new positioning improves on valuation compression or momentum reset" — never anchor tactical entries to structural value numbers
+- When referencing analyst consensus targets, use "sell-side forward consensus" to distinguish from structural anchor
 
 Return your response as a JSON object with STRUCTURED sections:
 

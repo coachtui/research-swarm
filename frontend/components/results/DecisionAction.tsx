@@ -227,12 +227,21 @@ export function DecisionAction({
           </div>
           {/* Issue 4: Institutional language — presentation-only transform of tactical phrasing */}
           <p className="text-base font-semibold text-text-primary leading-relaxed">{institutionalizeLang(one_liner)}</p>
-          {/* Structured per-reader-type subtext — replaces the pipe-delimited multi-audience line */}
+          {/* Structured per-reader-type subtext — replaces the pipe-delimited multi-audience line.
+              When structurally dislocated, subtext lines reference the intrinsic baseline zone
+              (e.g., $55–$65), not current tactical levels — frame accordingly to prevent misread. */}
           {framework.action_subtext && framework.action_subtext.length > 0 && (
-            <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-              {framework.action_subtext.map((line: string, i: number) => (
-                <p key={i} className="text-xs text-text-tertiary leading-relaxed">{line}</p>
-              ))}
+            <div className={isStructuralDislocation ? 'opacity-60' : ''}>
+              {isStructuralDislocation && (
+                <p className="text-[10px] text-text-tertiary/70 italic mb-1">
+                  Structural baseline context — zones below reference intrinsic valuation, not current tactical levels:
+                </p>
+              )}
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+                {framework.action_subtext.map((line: string, i: number) => (
+                  <p key={i} className="text-xs text-text-tertiary leading-relaxed">{line}</p>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -381,7 +390,7 @@ export function DecisionAction({
                     Target Band
                     <span
                       className="ml-1 text-text-tertiary cursor-help"
-                      title="Base-case to bull-case price target range. T1 (50% exit) = intrinsic value midpoint. T2 (50% exit) = upside scenario. Both derived from the model's valuation output. Horizon-dependent — not near-term price expectations."
+                      title="Base-case to bull-case price target range. T1 (50% exit) = Structural Value Anchor midpoint. T2 (50% exit) = upside scenario. Both derived from the model's valuation output. Horizon-dependent — not near-term price expectations."
                     >
                       ⓘ
                     </span>
@@ -414,7 +423,7 @@ export function DecisionAction({
             {opportunityEnvelope && avoidAbove && !isStructuralDislocation && (
               <p className="text-[10px] text-text-tertiary leading-relaxed mt-2 pl-1 border-l-2 border-border-subtle">
                 <span className="font-medium text-text-secondary">Entry Zone Note:</span>{' '}
-                The Opportunity Envelope marks the full intrinsic value range.
+                The Opportunity Envelope marks the full Structural Valuation Reference range.
                 Entries in the <span className="font-medium">lower portion offer maximum margin of safety</span>.
                 Above the Avoid Above threshold, risk/reward deteriorates — wait for price confirmation (sustained close above {avoidAbove}) before initiating new positions at the upper end.
               </p>
