@@ -57,6 +57,14 @@ export function DeltaSummaryBox({ delta, ticker }: DeltaSummaryBoxProps) {
     thesis_direction,
     days_since_last,
     prior_analysis_date,
+    // Sensitivity attribution fields (item 1: "What Changed?" diagnostic)
+    prior_signal_stability,
+    current_signal_stability,
+    prior_signal_spread,
+    current_signal_spread,
+    prior_vol_trend,
+    current_vol_trend,
+    sensitivity_attribution,
   } = delta
 
   const direction = thesisDirectionStyle(thesis_direction)
@@ -170,6 +178,60 @@ export function DeltaSummaryBox({ delta, ticker }: DeltaSummaryBoxProps) {
           )}
         </div>
       </div>
+
+      {/* Sensitivity Attribution — "What Changed?" diagnostic (item 1) */}
+      {((sensitivity_attribution && sensitivity_attribution.length > 0) ||
+        (prior_signal_stability != null && current_signal_stability != null) ||
+        (prior_vol_trend && current_vol_trend && prior_vol_trend !== current_vol_trend)) && (
+        <div className="rounded-md border border-primary/15 bg-surface/40 p-3 space-y-2">
+          <p className="text-[10px] font-bold text-primary uppercase tracking-wide">What Changed?</p>
+
+          {/* Key metric deltas */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {prior_signal_stability != null && current_signal_stability != null && (
+              <div>
+                <p className="text-[10px] text-text-tertiary">Signal Stability</p>
+                <p className={`text-xs font-semibold ${
+                  current_signal_stability > prior_signal_stability ? 'text-success' :
+                  current_signal_stability < prior_signal_stability ? 'text-warning' : 'text-text-secondary'
+                }`}>
+                  {prior_signal_stability.toFixed(1)} → {current_signal_stability.toFixed(1)}/10
+                </p>
+              </div>
+            )}
+            {prior_signal_spread != null && current_signal_spread != null && (
+              <div>
+                <p className="text-[10px] text-text-tertiary">Signal Spread (σ)</p>
+                <p className={`text-xs font-semibold ${
+                  current_signal_spread > prior_signal_spread ? 'text-warning' :
+                  current_signal_spread < prior_signal_spread ? 'text-success' : 'text-text-secondary'
+                }`}>
+                  {prior_signal_spread.toFixed(2)} → {current_signal_spread.toFixed(2)}
+                </p>
+              </div>
+            )}
+            {prior_vol_trend && current_vol_trend && (
+              <div>
+                <p className="text-[10px] text-text-tertiary">Vol Regime</p>
+                <p className={`text-xs font-semibold ${
+                  prior_vol_trend !== current_vol_trend ? 'text-warning' : 'text-text-secondary'
+                }`}>
+                  {prior_vol_trend} → {current_vol_trend}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Attribution bullets */}
+          {sensitivity_attribution && sensitivity_attribution.length > 0 && (
+            <div className="space-y-0.5 pt-1 border-t border-border/30">
+              {sensitivity_attribution.map((attr, i) => (
+                <p key={i} className="text-[10px] text-text-tertiary">• {attr}</p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Thesis direction note */}
       <p className="text-[10px] text-text-tertiary leading-relaxed">

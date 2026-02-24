@@ -18,6 +18,7 @@ import { AnalystVerdict } from '@/components/results/AnalystVerdict'
 import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
 import { HistoricalAnalogPanel } from '@/components/results/HistoricalAnalogPanel'
 import { InstitutionalRiskDashboard } from '@/components/results/InstitutionalRiskDashboard'
+import { ProbabilisticEngineDashboard } from '@/components/results/ProbabilisticEngineDashboard'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -364,6 +365,11 @@ function ResultsContent({ runId }: { runId: string }) {
             {/* Institutional Risk System — factor, vol, liquidity, sensitivity, action */}
             {signal_breakdown && (
               <InstitutionalRiskDashboard breakdown={signal_breakdown} />
+            )}
+
+            {/* Probabilistic Engine — EV stability, confidence, scenario weights, stop prob, noise */}
+            {signal_breakdown && (
+              <ProbabilisticEngineDashboard breakdown={signal_breakdown} />
             )}
 
             {/* Historical Pattern Framing */}

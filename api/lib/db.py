@@ -322,6 +322,61 @@ async def save_analysis_result(
                                 if prior_price and prior_price > 0 else None
                             )
 
+                            # ── Sensitivity Attribution (item 1: "What Changed?") ──
+                            prior_sb = prior_fo.get('signal_breakdown') or {}
+                            cur_sb = cur_fo.get('signal_breakdown') or {}
+
+                            prior_overall_score = prior_sb.get('overall_score')
+                            cur_overall_score = cur_sb.get('overall_score')
+                            prior_signal_stability = prior_sb.get('signal_stability')
+                            cur_signal_stability = cur_sb.get('signal_stability')
+                            prior_signal_spread = prior_sb.get('signal_spread')
+                            cur_signal_spread = cur_sb.get('signal_spread')
+                            prior_vol_trend = (prior_sb.get('volatility_regime_dynamics') or {}).get('vol_trend')
+                            cur_vol_trend = (cur_sb.get('volatility_regime_dynamics') or {}).get('vol_trend')
+                            prior_ev_conf = (prior_sb.get('confidence_integrity') or {}).get('ev_confidence_level')
+                            cur_ev_conf = (cur_sb.get('confidence_integrity') or {}).get('ev_confidence_level')
+
+                            attribution = []
+                            if prior_signal_stability is not None and cur_signal_stability is not None:
+                                stab_delta = float(cur_signal_stability) - float(prior_signal_stability)
+                                if abs(stab_delta) >= 0.5:
+                                    direction = "improved" if stab_delta > 0 else "degraded"
+                                    attribution.append(
+                                        f"Signal stability {direction} "
+                                        f"({prior_signal_stability:.1f} \u2192 {cur_signal_stability:.1f}/10)"
+                                    )
+                            if prior_signal_spread is not None and cur_signal_spread is not None:
+                                spread_delta = float(cur_signal_spread) - float(prior_signal_spread)
+                                if abs(spread_delta) >= 0.2:
+                                    direction = "expanded" if spread_delta > 0 else "compressed"
+                                    attribution.append(
+                                        f"Signal spread {direction} "
+                                        f"(\u03c3: {prior_signal_spread:.2f} \u2192 {cur_signal_spread:.2f})"
+                                    )
+                            if prior_overall_score is not None and cur_overall_score is not None:
+                                score_delta = float(cur_overall_score) - float(prior_overall_score)
+                                if abs(score_delta) >= 0.3:
+                                    direction = "strengthened" if score_delta > 0 else "weakened"
+                                    attribution.append(
+                                        f"Divergence signal {direction} "
+                                        f"({prior_overall_score:.1f} \u2192 {cur_overall_score:.1f}/10)"
+                                    )
+                            if prior_vol_trend and cur_vol_trend and prior_vol_trend != cur_vol_trend:
+                                attribution.append(
+                                    f"Volatility regime shifted: {prior_vol_trend} \u2192 {cur_vol_trend}"
+                                )
+                            if prior_ev_conf and cur_ev_conf and prior_ev_conf != cur_ev_conf:
+                                attribution.append(
+                                    f"Model confidence changed: {prior_ev_conf} \u2192 {cur_ev_conf}"
+                                )
+                            if prior_price and cur_price and prior_price > 0:
+                                px_pct = (cur_price - prior_price) / prior_price * 100
+                                if abs(px_pct) >= 3.0:
+                                    attribution.append(
+                                        f"Price movement ({px_pct:+.1f}%) may have shifted distance factors"
+                                    )
+
                             delta = {
                                 'prior_run_id': str(prior.runId),
                                 'prior_analysis_date': prior.createdAt.isoformat(),
@@ -336,6 +391,16 @@ async def save_analysis_result(
                                 'current_moat_score': float(cur_moat) if cur_moat is not None else None,
                                 'thesis_direction': thesis_direction,
                                 'days_since_last': days_since,
+                                # Sensitivity attribution
+                                'prior_overall_score': float(prior_overall_score) if prior_overall_score is not None else None,
+                                'current_overall_score': float(cur_overall_score) if cur_overall_score is not None else None,
+                                'prior_signal_stability': float(prior_signal_stability) if prior_signal_stability is not None else None,
+                                'current_signal_stability': float(cur_signal_stability) if cur_signal_stability is not None else None,
+                                'prior_signal_spread': float(prior_signal_spread) if prior_signal_spread is not None else None,
+                                'current_signal_spread': float(cur_signal_spread) if cur_signal_spread is not None else None,
+                                'prior_vol_trend': prior_vol_trend,
+                                'current_vol_trend': cur_vol_trend,
+                                'sensitivity_attribution': attribution,
                             }
 
                             # Inject delta into full_output dict

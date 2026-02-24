@@ -270,6 +270,56 @@ def calculate_signal_divergence(
             vol_regime=volatility_regime_dynamics,
         )
 
+        # ── Probabilistic Engine Interpretability Layer ──────────────────────
+        # Extract vol_trend string from already-computed volatility_regime_dynamics dict
+        _vol_trend_str = volatility_regime_dynamics.get("vol_trend", "Stable")
+
+        ev_stability = _compute_ev_stability_class(
+            signal_spread=signal_spread,
+            signal_stability=signal_stability,
+            data_integrity_confidence_factor=data_integrity_confidence_factor,
+            vol_trend=_vol_trend_str,
+            missing_signal_count=missing_signal_count,
+            rsi_extreme_flag=rsi_extreme_flag,
+        )
+        confidence_integrity = _compute_confidence_integrity(
+            signal_spread=signal_spread,
+            signal_stability=signal_stability,
+            data_integrity_confidence_factor=data_integrity_confidence_factor,
+            vol_trend=_vol_trend_str,
+            missing_signal_count=missing_signal_count,
+            overall_score=overall_score,
+            rsi_extreme_flag=rsi_extreme_flag,
+        )
+        scenario_weight_diagnostics = _compute_scenario_weight_diagnostics(
+            signal_spread=signal_spread,
+            signal_stability=signal_stability,
+            tech_div_score=tech_div_score,
+            tech_div_has_data=tech_div_has_data,
+            institutional_score=institutional_score,
+            institutional_has_data=institutional_has_data,
+            dark_pool_score=dark_pool_score,
+            dark_pool_has_data=dark_pool_has_data,
+            overall_score=overall_score,
+        )
+        stop_probability = _compute_stop_probability_decomposition(
+            signal_spread=signal_spread,
+            signal_stability=signal_stability,
+            vol_trend=_vol_trend_str,
+            rsi_extreme_flag=rsi_extreme_flag,
+            tech_div_score=tech_div_score,
+            tech_div_has_data=tech_div_has_data,
+            overall_score=overall_score,
+        )
+        noise_filter = _compute_noise_filter(
+            signal_spread=signal_spread,
+            signal_stability=signal_stability,
+            data_integrity_confidence_factor=data_integrity_confidence_factor,
+            vol_trend=_vol_trend_str,
+            rsi_extreme_flag=rsi_extreme_flag,
+            missing_signal_count=missing_signal_count,
+        )
+
         signal_breakdown = {
             "overall_score": round(overall_score, 1),
             # Signal scores
@@ -416,6 +466,12 @@ def calculate_signal_divergence(
             "liquidity_microstructure": liquidity_microstructure,
             "model_sensitivity_attribution": model_sensitivity_attribution,
             "portfolio_action": portfolio_action,
+            # ── Probabilistic Engine Interpretability ──
+            "ev_stability": ev_stability,
+            "confidence_integrity": confidence_integrity,
+            "scenario_weight_diagnostics": scenario_weight_diagnostics,
+            "stop_probability": stop_probability,
+            "noise_filter": noise_filter,
         }
 
         logger.info(
@@ -2314,4 +2370,573 @@ def _compute_portfolio_action(
         "mandate_fit_rationale": mandate_rationale[mandate_fit],
         "sizing_guidance": sizing_guidance,
         "regime_break_condition": " \u00b7 ".join(break_conds_pa[:3]),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PROBABILISTIC ENGINE INTERPRETABILITY LAYER
+# Items 2, 4, 5, 6, 7 from the Institutional Decision Model upgrade.
+# These functions derive stability diagnostics and sensitivity transparency
+# entirely from signals already computed in calculate_signal_divergence().
+# Zero new math — pure interpretability.
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _compute_ev_stability_class(
+    signal_spread: float,
+    signal_stability: float,
+    data_integrity_confidence_factor: float,
+    vol_trend: str,
+    missing_signal_count: int,
+    rsi_extreme_flag: bool,
+) -> Dict[str, Any]:
+    """
+    Classify EV output stability. Separates Signal Instability from
+    Market Movement Impact as distinct sensitivity drivers.
+    """
+    signal_driver_score = 0
+    market_driver_score = 0
+
+    # Signal-side instability drivers
+    if signal_stability < 4.0:
+        signal_driver_score += 3
+    elif signal_stability < 7.0:
+        signal_driver_score += 1
+    if missing_signal_count >= 3:
+        signal_driver_score += 2
+    elif missing_signal_count >= 1:
+        signal_driver_score += 1
+    if data_integrity_confidence_factor < 0.75:
+        signal_driver_score += 1
+
+    # Market-side instability drivers
+    if signal_spread >= 2.5:
+        market_driver_score += 3
+    elif signal_spread >= 1.5:
+        market_driver_score += 2
+    if vol_trend == "Expanding":
+        market_driver_score += 2
+    if rsi_extreme_flag:
+        market_driver_score += 1
+
+    instability_score = signal_driver_score + market_driver_score
+
+    # Classification
+    if instability_score >= 7:
+        stability_class = "Noise Dominated"
+        ev_sensitivity_band_pct = 18.0
+    elif instability_score >= 5:
+        stability_class = "Highly Sensitive"
+        ev_sensitivity_band_pct = 12.0
+    elif instability_score >= 3:
+        stability_class = "Moderately Sensitive"
+        ev_sensitivity_band_pct = 7.0
+    else:
+        stability_class = "Structurally Stable"
+        ev_sensitivity_band_pct = 3.5
+
+    # Sensitivity driver attribution
+    if signal_driver_score >= market_driver_score + 2:
+        sensitivity_driver = "Signal Instability"
+        driver_note = (
+            "EV variance is primarily driven by inconsistency in signal inputs "
+            "(missing data, conflicting signals, unstable cross-signal alignment). "
+            "Market conditions are not the primary source of sensitivity."
+        )
+    elif market_driver_score >= signal_driver_score + 2:
+        sensitivity_driver = "Market Movement Impact"
+        driver_note = (
+            "EV variance is primarily driven by market-side conditions "
+            "(volatility expansion, price momentum, spread widening). "
+            "Signal inputs are relatively stable \u2014 regime is the issue, not model quality."
+        )
+    elif instability_score >= 3:
+        sensitivity_driver = "Mixed"
+        driver_note = (
+            "EV variance reflects both signal-side inconsistency and "
+            "market-side volatility pressure. Both dimensions are actively contributing."
+        )
+    else:
+        sensitivity_driver = "None"
+        driver_note = (
+            "Signal inputs and market conditions are stable. "
+            "EV estimates are reliable within normal model tolerance."
+        )
+
+    # Build rationale
+    parts: List[str] = []
+    if signal_stability < 4.0:
+        parts.append(f"signal stability low ({signal_stability:.1f}/10)")
+    elif signal_stability < 7.0:
+        parts.append(f"signal stability mixed ({signal_stability:.1f}/10)")
+    if signal_spread >= 1.5:
+        parts.append(f"high signal dispersion (\u03c3={signal_spread:.2f})")
+    if vol_trend == "Expanding":
+        parts.append("volatility regime expanding")
+    if missing_signal_count >= 1:
+        parts.append(f"{missing_signal_count} signal(s) missing")
+    if rsi_extreme_flag:
+        parts.append("RSI in extreme territory")
+
+    stability_rationale = (
+        "Sensitivity elevated due to: " + ", ".join(parts) + "."
+        if parts else
+        "Signal alignment is stable and data coverage is complete. "
+        "EV output is well-anchored within model assumptions."
+    )
+
+    return {
+        "stability_class": stability_class,
+        "sensitivity_driver": sensitivity_driver,
+        "driver_note": driver_note,
+        "ev_sensitivity_band_pct": ev_sensitivity_band_pct,
+        "instability_score": instability_score,
+        "signal_driver_score": signal_driver_score,
+        "market_driver_score": market_driver_score,
+        "stability_rationale": stability_rationale,
+    }
+
+
+def _compute_confidence_integrity(
+    signal_spread: float,
+    signal_stability: float,
+    data_integrity_confidence_factor: float,
+    vol_trend: str,
+    missing_signal_count: int,
+    overall_score: float,
+    rsi_extreme_flag: bool,
+) -> Dict[str, Any]:
+    """
+    Separate EV (the directional estimate) from Confidence IN EV (how much
+    to trust that estimate). Confidence degrades as instability increases.
+    Drivers are surfaced explicitly so analysts can understand the gap.
+    """
+    base_confidence = round(data_integrity_confidence_factor * 100, 1)
+    degradation_drivers: List[str] = []
+    total_degradation = 0.0
+
+    if signal_spread >= 2.5:
+        pen = 20.0
+        total_degradation += pen
+        degradation_drivers.append(f"High signal dispersion (\u03c3={signal_spread:.2f}) \u2212{pen:.0f}pts")
+    elif signal_spread >= 1.5:
+        pen = 10.0
+        total_degradation += pen
+        degradation_drivers.append(f"Moderate signal dispersion (\u03c3={signal_spread:.2f}) \u2212{pen:.0f}pts")
+
+    if signal_stability < 4.0:
+        pen = 15.0
+        total_degradation += pen
+        degradation_drivers.append(f"Unstable signal regime ({signal_stability:.1f}/10) \u2212{pen:.0f}pts")
+    elif signal_stability < 7.0:
+        pen = 5.0
+        total_degradation += pen
+        degradation_drivers.append(f"Mixed signal stability ({signal_stability:.1f}/10) \u2212{pen:.0f}pts")
+
+    if vol_trend == "Expanding":
+        pen = 10.0
+        total_degradation += pen
+        degradation_drivers.append(f"Volatility regime expanding \u2212{pen:.0f}pts")
+
+    if rsi_extreme_flag:
+        pen = 8.0
+        total_degradation += pen
+        degradation_drivers.append(f"RSI in extreme territory \u2212{pen:.0f}pts")
+
+    if missing_signal_count >= 3:
+        pen = 15.0
+        total_degradation += pen
+        degradation_drivers.append(f"{missing_signal_count} signals missing \u2212{pen:.0f}pts")
+    elif missing_signal_count >= 1:
+        pen = 8.0
+        total_degradation += pen
+        degradation_drivers.append(f"{missing_signal_count} signal(s) missing \u2212{pen:.0f}pts")
+
+    effective_confidence_pct = max(10.0, min(100.0, base_confidence - total_degradation))
+
+    if effective_confidence_pct >= 75:
+        ev_confidence_level = "HIGH"
+        confidence_note = (
+            "Model outputs are well-supported. EV is stable within normal scenario variance. "
+            "Confidence in the directional estimate is strong."
+        )
+    elif effective_confidence_pct >= 55:
+        ev_confidence_level = "MODERATE"
+        confidence_note = (
+            "EV estimate is directionally usable but should be interpreted "
+            "with the sensitivity band applied. Avoid relying on magnitude alone."
+        )
+    elif effective_confidence_pct >= 35:
+        ev_confidence_level = "LOW"
+        confidence_note = (
+            "Model Sensitivity Elevated \u2014 EV directional signal is retained "
+            "but magnitude should not be relied upon for precise sizing decisions."
+        )
+    else:
+        ev_confidence_level = "VERY LOW"
+        confidence_note = (
+            "Model output is unreliable \u2014 multiple degradation drivers active simultaneously. "
+            "Treat EV as directional context only. Defer sizing decisions."
+        )
+
+    dispersion_label = (
+        "Wide" if signal_spread >= 2.5 else
+        "Moderate" if signal_spread >= 1.5 else
+        "Tight"
+    )
+
+    separation_note = (
+        f"EV: computed value (directional signal intact). "
+        f"Confidence in EV: {ev_confidence_level} ({effective_confidence_pct:.0f}/100). "
+        f"These are structurally distinct \u2014 a valid EV estimate may carry low confidence "
+        f"when model inputs are unstable. Treat them independently."
+    )
+
+    return {
+        "ev_confidence_level": ev_confidence_level,
+        "ev_confidence_label": f"Model Confidence: {ev_confidence_level.replace('_', ' ').title()}",
+        "confidence_note": confidence_note,
+        "probability_dispersion_label": dispersion_label,
+        "confidence_degradation_drivers": degradation_drivers,
+        "effective_confidence_pct": round(effective_confidence_pct, 1),
+        "base_confidence_pct": base_confidence,
+        "total_degradation_pts": round(total_degradation, 1),
+        "separation_note": separation_note,
+    }
+
+
+def _compute_scenario_weight_diagnostics(
+    signal_spread: float,
+    signal_stability: float,
+    tech_div_score: float,
+    tech_div_has_data: bool,
+    institutional_score: float,
+    institutional_has_data: bool,
+    dark_pool_score: float,
+    dark_pool_has_data: bool,
+    overall_score: float,
+) -> Dict[str, Any]:
+    """
+    Diagnose effective scenario probability distribution vs model fixed weights.
+    Model priors: Bear 25%, Base 50%, Bull 25%.
+    Signal conditions imply effective weight rotation away from these priors.
+    """
+    MODEL_BEAR = 0.25
+    MODEL_BASE = 0.50
+    MODEL_BULL = 0.25
+
+    bear_adj = 0.0
+    bull_adj = 0.0
+    active_factors: List[str] = []
+
+    # Bear-side pressure (signal conditions that inflate downside probability)
+    if signal_spread >= 2.0:
+        bear_adj += 0.05
+        active_factors.append(f"Signal dispersion elevated (\u03c3={signal_spread:.2f}) \u2192 risk weight +5%")
+    if signal_stability < 4.0:
+        bear_adj += 0.05
+        active_factors.append(f"Signal instability ({signal_stability:.1f}/10) \u2192 bear case elevated +5%")
+    elif signal_stability < 7.0:
+        bear_adj += 0.02
+    if institutional_has_data and institutional_score < 4.0:
+        bear_adj += 0.03
+        active_factors.append(f"Institutional positioning bearish ({institutional_score:.1f}/10) +3%")
+    if dark_pool_has_data and dark_pool_score < 4.0:
+        bear_adj += 0.03
+        active_factors.append(f"Dark pool flow bearish ({dark_pool_score:.1f}/10) +3%")
+    if overall_score < 4.0:
+        bear_adj += 0.03
+        active_factors.append(f"Aggregate signal bearish ({overall_score:.1f}/10) +3%")
+
+    # Bull-side pressure (signal conditions that inflate upside probability)
+    if tech_div_has_data and tech_div_score >= 7.0:
+        bull_adj += 0.04
+        active_factors.append(f"Momentum signal bullish ({tech_div_score:.1f}/10) +4%")
+    if institutional_has_data and institutional_score >= 7.0:
+        bull_adj += 0.03
+        active_factors.append(f"Institutional positioning bullish ({institutional_score:.1f}/10) +3%")
+    if dark_pool_has_data and dark_pool_score >= 7.0:
+        bull_adj += 0.03
+        active_factors.append(f"Dark pool flow bullish ({dark_pool_score:.1f}/10) +3%")
+    if overall_score >= 7.0:
+        bull_adj += 0.02
+        active_factors.append(f"Aggregate signal bullish ({overall_score:.1f}/10) +2%")
+
+    # Effective weights
+    eff_bear = round(min(0.55, MODEL_BEAR + bear_adj), 4)
+    eff_bull = round(min(0.55, MODEL_BULL + bull_adj), 4)
+    eff_base = round(max(0.10, 1.0 - eff_bear - eff_bull), 4)
+    # Normalize for rounding drift
+    total = eff_bear + eff_base + eff_bull
+    if abs(total - 1.0) > 0.001:
+        eff_base = round(eff_base + (1.0 - total), 4)
+
+    # Scenario Rotation Index (0-100): scaled L1 deviation from model priors
+    rotation_index = round(
+        (abs(eff_bear - MODEL_BEAR) + abs(eff_base - MODEL_BASE) + abs(eff_bull - MODEL_BULL)) / 2 * 100,
+        1
+    )
+
+    tail_sum = eff_bear + eff_bull
+    compression_ratio = round(eff_base / tail_sum if tail_sum > 0 else 1.0, 2)
+
+    if tail_sum > 0.55:
+        tail_state = "Expanded"
+        tail_note = (
+            "Tail scenarios carry elevated weight relative to model priors. "
+            "Base-case continuation is less probable given current signal conditions."
+        )
+    elif tail_sum < 0.45:
+        tail_state = "Compressed"
+        tail_note = (
+            "Tail scenarios are compressed. Base-case continuation is the dominant "
+            "probability path. Signal conditions support high continuation confidence."
+        )
+    else:
+        tail_state = "Neutral"
+        tail_note = (
+            "Tail probabilities are near model-prior distribution. "
+            "No significant weight rotation detected."
+        )
+
+    drift_label = (
+        "Significant Rotation" if rotation_index >= 15 else
+        "Modest Rotation" if rotation_index >= 5 else
+        "Stable Distribution"
+    )
+
+    if active_factors:
+        weight_shift_rationale = (
+            f"Risk Scenario weight shifted from {MODEL_BEAR*100:.0f}% \u2192 {eff_bear*100:.0f}% "
+            f"due to: " + "; ".join(active_factors[:3]) + "."
+        )
+    else:
+        weight_shift_rationale = (
+            "No significant weight rotation from model priors. "
+            "Effective distribution approximates model baseline (Bear 25% / Base 50% / Bull 25%)."
+        )
+
+    return {
+        "model_bear_prob": MODEL_BEAR,
+        "model_base_prob": MODEL_BASE,
+        "model_bull_prob": MODEL_BULL,
+        "effective_bear_prob": eff_bear,
+        "effective_base_prob": eff_base,
+        "effective_bull_prob": eff_bull,
+        "scenario_rotation_index": rotation_index,
+        "probability_compression_ratio": compression_ratio,
+        "tail_state": tail_state,
+        "tail_note": tail_note,
+        "drift_label": drift_label,
+        "weight_shift_rationale": weight_shift_rationale,
+        "active_rotation_factors": active_factors,
+    }
+
+
+def _compute_stop_probability_decomposition(
+    signal_spread: float,
+    signal_stability: float,
+    vol_trend: str,
+    rsi_extreme_flag: bool,
+    tech_div_score: float,
+    tech_div_has_data: bool,
+    overall_score: float,
+) -> Dict[str, Any]:
+    """
+    Decompose the conceptual probability of the bear/downside scenario materializing.
+    Anchored at the model bear-scenario base probability (25%) and adjusted by
+    four observable signal components: VolatilityPressure, TrendModifier, SupportModifier,
+    and an instability overlay.
+    This is NOT a stochastic stop-loss model — it is a probabilistic framing of
+    downside scenario weight given current signal regime.
+    """
+    base_stop_risk_pct = 25.0  # Model bear probability baseline
+
+    # VolatilityPressure: regime and momentum conditions
+    vol_pressure_adj = 0.0
+    vol_pressure_drivers: List[str] = []
+    if vol_trend == "Expanding":
+        vol_pressure_adj += 8.0
+        vol_pressure_drivers.append("volatility expanding (+8%)")
+    elif vol_trend == "Contracting":
+        vol_pressure_adj -= 5.0
+        vol_pressure_drivers.append("volatility contracting (\u22125%)")
+    if rsi_extreme_flag:
+        vol_pressure_adj += 5.0
+        vol_pressure_drivers.append("RSI extreme (+5%)")
+    if signal_spread >= 2.0:
+        vol_pressure_adj += 4.0
+        vol_pressure_drivers.append(f"signal spread wide (\u03c3={signal_spread:.2f}) (+4%)")
+    if signal_stability < 4.0:
+        vol_pressure_adj += 3.0
+        vol_pressure_drivers.append("unstable signal regime (+3%)")
+
+    # TrendModifier: technical momentum alignment
+    trend_modifier_adj = 0.0
+    if tech_div_has_data:
+        if tech_div_score >= 7.0:
+            trend_modifier_adj = -4.0
+        elif tech_div_score >= 5.5:
+            trend_modifier_adj = -1.5
+        elif tech_div_score <= 3.0:
+            trend_modifier_adj = 6.0
+        elif tech_div_score <= 4.5:
+            trend_modifier_adj = 3.0
+
+    # SupportModifier: aggregate signal score proxy for fundamental + smart money support
+    support_modifier_adj = 0.0
+    if overall_score >= 7.0:
+        support_modifier_adj = -3.0
+    elif overall_score >= 5.5:
+        support_modifier_adj = -1.0
+    elif overall_score <= 3.0:
+        support_modifier_adj = 6.0
+    elif overall_score <= 4.5:
+        support_modifier_adj = 3.0
+
+    effective_stop_pct = max(5.0, min(65.0,
+        base_stop_risk_pct + vol_pressure_adj + trend_modifier_adj + support_modifier_adj
+    ))
+
+    stop_label = (
+        "Critical" if effective_stop_pct >= 50 else
+        "High" if effective_stop_pct >= 35 else
+        "Elevated" if effective_stop_pct >= 20 else
+        "Low"
+    )
+
+    def _fmt(v: float) -> str:
+        return f"{v:+.0f}%"
+
+    decomposition_narrative = (
+        f"StopProb \u2248 Base({base_stop_risk_pct:.0f}%) "
+        f"\u2192 Vol({_fmt(vol_pressure_adj)}) "
+        f"\u2192 Trend({_fmt(trend_modifier_adj)}) "
+        f"\u2192 Support({_fmt(support_modifier_adj)}) "
+        f"\u2248 {effective_stop_pct:.0f}%"
+    )
+
+    if vol_trend == "Expanding" and effective_stop_pct >= 35:
+        regime_note = (
+            "Expanding volatility materially elevates the probability of adverse price excursion. "
+            "Stop distance should be widened to accommodate increased noise."
+        )
+    elif vol_trend == "Contracting":
+        regime_note = (
+            "Contracting volatility environment compresses the probability of stop activation. "
+            "Tighter positioning is more supportable in this regime."
+        )
+    else:
+        regime_note = (
+            "Volatility is stable. Stop probability is primarily driven by "
+            "fundamental signal strength and momentum conditions."
+        )
+
+    return {
+        "effective_stop_probability_pct": round(effective_stop_pct, 1),
+        "stop_probability_label": stop_label,
+        "base_stop_risk_pct": base_stop_risk_pct,
+        "volatility_pressure_pct": round(vol_pressure_adj, 1),
+        "trend_modifier_pct": round(trend_modifier_adj, 1),
+        "support_modifier_pct": round(support_modifier_adj, 1),
+        "volatility_pressure_drivers": vol_pressure_drivers,
+        "decomposition_narrative": decomposition_narrative,
+        "regime_note": regime_note,
+    }
+
+
+def _compute_noise_filter(
+    signal_spread: float,
+    signal_stability: float,
+    data_integrity_confidence_factor: float,
+    vol_trend: str,
+    rsi_extreme_flag: bool,
+    missing_signal_count: int,
+) -> Dict[str, Any]:
+    """
+    Detect noisy analytical regimes where model outputs may be unreliable.
+    Conditions: high EV volatility + high probability instability + data gaps.
+    Output includes an action guidance message for position sizing decisions.
+    """
+    noise_score = 0
+    noise_drivers: List[str] = []
+
+    if signal_spread >= 2.5:
+        noise_score += 30
+        noise_drivers.append(f"Extreme signal dispersion (\u03c3={signal_spread:.2f})")
+    elif signal_spread >= 1.5:
+        noise_score += 15
+        noise_drivers.append(f"Elevated signal dispersion (\u03c3={signal_spread:.2f})")
+
+    if signal_stability < 4.0:
+        noise_score += 25
+        noise_drivers.append(f"Unstable signal regime ({signal_stability:.1f}/10)")
+    elif signal_stability < 7.0:
+        noise_score += 10
+        noise_drivers.append(f"Mixed signal stability ({signal_stability:.1f}/10)")
+
+    if vol_trend == "Expanding":
+        noise_score += 20
+        noise_drivers.append("Volatility regime expanding")
+
+    if rsi_extreme_flag:
+        noise_score += 15
+        noise_drivers.append("RSI in extreme territory (overbought/oversold)")
+
+    if missing_signal_count >= 3:
+        noise_score += 20
+        noise_drivers.append(f"{missing_signal_count} signals unavailable")
+    elif missing_signal_count >= 1:
+        noise_score += 10
+        noise_drivers.append(f"{missing_signal_count} signal(s) unavailable")
+
+    if data_integrity_confidence_factor < 0.75:
+        noise_score += 10
+        noise_drivers.append(f"Data integrity below threshold ({data_integrity_confidence_factor:.0%})")
+
+    noise_score = min(100, noise_score)
+
+    if noise_score >= 65:
+        noise_regime = "Noise Dominated"
+        noise_flag = True
+        defer_sizing = True
+        regime_warning = (
+            "\u26a0\ufe0f Noise Dominated Environment \u2014 model outputs are unstable. "
+            "Scenario weights, EV, and stop probability estimates carry high uncertainty. "
+            "Defer sizing decisions until regime stabilizes."
+        )
+        action_guidance = "Defer sizing decisions \u2014 await regime clarity"
+    elif noise_score >= 40:
+        noise_regime = "High Noise"
+        noise_flag = True
+        defer_sizing = False
+        regime_warning = (
+            "\u26a0\ufe0f High Noise Environment \u2014 model confidence is impaired. "
+            "Use 0.5\u00d7 conviction scaling. Monitor for signal stabilization."
+        )
+        action_guidance = "Size conservatively \u2014 model confidence impaired"
+    elif noise_score >= 20:
+        noise_regime = "Moderate Noise"
+        noise_flag = False
+        defer_sizing = False
+        regime_warning = (
+            "Moderate analytical noise present. Apply 0.75\u00d7 conviction multiplier. "
+            "Outputs are directionally reliable but magnitude carries elevated uncertainty."
+        )
+        action_guidance = "Apply reduced conviction multiplier (0.75\u00d7)"
+    else:
+        noise_regime = "Clean"
+        noise_flag = False
+        defer_sizing = False
+        regime_warning = None
+        action_guidance = "Proceed with standard sizing"
+
+    return {
+        "noise_regime": noise_regime,
+        "noise_score": noise_score,
+        "noise_flag": noise_flag,
+        "defer_sizing": defer_sizing,
+        "noise_drivers": noise_drivers,
+        "regime_warning": regime_warning,
+        "action_guidance": action_guidance,
     }

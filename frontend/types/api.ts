@@ -277,6 +277,69 @@ export interface PortfolioAction {
   regime_break_condition: string
 }
 
+// --- Probabilistic Engine Interpretability Types ---
+
+export interface EVStabilityClass {
+  stability_class: 'Structurally Stable' | 'Moderately Sensitive' | 'Highly Sensitive' | 'Noise Dominated'
+  sensitivity_driver: 'Signal Instability' | 'Market Movement Impact' | 'Mixed' | 'None'
+  driver_note: string
+  ev_sensitivity_band_pct: number
+  instability_score: number
+  signal_driver_score: number
+  market_driver_score: number
+  stability_rationale: string
+}
+
+export interface ConfidenceIntegrity {
+  ev_confidence_level: 'HIGH' | 'MODERATE' | 'LOW' | 'VERY LOW'
+  ev_confidence_label: string
+  confidence_note: string
+  probability_dispersion_label: 'Tight' | 'Moderate' | 'Wide'
+  confidence_degradation_drivers: string[]
+  effective_confidence_pct: number
+  base_confidence_pct: number
+  total_degradation_pts: number
+  separation_note: string
+}
+
+export interface ScenarioWeightDiagnostics {
+  model_bear_prob: number
+  model_base_prob: number
+  model_bull_prob: number
+  effective_bear_prob: number
+  effective_base_prob: number
+  effective_bull_prob: number
+  scenario_rotation_index: number
+  probability_compression_ratio: number
+  tail_state: 'Expanded' | 'Neutral' | 'Compressed'
+  tail_note: string
+  drift_label: 'Stable Distribution' | 'Modest Rotation' | 'Significant Rotation'
+  weight_shift_rationale: string
+  active_rotation_factors: string[]
+}
+
+export interface StopProbabilityDecomposition {
+  effective_stop_probability_pct: number
+  stop_probability_label: 'Low' | 'Elevated' | 'High' | 'Critical'
+  base_stop_risk_pct: number
+  volatility_pressure_pct: number
+  trend_modifier_pct: number
+  support_modifier_pct: number
+  volatility_pressure_drivers: string[]
+  decomposition_narrative: string
+  regime_note: string
+}
+
+export interface NoiseFilter {
+  noise_regime: 'Clean' | 'Moderate Noise' | 'High Noise' | 'Noise Dominated'
+  noise_score: number
+  noise_flag: boolean
+  defer_sizing: boolean
+  noise_drivers: string[]
+  regime_warning: string | null
+  action_guidance: string
+}
+
 // --- Signal Breakdown Types ---
 
 export interface RsiExtremeFlag {
@@ -379,6 +442,12 @@ export interface SignalBreakdown {
   liquidity_microstructure?: LiquidityMicrostructure
   model_sensitivity_attribution?: ModelSensitivityAttribution
   portfolio_action?: PortfolioAction
+  // Probabilistic Engine Interpretability modules
+  ev_stability?: EVStabilityClass
+  confidence_integrity?: ConfidenceIntegrity
+  scenario_weight_diagnostics?: ScenarioWeightDiagnostics
+  stop_probability?: StopProbabilityDecomposition
+  noise_filter?: NoiseFilter
 }
 
 export interface ConvictionStatement {
@@ -445,6 +514,16 @@ export interface PreviousAnalysisDelta {
   current_moat_score: number | null
   thesis_direction: 'strengthened' | 'weakened' | 'held' | 'reversed'
   days_since_last: number
+  // Sensitivity attribution (item 1: "What Changed?" diagnostic)
+  prior_overall_score?: number | null
+  current_overall_score?: number | null
+  prior_signal_stability?: number | null
+  current_signal_stability?: number | null
+  prior_signal_spread?: number | null
+  current_signal_spread?: number | null
+  prior_vol_trend?: string | null
+  current_vol_trend?: string | null
+  sensitivity_attribution?: string[]
 }
 
 export interface TradeTarget {
