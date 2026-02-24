@@ -111,7 +111,7 @@ export function ExecutionLayer({
             </div>
           </div>
 
-          {/* ── PM View: simplified position context only ─────────────── */}
+          {/* ── PM View: position sizing / allocation guidance ────────── */}
           {viewMode === 'pm' && (
             <div className="p-5 space-y-4">
               <PortfolioContext
@@ -132,20 +132,10 @@ export function ExecutionLayer({
             </div>
           )}
 
-          {/* ── Trader View: full setup (no sub-tabs) ────────────────── */}
+          {/* ── Trader View: entry/exit setup ────────────────────────── */}
           {viewMode === 'trader' && (
-            <div className="p-5 space-y-6">
-              <PortfolioContext
-                ticker={ticker}
-                rating={rating}
-                moatScore={moatScore}
-                financialHealthScore={financialHealthScore}
-                sector={sector}
-                currentPrice={currentPrice}
-                convictionPosition={convictionPosition}
-                signalBreakdown={signalBreakdown}
-              />
-              {enhancedTradeSetup && (
+            <div className="p-5">
+              {enhancedTradeSetup ? (
                 <TradeSetup
                   setup={enhancedTradeSetup}
                   ticker={ticker}
@@ -156,6 +146,10 @@ export function ExecutionLayer({
                   calibration={calibration}
                   financialHealthScore={financialHealthScore}
                 />
+              ) : (
+                <p className="text-sm text-text-tertiary italic">
+                  No tactical entry/exit data available for this analysis.
+                </p>
               )}
             </div>
           )}
