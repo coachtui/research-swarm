@@ -447,13 +447,19 @@ function SetupColumn({
     classifyTargetValidity(t, currentPrice, regimeMode, isDeepEntry ?? false)
   )
 
-  // Sort targets ascending by price for display — prevents visual regression when backend
-  // computes T-n prices out of ascending order (e.g., T3 < T2). All logic functions
+  // Sort targets by T-number in label (T1 < T2 < T3 < T4) for display — preserves correct
+  // sequence regardless of the price order the backend emits them in. All logic functions
   // (inferTargetHorizon, isExtendedTarget, etc.) continue to use originalIndex so
   // label-matching and index-fallback behaviour is preserved exactly.
+  function extractTargetNumber(label: string, fallbackIndex: number): number {
+    const match = label.match(/^[Tt](\d+)/)
+    return match ? parseInt(match[1]) : fallbackIndex + 1
+  }
   const sortedTargetData = side.targets
     .map((t, i) => ({ t, validity: targetValidities[i], originalIndex: i }))
-    .sort((a, b) => a.t.price - b.t.price)
+    .sort((a, b) =>
+      extractTargetNumber(a.t.label, a.originalIndex) - extractTargetNumber(b.t.label, b.originalIndex)
+    )
 
   // C2: Setup unavailable state — show instead of normal setup when risk buffer is insufficient
   const setupUnavailable = side.setup_unavailable
@@ -482,6 +488,17 @@ function SetupColumn({
     structuralFairValue > 0 &&
     side.targets.length > 0 &&
     side.targets.every(t => t.price > structuralFairValue)
+
+  // Detect when T3 (fundamental anchor) < T2 (analyst consensus) — valid in MOMENTUM regime
+  // where sell-side consensus overshoots the model's intrinsic estimate.
+  const t2Entry = sortedTargetData.find(({ t }) => extractTargetNumber(t.label, 0) === 2)
+  const t3Entry = sortedTargetData.find(({ t }) => extractTargetNumber(t.label, 0) === 3)
+  const hasConsensusAboveFundamental =
+    t2Entry != null &&
+    t3Entry != null &&
+    t3Entry.t.price < t2Entry.t.price &&
+    t2Entry.validity === 'VALID' &&
+    t3Entry.validity === 'VALID'
 
   return (
     <div className={`rounded-lg border ${borderColor} overflow-hidden`}>
@@ -720,6 +737,22 @@ function SetupColumn({
               </div>
             )
           })}
+
+          {/* Consensus-above-fundamental note — shown when T2 (analyst consensus) > T3 (intrinsic anchor).
+              Valid in MOMENTUM regime: near-term sell-side optimism exceeds the model's fundamental estimate. */}
+          {hasConsensusAboveFundamental && t2Entry && t3Entry && (
+            <div className="rounded-md bg-primary/5 border border-primary/15 px-3 py-2 text-[10px] text-text-tertiary leading-relaxed">
+              <span className="font-medium text-text-secondary block mb-1">T3 below T2 — Consensus Overshoots Fundamental Anchor</span>
+              <span>
+                <span className="font-medium text-text-secondary">T2 ({formatCurrency(t2Entry.t.price)})</span>
+                {' '}reflects the near-term sell-side consensus — where analysts expect the stock to trade in 6–12 months, driven by momentum and sentiment.
+              </span>
+              <span className="block mt-1">
+                <span className="font-medium text-text-secondary">T3 ({formatCurrency(t3Entry.t.price)})</span>
+                {' '}is the model&rsquo;s base-case fundamental re-rating anchor for the 12–24 month horizon, derived from intrinsic valuation. It sits below T2 because the model assesses the consensus as pricing in more optimism than fundamentals currently support — not a predicted price drop, but a signal that the stock may overshoot consensus before normalizing toward fundamental value.
+              </span>
+            </div>
+          )}
 
           {/* Expansion Scenario — T4 / Regime Expansion, visually separated from primary */}
           {sortedTargetData.some(({ t, validity, originalIndex: i }) => validity === 'VALID' && isExtendedTarget(t.label, i)) && (
