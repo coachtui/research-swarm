@@ -5,8 +5,6 @@ import {
   TrendingUp,
   Zap,
   Shield,
-  DollarSign,
-  Clock,
   BarChart3,
   CheckCircle2,
   ArrowRight,
@@ -105,29 +103,29 @@ export default function Home() {
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium text-primary"
               style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}>
               <Zap className="w-3.5 h-3.5" />
-              Institutional-Quality Research in 4 Minutes
+              Risk Intelligence · Decision Engine
             </div>
 
             <h1 className="text-4xl md:text-6xl font-bold text-text-primary leading-tight tracking-tight">
-              AI-Powered Stock Analysis<br />
-              That Detects What Wall Street{' '}
-              <span className="text-primary">Doesn&apos;t Tell You</span>
+              Probabilistic Risk Intelligence<br />
+              for{' '}
+              <span className="text-primary">Stock Decisions</span>
             </h1>
 
             <p className="text-lg text-text-secondary leading-relaxed max-w-2xl mx-auto">
-              Stop relying on biased analyst reports and incomplete data.
-              Multi-agent AI analysis that uncovers divergences before the market does.
+              DVRG models expected value, scenario probabilities, stop-out risk, and stability
+              so you can decide when to act, how much to allocate, and when to stay small.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-              <Link href="/sign-up">
+              <Link href="/analyze">
                 <Button size="lg" className="w-full sm:w-auto">
-                  Start Analyzing <ArrowRight className="ml-2 w-4 h-4" />
+                  Analyze a Ticker <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
               </Link>
               <Link href="#how-it-works">
                 <Button size="lg" variant="outline" className="w-full sm:w-auto">
-                  See How It Works
+                  See Example Report
                 </Button>
               </Link>
             </div>
@@ -135,9 +133,11 @@ export default function Home() {
             {/* Trust strip */}
             <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-text-secondary pt-4">
               {[
-                'Starting at $19.99/month',
-                '5–50 analyses per month',
-                '4-minute analysis',
+                'Expected Value',
+                'Stop Probability',
+                'Stability & Noise',
+                'Scenario Distribution',
+                'Position Sizing',
               ].map((item) => (
                 <div key={item} className="flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
@@ -156,28 +156,25 @@ export default function Home() {
             <div className="mb-12">
               <SectionLabel>The Problem</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Traditional Stock Research Is Broken
+                Most Research Tools Optimize Narratives — Not Decisions
               </h2>
-              <p className="mt-2 text-text-secondary max-w-xl">
-                Retail investors are at a massive disadvantage.
-              </p>
             </div>
 
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-px"
               style={{ background: 'var(--border)' }}>
               {[
-                { icon: <DollarSign className="w-5 h-5" />, title: 'Expensive Research',
-                  body: 'Professional analyst reports cost $500–$2,000+ each, or expensive Bloomberg/FactSet subscriptions at $2,000+/month.' },
-                { icon: <Clock className="w-5 h-5" />, title: 'Time-Consuming Analysis',
-                  body: 'Proper due diligence requires 10–20+ hours per stock, analyzing financials, technicals, news, and sentiment.' },
-                { icon: <AlertTriangle className="w-5 h-5" />, title: 'Biased Information',
-                  body: 'Wall Street analysts have conflicts of interest. Their "buy" ratings often protect banking relationships, not your portfolio.' },
-                { icon: <Target className="w-5 h-5" />, title: 'Missing Divergences',
-                  body: 'Critical signals when fundamentals and technicals don\'t align go unnoticed until it\'s too late.' },
-                { icon: <BarChart3 className="w-5 h-5" />, title: 'Information Overload',
-                  body: 'Thousands of data points across earnings calls, SEC filings, news, and charts—impossible to synthesize manually.' },
-                { icon: <Shield className="w-5 h-5" />, title: 'No Institutional Tools',
-                  body: 'Hedge funds use sophisticated quant models and alternative data. Retail investors are left with basic screeners.' },
+                { icon: <Target className="w-5 h-5" />, title: 'Price Targets',
+                  body: 'Single-point forecasts ignore uncertainty and path risk.' },
+                { icon: <BarChart3 className="w-5 h-5" />, title: 'Indicators & Signals',
+                  body: 'Signals without stability context encourage oversizing fragile setups.' },
+                { icon: <AlertTriangle className="w-5 h-5" />, title: 'Conviction Bias',
+                  body: 'Confidence ≠ probability. Markets punish sizing errors, not bad opinions.' },
+                { icon: <LineChart className="w-5 h-5" />, title: 'Missing Risk Geometry',
+                  body: 'No modeling of stop probability, distribution shape, or EV efficiency.' },
+                { icon: <Newspaper className="w-5 h-5" />, title: 'Information Overload',
+                  body: 'More data, less clarity.' },
+                { icon: <Shield className="w-5 h-5" />, title: 'DVRG Approach',
+                  body: 'Quantifies outcome distributions, expected value, and setup stability.' },
               ].map(({ icon, title, body }) => (
                 <div key={title} className="p-6 bg-background flex gap-4 items-start">
                   <div className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 text-error"
@@ -202,48 +199,47 @@ export default function Home() {
             <div className="mb-12">
               <SectionLabel>The Solution</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Meet DVRG: Your AI Research Team
+                Meet DVRG: A Probabilistic Decision Engine
               </h2>
               <p className="mt-2 text-text-secondary max-w-xl">
-                Multi-agent AI delivering institutional-quality analysis at a fraction of the cost and time.
+                DVRG evaluates trades through the lens of risk, probability, and stability — not prediction.
               </p>
             </div>
 
             <div className="grid lg:grid-cols-2 gap-12">
-              {/* Agent list */}
+              {/* Feature list */}
               <div>
                 <div style={{ borderTop: '1px solid var(--border)' }}>
-                  <AgentRow icon={<BarChart3 className="w-4 h-4" />} title="Fundamentalist Agent"
-                    body="Deep-dives into financials, moat strength, competitive positioning, and valuation metrics." />
-                  <AgentRow icon={<LineChart className="w-4 h-4" />} title="Quant Technician Agent"
-                    body="Analyzes price action, momentum, volume patterns, and technical indicators." />
-                  <AgentRow icon={<Newspaper className="w-4 h-4" />} title="News Hound Agent"
-                    body="Scans recent news, earnings calls, and market sentiment to gauge market perception." />
-                  <AgentRow icon={<TrendingUp className="w-4 h-4" />} title="Manager Agent"
-                    body="Synthesizes all findings, detects signal divergences, and generates actionable investment thesis." />
+                  <AgentRow icon={<BarChart3 className="w-4 h-4" />} title="Expected Value Engine"
+                    body="Scenario-weighted opportunity vs risk." />
+                  <AgentRow icon={<TrendingUp className="w-4 h-4" />} title="Outcome Distribution Model"
+                    body="Risk / Base / Re-rating paths with probability geometry." />
+                  <AgentRow icon={<Shield className="w-4 h-4" />} title="Stability & Noise Diagnostics"
+                    body="Identifies fragile vs reliable setups." />
+                  <AgentRow icon={<Target className="w-4 h-4" />} title="Stop Probability Framework"
+                    body="Models stop-out risk before capital is deployed." />
                 </div>
               </div>
 
-              {/* Deliverables panel */}
+              {/* Key differentiators panel */}
               <div
                 className="rounded-card p-7"
                 style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
               >
                 <h4 className="text-sm font-semibold text-text-primary mb-5 uppercase tracking-wider text-text-secondary">
-                  Key Deliverables
+                  Key Differentiators
                 </h4>
                 <div className="space-y-3.5">
                   {[
-                    ['Moat Score (0–10)', 'Competitive advantage strength'],
-                    ['Signal Breakdown', '5 key metrics with divergence detection'],
-                    ['Investment Thesis', 'Clear bull/bear case with catalysts'],
-                    ['Risk Assessment', 'Key risks and downside scenarios'],
-                    ['Full Report', 'Comprehensive analysis with data citations'],
+                    ['Expected Value', 'not opinion'],
+                    ['Probability', 'not narrative'],
+                    ['Stability', 'not signal'],
+                    ['Sizing', 'not conviction'],
                   ].map(([title, sub]) => (
                     <div key={title} className="flex items-start gap-3">
                       <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" />
                       <span className="text-sm text-text-secondary">
-                        <strong className="text-text-primary">{title}:</strong> {sub}
+                        <strong className="text-text-primary">{title}</strong> &gt; {sub}
                       </span>
                     </div>
                   ))}
@@ -261,50 +257,42 @@ export default function Home() {
             <div className="mb-12">
               <SectionLabel>Process</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                How It Works
+                How DVRG Thinks
               </h2>
-              <p className="mt-2 text-text-secondary">
-                From ticker symbol to comprehensive analysis in three simple steps.
-              </p>
             </div>
 
             <div style={{ borderTop: '1px solid var(--border)' }}>
               <Step
                 n="1"
-                title="Enter a Ticker Symbol"
-                body="Type any US stock ticker (e.g., AAPL, TSLA, NVDA). Our system instantly fetches real-time data from financial APIs."
+                title="Detect Regime"
+                body="Volatility, liquidity, structure → market environment classification."
               />
               <Step
                 n="2"
-                title="AI Agents Analyze in Parallel"
-                body="Four specialized AI agents work simultaneously, each bringing unique expertise."
-                sub={
-                  <ul className="mt-3 space-y-1.5 text-sm text-text-secondary">
-                    {[
-                      ['Fundamentalist', 'evaluates business model, competitive moat, and financial health'],
-                      ['Quant Technician', 'analyzes price trends, momentum, and technical signals'],
-                      ['News Hound', 'processes recent news, sentiment, and market narratives'],
-                      ['Manager', 'synthesizes findings and detects signal divergences'],
-                    ].map(([name, desc]) => (
-                      <li key={name} className="flex gap-2">
-                        <span className="text-primary shrink-0">·</span>
-                        <span><strong className="text-text-primary">{name}</strong> {desc}</span>
-                      </li>
-                    ))}
-                  </ul>
-                }
+                title="Build Scenarios"
+                body="Maps plausible outcome distributions."
               />
               <Step
                 n="3"
-                title="Get Your Report"
-                body="Receive a comprehensive investment report with moat score, signal breakdown, thesis, risks, and full analysis—all in under 4 minutes. Download as PDF or save to your dashboard."
+                title="Compute Expected Value"
+                body="Opportunity adjusted for risk geometry."
+              />
+              <Step
+                n="4"
+                title="Evaluate Stability & Noise"
+                body="Separates strong setups from fragile ones."
+              />
+              <Step
+                n="5"
+                title="Translate to Action"
+                body="Allocation bias + sizing logic."
               />
             </div>
 
             <div className="mt-10 text-center">
-              <Link href="/sign-up">
+              <Link href="/analyze">
                 <Button size="lg">
-                  Try It Now <ArrowRight className="ml-2 w-4 h-4" />
+                  Try DVRG Now <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
               </Link>
             </div>
@@ -319,15 +307,12 @@ export default function Home() {
             <div className="mb-12">
               <SectionLabel>Pricing</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Simple, Transparent Pricing
+                Choose Your Decision Depth
               </h2>
-              <p className="mt-2 text-text-secondary">
-                Choose the plan that fits your research needs.
-              </p>
             </div>
             <PricingCards />
             <p className="mt-8 text-center text-sm text-text-secondary">
-              Compare to analyst reports at $500–$2,000 each or Bloomberg Terminal at $24,000/year.
+              DVRG does not predict prices. It models risk, probability, and decision stability.
             </p>
           </div>
         </div>
@@ -378,14 +363,14 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="max-w-2xl mx-auto text-center space-y-6">
             <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-              Ready to Level Up Your Stock Research?
+              Stop Guessing Conviction. Start Sizing Decisions.
             </h2>
             <p className="text-text-secondary">
-              Join investors making smarter decisions with AI-powered analysis.
+              Expected value, probabilities, stability, stop risk, and dynamic sizing — built for real-world uncertainty.
             </p>
             <Link href="/analyze">
               <Button size="lg" variant="outline">
-                Analyze Your First Stock
+                Analyze Your Next Stock
               </Button>
             </Link>
           </div>
