@@ -6,16 +6,21 @@ Handles checkout sessions, boost purchases, customer portal, and webhook events.
 
 import os
 import stripe
+import logging
 from fastapi import APIRouter, HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any
 
 from api.dependencies import get_current_user
 from api.lib.db import get_db
+from api.lib.entitlement_config import GRACE_PERIOD_DAYS
+from api.lib.entitlement_resolver import persist_entitlements
 from api.models.auth import User
 from api.services.quota_service import check_boost_eligibility, add_boost_analyses, get_or_create_current_quota
 from prisma import Prisma
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stripe", tags=["stripe"])
 
@@ -242,83 +247,123 @@ async def stripe_webhook(request: Request, db: Prisma = Depends(get_db)):
     return JSONResponse({"status": "success"})
 
 
-async def handle_subscription_created(subscription: Dict[str, Any], db: Prisma):
-    """Handle new subscription creation. Sets tier, status, and billing period."""
-    customer_id = subscription["customer"]
-    subscription_id = subscription["id"]
-    status = subscription["status"]
-    price_id = subscription["items"]["data"][0]["price"]["id"]
+async def _sync_subscription_to_user(
+    subscription: Dict[str, Any],
+    db: Prisma,
+    *,
+    override_status: str | None = None,
+) -> None:
+    """
+    Shared helper: write subscription fields to User and recompute entitlements.
+
+    Handles:
+      - Immediate upgrade (active → higher tier)
+      - Downgrade scheduling (cancel_at_period_end → maintain tier until period_end)
+      - Grace window on past_due (3 days)
+      - Multiple subscriptions: writes the fields of THIS subscription; the
+        billing/refresh endpoint picks the highest tier across all subscriptions.
+    """
+    customer_id  = subscription["customer"]
+    sub_id       = subscription["id"]
+    status       = override_status or subscription["status"]
+    price_id     = subscription["items"]["data"][0]["price"]["id"]
     period_start = datetime.fromtimestamp(subscription["current_period_start"], tz=timezone.utc)
-    period_end = datetime.fromtimestamp(subscription["current_period_end"], tz=timezone.utc)
+    period_end   = datetime.fromtimestamp(subscription["current_period_end"],   tz=timezone.utc)
+    cancel_at_end = bool(subscription.get("cancel_at_period_end", False))
 
     tier = PRICE_TO_TIER.get(price_id, "starter")
 
-    await db.user.update(
-        where={"stripeCustomerId": customer_id},
-        data={
-            "stripeSubscriptionId": subscription_id,
-            "stripeSubscriptionStatus": status,
-            "stripePriceId": price_id,
-            "subscriptionEndDate": period_end,
-            "billingPeriodStart": period_start,
-            "billingPeriodEnd": period_end,
-            "tier": tier,
-            "isActive": status in ["active", "trialing"]
-        }
-    )
+    # Downgrade scheduling: if the subscription is set to cancel at period end,
+    # we keep the current tier active until period_end. The actual entitlement
+    # drop will be triggered by the `customer.subscription.deleted` event.
+    # We record cancel_at_period_end so the UI can show a "cancels on {date}" banner.
+
+    # Grace window: on past_due, grant GRACE_PERIOD_DAYS before revoking premium.
+    grace_until = None
+    if status == "past_due":
+        grace_until = datetime.now(timezone.utc) + timedelta(days=GRACE_PERIOD_DAYS)
+        logger.info("past_due grace window set until %s for customer %s", grace_until, customer_id)
+
+    update_data: dict = {
+        "stripeSubscriptionId":    sub_id,
+        "stripeSubscriptionStatus": status,
+        "stripePriceId":           price_id,
+        "subscriptionEndDate":     period_end,
+        "billingPeriodStart":      period_start,
+        "billingPeriodEnd":        period_end,
+        "cancelAtPeriodEnd":       cancel_at_end,
+        "tier":                    tier,
+        "isActive":                status in ("active", "trialing"),
+    }
+    if grace_until:
+        update_data["graceUntil"] = grace_until
+    else:
+        update_data["graceUntil"] = None  # clear stale grace window
+
+    await db.user.update(where={"stripeCustomerId": customer_id}, data=update_data)
+
+    # Recompute and persist entitlements
+    user_db = await db.user.find_unique(where={"stripeCustomerId": customer_id})
+    if user_db:
+        await persist_entitlements(user_db, db)
+        logger.info(
+            "subscription_sync | customer=%s tier=%s status=%s cancel_at_end=%s",
+            customer_id, tier, status, cancel_at_end,
+        )
+
+
+async def handle_subscription_created(subscription: Dict[str, Any], db: Prisma):
+    """Handle new subscription creation. Grants tier entitlements immediately."""
+    await _sync_subscription_to_user(subscription, db)
 
 
 async def handle_subscription_updated(subscription: Dict[str, Any], db: Prisma):
-    """Handle subscription updates (renewals, tier changes, cancellation scheduling)."""
-    customer_id = subscription["customer"]
-    subscription_id = subscription["id"]
-    status = subscription["status"]
-    price_id = subscription["items"]["data"][0]["price"]["id"]
-    period_start = datetime.fromtimestamp(subscription["current_period_start"], tz=timezone.utc)
-    period_end = datetime.fromtimestamp(subscription["current_period_end"], tz=timezone.utc)
+    """
+    Handle subscription updates: renewals, tier changes, and cancellation scheduling.
 
-    tier = PRICE_TO_TIER.get(price_id, "starter")
-
-    await db.user.update(
-        where={"stripeCustomerId": customer_id},
-        data={
-            "stripeSubscriptionId": subscription_id,
-            "stripeSubscriptionStatus": status,
-            "stripePriceId": price_id,
-            "subscriptionEndDate": period_end,
-            "billingPeriodStart": period_start,
-            "billingPeriodEnd": period_end,
-            "tier": tier,
-            "isActive": status in ["active", "trialing"]
-        }
-    )
+    Upgrade:   immediate entitlement increase.
+    Downgrade: cancel_at_period_end=True keeps tier until period_end.
+               The actual drop happens on subscription.deleted.
+    """
+    await _sync_subscription_to_user(subscription, db)
 
 
 async def handle_subscription_deleted(subscription: Dict[str, Any], db: Prisma):
-    """Handle subscription cancellation. Marks user inactive."""
+    """
+    Handle subscription deletion/expiry.
+
+    Entitlements drop to starter. isActive remains True — the account is
+    still valid, just on the free tier. The user can re-subscribe.
+    """
     customer_id = subscription["customer"]
 
     await db.user.update(
         where={"stripeCustomerId": customer_id},
         data={
             "stripeSubscriptionStatus": "canceled",
-            "isActive": False,
-            "tier": "starter"  # Downgrade to lowest tier but mark inactive
-        }
+            "tier":                    "starter",
+            "cancelAtPeriodEnd":       False,
+            "graceUntil":              None,
+            "isActive":                True,
+        },
     )
+
+    user_db = await db.user.find_unique(where={"stripeCustomerId": customer_id})
+    if user_db:
+        await persist_entitlements(user_db, db)
+        logger.info("subscription_deleted | customer=%s → starter", customer_id)
 
 
 async def handle_payment_succeeded(invoice: Dict[str, Any], db: Prisma):
     """
     Handle successful payment.
-    For subscription renewals: reactivate account and update billing period dates.
+    Clears any grace window, reactivates the account, and refreshes entitlements.
     A new UsageQuota record will be auto-created on the next API request.
     """
     customer_id = invoice["customer"]
     subscription_id = invoice.get("subscription")
 
     if subscription_id:
-        # Retrieve subscription to get updated period dates
         try:
             subscription = stripe.Subscription.retrieve(subscription_id)
             new_period_start = datetime.fromtimestamp(
@@ -332,35 +377,57 @@ async def handle_payment_succeeded(invoice: Dict[str, Any], db: Prisma):
                 where={"stripeCustomerId": customer_id},
                 data={
                     "stripeSubscriptionStatus": "active",
-                    "isActive": True,
+                    "isActive":          True,
+                    "graceUntil":        None,   # clear grace window on successful payment
                     "billingPeriodStart": new_period_start,
-                    "billingPeriodEnd": new_period_end,
-                    "subscriptionEndDate": new_period_end
-                }
+                    "billingPeriodEnd":   new_period_end,
+                    "subscriptionEndDate": new_period_end,
+                },
             )
         except Exception as e:
-            # Fallback: just reactivate without updating period dates
-            print(f"⚠️  Could not retrieve subscription for period update: {e}")
+            logger.warning("Could not retrieve subscription for period update: %s", e)
             await db.user.update(
                 where={"stripeCustomerId": customer_id},
                 data={
                     "stripeSubscriptionStatus": "active",
-                    "isActive": True
-                }
+                    "isActive":  True,
+                    "graceUntil": None,
+                },
             )
+
+    user_db = await db.user.find_unique(where={"stripeCustomerId": customer_id})
+    if user_db:
+        await persist_entitlements(user_db, db)
+        logger.info("payment_succeeded | customer=%s entitlements refreshed", customer_id)
 
 
 async def handle_payment_failed(invoice: Dict[str, Any], db: Prisma):
-    """Handle failed payment — mark as past_due and disable access."""
+    """
+    Handle failed payment.
+
+    Sets past_due status and opens a GRACE_PERIOD_DAYS grace window.
+    The user retains their current tier entitlements during this window.
+    If the grace window expires without payment, the entitlement resolver
+    automatically downgrades them to starter on the next request.
+    """
     customer_id = invoice["customer"]
+    grace_until = datetime.now(timezone.utc) + timedelta(days=GRACE_PERIOD_DAYS)
 
     await db.user.update(
         where={"stripeCustomerId": customer_id},
         data={
             "stripeSubscriptionStatus": "past_due",
-            "isActive": False
-        }
+            "graceUntil":              grace_until,
+            "isActive":                True,  # Account stays active during grace
+        },
     )
+
+    user_db = await db.user.find_unique(where={"stripeCustomerId": customer_id})
+    if user_db:
+        await persist_entitlements(user_db, db)
+        logger.warning(
+            "payment_failed | customer=%s grace_until=%s", customer_id, grace_until
+        )
 
 
 async def handle_checkout_completed(session: Dict[str, Any], db: Prisma):

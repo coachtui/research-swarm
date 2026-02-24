@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from api.models.requests import AnalyzeRequest
 from api.models.responses import AnalyzeResponse, JobStatus
 from api.dependencies import get_current_user
+from api.lib.entitlement_middleware import require_limit
+from api.lib.entitlement_resolver import EntitlementContext
 from api.models.auth import User
 from api.services.analysis_service import run_stock_analysis
 from api.lib.db import save_analysis_result, create_pending_run, update_run_failed
@@ -70,7 +72,9 @@ async def _run_analysis_background(
 async def analyze_stock(
     request: AnalyzeRequest,
     background_tasks: BackgroundTasks,
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    # Daily limit guard — increments UsageCounter on success, 429 if exceeded
+    _ent: EntitlementContext = Depends(require_limit("limits.runs.daily")),
 ):
     """
     Trigger a single stock analysis.
@@ -80,11 +84,12 @@ async def analyze_stock(
 
     **Authentication required**: Bearer token (Clerk JWT)
 
-    **Rate limits**:
-    - Pro tier: 10 analyses/month
-    - Premium tier: 30 analyses/month
+    **Rate limits** (enforced by entitlement engine, per UTC day):
+    - Starter tier:  10 runs/day
+    - Investor tier: 50 runs/day
+    - Trader tier:   250 runs/day
     """
-    # Check tier-based analysis quota (admins bypass; requires active Stripe subscription)
+    # Also check monthly quota (existing system) — admins bypass
     can_analyze, error_msg = await check_can_analyze(
         user.id, user.tier, user.email, user.is_admin,
         stripe_status=user.stripe_subscription_status or ""

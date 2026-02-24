@@ -12,8 +12,11 @@ Config version: v1.0.0 (mirrors config/sizing-config.v1.json)
 
 import math
 from typing import Optional, Literal, Dict, List, Any
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from api.lib.entitlement_middleware import require_features
+from api.lib.entitlement_resolver import EntitlementContext
 
 router = APIRouter()
 
@@ -320,7 +323,10 @@ def _compute_sizing(req: PositionSizingRequest) -> PositionSizingResponse:
 # ─── Route ────────────────────────────────────────────────────────────────────
 
 @router.post("/position-sizing", response_model=PositionSizingResponse)
-async def compute_position_sizing(request: PositionSizingRequest):
+async def compute_position_sizing(
+    request: PositionSizingRequest,
+    _ent: EntitlementContext = Depends(require_features(["allocation.sizing.write"])),
+):
     """
     Compute noise-adjusted position sizing.
 

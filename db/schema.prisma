@@ -28,6 +28,8 @@ model User {
   stripeSubscriptionStatus String?  @map("stripe_subscription_status")  // active, canceled, past_due, trialing, incomplete
   stripePriceId           String?   @map("stripe_price_id")  // Which plan they're on
   subscriptionEndDate     DateTime? @map("subscription_end_date")  // When subscription period ends
+  cancelAtPeriodEnd       Boolean   @default(false) @map("cancel_at_period_end")
+  graceUntil              DateTime? @map("grace_until")  // Past-due grace window expiry
 
   // 30-day rolling billing period (set by Stripe webhooks)
   billingPeriodStart  DateTime? @map("billing_period_start")
@@ -46,8 +48,10 @@ model User {
   costLogs        CostLog[]
   watchlist       Watchlist[]
   usageQuotas     UsageQuota[]
+  usageCounters   UsageCounter[]
   alertRules      AlertRule[]
   preferences     UserPreferences?
+  entitlement     Entitlement?
 
   @@index([email])
   @@index([clerkId])
@@ -328,6 +332,53 @@ model AlertHistory {
   @@index([userId, triggeredAt(sort: Desc)])
   @@index([ticker])
   @@map("alert_history")
+}
+
+// Computed entitlements — billing-authoritative feature flags and limits.
+// Written by Stripe webhooks and /billing/refresh. Read on every request.
+model Entitlement {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Effective tier at the time entitlements were computed
+  tier    String
+
+  // Feature flags and numeric limits (JSON objects)
+  flags   Json  // { "report.full.read": true, "allocation.sizing.write": false, ... }
+  limits  Json  // { "limits.runs.daily": 50, "limits.history.days": 90 }
+
+  // Config version for cache invalidation on schema changes
+  version String @default("entitlements.v1")
+
+  // Effective window
+  effectiveFrom  DateTime  @default(now()) @map("effective_from")
+  effectiveUntil DateTime? @map("effective_until")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("entitlements")
+}
+
+// Fine-grained usage counters keyed by (user, metric, UTC-day).
+// Used for daily run limits (limits.runs.daily).
+model UsageCounter {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  key         String   // e.g. "limits.runs.daily"
+  periodStart DateTime @map("period_start")  // UTC midnight of the day
+  count       Int      @default(0)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, key, periodStart])
+  @@index([userId, key, periodStart])
+  @@map("usage_counters")
 }
 
 // User preferences - dashboard settings

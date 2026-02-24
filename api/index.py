@@ -10,6 +10,7 @@ import os
 import logging
 
 from api.routes import analyze, runs, health, reports, watchlist, admin, webhook, auth, stripe, position_sizing
+from api.routes import billing
 
 # Configure logging to show INFO level messages
 logging.basicConfig(
@@ -63,6 +64,7 @@ app.include_router(watchlist.router, prefix="/api", tags=["Watchlist"])
 app.include_router(admin.router, prefix="/api", tags=["Admin"])
 app.include_router(stripe.router, prefix="/api", tags=["Stripe"])
 app.include_router(position_sizing.router, prefix="/api", tags=["Position Sizing"])
+app.include_router(billing.router, prefix="/api", tags=["Billing"])
 app.include_router(webhook.router, prefix="/api/webhook", tags=["Webhooks"])
 
 # Root endpoint
