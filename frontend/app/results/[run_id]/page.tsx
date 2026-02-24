@@ -102,13 +102,15 @@ export default function ResultsPage({ params }: ResultsPageProps) {
   return <ResultsContent runId={run_id} />
 }
 
-function ResultsContent({ runId }: { runId: string }) {
-  const { data: run, isLoading, error } = useAnalysis(runId)
+export function ResultsContent({ runId, previewData, isPreview = false }: { runId?: string; previewData?: RunResponse; isPreview?: boolean }) {
+  const { data: fetchedRun, isLoading, error } = useAnalysis(previewData ? null : (runId ?? null))
+  const run = previewData ?? fetchedRun
   const { data: currentUser } = useCurrentUser()
   const [isReadingMode, setReadingMode] = useState(false)
 
-  const userTier = currentUser?.tier ?? null
-  const isAdmin = currentUser?.is_admin ?? false
+  // In preview mode expose full content so visitors see the complete report
+  const userTier = isPreview ? 'investor' : (currentUser?.tier ?? null)
+  const isAdmin = isPreview ? false : (currentUser?.is_admin ?? false)
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {

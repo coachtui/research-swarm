@@ -43,6 +43,65 @@ def _shape_snapshot(full_output: dict) -> dict:
     """
     return {k: v for k, v in full_output.items() if k in _SNAPSHOT_KEYS}
 
+@router.get("/preview/nvda")
+async def get_nvda_preview():
+    """
+    Public endpoint — returns the latest completed NVDA analysis run without auth.
+    Used for the landing-page 'See Example Report' feature.
+    """
+    db = await get_db()
+
+    # Find the most recent completed stock result for NVDA
+    result = await db.stockresult.find_first(
+        where={"ticker": "NVDA", "status": "completed"},
+        order={"createdAt": "desc"},
+        include={"run": True},
+    )
+
+    if not result or not result.run:
+        raise HTTPException(status_code=404, detail="No NVDA preview available")
+
+    run = result.run
+
+    full_output = result.fullOutput
+    if isinstance(full_output, str):
+        try:
+            full_output = json.loads(full_output)
+        except (json.JSONDecodeError, ValueError):
+            full_output = None
+
+    if full_output and result.moatScore is not None:
+        full_output = enrich_with_decision_intelligence(full_output, result.moatScore)
+
+    return {
+        "id": run.id,
+        "status": run.status,
+        "tickers": run.tickers,
+        "total_cost_usd": run.totalCostUsd,
+        "created_at": run.createdAt,
+        "completed_at": run.completedAt,
+        "results": [{
+            "ticker": result.ticker,
+            "status": result.status,
+            "moat_score": result.moatScore,
+            "financial_health_score": result.financialHealthScore,
+            "business_model_moat_score": result.businessModelMoatScore,
+            "sentiment_score": result.sentimentScore,
+            "technical_score": result.technicalScore,
+            "watchlist_candidate": result.isWatchlistCandidate,
+            "investment_thesis": result.investmentThesis,
+            "cost_usd": result.costUsd,
+            "tokens_used": result.tokensUsed,
+            "processing_time_seconds": result.processingTimeSeconds,
+            "error_message": result.errorMessage,
+            "created_at": result.createdAt,
+            "full_output": full_output,
+            "_entitlement_tier": "investor",
+            "_report_full_allowed": True,
+        }],
+    }
+
+
 @router.get("/runs", response_model=RunListResponse)
 async def list_runs(
     user: User = Depends(get_current_user),

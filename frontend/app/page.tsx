@@ -123,7 +123,7 @@ export default function Home() {
                   Analyze a Ticker <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
               </Link>
-              <Link href="#how-it-works">
+              <Link href="/preview/nvda">
                 <Button size="lg" variant="outline" className="w-full sm:w-auto">
                   See Example Report
                 </Button>

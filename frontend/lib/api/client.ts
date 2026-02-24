@@ -175,6 +175,15 @@ class ApiClient {
     return this.request(`/api/runs/${runId}`)
   }
 
+  /** Public — no auth required. Returns the latest completed NVDA run for the example report. */
+  async getPreviewNvda(): Promise<RunResponse> {
+    const cleanEndpoint = this.useProxy ? '/preview/nvda' : '/api/preview/nvda'
+    const url = `${this.baseUrl}${cleanEndpoint}`
+    const response = await fetch(url, { headers: { 'Content-Type': 'application/json' } })
+    if (!response.ok) throw { status: response.status, message: 'Preview unavailable', name: 'ApiError' }
+    return response.json()
+  }
+
   async getAnalysisHistory(
     limit = 20,
     offset = 0,
