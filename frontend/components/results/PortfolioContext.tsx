@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Briefcase, AlertTriangle } from 'lucide-react'
+import { computePortfolioRiskMetrics } from '@/lib/utils/probability-engine'
 import type { ConvictionPosition, SignalBreakdown } from '@/types/api'
 
 interface PortfolioContextProps {
@@ -13,6 +14,10 @@ interface PortfolioContextProps {
   currentPrice: number
   convictionPosition?: ConvictionPosition | null
   signalBreakdown?: SignalBreakdown | null
+  /** Stop loss distance as a percentage (e.g. 8 = 8%). Used for vol contribution estimate. */
+  stopLossPct?: number
+  /** Risk efficiency (EV / vol) from the outcome distribution model, if available. */
+  riskEfficiency?: number
 }
 
 type RiskProfile = 'conservative' | 'moderate' | 'aggressive'
@@ -26,6 +31,8 @@ export function PortfolioContext({
   currentPrice,
   convictionPosition,
   signalBreakdown,
+  stopLossPct,
+  riskEfficiency,
 }: PortfolioContextProps) {
   const [riskProfile, setRiskProfile] = useState<RiskProfile>('moderate')
 
@@ -110,6 +117,33 @@ export function PortfolioContext({
   // Primary: has_divergence is the authoritative backend signal (same as Signal Analysis section).
   // This prevents the position sizing section from showing a different conflict state than the matrix.
   const hasSignalConflict = Boolean(signalBreakdown?.has_divergence)
+
+  // Module 5: Portfolio Risk Contribution
+  // stopLossPct defaults to conviction-derived proxy if not supplied by parent
+  const convictionLevel = convictionPosition?.conviction_level?.toLowerCase() ?? ''
+  const derivedStopPct = stopLossPct ?? (
+    convictionLevel.includes('high') ? 8 : convictionLevel.includes('low') ? 15 : 12
+  )
+  const portfolioRiskMetrics = computePortfolioRiskMetrics({
+    positionPct: allocation.max,
+    sector,
+    stopLossPct: derivedStopPct,
+    hasDivergence: hasSignalConflict,
+    riskEfficiency,
+  })
+
+  // Module 6: Risk efficiency influence on sizing label
+  const efficiencyLabel: string | null =
+    riskEfficiency == null      ? null :
+    riskEfficiency > 0.40       ? 'EV-efficient — sizing supported' :
+    riskEfficiency > 0.10       ? 'Marginal efficiency — monitor closely' :
+    riskEfficiency > -0.10      ? 'Breakeven EV — reduce or defer' :
+                                  'Negative EV — avoid new sizing'
+  const efficiencyColor =
+    riskEfficiency == null      ? '' :
+    riskEfficiency > 0.40       ? 'text-success' :
+    riskEfficiency > 0.10       ? 'text-warning' :
+    riskEfficiency > -0.10      ? 'text-text-tertiary' : 'text-error'
 
   return (
     <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
@@ -229,6 +263,12 @@ export function PortfolioContext({
                 </span>
               </div>
             )}
+            {efficiencyLabel && (
+              <div className="col-span-2 md:col-span-3">
+                <span className="text-[10px] text-text-tertiary block">Risk Budget Efficiency</span>
+                <span className={`text-xs font-medium ${efficiencyColor}`}>{efficiencyLabel}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -279,6 +319,58 @@ export function PortfolioContext({
               Based on {allocation.max}% max allocation ({currentPrice > 0 ? Math.floor((portfolioExamples[1].position / currentPrice)) : '~'} shares at ${currentPrice.toFixed(2)})
             </p>
           </div>
+        </div>
+
+        {/* Module 5: Portfolio Risk Contribution */}
+        <div className="rounded-lg border border-border/60 bg-surface/30 p-3 space-y-2">
+          <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-semibold">
+            Portfolio Risk Contribution
+          </p>
+          <div className="grid grid-cols-3 gap-3 text-xs">
+            <div>
+              <span className="text-[10px] text-text-tertiary block">Beta Impact</span>
+              <span className={`font-semibold ${
+                portfolioRiskMetrics.betaCategory === 'Elevated' ? 'text-warning' :
+                portfolioRiskMetrics.betaCategory === 'Low' ? 'text-success' : 'text-text-primary'
+              }`}>
+                {portfolioRiskMetrics.betaCategory}
+              </span>
+              <span className="text-[10px] text-text-tertiary/60 block">{portfolioRiskMetrics.betaEstimate}β — {sector}</span>
+            </div>
+            <div>
+              <span className="text-[10px] text-text-tertiary block">Vol. Contribution</span>
+              <span className="font-semibold text-text-primary">
+                ~{portfolioRiskMetrics.volContribution.toFixed(1)}%
+              </span>
+              <span className="text-[10px] text-text-tertiary/60 block">of portfolio vol. (est.)</span>
+            </div>
+            <div>
+              <span className="text-[10px] text-text-tertiary block">Corr. Sensitivity</span>
+              <span className={`font-semibold ${
+                portfolioRiskMetrics.corrImpact === 'Concentrating' ? 'text-warning' :
+                portfolioRiskMetrics.corrImpact === 'Diversifying' ? 'text-success' : 'text-text-primary'
+              }`}>
+                {portfolioRiskMetrics.corrImpact}
+              </span>
+              <span className="text-[10px] text-text-tertiary/60 block">vs. broad market</span>
+            </div>
+          </div>
+          <div className="pt-1 border-t border-border/40 text-[10px] text-text-tertiary leading-relaxed">
+            <span className="text-text-secondary font-medium">Expected Drawdown Path: </span>
+            {portfolioRiskMetrics.expectedDrawdownPath}
+            {' · '}
+            <span className={`font-medium ${
+              portfolioRiskMetrics.riskBudgetEfficiency.startsWith('Efficient') ? 'text-success' :
+              portfolioRiskMetrics.riskBudgetEfficiency.startsWith('Marginal') ? 'text-warning' :
+              portfolioRiskMetrics.riskBudgetEfficiency.startsWith('Inefficient') ? 'text-error' :
+              'text-text-tertiary'
+            }`}>
+              {portfolioRiskMetrics.riskBudgetEfficiency}
+            </span>
+          </div>
+          <p className="text-[10px] text-text-tertiary/50 italic">
+            Beta and vol. contribution are heuristic approximations — sector proxies, not realized factor exposures.
+          </p>
         </div>
 
         {/* Risk Considerations */}

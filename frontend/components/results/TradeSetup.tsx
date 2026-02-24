@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency } from '@/lib/utils/formatting'
+import { computeOutcomeDistribution } from '@/lib/utils/probability-engine'
+import type { OutcomeDistribution } from '@/lib/utils/probability-engine'
 import type { EnhancedTradeSetup, TradeSetupSide, RecommendedStrategy, SignalBreakdown, FairValueCalibration } from '@/types/api'
 
 // Expandable disclosure for the CLAMPED entry case.
@@ -345,6 +347,273 @@ function calcRRAtEntry(newEntry: number, currentEntry: number, currentStop: numb
   return Math.round((gain / risk) * 10) / 10
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Module 1–4: Outcome Distribution Model
+// Replaces static "Modeled Asymmetry" with probabilistic outcome table + EV engine.
+// ──────────────────────────────────────────────────────────────────────────────
+
+function OutcomeDistributionPanel({ dist, variant }: {
+  dist: OutcomeDistribution
+  variant: 'conservative' | 'aggressive'
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const evPositive = dist.ev >= 0
+  const evColor = dist.ev > 1.5 ? 'text-success' : dist.ev > 0 ? 'text-warning' : 'text-error'
+
+  // Stop progress bar — clipped to 80% width max for visual clarity
+  const stopBarWidth = Math.min(80, Math.round(dist.stopTriggerProb * 100))
+
+  // Payoff skew label
+  const skewLabel =
+    dist.payoffSkew >= 3.0 ? 'Favorable' :
+    dist.payoffSkew >= 1.5 ? 'Moderate'  :
+    dist.payoffSkew >= 0.8 ? 'Marginal'  : 'Unfavorable'
+  const skewColor =
+    dist.payoffSkew >= 3.0 ? 'text-success' :
+    dist.payoffSkew >= 1.5 ? 'text-warning' : 'text-error'
+
+  // Risk efficiency interpretation
+  const effLabel =
+    dist.riskEfficiency > 0.40  ? 'Efficient' :
+    dist.riskEfficiency > 0.10  ? 'Marginal'  :
+    dist.riskEfficiency > -0.10 ? 'Breakeven' : 'Inefficient'
+  const effColor =
+    dist.riskEfficiency > 0.40  ? 'text-success' :
+    dist.riskEfficiency > 0.10  ? 'text-warning'  :
+    dist.riskEfficiency > -0.10 ? 'text-text-tertiary' : 'text-error'
+
+  // Short T-label extraction for table rows
+  function shortLabel(label: string, i: number): string {
+    const m = label.match(/^[Tt](\d+)/)
+    return m ? `T${m[1]}` : `T${i + 1}`
+  }
+
+  return (
+    <div className="border-t border-surface-elevated pt-3 mt-1 space-y-3">
+      {/* Section header */}
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/70">
+          Outcome Distribution Model
+        </span>
+        <button
+          onClick={() => setExpanded(v => !v)}
+          className="text-[10px] text-text-tertiary/60 hover:text-text-tertiary underline underline-offset-2"
+        >
+          {expanded ? 'Collapse ▲' : 'Expand ▼'}
+        </button>
+      </div>
+
+      {/* EV summary — always visible */}
+      <div className={`rounded-md px-3 py-2 border ${
+        variant === 'conservative'
+          ? 'bg-success/5 border-success/15'
+          : 'bg-warning/5 border-warning/15'
+      }`}>
+        <div className="grid grid-cols-4 gap-2 text-xs">
+          <div>
+            <span className="text-text-tertiary block text-[10px]">Expected Value</span>
+            <span className={`font-semibold ${evColor}`}>
+              {evPositive ? '+' : ''}{dist.ev.toFixed(2)}%
+            </span>
+          </div>
+          <div>
+            <span className="text-text-tertiary block text-[10px]">Payoff Skew</span>
+            <span className={`font-semibold ${skewColor}`}>{dist.payoffSkew.toFixed(1)}× <span className="font-normal text-[10px]">{skewLabel}</span></span>
+          </div>
+          <div>
+            <span className="text-text-tertiary block text-[10px]">Risk Efficiency</span>
+            <span className={`font-semibold ${effColor}`}>{dist.riskEfficiency.toFixed(2)} <span className="font-normal text-[10px]">{effLabel}</span></span>
+          </div>
+          <div>
+            <span className="text-text-tertiary block text-[10px]">Stop Prob.</span>
+            <span className={`font-semibold ${dist.stopTailRiskFlag ? 'text-error' : 'text-text-secondary'}`}>
+              {Math.round(dist.stopTriggerProb * 100)}%
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Expanded: full probability table + stop risk + gain/loss decomposition */}
+      {expanded && (
+        <div className="space-y-3">
+          {/* Probability × Return × EV table */}
+          <div className="rounded-md border border-border/50 overflow-hidden">
+            <div className="grid grid-cols-4 gap-0 px-2 py-1 bg-surface-elevated/50">
+              <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wide">Scenario</span>
+              <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wide text-right">Prob.</span>
+              <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wide text-right">Return</span>
+              <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wide text-right">EV Contrib.</span>
+            </div>
+            {/* Stop row */}
+            <div className="grid grid-cols-4 gap-0 px-2 py-1.5 border-t border-border/30 bg-error/3">
+              <span className="text-xs font-medium text-error/80">Stop</span>
+              <span className="text-xs text-right text-text-secondary">{Math.round(dist.stop.prob * 100)}%</span>
+              <span className="text-xs text-right text-error font-mono">{dist.stop.returnPct.toFixed(1)}%</span>
+              <span className="text-xs text-right text-error/70 font-mono">{dist.stop.evContrib.toFixed(2)}%</span>
+            </div>
+            {/* Target rows */}
+            {dist.targets.map((t, i) => (
+              <div key={i} className="grid grid-cols-4 gap-0 px-2 py-1.5 border-t border-border/20">
+                <span className="text-xs text-text-secondary">{shortLabel(t.label, i)}</span>
+                <span className="text-xs text-right text-text-secondary">{Math.round(t.prob * 100)}%</span>
+                <span className="text-xs text-right text-success/80 font-mono">+{t.returnPct.toFixed(1)}%</span>
+                <span className="text-xs text-right text-success/60 font-mono">+{t.evContrib.toFixed(2)}%</span>
+              </div>
+            ))}
+          </div>
+
+          {/* EV decomposition */}
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="bg-surface-elevated/40 rounded px-2 py-1.5">
+              <span className="text-[10px] text-text-tertiary block">Expected Gain</span>
+              <span className="font-semibold text-success">+{dist.expectedGain.toFixed(2)}%</span>
+            </div>
+            <div className="bg-surface-elevated/40 rounded px-2 py-1.5">
+              <span className="text-[10px] text-text-tertiary block">Expected Loss</span>
+              <span className="font-semibold text-error">−{dist.expectedLoss.toFixed(2)}%</span>
+            </div>
+            <div className="bg-surface-elevated/40 rounded px-2 py-1.5">
+              <span className="text-[10px] text-text-tertiary block">Expected Vol.</span>
+              <span className="font-semibold text-text-secondary">±{dist.expectedVolatility.toFixed(1)}%</span>
+            </div>
+          </div>
+
+          {/* Module 3: Stop risk detail */}
+          <div className="rounded-md border border-border/40 p-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary/70">
+                Stop Trigger Model
+              </span>
+              {dist.stopTailRiskFlag && (
+                <span className="text-[10px] font-semibold text-error bg-error/10 px-1.5 py-0.5 rounded">
+                  Tail Risk Elevated
+                </span>
+              )}
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-text-tertiary">Stop Trigger Probability</span>
+                <span className={`text-xs font-semibold ${dist.stopTailRiskFlag ? 'text-error' : 'text-text-secondary'}`}>
+                  {Math.round(dist.stopTriggerProb * 100)}%
+                </span>
+              </div>
+              {/* Visual probability bar */}
+              <div className="h-1.5 bg-surface-elevated rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${dist.stopTailRiskFlag ? 'bg-error/60' : 'bg-warning/40'}`}
+                  style={{ width: `${stopBarWidth}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[9px] text-text-tertiary/50 mt-0.5">
+                <span>0%</span>
+                <span>Typical range: 15–35%</span>
+                <span>80%+</span>
+              </div>
+            </div>
+            <div className="text-[10px] text-text-tertiary leading-relaxed">
+              <span className="text-text-secondary">Expected Drawdown Path: </span>
+              {dist.expectedDrawdownPath}
+            </div>
+          </div>
+
+          {/* Module 4: Risk efficiency detail */}
+          <div className="text-[10px] text-text-tertiary/70 leading-relaxed italic border-t border-border/30 pt-2">
+            <span className="font-medium text-text-tertiary not-italic">Volatility-Adjusted Expectation: </span>
+            EV of {dist.ev > 0 ? '+' : ''}{dist.ev.toFixed(2)}% / expected vol of ±{dist.expectedVolatility.toFixed(1)}%
+            {' '}= <span className={`font-semibold not-italic ${effColor}`}>{dist.riskEfficiency.toFixed(2)} return per unit of risk</span>.
+            {' '}Typical institutional threshold: ≥0.30.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Module 7: Model Transparency Panel
+// Expandable institutional-grade explanation of all probability derivation logic.
+// ──────────────────────────────────────────────────────────────────────────────
+
+function ModelTransparencyPanel() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border border-border/40 rounded-md overflow-hidden">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="w-full px-3 py-2 flex items-center justify-between text-left bg-surface-elevated/30 hover:bg-surface-elevated/50 transition-colors"
+      >
+        <span className="text-[11px] font-semibold text-text-tertiary uppercase tracking-wider">
+          Model Construction Logic
+        </span>
+        <span className="text-[10px] text-text-tertiary/60">{open ? '▲ Collapse' : '▼ Expand'}</span>
+      </button>
+      {open && (
+        <div className="px-4 py-3 space-y-3 text-[11px] text-text-tertiary leading-relaxed bg-surface/20">
+          <div>
+            <p className="font-semibold text-text-secondary mb-1">Probability Derivation</p>
+            <p>
+              Each outcome probability is derived from{' '}
+              <span className="font-medium text-text-secondary">P_i = BaseProbability × DistanceFactor × TrendFactor × ConflictFactor</span>.
+              DistanceFactor uses exponential decay (e^−d/2ATR) where ATR is proxied as the stop distance.
+              All raw scores are normalized to sum to 1.0. Base probabilities: Stop 22%, T1 38%, T2 26%,
+              T3 10%, T4 4% — adjusted by regime and signal state before normalization.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-text-secondary mb-1">EV Computation</p>
+            <p>
+              EV = Σ(P_i × R_i) where R_i is the return of each scenario as a percentage of entry price.
+              Expected Gain aggregates positive contributions; Expected Loss is the absolute value of
+              the stop contribution. Payoff Skew = Expected Gain / Expected Loss.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-text-secondary mb-1">Stop Probability Framework</p>
+            <p>
+              P(StopHit) = BaseStopRisk × VolatilityPressure × TrendModifier × SupportModifier.
+              Base: 20%. VolatilityPressure normalized to 1.0 (stop ≈ 1 ATR by construction).
+              TrendModifier: MOMENTUM 0.75×, DISTRESSED 1.38×, STANDARD 1.0×.
+              SupportModifier: active signal divergence adds 1.25×. Output is capped at 82%.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-text-secondary mb-1">Risk Efficiency (EV / Vol)</p>
+            <p>
+              Expected Volatility = √(E[R²] − E[R]²) — standard deviation of the probability-weighted
+              return distribution. Risk Efficiency = EV / ExpectedVolatility. A ratio ≥0.30 indicates
+              positive expected return per unit of outcome dispersion. This is not Sharpe ratio — it
+              does not use historical price data.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-text-secondary mb-1">Regime Overrides</p>
+            <p>
+              MOMENTUM regime: stop probability reduced 28%, target probabilities lifted 8%.
+              DISTRESSED regime: stop probability lifted 42%, target probabilities compressed 26%.
+              High signal divergence (has_divergence=true): stop lifted 22–38%, targets compressed 13%.
+              These are heuristic multipliers — not calibrated from price history.
+            </p>
+          </div>
+          <div>
+            <p className="font-semibold text-text-secondary mb-1">Factor Approximations</p>
+            <p>
+              Beta estimates use sector proxies (Technology 1.30, Healthcare 0.82, etc.).
+              Stock volatility is approximated as stop distance × 4 (annualization heuristic).
+              Volatility contribution = position weight × stock volatility. No covariance matrix is used.
+              These are order-of-magnitude estimates for portfolio context, not precision factor models.
+            </p>
+          </div>
+          <p className="text-[10px] text-text-tertiary/50 italic border-t border-border/30 pt-2">
+            All probability estimates are model-derived heuristics. No historical calibration or
+            backtesting has been performed. Results should be treated as analytical framing aids,
+            not realized probability forecasts.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SetupColumn({
   side,
   variant,
@@ -386,6 +655,26 @@ function SetupColumn({
       : variant === 'conservative' ? 'bg-success/5' : 'bg-warning/5'
 
   const hasHighDivergence = signalBreakdown?.has_divergence === true
+
+  // Module 1–4: Probability inputs — derive bearish signal count for conflict factor
+  const bearishSignalCount = signalBreakdown
+    ? [
+        signalBreakdown.news_score,
+        signalBreakdown.earnings_score,
+        signalBreakdown.analyst_score,
+        signalBreakdown.institutional_score,
+        signalBreakdown.insider_score,
+      ].filter((s): s is number => s != null && s < 4).length
+    : 0
+
+  const outcomeDistribution = computeOutcomeDistribution({
+    entry: side.entry,
+    stopLoss: side.stop_loss,
+    targets: side.targets,
+    regimeMode,
+    hasDivergence: hasHighDivergence,
+    bearishSignalCount,
+  })
 
   // Conditional qualifier takes precedence over pure realism qualifier
   const { label: conditionalLabel, footnote: conditionalFootnote } = getRRConditionalQualifier(
@@ -876,6 +1165,14 @@ function SetupColumn({
             </div>
           )}
         </div>
+
+        {/* Module 1–4: Probability-weighted outcome distribution + EV engine */}
+        {outcomeDistribution && (
+          <OutcomeDistributionPanel
+            dist={outcomeDistribution}
+            variant={variant}
+          />
+        )}
       </div>
     </div>
   )
@@ -1016,6 +1313,9 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
             momentumRegimeWarning={setup.momentum_regime_warning}
           />
         </div>
+
+        {/* Module 7: Model Construction Logic — expandable transparency panel */}
+        <ModelTransparencyPanel />
       </CardContent>
     </Card>
   )
