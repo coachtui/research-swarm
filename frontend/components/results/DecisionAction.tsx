@@ -367,7 +367,7 @@ export function DecisionAction({
 
               {stopZone && (
                 <div className="rounded-md bg-surface-elevated border border-border p-3 text-center">
-                  <p className="text-xs text-text-tertiary mb-1">Stop Zone</p>
+                  <p className="text-xs text-text-tertiary mb-1">Risk Control Zone</p>
                   <p className="text-sm font-semibold text-error">{stopZone}</p>
                   {/* Fix 3: Label clarifies which setup the stop references */}
                   {stopZoneSetupLabel && (
@@ -381,12 +381,13 @@ export function DecisionAction({
                     Target Band
                     <span
                       className="ml-1 text-text-tertiary cursor-help"
-                      title="Base-case to bull-case price target range. T1 (50% exit) = intrinsic value midpoint. T2 (50% exit) = upside scenario. Both derived from the model's valuation output."
+                      title="Base-case to bull-case price target range. T1 (50% exit) = intrinsic value midpoint. T2 (50% exit) = upside scenario. Both derived from the model's valuation output. Horizon-dependent — not near-term price expectations."
                     >
                       ⓘ
                     </span>
                   </p>
                   <p className="text-sm font-semibold text-primary">{targetZone}</p>
+                  <p className="text-[9px] text-text-tertiary/60 mt-0.5 italic">Mean Reversion Envelope (Tactical Horizon)</p>
                   {strategy?.exit?.target_1?.rationale && (
                     <p className="text-xs text-text-tertiary mt-1 leading-relaxed">
                       T1 {strategy.exit.target_1.percent}% · T2 {strategy.exit.target_2?.percent}%
@@ -459,7 +460,7 @@ export function DecisionAction({
                   <div className="flex items-center justify-between text-xs">
                     {/* Issue 5: Entry deferral framing — regime-based language replaces pullback anchors */}
                     <span className="text-text-tertiary">
-                      {entryIsDeferred ? 'Entry Status' : 'Entry Urgency'}
+                      {entryIsDeferred ? 'Positioning Posture' : 'Entry Urgency'}
                     </span>
                     <span
                       className={`font-medium ${entryIsDeferred ? 'text-warning' : proximityStatus === 'CRITICAL' && new_buyers.action === 'BUY NOW' ? 'text-warning' : 'text-text-primary'}`}

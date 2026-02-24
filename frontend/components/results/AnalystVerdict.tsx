@@ -101,10 +101,13 @@ function ConfidencePill({ pct }: { pct: number }) {
   return (
     <div
       className={`inline-flex flex-col gap-1 text-xs font-medium px-2.5 py-1.5 rounded border ${color}`}
-      title={`Confidence Level: ${levelLabel}. Driven by: (1) signal strength & cross-category agreement, (2) data integrity & completeness, (3) earnings/event risk embedded in signal timing, (4) signal dispersion magnitude. Typical operational range: 55–85%. Not a probability estimate — reflects analytical confidence, not outcome certainty.`}
+      title={`Confidence Level: ${levelLabel}. Driven by: (1) signal dispersion & cross-category alignment, (2) volatility regime dynamics, (3) earnings/event compression in signal timing, (4) regime consistency across fundamental, technical, and flow signals. Typical operational range: 55–85%. Not a probability estimate — reflects analytical confidence, not outcome certainty.`}
     >
       <div className="flex items-center gap-1.5">
         <span>Confidence Level: {levelLabel}</span>
+      </div>
+      <div className="opacity-60 text-[9px] font-normal leading-none -mt-0.5">
+        Signal Stability &amp; Regime Alignment
       </div>
       <div className="flex items-center gap-1.5">
         <span className="text-[9px] opacity-50 shrink-0">55</span>

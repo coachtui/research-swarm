@@ -601,7 +601,7 @@ function SetupColumn({
             </span>
           </div>
           <div>
-            <span className="text-xs text-text-tertiary block">Stop Loss</span>
+            <span className="text-xs text-text-tertiary block">Risk Control Zone</span>
             <span className="text-sm font-semibold text-error">
               {formatAnchor(side.stop_loss)}
             </span>

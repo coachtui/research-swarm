@@ -140,7 +140,7 @@ export function ProfessionalTradeSetup({
                 <tbody>
                   {typeof recommended_strategy.exit.stop_loss === 'number' && (
                     <tr className="border-b border-border">
-                      <td className="py-3 font-medium text-text-secondary">Stop Loss Level</td>
+                      <td className="py-3 font-medium text-text-secondary">Risk Control Level</td>
                       <td className="py-3 text-right font-semibold text-error">
                         ${recommended_strategy.exit.stop_loss.toFixed(2)}
                       </td>
@@ -173,7 +173,7 @@ export function ProfessionalTradeSetup({
               <div className="mt-4 p-4 bg-background/50 rounded">
                 <p className="text-xs font-semibold text-text-secondary mb-2">EXIT DISCIPLINE</p>
                 <p className="text-sm text-text-primary leading-relaxed">
-                  Maintain disciplined stop-loss protocols. Consider scaling out at target levels
+                  Maintain disciplined risk control protocols. Consider scaling out at target levels
                   while allowing core positions to run in favorable conditions.
                 </p>
               </div>

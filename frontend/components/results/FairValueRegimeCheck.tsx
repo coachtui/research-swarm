@@ -194,7 +194,7 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
                     a data quality implication. Non-premium stocks keep the anomaly-focused copy. */}
                 {isStructuralPremium
                   ? 'This analysis operates in Structural Premium Regime. The Structural Value Anchor reflects long-term intrinsic basis — not a near-term price expectation. Fair value and price targets are valid within their respective frameworks.'
-                  : 'The following anomalies were detected. This does not affect the reported values — fair value and price targets are unchanged. Review input data quality before acting on this analysis.'
+                  : 'The following anomalies were detected. This does not affect the reported values — fair value and price targets are unchanged. Magnitude deviations reflect regime classification dynamics.'
                 }
               </p>
               <ul className="space-y-1">
