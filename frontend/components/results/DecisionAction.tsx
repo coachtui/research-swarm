@@ -21,6 +21,24 @@ interface DecisionActionProps {
 
 type Tab = 'new' | 'holders'
 
+/** Classify structural dislocation magnitude into institutional tier labels. */
+function getStructuralPremiumTier(pct: number): string {
+  if (pct > 100) return 'EXTREME'
+  if (pct > 50) return 'HIGH'
+  return 'ELEVATED'
+}
+
+/** Replace retail/tactical phrasing with institutional analytical language.
+ *  Presentation-only — no math or signal values are changed. */
+function institutionalizeLang(text: string): string {
+  return text
+    .replace(/Wait for better entry/gi, 'Risk \/ Reward Unfavorable at Current Levels')
+    .replace(/Wait for a pullback/gi, 'Entry Deferred — Valuation Regime Extended')
+    .replace(/Wait for pullback/gi, 'Entry Deferred — Valuation Regime Extended')
+    .replace(/Better entry levels expected/gi, 'Entry Deferred — Asymmetry Compressed')
+    .replace(/Add on pullbacks/gi, 'Scale in on Price Weakness')
+}
+
 function actionToBadgeVariant(action: string): 'success' | 'warning' | 'error' | 'default' {
   switch (action) {
     case 'BUY NOW':
@@ -141,6 +159,10 @@ export function DecisionAction({
   const isStructuralDislocation = Boolean(
     currentPrice && avoidAbovePrice && currentPrice > avoidAbovePrice * 1.25
   )
+
+  // Issue 5: Entry is deferred when structural dislocation is active and action is non-buy
+  const entryIsDeferred = isStructuralDislocation &&
+    (new_buyers.action === 'WAIT' || new_buyers.action === 'AVOID' || rating === 'HOLD')
   const dislocationPct = (isStructuralDislocation && currentPrice && strategy?.entry?.ideal_zone?.high)
     ? Math.round(((currentPrice - strategy.entry.ideal_zone.high) / strategy.entry.ideal_zone.high) * 100)
     : null
@@ -174,7 +196,7 @@ export function DecisionAction({
 
   const agreementLabel = (() => {
     if (!hasDivergence) return 'Aligned'
-    return divergenceSeverity === 'HIGH' ? 'High Conflict' : 'Moderate Conflict'
+    return divergenceSeverity === 'HIGH' ? 'Signal Dispersion — High' : 'Signal Dispersion Detected'
   })()
 
   return (
@@ -203,8 +225,8 @@ export function DecisionAction({
               <Badge variant="secondary">Conviction: {convictionLevel}</Badge>
             )}
           </div>
-          {/* Issue 2: Clean non-contradictory primary statement */}
-          <p className="text-base font-semibold text-text-primary leading-relaxed">{one_liner}</p>
+          {/* Issue 4: Institutional language — presentation-only transform of tactical phrasing */}
+          <p className="text-base font-semibold text-text-primary leading-relaxed">{institutionalizeLang(one_liner)}</p>
           {/* Structured per-reader-type subtext — replaces the pipe-delimited multi-audience line */}
           {framework.action_subtext && framework.action_subtext.length > 0 && (
             <div className="flex flex-wrap gap-x-4 gap-y-0.5">
@@ -284,20 +306,29 @@ export function DecisionAction({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               {opportunityEnvelope && (
                 <div className="rounded-md bg-surface-elevated border border-border p-3 text-center">
-                  <p className="text-xs text-text-tertiary mb-1">
-                    {isStructuralDislocation ? 'LT Mean Reversion Ref.' : 'Opportunity Envelope'}
+                  {/* Issue 1: Renamed label + (Non-Tactical) qualifier for structural dislocation */}
+                  <p className="text-xs text-text-tertiary mb-0.5">
+                    {isStructuralDislocation ? 'Structural Valuation Baseline' : 'Opportunity Envelope'}
                     <span
                       className="ml-1 text-text-tertiary cursor-help"
                       title={isStructuralDislocation
-                        ? 'Long-term mean reversion reference derived from model bear-to-base scenario range. 12–36 month structural anchor — not a near-term actionable entry.'
+                        ? 'Represents model-derived intrinsic baseline assuming long-cycle normalization. Not a near-term price expectation. Used for regime classification & asymmetry modeling only.'
                         : 'Broad price range where the investment thesis is favorably priced. The model-optimized Tactical Band and Execution Anchor are in the Trade Setup section below.'}
                     >
                       ⓘ
                     </span>
                   </p>
-                  <p className="text-sm font-semibold text-success">{opportunityEnvelope}</p>
                   {isStructuralDislocation && (
-                    <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">12–36mo reference</p>
+                    <p className="text-[9px] text-text-tertiary/60 mb-0.5 italic">(Non-Tactical)</p>
+                  )}
+                  {/* Issue 2: Muted color + reduced weight for structural baseline — prevents anchor shock */}
+                  <p className={`text-sm ${isStructuralDislocation ? 'font-medium text-text-tertiary' : 'font-semibold text-success'}`}>
+                    {opportunityEnvelope}
+                  </p>
+                  {isStructuralDislocation && (
+                    <p className="text-[9px] text-text-tertiary/60 mt-0.5 leading-tight">
+                      Regime classification reference — not a price target
+                    </p>
                   )}
                 </div>
               )}
@@ -305,10 +336,16 @@ export function DecisionAction({
               {/* Avoid Above tile: suppress when structurally dislocated (already breached).
                   Replace with Structural Premium to show the magnitude of dislocation. */}
               {isStructuralDislocation && dislocationPct !== null ? (
-                <div className="rounded-md bg-surface-elevated border border-warning/30 p-3 text-center">
-                  <p className="text-xs text-text-tertiary mb-1">Structural Premium</p>
-                  <p className="text-sm font-semibold text-warning">+{dislocationPct}%</p>
-                  <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">Above value zone</p>
+                /* Issue 3: Classification-first framing — magnitude moved to tooltip to prevent anchor shock */
+                <div
+                  className="rounded-md bg-surface-elevated border border-warning/30 p-3 text-center cursor-help"
+                  title={`+${dislocationPct}% above structural valuation baseline. Price trades materially outside the model's intrinsic valuation framework. Magnitude is informational — not a mean-reversion price target.`}
+                >
+                  <p className="text-xs text-text-tertiary mb-0.5">Structural Premium</p>
+                  <p className="text-sm font-semibold text-warning">{getStructuralPremiumTier(dislocationPct)}</p>
+                  <p className="text-[9px] text-text-tertiary/70 mt-0.5 leading-tight">
+                    Outside structural valuation band
+                  </p>
                 </div>
               ) : avoidAbove ? (
                 <div className={`rounded-md bg-surface-elevated p-3 text-center border ${
@@ -420,14 +457,19 @@ export function DecisionAction({
               {new_buyers.urgency && new_buyers.urgency !== 'N/A' && (
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-text-tertiary">Entry Urgency</span>
-                    <span className={`font-medium ${
-                      proximityStatus === 'CRITICAL' && new_buyers.action === 'BUY NOW'
-                        ? 'text-warning'
-                        : 'text-text-primary'
-                    }`}>
-                      {/* Issue 3: Dampen urgency display when price is near avoid threshold */}
-                      {proximityStatus === 'CRITICAL' && new_buyers.action === 'BUY NOW'
+                    {/* Issue 5: Entry deferral framing — regime-based language replaces pullback anchors */}
+                    <span className="text-text-tertiary">
+                      {entryIsDeferred ? 'Entry Status' : 'Entry Urgency'}
+                    </span>
+                    <span
+                      className={`font-medium ${entryIsDeferred ? 'text-warning' : proximityStatus === 'CRITICAL' && new_buyers.action === 'BUY NOW' ? 'text-warning' : 'text-text-primary'}`}
+                      title={entryIsDeferred
+                        ? 'Model-derived structural baseline materially below current price; tactical entries require regime reset or signal alignment.'
+                        : undefined}
+                    >
+                      {entryIsDeferred
+                        ? 'Entry Deferred — Valuation Regime Extended'
+                        : proximityStatus === 'CRITICAL' && new_buyers.action === 'BUY NOW'
                         ? 'Elevated — Near Threshold'
                         : new_buyers.urgency}
                     </span>

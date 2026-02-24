@@ -776,8 +776,6 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
   const stopAlignmentNote = strategy?.exit?.stop_alignment_note
   const stopZone = strategy?.exit?.stop_zone
   const stopMethodology = strategy?.exit?.stop_methodology
-  const entryMethodology = strategy?.entry?.entry_methodology
-  const entryZoneDisplay = strategy?.entry?.entry_zone_display
   const entryBelowBear = strategy?.entry?.entry_below_bear
   const entryBelowBearPct = strategy?.entry?.entry_below_bear_pct
   const belowBearClassification = strategy?.entry?.below_bear_classification
@@ -786,21 +784,9 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
 
   const stopStyle = stopQuality ? STOP_QUALITY_STYLES[stopQuality] : undefined
 
-  // Entry zone taxonomy — three distinct levels clarify the system
+  // Opportunity envelope — used for deep-entry detection below
   const opportunityEnvelope = strategy?.entry?.ideal_zone
-  const tacticalBand = entryZoneDisplay
 
-  // Fix 3: Validate Tactical Band against Avoid Zone before rendering.
-  // Avoid threshold = opportunity envelope high × 1.05, where .high is the upper
-  // entry boundary (the field named "high" in ideal_zone, matching DecisionAction's formula).
-  // Use Math.min to pick the lower numeric value — this matches the $78 Avoid Above
-  // shown in DecisionAction rather than the $90 that Math.max would produce.
-  const avoidAboveThreshold = opportunityEnvelope
-    ? Math.min(opportunityEnvelope.low, opportunityEnvelope.high) * 1.05
-    : null
-  const tacticalBandInsideAvoidZone = Boolean(
-    tacticalBand && avoidAboveThreshold !== null && tacticalBand.low >= avoidAboveThreshold * 0.98
-  )
 
   // Structural Premium Regime detection (Fix 2, 4, 5)
   const isStructuralPremium = detectStructuralPremium(calibration, currentPrice, financialHealthScore)
@@ -829,109 +815,10 @@ export function TradeSetup({ setup, ticker: _ticker, strategy, signalBreakdown, 
           />
         )}
 
-        {/* Entry zone taxonomy block — three-level structure with structural/tactical framing.
-            Structural Value Zone: long-term intrinsic anchor (model bear-to-base range).
-            Tactical Anchor: regime-contextual execution price. When large dislocation exists,
-            labels clarify the timeframe distinction rather than implying conflicting signals. */}
-        {(opportunityEnvelope || tacticalBand) && (
-          <div className="p-3 rounded-md bg-surface-elevated border border-border text-xs space-y-2.5">
-            <span className="font-semibold text-text-secondary block">Entry Zone Taxonomy</span>
-            {opportunityEnvelope && (() => {
-              // C3: Always render low-to-high regardless of backend ordering
-              const envLow = Math.min(opportunityEnvelope.low, opportunityEnvelope.high)
-              const envHigh = Math.max(opportunityEnvelope.low, opportunityEnvelope.high)
-              // Structural dislocation: current price significantly above the opportunity envelope
-              const isDislocated = currentPrice !== undefined && currentPrice > 0 && currentPrice > envHigh * 1.25
-              // Deep discount: current price below the opportunity envelope floor
-              const priceDeepDiscount = currentPrice !== undefined && currentPrice > 0 && currentPrice < envLow
-              return (
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className="text-text-secondary font-medium">
-                      {isDislocated ? 'Structural Value Zone' : 'Opportunity Envelope'}
-                    </span>
-                    <span className="block text-text-tertiary">
-                      {isDislocated
-                        ? 'Long-term intrinsic anchor — mean reversion basis (12–24 mo)'
-                        : 'Broad range where structural thesis remains valid'
-                      }
-                    </span>
-                    {priceDeepDiscount && (
-                      <span className="block text-xs text-success mt-0.5">
-                        Execution Discount Zone fully active — verify thesis remains intact
-                      </span>
-                    )}
-                  </div>
-                  <span className="font-medium text-text-secondary font-mono shrink-0">
-                    ~${Math.round(envLow).toLocaleString()} – ~${Math.round(envHigh).toLocaleString()}
-                  </span>
-                </div>
-              )
-            })()}
-            {tacticalBand && (
-              tacticalBandInsideAvoidZone ? (
-                // Fix 3 (Option A): Tactical Band falls inside the Avoid Zone — suppress display,
-                // redirect to Execution Anchor instead. Do NOT show both simultaneously.
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className="text-text-secondary font-medium">Tactical Band</span>
-                    <span className="block text-[11px] text-warning/80 mt-0.5 leading-tight">
-                      Currently inside Avoid Zone — entry deferred to Execution Anchor ({formatAnchor(setup.conservative.entry)}) or below
-                    </span>
-                  </div>
-                  <span className="text-xs text-text-tertiary font-mono shrink-0">Inactive</span>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-text-secondary font-medium">Tactical Band</span>
-                    <span className="block text-text-tertiary">Model-optimized entry zone</span>
-                  </div>
-                  <span className="font-medium text-text-secondary font-mono">{tacticalBand.label}</span>
-                </div>
-              )
-            )}
-            {(() => {
-              const envHigh = opportunityEnvelope
-                ? Math.max(opportunityEnvelope.low, opportunityEnvelope.high)
-                : null
-              const isDislocated = currentPrice !== undefined && currentPrice > 0 && envHigh !== null && currentPrice > envHigh * 1.25
-              return (
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className="text-text-secondary font-medium">
-                      {isDislocated ? 'Structural Anchor' : 'Execution Anchor'}
-                    </span>
-                    <span className="block text-text-tertiary">
-                      {isDislocated
-                        ? 'Regime-compressed entry — actionable if price reverts to structural zone'
-                        : 'Modeled optimal entry — not a guaranteed fill'
-                      }
-                    </span>
-                  </div>
-                  <span className="font-medium text-text-secondary font-mono shrink-0">
-                    {formatAnchor(setup.conservative.entry)}
-                  </span>
-                </div>
-              )
-            })()}
-            {entryMethodology && (
-              <p className="text-text-tertiary leading-relaxed pt-2 border-t border-border">{entryMethodology}</p>
-            )}
-            <p className="text-[11px] text-text-tertiary/60 leading-relaxed pt-1.5 border-t border-border/50 italic">
-              Structural anchor reflects the model's long-term intrinsic basis. Current regime may require
-              pullback or time for price compression before the zone becomes tactically actionable.
-            </p>
-          </div>
-        )}
-
-        {/* Fallback: entry methodology only when no zone data is present */}
-        {!opportunityEnvelope && !tacticalBand && entryMethodology && (
-          <div className="p-3 rounded-md bg-surface-elevated border border-border text-xs text-text-tertiary leading-relaxed">
-            <span className="font-semibold text-text-secondary block mb-1">Entry Methodology</span>
-            {entryMethodology}
-          </div>
-        )}
+        {/* Issue 9: Entry Zone Taxonomy panel removed — information is surfaced in
+            DecisionAction's Key Price Zones grid, which is always visible in the Tactical
+            Framework section. Removing duplication reduces cognitive noise and improves
+            vertical flow to the Conservative / Aggressive setup columns below. */}
 
         {/* Stop quality badge + alignment note */}
         {stopQuality && (

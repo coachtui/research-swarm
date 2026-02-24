@@ -75,11 +75,12 @@ const CONFIDENCE_TYPICAL_LOW = 55
 const CONFIDENCE_TYPICAL_HIGH = 85
 
 function ConfidencePill({ pct }: { pct: number }) {
-  const label =
-    pct >= 72 ? 'Moderate–High' :
-    pct >= 58 ? 'Moderate' :
-    pct >= 45 ? 'Low–Moderate' :
-    'Low'
+  // Issue 7: Institutional framing — LEVEL label replaces numeric % as the headline
+  const levelLabel =
+    pct >= 72 ? 'HIGH' :
+    pct >= 58 ? 'MODERATE' :
+    pct >= 45 ? 'LOW–MODERATE' :
+    'LOW'
 
   const color =
     pct >= 70
@@ -100,11 +101,10 @@ function ConfidencePill({ pct }: { pct: number }) {
   return (
     <div
       className={`inline-flex flex-col gap-1 text-xs font-medium px-2.5 py-1.5 rounded border ${color}`}
-      title="Heuristic score derived from signal strength, stability, data completeness, and divergence magnitude. Typical operational range: 55–85%. Not backtested."
+      title={`Confidence Level: ${levelLabel}. Driven by: (1) signal strength & cross-category agreement, (2) data integrity & completeness, (3) earnings/event risk embedded in signal timing, (4) signal dispersion magnitude. Typical operational range: 55–85%. Not a probability estimate — reflects analytical confidence, not outcome certainty.`}
     >
       <div className="flex items-center gap-1.5">
-        <span>Model Confidence: {pct}%</span>
-        <span className="text-[10px] opacity-70">({label})</span>
+        <span>Confidence Level: {levelLabel}</span>
       </div>
       <div className="flex items-center gap-1.5">
         <span className="text-[9px] opacity-50 shrink-0">55</span>
@@ -148,6 +148,14 @@ export function AnalystVerdict({
     return sentences.slice(0, 2).join('. ') + (sentences.length > 1 ? '.' : '')
   })()
 
+  // Issue 8: BLUF micro-paragraph — split headline from body for improved scan speed
+  const blufParagraphs = (() => {
+    if (!blufText) return null
+    const match = blufText.match(/^([^.!?]+[.!?])\s+(.+)$/)
+    if (match) return { headline: match[1].trim(), body: match[2].trim() }
+    return { headline: blufText, body: null }
+  })()
+
   return (
     <Card className="border border-border-subtle shadow-sm">
       <CardContent className="pt-6 space-y-5">
@@ -164,12 +172,20 @@ export function AnalystVerdict({
         </div>
 
         {/* ── BLUF — Bottom Line Up Front ──────────────────────────────
-            Always visible. Summarizes: what to do, why, what matters most.
-            Structured per sell-side memo convention (JP Morgan / GS style). */}
-        {blufText && (
-          <div className="border-l-[3px] border-primary pl-4 py-0.5 space-y-0.5">
+            Issue 8: Micro-paragraph structure for executive scan speed.
+            Headline (bold) + body (readable) separates the verdict from
+            the rationale — mirrors JP Morgan / Goldman sell-side memo style. */}
+        {blufParagraphs && (
+          <div className="border-l-[3px] border-primary pl-4 py-1 space-y-1.5">
             <p className="text-[10px] uppercase tracking-widest font-bold text-primary">BLUF</p>
-            <p className="text-[15px] font-semibold text-text-primary leading-relaxed">{blufText}</p>
+            <p className="text-base font-bold text-text-primary leading-snug">
+              {blufParagraphs.headline}
+            </p>
+            {blufParagraphs.body && (
+              <p className="text-[14px] text-text-secondary leading-relaxed">
+                {blufParagraphs.body}
+              </p>
+            )}
           </div>
         )}
 

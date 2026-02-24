@@ -81,7 +81,7 @@ function getSignalRegimeState(breakdown: SignalBreakdown): {
     }
   if (breakdown.has_divergence)
     return {
-      label: 'Moderate Divergence — Regime-Sensitive',
+      label: 'Signal Dispersion Detected — Regime-Sensitive',
       sublabel: 'Mixed signals across analytical categories — monitor for convergence or escalation',
       colorClass: 'text-warning',
     }
@@ -110,10 +110,11 @@ export function SignalBreakdownCard({ breakdown }: SignalBreakdownCardProps) {
     return 'Neutral'
   })()
 
+  // Issue 6: Institutional signal conflict terminology — diagnostic over alarmist framing
   const agreementLabel = breakdown.has_divergence
     ? (breakdown.signal_spread_label === 'High' || breakdown.alignment_status.includes('HIGH')
-        ? 'High Conflict'
-        : 'Moderate Conflict')
+        ? 'High Dispersion'
+        : 'Signal Dispersion Detected')
     : 'Aligned'
 
   const alignmentVariant = breakdown.has_divergence
