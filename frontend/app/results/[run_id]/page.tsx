@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import Link from 'next/link'
 import { useAnalysis } from '@/lib/hooks/useAnalysis'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { apiClient } from '@/lib/api/client'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { SignalDivergenceSection } from '@/components/results/SignalDivergenceSection'
@@ -19,6 +20,7 @@ import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
 import { HistoricalAnalogPanel } from '@/components/results/HistoricalAnalogPanel'
 import { InstitutionalRiskDashboard } from '@/components/results/InstitutionalRiskDashboard'
 import { ProbabilisticEngineDashboard } from '@/components/results/ProbabilisticEngineDashboard'
+import { TierGate } from '@/components/common/TierGate'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -102,7 +104,11 @@ export default function ResultsPage({ params }: ResultsPageProps) {
 
 function ResultsContent({ runId }: { runId: string }) {
   const { data: run, isLoading, error } = useAnalysis(runId)
+  const { data: currentUser } = useCurrentUser()
   const [isReadingMode, setReadingMode] = useState(false)
+
+  const userTier = currentUser?.tier ?? null
+  const isAdmin = currentUser?.is_admin ?? false
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -362,23 +368,29 @@ function ResultsContent({ runId }: { runId: string }) {
               />
             )}
 
-            {/* Institutional Risk System — factor, vol, liquidity, sensitivity, action */}
-            {signal_breakdown && (
-              <InstitutionalRiskDashboard breakdown={signal_breakdown} />
-            )}
+            {/* Institutional Risk System — Stability / Noise / Risk Efficiency (Investor+) */}
+            <TierGate feature="institutional_risk" userTier={userTier} isAdmin={isAdmin}>
+              {signal_breakdown && (
+                <InstitutionalRiskDashboard breakdown={signal_breakdown} />
+              )}
+            </TierGate>
 
-            {/* Probabilistic Engine — EV stability, confidence, scenario weights, stop prob, noise, model drift */}
-            {signal_breakdown && (
-              <ProbabilisticEngineDashboard
-                breakdown={signal_breakdown}
-                delta={full_output?.previous_analysis_delta ?? null}
-              />
-            )}
+            {/* Probabilistic Engine — Full EV Model, Stop Probability, Scenario Distribution (Investor+) */}
+            <TierGate feature="probabilistic_engine" userTier={userTier} isAdmin={isAdmin}>
+              {signal_breakdown && (
+                <ProbabilisticEngineDashboard
+                  breakdown={signal_breakdown}
+                  delta={full_output?.previous_analysis_delta ?? null}
+                />
+              )}
+            </TierGate>
 
-            {/* Historical Pattern Framing */}
-            {signal_breakdown && (
-              <HistoricalAnalogPanel breakdown={signal_breakdown} />
-            )}
+            {/* Historical Pattern Framing (Investor+) */}
+            <TierGate feature="historical_patterns" userTier={userTier} isAdmin={isAdmin}>
+              {signal_breakdown && (
+                <HistoricalAnalogPanel breakdown={signal_breakdown} />
+              )}
+            </TierGate>
 
             {/* Strengths vs. Concerns */}
             <KeyTakeaways strengths={strengths} concerns={concerns} />
@@ -425,46 +437,51 @@ function ResultsContent({ runId }: { runId: string }) {
         </div>
 
         {/* ══════════════════════════════════════════════════════════════
-            ANALYST VERDICT
-            BLUF at top (always visible) + expandable full narrative.
-            Investment thesis + what changes this rating.
+            ANALYST VERDICT — Full Investment Thesis (Investor+)
+            Structured report synthesised from all three agent outputs.
+            Gated: Starter tier sees condensed summary in DecisionSummaryCard.
         ══════════════════════════════════════════════════════════════ */}
-        {full_output?.investment_thesis && (
-          <div className="space-y-5 pt-2">
-            <SectionDivider label="Analyst Verdict" variant="neutral" />
-            <AnalystVerdict
-              thesis={full_output.investment_thesis}
-              upgradeTriggers={upgrade_triggers}
-              downgradeTriggers={downgrade_triggers}
-              signalBreakdown={signal_breakdown}
-              valuationScore={moat_breakdown?.valuation}
-              calibration={full_output.fair_value_calibration}
-              currentPrice={decision_intelligence?.current_price}
-              financialHealthScore={moat_breakdown?.financial_health}
-            />
-          </div>
-        )}
+        <div className="space-y-5 pt-2">
+          <SectionDivider label="Analyst Verdict" variant="neutral" />
+          <TierGate feature="analyst_verdict" userTier={userTier} isAdmin={isAdmin}>
+            {full_output?.investment_thesis && (
+              <AnalystVerdict
+                thesis={full_output.investment_thesis}
+                upgradeTriggers={upgrade_triggers}
+                downgradeTriggers={downgrade_triggers}
+                signalBreakdown={signal_breakdown}
+                valuationScore={moat_breakdown?.valuation}
+                calibration={full_output.fair_value_calibration}
+                currentPrice={decision_intelligence?.current_price}
+                financialHealthScore={moat_breakdown?.financial_health}
+              />
+            )}
+          </TierGate>
+        </div>
 
         {/* ══════════════════════════════════════════════════════════════
-            EXECUTION (collapsed by default)
-            PM View (simplified allocation) / Trader View (full math)
+            EXECUTION — Allocation & Execution Infrastructure (Trader)
+            Position sizing, portfolio risk, trade stability.
+            Gated: Investor tier accesses decision framework via DecisionAction.
         ══════════════════════════════════════════════════════════════ */}
         <div className={`space-y-6 transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
-          {decision_intelligence && moat_breakdown && (
-            <ExecutionLayer
-              ticker={result.ticker}
-              rating={decision_intelligence.rating || 'HOLD'}
-              moatScore={moat_score || 5.0}
-              financialHealthScore={moat_breakdown.financial_health}
-              sector="Technology"
-              currentPrice={decision_intelligence.current_price || 0}
-              convictionPosition={decision_intelligence.conviction_position}
-              enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
-              strategy={decision_intelligence.recommended_strategy}
-              signalBreakdown={signal_breakdown}
-              calibration={full_output.fair_value_calibration}
-            />
-          )}
+          <TierGate feature="execution_layer" userTier={userTier} isAdmin={isAdmin}>
+            {decision_intelligence && moat_breakdown && (
+              <ExecutionLayer
+                ticker={result.ticker}
+                rating={decision_intelligence.rating || 'HOLD'}
+                moatScore={moat_score || 5.0}
+                financialHealthScore={moat_breakdown.financial_health}
+                sector="Technology"
+                currentPrice={decision_intelligence.current_price || 0}
+                convictionPosition={decision_intelligence.conviction_position}
+                enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
+                strategy={decision_intelligence.recommended_strategy}
+                signalBreakdown={signal_breakdown}
+                calibration={full_output.fair_value_calibration}
+              />
+            )}
+          </TierGate>
 
           {/* CTA */}
           <div className="flex justify-center pt-2">
