@@ -864,3 +864,60 @@ export class ApiError extends Error {
     this.name = 'ApiError'
   }
 }
+
+// ─── Dynamic Position Sizing Engine types ─────────────────────────────────────
+// Mirrors frontend/lib/engine/types.ts — used for API request/response shapes.
+
+export interface PositionSizingFlags {
+  signal_conflict_active?: boolean
+  cap_at_satellite?: boolean
+}
+
+export interface PositionSizingRequest {
+  symbol: string
+  classification: 'CORE' | 'SATELLITE'
+  /** 0–100 */
+  noise_score: number
+  overall_sensitivity: 'LOW' | 'MODERATE' | 'HIGH'
+  signal_dispersion_sigma: number
+  /** 0–1 */
+  stop_probability: number
+  beta?: number
+  ev_percentile?: number
+  flags?: PositionSizingFlags
+  custom_exposure_sizes?: number[]
+}
+
+export interface PositionSizingMultiplierDetail {
+  value: number
+  bucket_label: string
+  reason: string
+  input_value: string | number
+}
+
+export interface PositionSizingCapState {
+  active: boolean
+  reason: string
+  cap_value?: number
+}
+
+export interface PositionSizingResponse {
+  symbol: string
+  base_weight: number
+  multipliers: {
+    noise: PositionSizingMultiplierDetail
+    sensitivity: PositionSizingMultiplierDetail
+    dispersion: PositionSizingMultiplierDetail
+    stoprisk: PositionSizingMultiplierDetail
+    beta?: PositionSizingMultiplierDetail
+    ev_percentile?: PositionSizingMultiplierDetail
+  }
+  product_of_multipliers: number
+  adjusted_weight: number
+  adjusted_weight_pct: number
+  cap_state: PositionSizingCapState
+  notes: string[]
+  /** Dollar exposure keyed by portfolio size string: { "10000": 236 } */
+  exposure_examples: Record<string, number>
+  config_version: string
+}

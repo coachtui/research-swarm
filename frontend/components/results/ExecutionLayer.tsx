@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { ChevronDown, ChevronUp, Settings } from 'lucide-react'
 import { TradeSetup } from './TradeSetup'
 import { PortfolioContext } from './PortfolioContext'
+import { PositionSizingCard } from './PositionSizingCard'
 import type { EnhancedTradeSetup, RecommendedStrategy, ConvictionPosition, SignalBreakdown, FairValueCalibration } from '@/types/api'
 
 const STORAGE_KEY = 'dvrg_execution_layer_expanded'
@@ -123,6 +124,11 @@ export function ExecutionLayer({
                 currentPrice={currentPrice}
                 convictionPosition={convictionPosition}
                 signalBreakdown={signalBreakdown}
+              />
+              <PositionSizingCard
+                ticker={ticker}
+                signalBreakdown={signalBreakdown}
+                convictionPosition={convictionPosition}
               />
               {enhancedTradeSetup && (
                 <p className="text-[11px] text-text-tertiary italic border-t border-border/40 pt-3">
