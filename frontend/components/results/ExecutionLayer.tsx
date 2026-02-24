@@ -23,7 +23,6 @@ interface ExecutionLayerProps {
   calibration?: FairValueCalibration | null
 }
 
-type ActiveTab = 'sizing' | 'setup'
 type ViewMode = 'pm' | 'trader'
 
 export function ExecutionLayer({
@@ -40,7 +39,6 @@ export function ExecutionLayer({
   calibration,
 }: ExecutionLayerProps) {
   const [expanded, setExpanded] = useState(false)
-  const [activeTab, setActiveTab] = useState<ActiveTab>('sizing')
   const [viewMode, setViewMode] = useState<ViewMode>('pm')
 
   useEffect(() => {
@@ -60,12 +58,6 @@ export function ExecutionLayer({
   const setMode = (mode: ViewMode) => {
     setViewMode(mode)
     localStorage.setItem(VIEW_MODE_KEY, mode)
-    // Auto-select appropriate tab for trader view
-    if (mode === 'trader' && enhancedTradeSetup) {
-      setActiveTab('setup')
-    } else {
-      setActiveTab('sizing')
-    }
   }
 
   return (
@@ -140,62 +132,32 @@ export function ExecutionLayer({
             </div>
           )}
 
-          {/* ── Trader View: full setup with tabs ────────────────────── */}
+          {/* ── Trader View: full setup (no sub-tabs) ────────────────── */}
           {viewMode === 'trader' && (
-            <>
-              {/* Tab bar */}
-              <div className="flex border-b border-border px-5 bg-surface">
-                <button
-                  onClick={() => setActiveTab('sizing')}
-                  className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                    activeTab === 'sizing'
-                      ? 'border-primary text-text-primary'
-                      : 'border-transparent text-text-tertiary hover:text-text-secondary'
-                  }`}
-                >
-                  Position Sizing
-                </button>
-                {enhancedTradeSetup && (
-                  <button
-                    onClick={() => setActiveTab('setup')}
-                    className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                      activeTab === 'setup'
-                        ? 'border-primary text-text-primary'
-                        : 'border-transparent text-text-tertiary hover:text-text-secondary'
-                    }`}
-                  >
-                    Entry / Exit Setup
-                  </button>
-                )}
-              </div>
-
-              <div className="p-5">
-                {activeTab === 'sizing' && (
-                  <PortfolioContext
-                    ticker={ticker}
-                    rating={rating}
-                    moatScore={moatScore}
-                    financialHealthScore={financialHealthScore}
-                    sector={sector}
-                    currentPrice={currentPrice}
-                    convictionPosition={convictionPosition}
-                    signalBreakdown={signalBreakdown}
-                  />
-                )}
-                {activeTab === 'setup' && enhancedTradeSetup && (
-                  <TradeSetup
-                    setup={enhancedTradeSetup}
-                    ticker={ticker}
-                    strategy={strategy}
-                    signalBreakdown={signalBreakdown}
-                    rating={rating}
-                    currentPrice={currentPrice}
-                    calibration={calibration}
-                    financialHealthScore={financialHealthScore}
-                  />
-                )}
-              </div>
-            </>
+            <div className="p-5 space-y-6">
+              <PortfolioContext
+                ticker={ticker}
+                rating={rating}
+                moatScore={moatScore}
+                financialHealthScore={financialHealthScore}
+                sector={sector}
+                currentPrice={currentPrice}
+                convictionPosition={convictionPosition}
+                signalBreakdown={signalBreakdown}
+              />
+              {enhancedTradeSetup && (
+                <TradeSetup
+                  setup={enhancedTradeSetup}
+                  ticker={ticker}
+                  strategy={strategy}
+                  signalBreakdown={signalBreakdown}
+                  rating={rating}
+                  currentPrice={currentPrice}
+                  calibration={calibration}
+                  financialHealthScore={financialHealthScore}
+                />
+              )}
+            </div>
           )}
         </div>
       )}
