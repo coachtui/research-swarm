@@ -285,11 +285,11 @@ export function DecisionAction({
               {opportunityEnvelope && (
                 <div className="rounded-md bg-surface-elevated border border-border p-3 text-center">
                   <p className="text-xs text-text-tertiary mb-1">
-                    {isStructuralDislocation ? 'Structural Value Zone' : 'Opportunity Envelope'}
+                    {isStructuralDislocation ? 'LT Mean Reversion Ref.' : 'Opportunity Envelope'}
                     <span
                       className="ml-1 text-text-tertiary cursor-help"
                       title={isStructuralDislocation
-                        ? 'Long-term intrinsic value anchor derived from model bear-to-base scenario range. Represents the theoretical mean reversion zone (12–24 mo horizon), not a near-term actionable entry.'
+                        ? 'Long-term mean reversion reference derived from model bear-to-base scenario range. 12–36 month structural anchor — not a near-term actionable entry.'
                         : 'Broad price range where the investment thesis is favorably priced. The model-optimized Tactical Band and Execution Anchor are in the Trade Setup section below.'}
                     >
                       ⓘ
@@ -297,7 +297,7 @@ export function DecisionAction({
                   </p>
                   <p className="text-sm font-semibold text-success">{opportunityEnvelope}</p>
                   {isStructuralDislocation && (
-                    <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">Long-term anchor</p>
+                    <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">12–36mo reference</p>
                   )}
                 </div>
               )}

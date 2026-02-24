@@ -9,14 +9,14 @@ interface SmartMoneyAlertProps {
 }
 
 /**
- * Prominent callout displayed when the gap between Smart Money signals and
- * Public Sentiment signals exceeds MIN_GAP_TO_SHOW (3.0 points on a 0–10 scale).
+ * Smart Money Divergence Signal
  *
- * Smart Money = avg(institutional + insider + dark_pool)
- * Public Sentiment = avg(news + analyst + earnings)
+ * Surfaces when the spread between informed capital (institutional flows,
+ * insider transactions, dark pool activity) and public narrative signals
+ * exceeds 3.0 points on a 0–10 scale.
  *
- * This divergence is DVRG's core differentiator — it surfaces what informed,
- * capital-committed actors are doing vs. what public opinion reflects.
+ * This is a primary differentiation signal — presented with authority,
+ * not defensiveness.
  */
 export function SmartMoneyAlert({ signalBreakdown }: SmartMoneyAlertProps) {
   const { institutional_score, insider_score, dark_pool_score } = signalBreakdown
@@ -37,42 +37,65 @@ export function SmartMoneyAlert({ signalBreakdown }: SmartMoneyAlertProps) {
   const publicScore = Math.round(public_ * 10) / 10
   const gapDisplay = Math.round(gap * 10) / 10
 
-  // Direction string
-  const smartMoneyLabel = smartMoney >= 6 ? 'bullish' : smartMoney >= 4 ? 'neutral' : 'bearish'
+  const smartMoneyLabel = smartMoney >= 6 ? 'Accumulating' : smartMoney >= 4 ? 'Neutral' : 'Distributing'
   const publicLabel = public_ >= 6 ? 'bullish' : public_ >= 4 ? 'neutral' : 'bearish'
 
-  // Visual treatment: amber when smart money is bearish (warning), blue/teal when bullish (info)
   const isWarning = smartMoneyBearish
   const borderColor = isWarning ? 'border-warning/50' : 'border-primary/40'
   const bgColor = isWarning ? 'bg-warning/5' : 'bg-primary/5'
   const accentColor = isWarning ? 'text-warning' : 'text-primary'
-  const badgeBg = isWarning ? 'bg-warning/10 text-warning border-warning/20' : 'bg-primary/10 text-primary border-primary/20'
+  const badgeBg = isWarning
+    ? 'bg-warning/10 text-warning border-warning/20'
+    : 'bg-primary/10 text-primary border-primary/20'
+
+  // Confidence/Reliability: based on all 3 smart money signals being non-neutral
+  const nonNeutralSmartMoney = [institutional_score, insider_score, dark_pool_score]
+    .filter(s => s != null && Math.abs(s - 5) > 0.5).length
+  const reliabilityLabel =
+    nonNeutralSmartMoney === 3 ? 'High Reliability' :
+    nonNeutralSmartMoney === 2 ? 'Moderate Reliability' :
+    'Partial Signal'
+  const reliabilityColor =
+    nonNeutralSmartMoney === 3 ? 'text-success bg-success/10 border-success/20' :
+    nonNeutralSmartMoney === 2 ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' :
+    'text-text-tertiary bg-surface-elevated border-border'
+
+  // Historical behavior framing (class-specific)
+  const historicalFrame = isWarning
+    ? 'In large-cap equities, sustained smart money distribution typically leads public awareness by 6–12 weeks.'
+    : 'Historically, smart money accumulation ahead of public sentiment resolves bullishly in large-cap equities — particularly when institutional and dark pool flows align.'
 
   return (
     <div className={`rounded-lg border-2 ${borderColor} ${bgColor} p-4`}>
       <div className="flex items-start gap-3">
-        {/* Icon / accent mark */}
+
+        {/* Accent icon */}
         <div className={`mt-0.5 w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${badgeBg} border`}>
           <span className="text-sm font-bold">{isWarning ? '⚡' : '📡'}</span>
         </div>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-2 mb-1">
+        <div className="flex-1 min-w-0 space-y-3">
+
+          {/* Header row */}
+          <div className="flex flex-wrap items-center gap-2">
             <span className={`text-sm font-bold ${accentColor}`}>
-              Smart Money Divergence Alert
+              Smart Money Divergence
             </span>
             <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium uppercase tracking-wide ${badgeBg}`}>
               {gapDisplay.toFixed(1)}-pt gap
             </span>
+            {/* Confidence / Reliability Badge */}
+            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${reliabilityColor}`}>
+              {reliabilityLabel}
+            </span>
           </div>
 
-          <p className="text-xs text-text-secondary leading-relaxed mb-2">
-            Informed capital (institutional flows, insider transactions, dark pool activity) is{' '}
+          {/* Tight 1-line summary */}
+          <p className="text-xs text-text-secondary leading-relaxed">
+            Informed capital is{' '}
             <span className={`font-semibold ${accentColor}`}>{smartMoneyLabel}</span>{' '}
-            at <strong>{smartMoneyScore}/10</strong>, while public signals (news, analyst ratings, earnings revisions)
-            are <span className="font-semibold">{publicLabel}</span> at <strong>{publicScore}/10</strong>.
-            A {gapDisplay.toFixed(1)}-point divergence is significant — capital-committed actors and public
-            narrative are telling different stories.
+            ({smartMoneyScore}/10) against a {publicLabel} public narrative ({publicScore}/10) —
+            a {gapDisplay.toFixed(1)}-point divergence that warrants positioning attention.
           </p>
 
           {/* Scores grid */}
@@ -89,11 +112,11 @@ export function SmartMoneyAlert({ signalBreakdown }: SmartMoneyAlertProps) {
             </div>
           </div>
 
-          <p className="text-[10px] text-text-tertiary mt-2 italic">
-            {isWarning
-              ? 'Smart money distribution signals active — proceed with caution. Informed actors may be reducing exposure ahead of public awareness.'
-              : 'Smart money accumulation signals active despite muted public sentiment — a potential contrarian setup. Fundamentals and flow alignment are key to conviction.'}
+          {/* Historical Behavior Framing */}
+          <p className="text-[10px] text-text-tertiary italic border-l-2 border-border pl-2 leading-relaxed">
+            {historicalFrame}
           </p>
+
         </div>
       </div>
     </div>

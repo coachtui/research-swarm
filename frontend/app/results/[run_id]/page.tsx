@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api/client'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { SignalDivergenceSection } from '@/components/results/SignalDivergenceSection'
 import { DecisionAction } from '@/components/results/DecisionAction'
+import { DecisionSummaryCard } from '@/components/results/DecisionSummaryCard'
 import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
 import { KeyTakeaways } from '@/components/results/KeyTakeaways'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
@@ -31,6 +32,49 @@ import { DeltaSummaryBox } from '@/components/results/DeltaSummaryBox'
 
 interface ResultsPageProps {
   params: { run_id: string }
+}
+
+/**
+ * Section divider — creates clear visual separation between analytical layers.
+ * Variant "primary" for actionable panels, "muted" for long-term/structural panels.
+ */
+function SectionDivider({
+  label,
+  sublabel,
+  variant = 'primary',
+}: {
+  label: string
+  sublabel?: string
+  variant?: 'primary' | 'muted' | 'neutral'
+}) {
+  const borderColor =
+    variant === 'primary' ? 'border-l-primary' :
+    variant === 'muted'   ? 'border-l-border' :
+    'border-l-border-subtle'
+
+  const labelColor =
+    variant === 'primary' ? 'text-text-secondary' :
+    variant === 'muted'   ? 'text-text-tertiary' :
+    'text-text-tertiary'
+
+  const lineColor =
+    variant === 'muted' ? 'border-border/40' : 'border-border/70'
+
+  return (
+    <div className={`flex items-center gap-3 border-l-[3px] ${borderColor} pl-3`}>
+      <div className="flex-1">
+        <div className="flex items-center gap-3">
+          <span className={`text-[11px] font-bold uppercase tracking-[0.14em] ${labelColor}`}>
+            {label}
+          </span>
+          {sublabel && (
+            <span className="text-[10px] text-text-tertiary italic">{sublabel}</span>
+          )}
+          <div className={`flex-1 border-t ${lineColor}`} />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function ResultsPage({ params }: ResultsPageProps) {
@@ -165,12 +209,12 @@ function ResultsContent({ runId }: { runId: string }) {
   return (
     <OnboardingPanel>
     <div className="container mx-auto px-4 py-8">
-      <div className="max-w-6xl mx-auto space-y-8">
+      <div className="max-w-6xl mx-auto space-y-6">
 
-        {/* ── IDENTITY BAR ─────────────────────────────────────────── */}
+        {/* ══ IDENTITY BAR ══════════════════════════════════════════════ */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="relative w-12 h-12 rounded-lg bg-surface-elevated overflow-hidden flex-shrink-0 border border-border-subtle">
+            <div className="relative w-10 h-10 rounded-lg bg-surface-elevated overflow-hidden flex-shrink-0 border border-border-subtle">
               <img
                 src={`https://assets.parqet.com/logos/symbol/${result.ticker}`}
                 alt={`${result.ticker} logo`}
@@ -187,16 +231,16 @@ function ResultsContent({ runId }: { runId: string }) {
               </div>
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xl font-bold text-text-primary">{result.ticker}</span>
+              <div className="flex items-center gap-2.5">
+                <span className="text-lg font-bold text-text-primary">{result.ticker}</span>
                 {decision_intelligence?.current_price && (
-                  <span className="text-lg font-semibold text-text-primary">
+                  <span className="text-base font-semibold text-text-primary">
                     ${decision_intelligence.current_price.toFixed(2)}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-text-tertiary">
-                Completed {formatDateTime(run.completed_at || run.created_at)}
+              <p className="text-[11px] text-text-tertiary">
+                {formatDateTime(run.completed_at || run.created_at)}
               </p>
             </div>
           </div>
@@ -217,11 +261,7 @@ function ResultsContent({ runId }: { runId: string }) {
           </div>
         </div>
 
-        {/* ── LONGITUDINAL DELTA — Since Last Analysis ──────────────
-            Shown when the same user has a prior completed analysis for
-            this ticker. Opens the report with a thesis comparison summary.
-            Trader-tier differentiator: transforms snapshots into a living
-            thesis tracker. */}
+        {/* ══ LONGITUDINAL DELTA ════════════════════════════════════════ */}
         {full_output?.previous_analysis_delta && (
           <DeltaSummaryBox
             delta={full_output.previous_analysis_delta}
@@ -229,125 +269,143 @@ function ResultsContent({ runId }: { runId: string }) {
           />
         )}
 
-        {/* ══════════════════════════════════════════════════════════
-            LAYER 1 — DECISION STACK
-            Decision Action contains: rating, one-liner, signal strip,
-            key price zones, and tabbed New Buyers / Current Holders
-        ══════════════════════════════════════════════════════════ */}
-        {decision_intelligence?.decision_framework && (
-          <DecisionAction
-            framework={decision_intelligence.decision_framework}
-            ticker={result.ticker}
+        {/* ══ DECISION SUMMARY CARD (Above-the-Fold) ════════════════════
+            PM-first: rating + 1-sentence thesis + primary catalyst/risk.
+            No valuation anchors or asymmetry math visible here.           */}
+        {decision_intelligence && (
+          <DecisionSummaryCard
             rating={decision_intelligence.rating}
             riskLevel={decision_intelligence.risk_level}
-            currentPrice={decision_intelligence.current_price}
-            strategy={decision_intelligence.recommended_strategy}
-            signalBreakdown={signal_breakdown}
-            fundTechDivergence={decision_intelligence.fund_tech_divergence}
-            convictionLevel={decision_intelligence.conviction_position?.conviction_level}
-            enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
-          />
-        )}
-
-        {/* ── SMART MONEY DIVERGENCE ALERT ─────────────────────────
-            Shown immediately after the main recommendation when the gap
-            between informed capital and public signals exceeds 3.0 pts.
-            This is DVRG's core differentiator — surfaces it prominently. */}
-        {signal_breakdown && (
-          <SmartMoneyAlert signalBreakdown={signal_breakdown} />
-        )}
-
-        {/* ── WATCH FOR: Condensed upgrade/downgrade triggers ───────
-            Top-2 triggers per direction surfaced early so users see
-            the key catalysts before scrolling the full analysis. */}
-        {(upgrade_triggers || downgrade_triggers) && (
-          <WatchForSummary
+            convictionLevel={decision_intelligence.conviction_position?.conviction_level ?? null}
+            thesis={full_output?.investment_thesis ?? null}
             upgradeTriggers={upgrade_triggers}
             downgradeTriggers={downgrade_triggers}
           />
         )}
 
-        {/* ══════════════════════════════════════════════════════════
-            LAYER 2 — EVIDENCE
-            Score scoreboard → Signal matrix → Key Takeaways → Catalysts
-        ══════════════════════════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════════════════════
+            PANEL A — TACTICAL FRAMEWORK (0–3 Months)
+            Execution-oriented: price context, signals, setup guidance.
+            Everything in this panel is actionable on a short horizon.
+        ══════════════════════════════════════════════════════════════ */}
+        <div className="space-y-6 pt-2">
+          <SectionDivider label="Tactical Framework" sublabel="0–3 Month Horizon" variant="primary" />
 
-        {/* 2A: Score Scoreboard — moved up to immediately follow decision */}
-        {moat_breakdown && moat_score !== null && (
-          <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
-        )}
+          {/* Decision Action: rating + key zones + tabbed guidance */}
+          {decision_intelligence?.decision_framework && (
+            <DecisionAction
+              framework={decision_intelligence.decision_framework}
+              ticker={result.ticker}
+              rating={decision_intelligence.rating}
+              riskLevel={decision_intelligence.risk_level}
+              currentPrice={decision_intelligence.current_price}
+              strategy={decision_intelligence.recommended_strategy}
+              signalBreakdown={signal_breakdown}
+              fundTechDivergence={decision_intelligence.fund_tech_divergence}
+              convictionLevel={decision_intelligence.conviction_position?.conviction_level}
+              enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
+            />
+          )}
 
-        {/* 2B + 2C: Signal matrix with inline conflict block */}
-        {signal_breakdown && (
-          <SignalDivergenceSection
-            breakdown={signal_breakdown}
-            recentNews={[]}
-            nextEarningsDate={undefined}
+          {/* Smart Money Divergence — core differentiator, shown when gap > 3pts */}
+          {signal_breakdown && (
+            <SmartMoneyAlert signalBreakdown={signal_breakdown} />
+          )}
+
+          {/* Watch For: top-2 upgrade/downgrade catalysts surfaced early */}
+          {(upgrade_triggers || downgrade_triggers) && (
+            <WatchForSummary
+              upgradeTriggers={upgrade_triggers}
+              downgradeTriggers={downgrade_triggers}
+            />
+          )}
+
+          {/* Score Scoreboard — 5-factor breakdown */}
+          {moat_breakdown && moat_score !== null && (
+            <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
+          )}
+
+          {/* Signal Matrix — 7-signal alignment + conflict detection */}
+          {signal_breakdown && (
+            <SignalDivergenceSection
+              breakdown={signal_breakdown}
+              recentNews={[]}
+              nextEarningsDate={undefined}
+            />
+          )}
+
+          {/* Historical Pattern Framing */}
+          {signal_breakdown && (
+            <HistoricalAnalogPanel breakdown={signal_breakdown} />
+          )}
+
+          {/* Strengths vs. Concerns */}
+          <KeyTakeaways strengths={strengths} concerns={concerns} />
+
+          {/* Recent Developments + Upcoming Catalysts */}
+          <RecentDevelopments
+            recentItems={whatsNewItems}
+            upcomingEvents={watchCalendarEvents}
           />
-        )}
+        </div>
 
-        {/* 2C.5: Historical Analog — heuristic pattern framing */}
-        {signal_breakdown && (
-          <HistoricalAnalogPanel breakdown={signal_breakdown} />
-        )}
-
-        {/* 2D: Key Takeaways — Strengths vs Risks */}
-        <KeyTakeaways strengths={strengths} concerns={concerns} />
-
-        {/* 2E: Recent Developments — merged WhatsNew + WatchCalendar */}
-        <RecentDevelopments
-          recentItems={whatsNewItems}
-          upcomingEvents={watchCalendarEvents}
-        />
-
-        {/* ══════════════════════════════════════════════════════════
-            LAYER 3 — VALUATION
-            Price targets (Bear / Base / Bull)
-        ══════════════════════════════════════════════════════════ */}
-        {decision_intelligence?.current_price && full_output?.price_targets && (
-          <PriceTargetsCard
-            priceTargets={full_output.price_targets}
-            currentPrice={decision_intelligence.current_price}
-            ticker={result.ticker}
+        {/* ══════════════════════════════════════════════════════════════
+            PANEL B — LONG-TERM STRUCTURAL FRAMEWORK (12–36 Months)
+            Valuation anchors, mean reversion references, scenario targets.
+            Visually de-emphasized — NOT near-term actionable levels.
+        ══════════════════════════════════════════════════════════════ */}
+        <div className="space-y-5 pt-2" style={{ opacity: 0.93 }}>
+          <SectionDivider
+            label="Long-Term Structural Framework"
+            sublabel="12–36 Month Reference — Non-Actionable Near-Term"
+            variant="muted"
           />
-        )}
 
-        {/* ══════════════════════════════════════════════════════════
-            LAYER 3.5 — FAIR VALUE REGIME CHECK
-            Reconciles internal model vs market consensus proxy.
-            Auto-expands on large divergences (>25%). Collapsed otherwise.
-        ══════════════════════════════════════════════════════════ */}
-        {full_output?.fair_value_calibration && (
-          <FairValueRegimeCheck
-            calibration={full_output.fair_value_calibration}
-            currentPrice={decision_intelligence?.current_price}
-            financialHealthScore={moat_breakdown?.financial_health}
-            idealEntryZone={decision_intelligence?.recommended_strategy?.entry?.ideal_zone}
-          />
-        )}
+          {/* Scenario Value Construct: Bear / Base / Bull targets */}
+          {decision_intelligence?.current_price && full_output?.price_targets && (
+            <PriceTargetsCard
+              priceTargets={full_output.price_targets}
+              currentPrice={decision_intelligence.current_price}
+              ticker={result.ticker}
+            />
+          )}
 
-        {/* ══════════════════════════════════════════════════════════
-            LAYER 4 — NARRATIVE
-            Single Analyst Verdict block (thesis + what changes rating)
-            VerdictSummary removed — no duplicate narrative
-        ══════════════════════════════════════════════════════════ */}
+          {/* Fair Value Regime Check — model vs. consensus reconciliation */}
+          {full_output?.fair_value_calibration && (
+            <FairValueRegimeCheck
+              calibration={full_output.fair_value_calibration}
+              currentPrice={decision_intelligence?.current_price}
+              financialHealthScore={moat_breakdown?.financial_health}
+              idealEntryZone={decision_intelligence?.recommended_strategy?.entry?.ideal_zone}
+            />
+          )}
+        </div>
+
+        {/* ══════════════════════════════════════════════════════════════
+            ANALYST VERDICT
+            BLUF at top (always visible) + expandable full narrative.
+            Investment thesis + what changes this rating.
+        ══════════════════════════════════════════════════════════════ */}
         {full_output?.investment_thesis && (
-          <AnalystVerdict
-            thesis={full_output.investment_thesis}
-            upgradeTriggers={upgrade_triggers}
-            downgradeTriggers={downgrade_triggers}
-            signalBreakdown={signal_breakdown}
-            valuationScore={moat_breakdown?.valuation}
-            calibration={full_output.fair_value_calibration}
-            currentPrice={decision_intelligence?.current_price}
-            financialHealthScore={moat_breakdown?.financial_health}
-          />
+          <div className="space-y-5 pt-2">
+            <SectionDivider label="Analyst Verdict" variant="neutral" />
+            <AnalystVerdict
+              thesis={full_output.investment_thesis}
+              upgradeTriggers={upgrade_triggers}
+              downgradeTriggers={downgrade_triggers}
+              signalBreakdown={signal_breakdown}
+              valuationScore={moat_breakdown?.valuation}
+              calibration={full_output.fair_value_calibration}
+              currentPrice={decision_intelligence?.current_price}
+              financialHealthScore={moat_breakdown?.financial_health}
+            />
+          </div>
         )}
 
-        {/* ══════════════════════════════════════════════════════════
-            LAYER 5 — EXECUTION (collapsed by default)
-            Position Sizing tab + Entry/Exit Setup tab
-        ══════════════════════════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════════════════════
+            EXECUTION (collapsed by default)
+            PM View (simplified allocation) / Trader View (full math)
+        ══════════════════════════════════════════════════════════════ */}
         {decision_intelligence && moat_breakdown && (
           <ExecutionLayer
             ticker={result.ticker}

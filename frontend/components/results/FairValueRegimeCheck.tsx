@@ -167,7 +167,7 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
         <div className="flex items-center gap-2.5">
           <Scale className="h-4 w-4 text-text-tertiary" />
           <span className="text-sm font-medium text-text-primary">
-            {isStructuralPremium ? 'Valuation Regime' : 'Fair Value Regime'}
+            {isStructuralPremium ? 'Long-Term Valuation Reference' : 'Fair Value Reference'}
           </span>
           {isStructuralPremium
             ? <StructuralPremiumChip />
@@ -211,15 +211,15 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
           <div className="grid grid-cols-3 gap-3">
             <div className="text-center">
               <div className="text-xs text-text-tertiary mb-1">
-                {isStructuralPremium ? 'Structural Value Anchor' : 'Intrinsic Fair Value'}
+                {isStructuralPremium ? 'Mean Reversion Reference' : 'Intrinsic Fair Value'}
               </div>
               <div className="text-xl font-mono font-semibold text-text-primary">
                 {fmt(calibration.internal_fair_value)}
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
                 {isStructuralPremium
-                  ? 'Long-term intrinsic basis — not a near-term price target'
-                  : 'structural estimate'
+                  ? '12–36mo reference — non-actionable near-term'
+                  : '12–36mo structural estimate'
                 }
               </div>
             </div>
@@ -263,9 +263,9 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
               </div>
               <div className="mt-2 pt-2 border-t border-primary/15 grid grid-cols-3 gap-2 text-[10px] text-text-tertiary text-center">
                 <div>
-                  <span className="font-medium text-text-secondary block">Structural Anchor</span>
+                  <span className="font-medium text-text-secondary block">Mean Reversion Reference</span>
                   <span className="font-mono">{fmt(calibration.internal_fair_value)}</span>
-                  <span className="block italic mt-0.5">intrinsic basis, 12–24 mo mean reversion</span>
+                  <span className="block italic mt-0.5">12–36mo structural reference, non-actionable near-term</span>
                 </div>
                 <div>
                   <span className="font-medium text-text-secondary block">Market-Implied</span>
@@ -324,17 +324,17 @@ export function FairValueRegimeCheck({ calibration, currentPrice, financialHealt
             )}
           </div>
 
-          {/* Structural Premium explanation block (Fix 1) */}
+          {/* Structural Premium explanation block */}
           {isStructuralPremium && !model_stability_warning && (
             <div className="rounded-md p-3.5 text-sm bg-primary/8 border border-primary/20">
               <p className="text-primary font-medium mb-1">Structural Premium — Growth Equity</p>
               <p className="text-text-secondary leading-relaxed text-xs">
-                Current price ({fmt(currentPrice)}) trades at a significant premium to the structural
-                value anchor ({fmt(calibration.internal_fair_value)}). This is structurally expected for
-                high-quality growth businesses — the market prices in future execution optionality that
-                fundamental multiples do not capture. The structural anchor is a long-term mean-reversion
-                reference, not a near-term price target. Tactical targets and analyst consensus operate
-                within the current market pricing regime, not the structural zone.
+                Current price ({fmt(currentPrice)}) trades at a significant premium to the long-term
+                mean reversion reference ({fmt(calibration.internal_fair_value)}). This is structurally
+                expected for high-quality growth businesses — the market prices in future execution
+                optionality not captured in fundamental multiples. This reference is a
+                <span className="font-medium"> 12–36 month structural anchor, not a near-term price target</span>.
+                Tactical targets and analyst consensus operate within the current market pricing regime.
               </p>
             </div>
           )}

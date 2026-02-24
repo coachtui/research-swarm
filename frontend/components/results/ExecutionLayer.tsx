@@ -7,6 +7,7 @@ import { PortfolioContext } from './PortfolioContext'
 import type { EnhancedTradeSetup, RecommendedStrategy, ConvictionPosition, SignalBreakdown, FairValueCalibration } from '@/types/api'
 
 const STORAGE_KEY = 'dvrg_execution_layer_expanded'
+const VIEW_MODE_KEY = 'dvrg_execution_view_mode'
 
 interface ExecutionLayerProps {
   ticker: string
@@ -23,6 +24,7 @@ interface ExecutionLayerProps {
 }
 
 type ActiveTab = 'sizing' | 'setup'
+type ViewMode = 'pm' | 'trader'
 
 export function ExecutionLayer({
   ticker,
@@ -39,17 +41,31 @@ export function ExecutionLayer({
 }: ExecutionLayerProps) {
   const [expanded, setExpanded] = useState(false)
   const [activeTab, setActiveTab] = useState<ActiveTab>('sizing')
+  const [viewMode, setViewMode] = useState<ViewMode>('pm')
 
-  // Persist expanded state
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'true') setExpanded(true)
+    const storedExpanded = localStorage.getItem(STORAGE_KEY)
+    if (storedExpanded === 'true') setExpanded(true)
+
+    const storedMode = localStorage.getItem(VIEW_MODE_KEY) as ViewMode | null
+    if (storedMode === 'pm' || storedMode === 'trader') setViewMode(storedMode)
   }, [])
 
   const toggle = () => {
     const next = !expanded
     setExpanded(next)
     localStorage.setItem(STORAGE_KEY, String(next))
+  }
+
+  const setMode = (mode: ViewMode) => {
+    setViewMode(mode)
+    localStorage.setItem(VIEW_MODE_KEY, mode)
+    // Auto-select appropriate tab for trader view
+    if (mode === 'trader' && enhancedTradeSetup) {
+      setActiveTab('setup')
+    } else {
+      setActiveTab('sizing')
+    }
   }
 
   return (
@@ -62,7 +78,7 @@ export function ExecutionLayer({
         <div className="flex items-center gap-2.5">
           <Settings className="h-4 w-4 text-text-tertiary" />
           <span className="text-sm font-medium text-text-primary">Trade Setup &amp; Position Sizing</span>
-          <span className="text-xs text-text-tertiary">— For active traders &amp; position sizing</span>
+          <span className="text-xs text-text-tertiary hidden sm:inline">— Execution detail</span>
         </div>
         {expanded
           ? <ChevronUp className="h-4 w-4 text-text-tertiary flex-shrink-0" />
@@ -73,34 +89,39 @@ export function ExecutionLayer({
       {/* Expanded content */}
       {expanded && (
         <div className="border-t border-border">
-          {/* Tab bar */}
-          <div className="flex border-b border-border px-5 bg-surface">
-            <button
-              onClick={() => setActiveTab('sizing')}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                activeTab === 'sizing'
-                  ? 'border-primary text-text-primary'
-                  : 'border-transparent text-text-tertiary hover:text-text-secondary'
-              }`}
-            >
-              Position Sizing
-            </button>
-            {enhancedTradeSetup && (
+
+          {/* ── Audience View Toggle ─────────────────────────────────────
+              Portfolio Manager View: simplified allocation guidance.
+              Trader / Tactical View: full asymmetry math, entry/exit setup. */}
+          <div className="flex items-center justify-between px-5 py-3 bg-surface-elevated/50 border-b border-border/60">
+            <span className="text-[11px] text-text-tertiary uppercase tracking-wide font-semibold">View Mode</span>
+            <div className="flex items-center rounded-md border border-border overflow-hidden text-xs">
               <button
-                onClick={() => setActiveTab('setup')}
-                className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                  activeTab === 'setup'
-                    ? 'border-primary text-text-primary'
-                    : 'border-transparent text-text-tertiary hover:text-text-secondary'
+                onClick={() => setMode('pm')}
+                className={`px-3 py-1.5 font-medium transition-colors ${
+                  viewMode === 'pm'
+                    ? 'bg-primary text-white'
+                    : 'bg-surface text-text-tertiary hover:text-text-secondary'
                 }`}
               >
-                Entry / Exit Setup
+                Portfolio Manager
               </button>
-            )}
+              <button
+                onClick={() => setMode('trader')}
+                className={`px-3 py-1.5 font-medium transition-colors border-l border-border ${
+                  viewMode === 'trader'
+                    ? 'bg-primary text-white'
+                    : 'bg-surface text-text-tertiary hover:text-text-secondary'
+                }`}
+              >
+                Trader / Tactical
+              </button>
+            </div>
           </div>
 
-          <div className="p-5">
-            {activeTab === 'sizing' && (
+          {/* ── PM View: simplified position context only ─────────────── */}
+          {viewMode === 'pm' && (
+            <div className="p-5 space-y-4">
               <PortfolioContext
                 ticker={ticker}
                 rating={rating}
@@ -111,20 +132,71 @@ export function ExecutionLayer({
                 convictionPosition={convictionPosition}
                 signalBreakdown={signalBreakdown}
               />
-            )}
-            {activeTab === 'setup' && enhancedTradeSetup && (
-              <TradeSetup
-                setup={enhancedTradeSetup}
-                ticker={ticker}
-                strategy={strategy}
-                signalBreakdown={signalBreakdown}
-                rating={rating}
-                currentPrice={currentPrice}
-                calibration={calibration}
-                financialHealthScore={financialHealthScore}
-              />
-            )}
-          </div>
+              {enhancedTradeSetup && (
+                <p className="text-[11px] text-text-tertiary italic border-t border-border/40 pt-3">
+                  Switch to <span className="font-medium text-text-secondary">Trader / Tactical</span> view for detailed entry levels, stop placement, target tiers, and asymmetry analysis.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ── Trader View: full setup with tabs ────────────────────── */}
+          {viewMode === 'trader' && (
+            <>
+              {/* Tab bar */}
+              <div className="flex border-b border-border px-5 bg-surface">
+                <button
+                  onClick={() => setActiveTab('sizing')}
+                  className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                    activeTab === 'sizing'
+                      ? 'border-primary text-text-primary'
+                      : 'border-transparent text-text-tertiary hover:text-text-secondary'
+                  }`}
+                >
+                  Position Sizing
+                </button>
+                {enhancedTradeSetup && (
+                  <button
+                    onClick={() => setActiveTab('setup')}
+                    className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                      activeTab === 'setup'
+                        ? 'border-primary text-text-primary'
+                        : 'border-transparent text-text-tertiary hover:text-text-secondary'
+                    }`}
+                  >
+                    Entry / Exit Setup
+                  </button>
+                )}
+              </div>
+
+              <div className="p-5">
+                {activeTab === 'sizing' && (
+                  <PortfolioContext
+                    ticker={ticker}
+                    rating={rating}
+                    moatScore={moatScore}
+                    financialHealthScore={financialHealthScore}
+                    sector={sector}
+                    currentPrice={currentPrice}
+                    convictionPosition={convictionPosition}
+                    signalBreakdown={signalBreakdown}
+                  />
+                )}
+                {activeTab === 'setup' && enhancedTradeSetup && (
+                  <TradeSetup
+                    setup={enhancedTradeSetup}
+                    ticker={ticker}
+                    strategy={strategy}
+                    signalBreakdown={signalBreakdown}
+                    rating={rating}
+                    currentPrice={currentPrice}
+                    calibration={calibration}
+                    financialHealthScore={financialHealthScore}
+                  />
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
