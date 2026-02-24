@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { apiClient } from '@/lib/api/client'
-import { ResultsContent } from '@/app/results/[run_id]/page'
+import { ResultsContent } from '@/components/results/ResultsContent'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { Card, CardContent } from '@/components/ui/card'
 import Link from 'next/link'
