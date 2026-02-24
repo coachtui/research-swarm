@@ -531,8 +531,16 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
             "net_value_usd": insider_result["net_value"],
             "insider_sentiment": insider_result["sentiment"],
             "key_transactions": insider_result["key_transactions"],
-            "insider_score": insider_result["score"],  # NEW: Direct score (0-10)
-            "has_data": insider_result["has_data"]
+            "insider_score": insider_result["score"],  # Direct score (0-10)
+            "has_data": insider_result["has_data"],
+            # Layer 4 ownership alignment fields
+            "ownership_pct": insider_result.get("ownership_pct"),
+            "ownership_confidence": insider_result.get("ownership_confidence", "low"),
+            "layer1_dollar_volume": insider_result.get("layer1_dollar_volume"),
+            "layer2_pattern": insider_result.get("layer2_pattern"),
+            "layer3_role": insider_result.get("layer3_role"),
+            "layer4_ownership_alignment": insider_result.get("layer4_ownership_alignment"),
+            "floor_applied": insider_result.get("floor_applied", False),
         }
 
         # Store in state
@@ -561,7 +569,14 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
             "insider_sentiment": "neutral",
             "key_transactions": [],
             "insider_score": 5.0,
-            "has_data": False
+            "has_data": False,
+            "ownership_pct": None,
+            "ownership_confidence": "low",
+            "layer1_dollar_volume": None,
+            "layer2_pattern": None,
+            "layer3_role": None,
+            "layer4_ownership_alignment": None,
+            "floor_applied": False
         }
 
     return state
