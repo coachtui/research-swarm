@@ -84,9 +84,9 @@ export function DownloadPDFButton({ runId, tickers }: DownloadPDFButtonProps) {
   // ── Still loading user data — render a neutral skeleton button ────────────
   if (userLoading) {
     return (
-      <Button size="lg" disabled className="w-full md:w-auto opacity-50">
-        <FileDown className="w-5 h-5 mr-2" />
-        Export PDF
+      <Button size="sm" disabled className="opacity-50">
+        <FileDown className="w-4 h-4 mr-1.5" />
+        PDF
       </Button>
     )
   }
@@ -94,16 +94,16 @@ export function DownloadPDFButton({ runId, tickers }: DownloadPDFButtonProps) {
   // ── Starter tier or unauthenticated — show locked upgrade prompt ──────────
   if (!hasAccess) {
     return (
-      <Link href="/#pricing" className="w-full md:w-auto">
+      <Link href="/#pricing">
         <Button
-          size="lg"
+          size="sm"
           variant="outline"
-          className="w-full md:w-auto border-border text-text-secondary hover:border-[#00D9B5] hover:text-[#00D9B5] transition-colors"
+          className="border-border text-text-secondary hover:border-[#00D9B5] hover:text-[#00D9B5] transition-colors"
           title="Upgrade to Investor to export PDFs"
         >
-          <Lock className="w-4 h-4 mr-2 text-text-tertiary" />
-          Export PDF
-          <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide bg-surface-elevated text-text-tertiary px-1.5 py-0.5 rounded">
+          <Lock className="w-3.5 h-3.5 mr-1.5 text-text-tertiary" />
+          PDF
+          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wide bg-surface-elevated text-text-tertiary px-1 py-0.5 rounded">
             Investor
           </span>
         </Button>
@@ -116,25 +116,24 @@ export function DownloadPDFButton({ runId, tickers }: DownloadPDFButtonProps) {
     <Button
       onClick={handleDownload}
       disabled={isLoading}
-      size="lg"
-      className="w-full md:w-auto"
+      size="sm"
     >
       {isLoading ? (
         <>
           <svg
-            className="w-5 h-5 mr-2 animate-spin"
+            className="w-4 h-4 mr-1.5 animate-spin"
             fill="none"
             viewBox="0 0 24 24"
           >
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          Generating PDF…
+          Generating…
         </>
       ) : (
         <>
-          <FileDown className="w-5 h-5 mr-2" />
-          Download PDF Report
+          <FileDown className="w-4 h-4 mr-1.5" />
+          PDF Report
         </>
       )}
     </Button>
