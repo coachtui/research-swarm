@@ -517,3 +517,76 @@ async def get_revenue_timeseries(admin: User = Depends(require_admin)):
         profit_margin_pct=profit_margin_pct,
         tier_breakdown=tier_breakdown,
     )
+
+
+# ── Public example report management ─────────────────────────────────────────
+
+class SetPublicExampleRequest(BaseModel):
+    """Mark a stock result as the public example for its ticker."""
+    result_id: str
+
+
+@router.post("/admin/example-report/approve")
+async def approve_public_example(
+    request: SetPublicExampleRequest,
+    admin: User = Depends(require_admin),
+):
+    """
+    Mark a completed stock result as the public example shown on the landing page.
+
+    Clears the flag on any prior approved result for the same ticker first,
+    so at most one result per ticker is the active example at any time.
+
+    Admin-only.
+    """
+    db = await get_db()
+
+    # Fetch the target result
+    result = await db.stockresult.find_first(
+        where={"id": request.result_id, "status": "completed"},
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Completed stock result not found")
+
+    # Clear any existing public example for the same ticker
+    await db.stockresult.update_many(
+        where={"ticker": result.ticker, "isPublicExample": True},
+        data={"isPublicExample": False},
+    )
+
+    # Set the new example
+    updated = await db.stockresult.update(
+        where={"id": request.result_id},
+        data={"isPublicExample": True},
+    )
+
+    return {
+        "ok": True,
+        "result_id": updated.id,
+        "ticker": updated.ticker,
+        "created_at": updated.createdAt,
+    }
+
+
+@router.delete("/admin/example-report/{ticker}")
+async def clear_public_example(
+    ticker: str,
+    admin: User = Depends(require_admin),
+):
+    """
+    Remove the public-example flag for a ticker.
+
+    After this call the landing page preview falls back to the most recent
+    completed run for that ticker.
+
+    Admin-only.
+    """
+    ticker = ticker.upper()
+    db = await get_db()
+
+    cleared = await db.stockresult.update_many(
+        where={"ticker": ticker, "isPublicExample": True},
+        data={"isPublicExample": False},
+    )
+
+    return {"ok": True, "ticker": ticker, "cleared": cleared.count}

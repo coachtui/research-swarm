@@ -139,7 +139,7 @@ export function PricingCards({ quota }: PricingCardsProps) {
       )}
 
       <p className="text-center text-sm text-text-secondary mb-8">
-        All tiers include core analysis. Higher tiers unlock advanced intelligence modules.
+        Same institutional research quality. Different depth of tooling.
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
@@ -194,6 +194,43 @@ export function PricingCards({ quota }: PricingCardsProps) {
             </button>
           </div>
         ))}
+      </div>
+
+      {/* Tier comparison — compact 3-row summary */}
+      <div className="mt-10 max-w-2xl mx-auto">
+        <p className="text-center text-xs font-medium tracking-widest uppercase text-text-secondary mb-4">
+          What changes by tier
+        </p>
+        <div className="rounded-xl border border-surface-elevated overflow-hidden text-sm">
+          {/* Header row */}
+          <div className="grid grid-cols-4 bg-surface-elevated text-xs font-semibold text-text-secondary uppercase tracking-wider">
+            <div className="px-4 py-2.5" />
+            <div className="px-4 py-2.5 text-center">Starter</div>
+            <div className="px-4 py-2.5 text-center text-primary">Investor</div>
+            <div className="px-4 py-2.5 text-center">Trader</div>
+          </div>
+          {/* Monthly analyses */}
+          <div className="grid grid-cols-4 border-t border-surface-elevated bg-surface">
+            <div className="px-4 py-3 text-text-secondary font-medium">Monthly analyses</div>
+            <div className="px-4 py-3 text-center text-text-primary">5</div>
+            <div className="px-4 py-3 text-center text-text-primary font-semibold">15</div>
+            <div className="px-4 py-3 text-center text-text-primary">50</div>
+          </div>
+          {/* PDF export */}
+          <div className="grid grid-cols-4 border-t border-surface-elevated bg-surface">
+            <div className="px-4 py-3 text-text-secondary font-medium">PDF export</div>
+            <div className="px-4 py-3 text-center text-text-tertiary">—</div>
+            <div className="px-4 py-3 text-center text-success font-semibold">✓</div>
+            <div className="px-4 py-3 text-center text-success font-semibold">✓</div>
+          </div>
+          {/* Decision depth */}
+          <div className="grid grid-cols-4 border-t border-surface-elevated bg-surface">
+            <div className="px-4 py-3 text-text-secondary font-medium">Decision depth</div>
+            <div className="px-4 py-3 text-center text-text-secondary text-xs">Summary</div>
+            <div className="px-4 py-3 text-center text-text-primary text-xs font-semibold">Metrics</div>
+            <div className="px-4 py-3 text-center text-text-primary text-xs font-semibold">Full Console</div>
+          </div>
+        </div>
       </div>
 
       {/* Boost section — only shown to eligible paid subscribers */}

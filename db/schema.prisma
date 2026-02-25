@@ -137,6 +137,10 @@ model StockResult {
   costUsd               Float? @default(0) @map("cost_usd")
   processingTimeSeconds Float? @map("processing_time_seconds")
 
+  // Public example flag — admin-approved reports shown on the landing page.
+  // At most one result per ticker should have this set to true.
+  isPublicExample Boolean @default(false) @map("is_public_example")
+
   // Error tracking
   errorMessage String? @map("error_message") @db.Text
   errorStack   String? @map("error_stack") @db.Text

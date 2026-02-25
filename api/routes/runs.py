@@ -51,12 +51,18 @@ async def get_nvda_preview():
     """
     db = await get_db()
 
-    # Find the most recent completed stock result for NVDA
+    # Prefer an admin-approved public example; fall back to most-recent completed run.
     result = await db.stockresult.find_first(
-        where={"ticker": "NVDA", "status": "completed"},
+        where={"ticker": "NVDA", "status": "completed", "isPublicExample": True},
         order={"createdAt": "desc"},
         include={"run": True},
     )
+    if not result:
+        result = await db.stockresult.find_first(
+            where={"ticker": "NVDA", "status": "completed"},
+            order={"createdAt": "desc"},
+            include={"run": True},
+        )
 
     if not result or not result.run:
         raise HTTPException(status_code=404, detail="No NVDA preview available")
