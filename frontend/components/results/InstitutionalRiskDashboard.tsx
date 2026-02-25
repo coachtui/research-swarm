@@ -590,7 +590,7 @@ export function InstitutionalRiskDashboard({ breakdown }: InstitutionalRiskDashb
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-1.5">
-              <CardTitle>Portfolio Risk Engine</CardTitle>
+              <CardTitle>Portfolio Diagnostics</CardTitle>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button type="button" className="text-text-tertiary/40 hover:text-text-tertiary/70 transition-colors flex-shrink-0">

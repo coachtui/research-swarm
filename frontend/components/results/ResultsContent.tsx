@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { useAnalysis } from '@/lib/hooks/useAnalysis'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { SignalDivergenceSection } from '@/components/results/SignalDivergenceSection'
-import { DecisionAction } from '@/components/results/DecisionAction'
-import { DecisionSummaryCard } from '@/components/results/DecisionSummaryCard'
+import { DecisionHeader } from '@/components/results/DecisionHeader'
+import { CapitalAllocationDiscipline } from '@/components/results/CapitalAllocationDiscipline'
 import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
 import { KeyTakeaways } from '@/components/results/KeyTakeaways'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
@@ -23,7 +25,12 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatDateTime } from '@/lib/utils/formatting'
-import { deriveStructuralBias, deriveTacticalStance, structuralBiasBadgeVariant } from '@/lib/utils/decisionDimensions'
+import {
+  deriveStructuralBias,
+  deriveTacticalStance,
+  structuralBiasBadgeVariant,
+} from '@/lib/utils/decisionDimensions'
+import { derivePositionType } from '@/lib/narratives/sizingNarrative'
 import { simplifyKeyInsights } from '@/lib/analysis/simplifyKeyInsights'
 import { extractWhatsNew } from '@/lib/analysis/extractWhatsNew'
 import { extractWatchCalendar } from '@/lib/analysis/extractWatchCalendar'
@@ -32,8 +39,9 @@ import { OnboardingPanel } from '@/components/knowledge/OnboardingPanel'
 import { SmartMoneyAlert } from '@/components/results/SmartMoneyAlert'
 import { WatchForSummary } from '@/components/results/WatchForSummary'
 import { DeltaSummaryBox } from '@/components/results/DeltaSummaryBox'
-import { SizingSummaryCard } from '@/components/results/SizingSummaryCard'
 import type { RunResponse } from '@/types/api'
+
+// ── Section divider ───────────────────────────────────────────────────────────
 
 function SectionDivider({
   label,
@@ -74,6 +82,44 @@ function SectionDivider({
   )
 }
 
+// ── Advanced Diagnostics accordion wrapper ────────────────────────────────────
+// Trader-only collapsible container around Probabilistic Diagnostics + Portfolio Diagnostics
+
+function AdvancedDiagnosticsContainer({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="rounded-xl border border-border/60 bg-surface/30 overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-surface-elevated/30 transition-colors"
+      >
+        <div>
+          <p className="text-sm font-semibold text-text-primary">Advanced Diagnostics</p>
+          <p className="text-[10px] text-text-tertiary mt-0.5">
+            Probabilistic Diagnostics · Portfolio Diagnostics · Scenario attribution
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-text-tertiary border border-border rounded px-1.5 py-0.5">
+            Trader
+          </span>
+          {open
+            ? <ChevronUp className="h-4 w-4 text-text-tertiary flex-shrink-0" />
+            : <ChevronDown className="h-4 w-4 text-text-tertiary flex-shrink-0" />
+          }
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-border/40 px-4 pb-4 pt-3 space-y-4">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function ResultsContent({
   runId,
   previewData,
@@ -86,11 +132,16 @@ export function ResultsContent({
   const { data: fetchedRun, isLoading, error } = useAnalysis(previewData ? null : (runId ?? null))
   const run = previewData ?? fetchedRun
   const { data: currentUser } = useCurrentUser()
+  const { data: entitlements } = useEntitlements()
   const [isReadingMode, setReadingMode] = useState(false)
 
   // In preview mode expose full investor-tier content so visitors see the complete report
   const userTier = isPreview ? 'investor' : (currentUser?.tier ?? null)
   const isAdmin = isPreview ? false : (currentUser?.is_admin ?? false)
+
+  // Feature flag checks for tier gating
+  const canSeeCapitalDiscipline = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
+  const canSeeAdvancedDiagnostics = isAdmin || (entitlements?.features['feature.report.engine_diagnostics'] ?? false)
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -163,7 +214,7 @@ export function ResultsContent({
                 {result?.error_message || 'The analysis could not be completed.'}
               </p>
               <p className="text-sm text-text-tertiary">
-                Don't worry! We've automatically issued a full refund.
+                Don&apos;t worry! We&apos;ve automatically issued a full refund.
               </p>
               <div className="pt-4">
                 <Link href="/analyze"><Button>Try Another Analysis</Button></Link>
@@ -205,6 +256,21 @@ export function ResultsContent({
   const { strengths, concerns } = simplifyKeyInsights(key_insights || [], risk_factors || [])
   const whatsNewItems = extractWhatsNew(full_output)
   const watchCalendarEvents = extractWatchCalendar(full_output)
+
+  // Derive dimensions for CapitalAllocationDiscipline
+  const hasDivergence = signal_breakdown?.has_divergence ?? false
+  const divergenceSeverity = decision_intelligence?.fund_tech_divergence?.severity ?? null
+  const structuralBias = deriveStructuralBias(decision_intelligence?.rating)
+  const tacticalStance = deriveTacticalStance(
+    decision_intelligence?.decision_framework?.new_buyers?.action ?? null,
+    decision_intelligence?.rating,
+    hasDivergence,
+    (divergenceSeverity ?? null) as 'HIGH' | 'MODERATE' | null,
+    false,
+  )
+  const positionType = decision_intelligence?.conviction_position
+    ? derivePositionType(structuralBias, decision_intelligence.conviction_position.conviction_level)
+    : 'Satellite'
 
   return (
     <OnboardingPanel>
@@ -282,27 +348,19 @@ export function ResultsContent({
           )}
         </div>
 
-        {/* ══ DECISION SUMMARY CARD (Above-the-Fold) ════════════════════ */}
-        {decision_intelligence && (
-          <DecisionSummaryCard
-            rating={decision_intelligence.rating}
-            riskLevel={decision_intelligence.risk_level}
-            convictionLevel={decision_intelligence.conviction_position?.conviction_level ?? null}
-            thesis={full_output?.investment_thesis ?? null}
-            upgradeTriggers={upgrade_triggers}
-            downgradeTriggers={downgrade_triggers}
-            newBuyersAction={decision_intelligence.decision_framework?.new_buyers?.action ?? null}
-            hasDivergence={signal_breakdown?.has_divergence ?? false}
-            divergenceSeverity={decision_intelligence.fund_tech_divergence?.severity ?? null}
+        {/* ══════════════════════════════════════════════════════════════
+            LAYER 1 — SNAPSHOT (always visible)
+            Decision Header: dual-dimension + deployment + allocation + narrative + key zones
+            ══════════════════════════════════════════════════════════════ */}
+        <div className="space-y-4">
+          <SectionDivider
+            label="Capital Allocation Snapshot"
+            sublabel="Decision framework · Deployment posture · Sizing"
+            variant="primary"
           />
-        )}
 
-        {/* ══ PANEL A — TACTICAL FRAMEWORK ══════════════════════════════ */}
-        <div className="space-y-6 pt-2">
-          <SectionDivider label="Tactical Framework" sublabel="0–3 Month Horizon" variant="primary" />
-
-          {decision_intelligence?.decision_framework && (
-            <DecisionAction
+          {decision_intelligence?.decision_framework && decision_intelligence?.conviction_position && (
+            <DecisionHeader
               framework={decision_intelligence.decision_framework}
               ticker={result.ticker}
               rating={decision_intelligence.rating}
@@ -311,88 +369,104 @@ export function ResultsContent({
               strategy={decision_intelligence.recommended_strategy}
               signalBreakdown={signal_breakdown}
               fundTechDivergence={decision_intelligence.fund_tech_divergence}
-              convictionLevel={decision_intelligence.conviction_position?.conviction_level}
+              convictionLevel={decision_intelligence.conviction_position.conviction_level}
               enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
-            />
-          )}
-
-          {/* Position sizing summary — visible to all tiers.
-              Shows allocation % + rationale (Starter), adds numeric drivers (Investor+),
-              adds conviction justification (Trader via FeatureGate). */}
-          {decision_intelligence?.conviction_position && (
-            <SizingSummaryCard
               conviction={decision_intelligence.conviction_position}
-              isAdmin={isAdmin}
-              rating={decision_intelligence.rating}
-              tacticalStance={deriveTacticalStance(
-                decision_intelligence.decision_framework?.new_buyers?.action ?? null,
-                decision_intelligence.rating,
-                signal_breakdown?.has_divergence ?? false,
-                (decision_intelligence.fund_tech_divergence?.severity ?? null) as 'HIGH' | 'MODERATE' | null,
-                false, // structural dislocation not computed at page level; DecisionAction handles it
-              )}
+            />
+          )}
+        </div>
+
+        {/* ══════════════════════════════════════════════════════════════
+            LAYER 2 — CAPITAL ALLOCATION DISCIPLINE (Investor+, collapsed)
+            Position Sizing Context · Regime Conditions · Risk Controls · Capital Resolver
+            ══════════════════════════════════════════════════════════════ */}
+        {canSeeCapitalDiscipline && decision_intelligence?.conviction_position && (
+          <CapitalAllocationDiscipline
+            conviction={decision_intelligence.conviction_position}
+            signalBreakdown={signal_breakdown}
+            ticker={result.ticker}
+            rating={decision_intelligence.rating}
+            structuralBias={structuralBias}
+            tacticalStance={tacticalStance}
+            positionType={positionType}
+          />
+        )}
+
+        {/* ══ Supporting Signal Analysis ══════════════════════════════ */}
+        <div className={`space-y-6 transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+
+          {signal_breakdown && (
+            <SmartMoneyAlert signalBreakdown={signal_breakdown} />
+          )}
+
+          {(upgrade_triggers || downgrade_triggers) && (
+            <WatchForSummary
+              upgradeTriggers={upgrade_triggers}
+              downgradeTriggers={downgrade_triggers}
             />
           )}
 
-          <div className={`space-y-6 transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+          {moat_breakdown && moat_score !== null && (
+            <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
+          )}
+
+          {signal_breakdown && (
+            <SignalDivergenceSection
+              breakdown={signal_breakdown}
+              recentNews={[]}
+              nextEarningsDate={undefined}
+            />
+          )}
+
+          <TierGate feature="institutional_risk" userTier={userTier} isAdmin={isAdmin}>
             {signal_breakdown && (
-              <SmartMoneyAlert signalBreakdown={signal_breakdown} />
+              <InstitutionalRiskDashboard breakdown={signal_breakdown} />
             )}
+          </TierGate>
 
-            {(upgrade_triggers || downgrade_triggers) && (
-              <WatchForSummary
-                upgradeTriggers={upgrade_triggers}
-                downgradeTriggers={downgrade_triggers}
-              />
-            )}
-
-            {moat_breakdown && moat_score !== null && (
-              <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
-            )}
-
-            {signal_breakdown && (
-              <SignalDivergenceSection
-                breakdown={signal_breakdown}
-                recentNews={[]}
-                nextEarningsDate={undefined}
-              />
-            )}
-
-            <TierGate feature="institutional_risk" userTier={userTier} isAdmin={isAdmin}>
+          {/* ════════════════════════════════════════════════════════════
+              LAYER 3 — ADVANCED DIAGNOSTICS (Trader only, collapsed)
+              Probabilistic Diagnostics · Portfolio Diagnostics
+              ════════════════════════════════════════════════════════════ */}
+          {canSeeAdvancedDiagnostics ? (
+            <AdvancedDiagnosticsContainer>
               {signal_breakdown && (
-                <InstitutionalRiskDashboard breakdown={signal_breakdown} />
+                <ProbabilisticEngineDashboard
+                  breakdown={signal_breakdown}
+                  delta={full_output?.previous_analysis_delta ?? null}
+                  userTier={userTier}
+                  isAdmin={isAdmin}
+                />
               )}
-            </TierGate>
-
-            {/* ProbabilisticEngineDashboard self-gates by tier:
-                  Starter → noise banner + upgrade CTA
-                  Investor → EV, Confidence, Stop, Noise tabs
-                  Trader → all 6 tabs including Scenarios + Drift */}
-            {signal_breakdown && (
+              <TierGate feature="historical_patterns" userTier={userTier} isAdmin={isAdmin}>
+                {signal_breakdown && (
+                  <HistoricalAnalogPanel breakdown={signal_breakdown} />
+                )}
+              </TierGate>
+            </AdvancedDiagnosticsContainer>
+          ) : (
+            /* Investor and Starter: still show ProbabilisticEngineDashboard (self-gates internally).
+               Starter sees fallback banner; Investor sees ev/confidence/stop/noise tabs.
+               Only Trader sees the Advanced Diagnostics wrapper. */
+            signal_breakdown && (
               <ProbabilisticEngineDashboard
                 breakdown={signal_breakdown}
                 delta={full_output?.previous_analysis_delta ?? null}
                 userTier={userTier}
                 isAdmin={isAdmin}
               />
-            )}
+            )
+          )}
 
-            <TierGate feature="historical_patterns" userTier={userTier} isAdmin={isAdmin}>
-              {signal_breakdown && (
-                <HistoricalAnalogPanel breakdown={signal_breakdown} />
-              )}
-            </TierGate>
+          <KeyTakeaways strengths={strengths} concerns={concerns} />
 
-            <KeyTakeaways strengths={strengths} concerns={concerns} />
-
-            <RecentDevelopments
-              recentItems={whatsNewItems}
-              upcomingEvents={watchCalendarEvents}
-            />
-          </div>
+          <RecentDevelopments
+            recentItems={whatsNewItems}
+            upcomingEvents={watchCalendarEvents}
+          />
         </div>
 
-        {/* ══ PANEL B — LONG-TERM STRUCTURAL FRAMEWORK ═════════════════ */}
+        {/* ══ LONG-TERM STRUCTURAL FRAMEWORK ════════════════════════════ */}
         <div className={`space-y-5 pt-2 transition-opacity duration-200 ${isReadingMode ? 'opacity-30 pointer-events-none' : 'opacity-[0.93]'}`}>
           <SectionDivider
             label="Long-Term Structural Framework"

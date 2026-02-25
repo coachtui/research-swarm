@@ -979,7 +979,7 @@ export function ProbabilisticEngineDashboard({
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <CardTitle className="text-base font-semibold text-text-primary">
-              Probabilistic Engine
+              Probabilistic Diagnostics
             </CardTitle>
             <div className="flex items-center gap-1.5 mt-0.5">
               <Lock className="w-3.5 h-3.5 text-text-tertiary" />
@@ -1090,7 +1090,7 @@ export function ProbabilisticEngineDashboard({
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2 flex-wrap">
             <CardTitle className="text-base font-semibold text-text-primary">
-              Probabilistic Engine
+              Probabilistic Diagnostics
             </CardTitle>
             <Tooltip>
               <TooltipTrigger asChild>
