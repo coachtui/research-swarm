@@ -33,6 +33,47 @@ interface SizingSummaryCardProps {
   tacticalStance?: TacticalStance | null
 }
 
+// ── A) Decision Sentence ────────────────────────────────────────────────────
+/** One-line action directive derived from Tactical Stance. */
+function getDecisionSentence(stance: TacticalStance): string {
+  switch (stance) {
+    case 'Favorable':
+      return 'Action: Conditions support deployment — initiate or add exposure at current levels.'
+    case 'Opportunistic':
+      return 'Action: Signals support selective entry — size conservatively and scale on confirmation.'
+    case 'Deferred':
+      return 'Action: Hold exposure; do not add until entry conditions improve.'
+    case 'Constrained':
+      return 'Action: Hold exposure; do not add until stance flips to Favorable.'
+    case 'Defensive':
+      return 'Action: Reduce or stand aside — prioritize capital preservation over expansion.'
+  }
+}
+
+// ── B) Stance Flip Triggers ─────────────────────────────────────────────────
+/** Chips describing what would shift the current stance. Empty for Favorable. */
+function getStanceFlipTriggers(stance: TacticalStance): string[] {
+  switch (stance) {
+    case 'Favorable':     return []
+    case 'Opportunistic': return ['Confirm entry signal', 'Flow turns accumulating']
+    case 'Deferred':      return ['Valuation regime normalizes', 'Flow turns accumulating']
+    case 'Constrained':   return ['Dispersion improves', 'Flow turns neutral/accumulating', 'Valuation regime normalizes']
+    case 'Defensive':     return ['Dispersion improves', 'Valuation regime normalizes', 'Flow turns neutral']
+  }
+}
+
+// ── C) Semantic Guardrail ───────────────────────────────────────────────────
+const AGGRESSIVE_ENTRY_RE = /\b(buy now|add now|enter now)\b/gi
+
+/**
+ * Strips aggressive entry language from rationale unless the stance
+ * explicitly supports immediate deployment (Favorable or Opportunistic).
+ */
+function sanitizeRationale(text: string, stance: TacticalStance | null | undefined): string {
+  if (stance === 'Favorable' || stance === 'Opportunistic' || stance == null) return text
+  return text.replace(AGGRESSIVE_ENTRY_RE, 'maintain current exposure')
+}
+
 function convictionBadgeVariant(level: string): 'success' | 'warning' | 'error' | 'default' {
   if (level === 'HIGH') return 'success'
   if (level === 'MODERATE') return 'warning'
@@ -72,6 +113,10 @@ export function SizingSummaryCard({ conviction, isAdmin = false, tacticalStance 
     multiplier > 0
       ? Math.round((conviction.recommended_pct / multiplier) * 10) / 10
       : conviction.recommended_pct
+
+  // A + B: derived from tactical stance when available
+  const decisionSentence = tacticalStance != null ? getDecisionSentence(tacticalStance) : null
+  const flipTriggers = tacticalStance != null ? getStanceFlipTriggers(tacticalStance) : []
 
   return (
     <Card className="border border-border">
@@ -127,6 +172,13 @@ export function SizingSummaryCard({ conviction, isAdmin = false, tacticalStance 
           </p>
         </div>
 
+        {/* ── A) DECISION SENTENCE ──────────────────────────────────────── */}
+        {decisionSentence && (
+          <p className="text-[11px] font-medium text-text-primary leading-snug border-l-2 border-primary/40 pl-2.5">
+            {decisionSentence}
+          </p>
+        )}
+
         {/* ── SECONDARY: SIZING FRAMEWORK (Investor+) ───────────────────── */}
         {canSeeSignalMetrics && (
           <div className="rounded-md border border-border/60 bg-background/40 p-3">
@@ -176,8 +228,29 @@ export function SizingSummaryCard({ conviction, isAdmin = false, tacticalStance 
           Thesis conditions unchanged; deployment governed by portfolio risk parameters.
         </p>
 
-        {/* ── PLAIN-LANGUAGE RATIONALE ─────────────────────────────────── */}
-        <p className="text-sm text-text-secondary leading-relaxed">{conviction.rationale}</p>
+        {/* ── B) STANCE FLIP TRIGGERS ──────────────────────────────────── */}
+        {flipTriggers.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-1.5">
+              Flip Triggers
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {flipTriggers.map(trigger => (
+                <span
+                  key={trigger}
+                  className="text-[10px] font-medium px-2 py-0.5 rounded-full border border-border/60 text-text-tertiary"
+                >
+                  {trigger}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── PLAIN-LANGUAGE RATIONALE (C: semantic guardrail applied) ─── */}
+        <p className="text-sm text-text-secondary leading-relaxed">
+          {sanitizeRationale(conviction.rationale, tacticalStance)}
+        </p>
 
         {/* ── TRADER: FULL CONVICTION JUSTIFICATION ────────────────────── */}
         <FeatureGate
