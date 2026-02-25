@@ -945,3 +945,28 @@ export interface PositionSizingResponse {
   exposure_examples: Record<string, number>
   config_version: string
 }
+
+// --- Entitlements ---
+
+/**
+ * Server-resolved feature flags and quota limits for the current user.
+ * Returned by GET /api/entitlements — derives tier, admin override, and
+ * Stripe inactive-status downgrade server-side so the client never has to
+ * replicate that logic.
+ */
+export interface EntitlementsResponse {
+  /** Effective tier after admin override and Stripe status check. */
+  tier: 'starter' | 'investor' | 'trader'
+  /** False when the Stripe subscription is in an inactive/delinquent status. */
+  active: boolean
+  /**
+   * Map of feature flag → granted (boolean).
+   * All known flags are always present; unknown flags default to false on use.
+   */
+  features: Record<string, boolean>
+  limits: {
+    analyses_per_month: number
+    concurrent_analyses: number
+    watchlist_max: number
+  }
+}

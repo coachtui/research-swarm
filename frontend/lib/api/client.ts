@@ -19,6 +19,7 @@ import type {
   CostSummary,
   RevenueTimeSeries,
   UserInfo,
+  EntitlementsResponse,
 } from '@/types/api'
 
 class ApiClient {
@@ -161,6 +162,16 @@ class ApiClient {
   // Auth endpoints
   async getCurrentUser(): Promise<UserInfo> {
     return this.request('/api/auth/me')
+  }
+
+  /**
+   * Fetch server-resolved feature flags and quota limits.
+   * The backend applies admin override and Stripe inactive-status downgrade,
+   * so the client receives the correct effective entitlements without
+   * having to replicate that logic.
+   */
+  async getEntitlements(): Promise<EntitlementsResponse> {
+    return this.request('/api/entitlements')
   }
 
   // Analysis endpoints

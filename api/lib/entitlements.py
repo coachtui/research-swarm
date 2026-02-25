@@ -2,9 +2,16 @@
 Backend entitlement feature flags for DVRG.
 
 Feature matrix:
-  feature.report.core         → Starter, Investor, Trader
-  feature.report.export_pdf   → Investor, Trader
-  feature.report.trade_setup  → Trader only
+  feature.report.core                  → Starter, Investor, Trader
+  feature.report.sizing_summary        → Starter, Investor, Trader  (allocation % + rationale)
+  feature.report.export_pdf            → Investor, Trader
+  feature.report.signal_metrics        → Investor, Trader            (σ, noise score, stop prob headline)
+  feature.report.stop_probability_detail → Investor, Trader          (decomposition table)
+  feature.report.trade_setup           → Trader only
+  feature.report.engine_diagnostics    → Trader only                 (full panels + driver ranking)
+  feature.report.scenario_weights      → Trader only                 (model vs effective weights)
+  feature.report.multiplier_stack      → Trader only                 (multiplier list + product)
+  feature.report.risk_matrix_full      → Trader only                 (full portfolio interaction metrics)
 
 Usage:
     from api.lib.entitlements import FEAT_REPORT_PDF, has_feature
@@ -19,15 +26,56 @@ if TYPE_CHECKING:
     from api.models.auth import User
 
 # ── Feature flag constants ─────────────────────────────────────────────────
-FEAT_REPORT_CORE = "feature.report.core"
-FEAT_REPORT_PDF = "feature.report.export_pdf"
-FEAT_REPORT_TRADE_SETUP = "feature.report.trade_setup"
+FEAT_REPORT_CORE            = "feature.report.core"
+FEAT_SIZING_SUMMARY         = "feature.report.sizing_summary"
+FEAT_REPORT_PDF             = "feature.report.export_pdf"
+FEAT_SIGNAL_METRICS         = "feature.report.signal_metrics"
+FEAT_STOP_PROB_DETAIL       = "feature.report.stop_probability_detail"
+FEAT_REPORT_TRADE_SETUP     = "feature.report.trade_setup"
+FEAT_ENGINE_DIAGNOSTICS     = "feature.report.engine_diagnostics"
+FEAT_SCENARIO_WEIGHTS       = "feature.report.scenario_weights"
+FEAT_MULTIPLIER_STACK       = "feature.report.multiplier_stack"
+FEAT_RISK_MATRIX_FULL       = "feature.report.risk_matrix_full"
+
+# ── Ordered list of all flags (used by /api/entitlements response) ─────────
+ALL_FEATURES: list[str] = [
+    FEAT_REPORT_CORE,
+    FEAT_SIZING_SUMMARY,
+    FEAT_REPORT_PDF,
+    FEAT_SIGNAL_METRICS,
+    FEAT_STOP_PROB_DETAIL,
+    FEAT_REPORT_TRADE_SETUP,
+    FEAT_ENGINE_DIAGNOSTICS,
+    FEAT_SCENARIO_WEIGHTS,
+    FEAT_MULTIPLIER_STACK,
+    FEAT_RISK_MATRIX_FULL,
+]
 
 # ── Tier entitlement matrix ────────────────────────────────────────────────
 _ENTITLEMENTS: dict[str, set[str]] = {
-    "starter": {FEAT_REPORT_CORE},
-    "investor": {FEAT_REPORT_CORE, FEAT_REPORT_PDF},
-    "trader": {FEAT_REPORT_CORE, FEAT_REPORT_PDF, FEAT_REPORT_TRADE_SETUP},
+    "starter": {
+        FEAT_REPORT_CORE,
+        FEAT_SIZING_SUMMARY,
+    },
+    "investor": {
+        FEAT_REPORT_CORE,
+        FEAT_SIZING_SUMMARY,
+        FEAT_REPORT_PDF,
+        FEAT_SIGNAL_METRICS,
+        FEAT_STOP_PROB_DETAIL,
+    },
+    "trader": {
+        FEAT_REPORT_CORE,
+        FEAT_SIZING_SUMMARY,
+        FEAT_REPORT_PDF,
+        FEAT_SIGNAL_METRICS,
+        FEAT_STOP_PROB_DETAIL,
+        FEAT_REPORT_TRADE_SETUP,
+        FEAT_ENGINE_DIAGNOSTICS,
+        FEAT_SCENARIO_WEIGHTS,
+        FEAT_MULTIPLIER_STACK,
+        FEAT_RISK_MATRIX_FULL,
+    },
 }
 
 # Stripe statuses that revoke paid-tier features

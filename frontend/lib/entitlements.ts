@@ -15,23 +15,39 @@
 export type Tier = 'starter' | 'investor' | 'trader'
 
 export type Feature =
-  | 'historical_patterns'   // Historical Analog Panel — pattern framing
-  | 'institutional_risk'    // Institutional Risk Dashboard — stability / noise / risk efficiency
-  | 'probabilistic_engine'  // Probabilistic Engine — full EV model, stop probability, scenario distribution
-  | 'analyst_verdict'       // Full Analyst Verdict — investment thesis, full agents report
-  | 'execution_layer'       // Execution Layer — position sizing, portfolio risk, trade stability
-  | 'export_pdf'            // PDF Export — institutional-grade downloadable report
-  | 'trade_setup_details'   // Trader-only: enhanced trade setup table + fund/tech divergence
+  | 'historical_patterns'       // Historical Analog Panel — pattern framing
+  | 'institutional_risk'        // Institutional Risk Dashboard — stability / noise / risk efficiency
+  | 'probabilistic_engine'      // Probabilistic Engine — full EV model, stop probability, scenario distribution
+  | 'analyst_verdict'           // Full Analyst Verdict — investment thesis, full agents report
+  | 'execution_layer'           // Execution Layer — position sizing, portfolio risk, trade stability
+  | 'export_pdf'                // PDF Export — institutional-grade downloadable report
+  | 'trade_setup_details'       // Trader-only: enhanced trade setup table + fund/tech divergence
+  // ── Engine diagnostics (granular sub-section gates) ──────────────────────
+  | 'sizing_summary'            // All tiers: allocation % + plain-language rationale
+  | 'signal_metrics'            // Investor+: σ band, noise score, stop probability headline
+  | 'stop_probability_detail'   // Investor+: stop prob decomposition table
+  | 'engine_diagnostics'        // Trader: full engine panels + driver ranking
+  | 'scenario_weights'          // Trader: model vs effective scenario weights + rotation
+  | 'multiplier_stack'          // Trader: position-sizing multiplier list + product
+  | 'risk_matrix_full'          // Trader: full portfolio interaction metrics
 
 /** Minimum tier required to access each feature. */
 const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
-  historical_patterns:  'investor',
-  institutional_risk:   'investor',
-  probabilistic_engine: 'investor',
-  analyst_verdict:      'investor',
-  execution_layer:      'trader',
-  export_pdf:           'investor',
-  trade_setup_details:  'trader',
+  historical_patterns:      'investor',
+  institutional_risk:       'investor',
+  probabilistic_engine:     'investor',
+  analyst_verdict:          'investor',
+  execution_layer:          'trader',
+  export_pdf:               'investor',
+  trade_setup_details:      'trader',
+  // Engine diagnostics
+  sizing_summary:           'starter',
+  signal_metrics:           'investor',
+  stop_probability_detail:  'investor',
+  engine_diagnostics:       'trader',
+  scenario_weights:         'trader',
+  multiplier_stack:         'trader',
+  risk_matrix_full:         'trader',
 }
 
 const TIER_ORDER: Record<Tier, number> = {
@@ -137,6 +153,80 @@ export const FEATURE_GATE_COPY: Record<Feature, {
       'Three-tier exit targets with partial-sell percentages',
       'Stop-loss levels and risk/reward ratios',
       'Fundamental vs technical divergence analysis',
+    ],
+  },
+  sizing_summary: {
+    title: 'Position Sizing Summary',
+    description: 'Recommended allocation percentage and plain-language sizing rationale.',
+    requiredTier: 'starter',
+    bullets: [
+      'Recommended portfolio allocation %',
+      'Plain-language conviction rationale',
+    ],
+  },
+  signal_metrics: {
+    title: 'Signal Metrics',
+    description: 'Numeric engine diagnostics: σ dispersion, noise score, and stop probability headline.',
+    requiredTier: 'investor',
+    bullets: [
+      'EV sensitivity band (σ) and stability classification',
+      'Noise score and noise regime label',
+      'Stop probability headline value',
+      'EV confidence level and dispersion',
+    ],
+  },
+  stop_probability_detail: {
+    title: 'Stop Probability Decomposition',
+    description: 'Component-level breakdown of what drives your stop-out probability.',
+    requiredTier: 'investor',
+    bullets: [
+      'Base stop risk from volatility regime',
+      'Trend and support modifiers',
+      'Effective stop probability with narrative',
+    ],
+  },
+  engine_diagnostics: {
+    title: 'Full Engine Diagnostics',
+    description: 'Complete probabilistic engine output with driver ranking and attribution.',
+    requiredTier: 'trader',
+    bullets: [
+      'EV sensitivity attribution by driver type',
+      'Signal vs market movement decomposition',
+      'Confidence integrity with degradation breakdown',
+      'Full diagnostic panels for all engine modules',
+    ],
+  },
+  scenario_weights: {
+    title: 'Scenario Weight Diagnostics',
+    description: 'Model vs effective scenario probabilities with rotation and compression analysis.',
+    requiredTier: 'trader',
+    bullets: [
+      'Bear / Base / Bull model vs effective weights',
+      'Scenario rotation index and compression ratio',
+      'Tail state classification (Expanded / Neutral / Compressed)',
+      'Active rotation factors driving weight shifts',
+    ],
+  },
+  multiplier_stack: {
+    title: 'Position Sizing Multiplier Stack',
+    description: 'Full multiplier breakdown showing how each factor adjusts your position size.',
+    requiredTier: 'trader',
+    bullets: [
+      'Noise, sensitivity, dispersion, and stop-risk multipliers',
+      'Product of multipliers and net adjustment',
+      'Cap state and constraint events',
+      'Conviction justification for the final allocation',
+    ],
+  },
+  risk_matrix_full: {
+    title: 'Full Risk Matrix',
+    description: 'Complete portfolio interaction metrics including correlation and crowding data.',
+    requiredTier: 'trader',
+    bullets: [
+      'Correlation with existing portfolio positions',
+      'Crowding and concentration risk flags',
+      'Factor exposure breakdown',
+      'Liquidity and volatility risk interaction metrics',
     ],
   },
 }

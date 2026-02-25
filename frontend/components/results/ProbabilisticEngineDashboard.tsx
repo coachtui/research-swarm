@@ -29,10 +29,13 @@
  */
 
 import { useState } from 'react'
-import { AlertTriangle, Shield, Activity, TrendingDown, BarChart3, Info, GitCompare } from 'lucide-react'
+import Link from 'next/link'
+import { AlertTriangle, Shield, Activity, TrendingDown, BarChart3, Info, GitCompare, Lock } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import type {
   SignalBreakdown,
   EVStabilityClass,
@@ -49,6 +52,10 @@ interface ProbabilisticEngineDashboardProps {
   breakdown: SignalBreakdown
   /** Optional: prior analysis delta for run-to-run drift diagnostics */
   delta?: PreviousAnalysisDelta | null
+  /** User's subscription tier — used for internal sub-section gating. */
+  userTier?: string | null
+  /** Admins bypass all gates. */
+  isAdmin?: boolean
 }
 
 type TabId = 'ev' | 'confidence' | 'scenarios' | 'stop' | 'noise' | 'drift'
@@ -891,8 +898,22 @@ function ModelDriftPanel({ delta }: { delta: PreviousAnalysisDelta }) {
 
 // ── Main Component ───────────────────────────────────────────────────────────
 
-export function ProbabilisticEngineDashboard({ breakdown, delta }: ProbabilisticEngineDashboardProps) {
+export function ProbabilisticEngineDashboard({
+  breakdown,
+  delta,
+  userTier,
+  isAdmin = false,
+}: ProbabilisticEngineDashboardProps) {
   const [activeTab, setActiveTab] = useState<TabId>('ev')
+
+  // ── Server-resolved feature gates ─────────────────────────────────────────
+  const { data: entitlements } = useEntitlements()
+  // Investor+: σ band, noise score, stop probability headline and decomp
+  const canSeeSignalMetrics = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
+  // Trader: scenario weights, model drift, full engine panels
+  const canSeeEngineDetails = isAdmin || (entitlements?.features['feature.report.engine_diagnostics'] ?? false)
+  // Trader: scenario weights specifically
+  const canSeeScenarios     = isAdmin || (entitlements?.features['feature.report.scenario_weights'] ?? false)
 
   const evStability = breakdown.ev_stability
   const confidenceInt = breakdown.confidence_integrity
@@ -912,13 +933,84 @@ export function ProbabilisticEngineDashboard({ breakdown, delta }: Probabilistic
     return null
   }
 
+  // ── Starter fallback: noise banner + plain-language note ──────────────────
+  // Starter users see the noise regime (if elevated) and a short note — not
+  // the full numeric panels. The component self-gates rather than relying on
+  // an outer TierGate so we can show *something* to all tiers.
+  if (!canSeeSignalMetrics) {
+    const regime = noiseFilter?.noise_regime ?? null
+    const isNoisyEnough = regime && regime !== 'Clean'
+    return (
+      <Card className="border border-border">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <CardTitle className="text-base font-semibold text-text-primary">
+              Probabilistic Engine
+            </CardTitle>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <Lock className="w-3.5 h-3.5 text-text-tertiary" />
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-text-tertiary border border-border rounded px-1.5 py-0.5">
+                Investor
+              </span>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Show noise regime label if data is present */}
+          {isNoisyEnough && noiseFilter && (
+            <div className={`rounded-lg border px-4 py-3 flex items-start gap-3 ${
+              regime === 'Noise Dominated'
+                ? 'border-error/40 bg-error/8'
+                : 'border-warning/40 bg-warning/8'
+            }`}>
+              <AlertTriangle className={`w-4 h-4 mt-0.5 shrink-0 ${
+                regime === 'Noise Dominated' ? 'text-error' : 'text-warning'
+              }`} />
+              <div>
+                <p className={`text-sm font-semibold ${
+                  regime === 'Noise Dominated' ? 'text-error' : 'text-warning'
+                }`}>
+                  {regime} Environment Detected
+                </p>
+                {noiseFilter.regime_warning && (
+                  <p className="text-xs text-text-secondary mt-0.5 leading-relaxed">
+                    {noiseFilter.regime_warning}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="rounded-lg bg-surface-elevated p-4 space-y-3">
+            <p className="text-sm text-text-secondary leading-relaxed">
+              The probabilistic engine computed EV stability, noise regime, and stop
+              probability for this analysis. Upgrade to Investor to view σ decomposition,
+              stop probability numeric breakdown, and confidence integrity metrics.
+            </p>
+            <div className="flex items-center gap-3 pt-1">
+              <Link href="/#pricing">
+                <Button size="sm" variant="primary">Unlock Signal Metrics</Button>
+              </Link>
+              <span className="text-[11px] text-text-tertiary">
+                Unlocks 4 engine metric panels
+              </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ── Tab list — filtered by tier ────────────────────────────────────────────
+  // EV, Confidence, Stop, Noise → Investor+
+  // Scenarios, Drift → Trader only
   const allTabs: Array<{ id: TabId; label: string; icon: React.ReactNode; available: boolean }> = [
-    { id: 'ev', label: 'EV Stability', icon: <Activity className="w-3.5 h-3.5" />, available: !!evStability },
-    { id: 'confidence', label: 'Confidence', icon: <Shield className="w-3.5 h-3.5" />, available: !!confidenceInt },
-    { id: 'scenarios', label: 'Scenario Weights', icon: <BarChart3 className="w-3.5 h-3.5" />, available: !!scenarioWeights },
-    { id: 'stop', label: 'Stop Probability', icon: <TrendingDown className="w-3.5 h-3.5" />, available: !!stopProb },
-    { id: 'noise', label: 'Noise Filter', icon: <AlertTriangle className="w-3.5 h-3.5" />, available: !!noiseFilter },
-    { id: 'drift', label: 'Model Drift', icon: <GitCompare className="w-3.5 h-3.5" />, available: !!delta },
+    { id: 'ev',         label: 'EV Stability',     icon: <Activity className="w-3.5 h-3.5" />,   available: !!evStability },
+    { id: 'confidence', label: 'Confidence',        icon: <Shield className="w-3.5 h-3.5" />,    available: !!confidenceInt },
+    { id: 'stop',       label: 'Stop Probability',  icon: <TrendingDown className="w-3.5 h-3.5" />, available: !!stopProb },
+    { id: 'noise',      label: 'Noise Filter',      icon: <AlertTriangle className="w-3.5 h-3.5" />, available: !!noiseFilter },
+    // Trader-only tabs
+    { id: 'scenarios', label: 'Scenario Weights', icon: <BarChart3 className="w-3.5 h-3.5" />,  available: !!scenarioWeights && canSeeScenarios },
+    { id: 'drift',     label: 'Model Drift',      icon: <GitCompare className="w-3.5 h-3.5" />, available: !!delta && canSeeEngineDetails },
   ]
   const tabs = allTabs.filter(t => t.available)
 
@@ -1001,7 +1093,8 @@ export function ProbabilisticEngineDashboard({ breakdown, delta }: Probabilistic
                 <p className="text-xs text-text-tertiary">{confidenceInt.effective_confidence_pct.toFixed(0)}/100</p>
               </div>
             )}
-            {scenarioWeights && (
+            {/* Scenario weights summary — Trader only */}
+            {scenarioWeights && canSeeScenarios && (
               <div className="rounded-md bg-surface-elevated p-2.5 text-center">
                 <p className="text-xs text-text-tertiary mb-0.5">Weight Rotation</p>
                 <p className={`text-xs font-semibold ${

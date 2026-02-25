@@ -125,7 +125,12 @@ class TemplateRenderer:
             Complete rendered HTML string for WeasyPrint
         """
         tier = (tier or "investor").lower()
-        include_trader_content = (tier == "trader")
+        include_trader_content   = (tier == "trader")
+        # Investor+ sees headline signal metrics (σ, noise score, stop prob)
+        include_signal_metrics   = tier in ("investor", "trader")
+        # Trader-only: full engine diagnostics appendix (scenario weights,
+        # multiplier stack, stop prob decomposition, driver ranking)
+        include_engine_diagnostics = (tier == "trader")
 
         template = self.env.get_template("pdf_report.html.j2")
         return template.render(
@@ -133,6 +138,8 @@ class TemplateRenderer:
             stocks=report_data.stocks,
             include_charts=include_charts,
             include_trader_content=include_trader_content,
+            include_signal_metrics=include_signal_metrics,
+            include_engine_diagnostics=include_engine_diagnostics,
             tier=tier,
         )
 

@@ -32,6 +32,7 @@ import { OnboardingPanel } from '@/components/knowledge/OnboardingPanel'
 import { SmartMoneyAlert } from '@/components/results/SmartMoneyAlert'
 import { WatchForSummary } from '@/components/results/WatchForSummary'
 import { DeltaSummaryBox } from '@/components/results/DeltaSummaryBox'
+import { SizingSummaryCard } from '@/components/results/SizingSummaryCard'
 import type { RunResponse } from '@/types/api'
 
 function SectionDivider({
@@ -313,6 +314,16 @@ export function ResultsContent({
             />
           )}
 
+          {/* Position sizing summary — visible to all tiers.
+              Shows allocation % + rationale (Starter), adds numeric drivers (Investor+),
+              adds conviction justification (Trader via FeatureGate). */}
+          {decision_intelligence?.conviction_position && (
+            <SizingSummaryCard
+              conviction={decision_intelligence.conviction_position}
+              isAdmin={isAdmin}
+            />
+          )}
+
           <div className={`space-y-6 transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
             {signal_breakdown && (
               <SmartMoneyAlert signalBreakdown={signal_breakdown} />
@@ -343,14 +354,18 @@ export function ResultsContent({
               )}
             </TierGate>
 
-            <TierGate feature="probabilistic_engine" userTier={userTier} isAdmin={isAdmin}>
-              {signal_breakdown && (
-                <ProbabilisticEngineDashboard
-                  breakdown={signal_breakdown}
-                  delta={full_output?.previous_analysis_delta ?? null}
-                />
-              )}
-            </TierGate>
+            {/* ProbabilisticEngineDashboard self-gates by tier:
+                  Starter → noise banner + upgrade CTA
+                  Investor → EV, Confidence, Stop, Noise tabs
+                  Trader → all 6 tabs including Scenarios + Drift */}
+            {signal_breakdown && (
+              <ProbabilisticEngineDashboard
+                breakdown={signal_breakdown}
+                delta={full_output?.previous_analysis_delta ?? null}
+                userTier={userTier}
+                isAdmin={isAdmin}
+              />
+            )}
 
             <TierGate feature="historical_patterns" userTier={userTier} isAdmin={isAdmin}>
               {signal_breakdown && (

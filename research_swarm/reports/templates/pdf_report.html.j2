@@ -341,6 +341,65 @@
 <p style="font-size: 8pt; color: #718096;">&#11088; Earnings Momentum is the PRIMARY signal (consensus estimate revisions).</p>
 {% endif %}
 
+{# ── SIGNAL METRICS — Investor+ ────────────────────────────────────────────
+   EV stability class (σ band), noise regime + score, stop probability
+   headline, and stop probability decomposition table.
+   Hidden for Starter tier. ──────────────────────────────────────────────── #}
+{% if include_signal_metrics and stock.signal_breakdown %}
+<div class="page-break"></div>
+<h2 class="section-header">Signal Metrics <span style="font-size: 9pt; font-weight: 400; color: #718096;">— Probabilistic Engine</span></h2>
+<p style="font-size: 9pt; color: #718096; margin-bottom: 10pt;">EV stability, noise environment, and stop probability headline derived from the probabilistic engine.</p>
+
+<div class="metrics-row" style="margin-bottom: 12pt;">
+{% if stock.signal_breakdown.ev_stability %}
+    <div class="metric-item">
+        <p class="metric-label">EV Stability</p>
+        <p class="metric-value" style="font-size: 11pt;">{{ stock.signal_breakdown.ev_stability.stability_class }}</p>
+        <p class="metric-label">σ Band ±{{ "%.1f"|format(stock.signal_breakdown.ev_stability.ev_sensitivity_band_pct) }}%</p>
+    </div>
+{% endif %}
+{% if stock.signal_breakdown.noise_filter %}
+    <div class="metric-item">
+        <p class="metric-label">Noise Regime</p>
+        <p class="metric-value" style="font-size: 11pt;">{{ stock.signal_breakdown.noise_filter.noise_regime }}</p>
+        <p class="metric-label">Score {{ "%.1f"|format(stock.signal_breakdown.noise_filter.noise_score) }}/10</p>
+    </div>
+{% endif %}
+{% if stock.signal_breakdown.stop_probability %}
+    <div class="metric-item">
+        <p class="metric-label">Stop Probability</p>
+        <p class="metric-value" style="font-size: 11pt;">{{ "%.1f"|format(stock.signal_breakdown.stop_probability.effective_stop_probability_pct) }}%</p>
+        <p class="metric-label">{{ stock.signal_breakdown.stop_probability.stop_probability_label }}</p>
+    </div>
+{% endif %}
+{% if stock.signal_breakdown.confidence_integrity %}
+    <div class="metric-item">
+        <p class="metric-label">EV Confidence</p>
+        <p class="metric-value" style="font-size: 11pt;">{{ "%.0f"|format(stock.signal_breakdown.confidence_integrity.effective_confidence_pct) }}%</p>
+        <p class="metric-label">{{ stock.signal_breakdown.confidence_integrity.ev_confidence_level }}</p>
+    </div>
+{% endif %}
+</div>
+
+{# Stop probability decomposition table #}
+{% if stock.signal_breakdown.stop_probability %}
+<h3 class="section-subheader">Stop Probability Decomposition</h3>
+<table class="data-table">
+    <thead><tr><th>Component</th><th style="text-align: right;">Value</th></tr></thead>
+    <tbody>
+        <tr><td>Base Stop Risk</td><td class="num">{{ "%.1f"|format(stock.signal_breakdown.stop_probability.base_stop_risk_pct) }}%</td></tr>
+        <tr><td>Volatility Pressure</td><td class="num">+{{ "%.1f"|format(stock.signal_breakdown.stop_probability.volatility_pressure_pct) }}%</td></tr>
+        <tr><td>Trend Modifier</td><td class="num">{{ "%+.1f"|format(stock.signal_breakdown.stop_probability.trend_modifier_pct) }}%</td></tr>
+        <tr><td>Support Modifier</td><td class="num">{{ "%+.1f"|format(stock.signal_breakdown.stop_probability.support_modifier_pct) }}%</td></tr>
+        <tr><td class="strong"><strong>Effective Stop Probability</strong></td><td class="num strong">{{ "%.1f"|format(stock.signal_breakdown.stop_probability.effective_stop_probability_pct) }}%</td></tr>
+    </tbody>
+</table>
+{% if stock.signal_breakdown.stop_probability.decomposition_narrative %}
+<p style="font-size: 9pt; color: #4a5568; margin-top: 6pt;">{{ stock.signal_breakdown.stop_probability.decomposition_narrative }}</p>
+{% endif %}
+{% endif %}
+{% endif %}
+
 {# ── PAGE 3: INVESTMENT THESIS & COMPETITIVE ADVANTAGE ───────────────────── #}
 <div class="page-break"></div>
 <h2 class="section-header">Investment Thesis</h2>
@@ -871,6 +930,99 @@
 </div>
 
 {% endfor %}
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   ENGINE DIAGNOSTICS APPENDIX — Trader only
+   Full probabilistic engine output: scenario weights, confidence integrity,
+   EV stability attribution, stop probability decomposition.
+   ═══════════════════════════════════════════════════════════════════════════ #}
+{% if include_engine_diagnostics %}
+<div class="page-break"></div>
+<h1 style="font-size: 18pt; font-weight: 800; color: #1a1a2e; border-bottom: 3px solid #F59E0B; padding-bottom: 6pt; margin-bottom: 12pt;">
+    Engine Diagnostics <span style="font-size: 11pt; font-weight: 500; color: #F59E0B;">Trader</span>
+</h1>
+<p style="font-size: 9pt; color: #718096; margin-bottom: 16pt;">
+    Full probabilistic engine output including scenario weight rotation, confidence integrity decomposition,
+    and EV driver attribution. This section is exclusive to the Trader plan.
+</p>
+
+{% for stock in stocks %}
+{% if stock.signal_breakdown %}
+<h2 class="section-header" style="margin-top: 16pt;">{{ stock.ticker }} — Engine Output</h2>
+
+{# ── Scenario Weight Diagnostics ── #}
+{% if stock.signal_breakdown.scenario_weight_diagnostics %}
+{% set swd = stock.signal_breakdown.scenario_weight_diagnostics %}
+<h3 class="section-subheader">Scenario Weight Diagnostics</h3>
+<table class="data-table">
+    <thead>
+        <tr><th>Scenario</th><th style="text-align: right;">Model</th><th style="text-align: right;">Effective</th><th style="text-align: right;">Shift</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>Bear</td><td class="num">{{ "%.0f"|format(swd.model_bear_prob) }}%</td><td class="num">{{ "%.0f"|format(swd.effective_bear_prob) }}%</td><td class="num">{{ "%+.0f"|format(swd.effective_bear_prob - swd.model_bear_prob) }}%</td></tr>
+        <tr><td class="strong">Base</td><td class="num">{{ "%.0f"|format(swd.model_base_prob) }}%</td><td class="num">{{ "%.0f"|format(swd.effective_base_prob) }}%</td><td class="num">{{ "%+.0f"|format(swd.effective_base_prob - swd.model_base_prob) }}%</td></tr>
+        <tr><td>Bull</td><td class="num">{{ "%.0f"|format(swd.model_bull_prob) }}%</td><td class="num">{{ "%.0f"|format(swd.effective_bull_prob) }}%</td><td class="num">{{ "%+.0f"|format(swd.effective_bull_prob - swd.model_bull_prob) }}%</td></tr>
+    </tbody>
+</table>
+<p style="font-size: 9pt; color: #4a5568; margin-top: 4pt;">
+    Rotation Index: {{ "%.2f"|format(swd.scenario_rotation_index) }} &middot;
+    Compression Ratio: {{ "%.2f"|format(swd.probability_compression_ratio) }} &middot;
+    Tail State: <strong>{{ swd.tail_state }}</strong> &middot; {{ swd.drift_label }}
+</p>
+{% if swd.active_rotation_factors %}
+<p style="font-size: 9pt; color: #718096;">Active rotation factors: {{ swd.active_rotation_factors | join(', ') }}</p>
+{% endif %}
+{% if swd.weight_shift_rationale %}
+<p style="font-size: 9pt; color: #4a5568; margin-top: 4pt;">{{ swd.weight_shift_rationale }}</p>
+{% endif %}
+{% endif %}
+
+{# ── Confidence Integrity ── #}
+{% if stock.signal_breakdown.confidence_integrity %}
+{% set ci = stock.signal_breakdown.confidence_integrity %}
+<h3 class="section-subheader" style="margin-top: 12pt;">Confidence Integrity</h3>
+<table class="data-table">
+    <thead><tr><th>Component</th><th style="text-align: right;">Value</th></tr></thead>
+    <tbody>
+        <tr><td>Base Confidence</td><td class="num">{{ "%.1f"|format(ci.base_confidence_pct) }}%</td></tr>
+        <tr><td>Total Degradation</td><td class="num">−{{ "%.1f"|format(ci.total_degradation_pts) }} pts</td></tr>
+        <tr><td class="strong"><strong>Effective Confidence</strong></td><td class="num strong">{{ "%.1f"|format(ci.effective_confidence_pct) }}%</td></tr>
+        <tr><td>EV Confidence Level</td><td class="num">{{ ci.ev_confidence_level }}</td></tr>
+        <tr><td>Probability Dispersion</td><td class="num">{{ ci.probability_dispersion_label }}</td></tr>
+    </tbody>
+</table>
+{% if ci.confidence_degradation_drivers %}
+<p style="font-size: 9pt; color: #718096; margin-top: 4pt;">Degradation drivers: {{ ci.confidence_degradation_drivers | join(' · ') }}</p>
+{% endif %}
+{% if ci.separation_note %}
+<p style="font-size: 9pt; color: #4a5568; margin-top: 4pt;">{{ ci.separation_note }}</p>
+{% endif %}
+{% endif %}
+
+{# ── EV Stability + Driver Attribution ── #}
+{% if stock.signal_breakdown.ev_stability %}
+{% set evs = stock.signal_breakdown.ev_stability %}
+<h3 class="section-subheader" style="margin-top: 12pt;">EV Stability &amp; Driver Attribution</h3>
+<table class="data-table">
+    <thead><tr><th>Driver</th><th style="text-align: right;">Score</th></tr></thead>
+    <tbody>
+        <tr><td>Signal Instability Driver</td><td class="num">{{ "%.2f"|format(evs.signal_driver_score) }}</td></tr>
+        <tr><td>Market Movement Driver</td><td class="num">{{ "%.2f"|format(evs.market_driver_score) }}</td></tr>
+        <tr><td>Instability Score (composite)</td><td class="num">{{ "%.2f"|format(evs.instability_score) }}</td></tr>
+        <tr><td class="strong"><strong>EV Sensitivity Band</strong></td><td class="num strong">±{{ "%.1f"|format(evs.ev_sensitivity_band_pct) }}%</td></tr>
+    </tbody>
+</table>
+<p style="font-size: 9pt; color: #4a5568; margin-top: 4pt;">
+    Class: <strong>{{ evs.stability_class }}</strong> (Primary driver: {{ evs.sensitivity_driver }}) — {{ evs.stability_rationale }}
+</p>
+{% if evs.driver_note %}
+<p style="font-size: 9pt; color: #718096; margin-top: 2pt;">{{ evs.driver_note }}</p>
+{% endif %}
+{% endif %}
+
+{% endif %}{# end if stock.signal_breakdown #}
+{% endfor %}
+{% endif %}{# end if include_engine_diagnostics #}
 
 {# ═══════════════════════════════════════════════════════════════════════════
    APPENDIX — METHODOLOGY & DISCLOSURES
