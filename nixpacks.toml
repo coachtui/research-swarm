@@ -1,0 +1,4 @@
+# Railway Nixpacks configuration
+# xhtml2pdf → svglib → rlpycairo → pycairo requires libcairo system headers
+[phases.setup]
+nixPkgs = ["cairo"]
