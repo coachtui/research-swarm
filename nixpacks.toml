@@ -12,3 +12,5 @@ aptPkgs = [
   "libfontconfig1",
   "libfreetype6",
 ]
+# Rebuild ldconfig cache so /etc/ld.so.cache includes the apt-installed libs.
+cmds = ["ldconfig"]
