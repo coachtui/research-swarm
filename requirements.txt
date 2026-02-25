@@ -40,7 +40,7 @@ matplotlib>=3.7.0
 # Reports & PDF Generation
 jinja2>=3.1.0
 markdown>=3.5.0
-weasyprint>=60.0
+xhtml2pdf>=0.2.16
 
 # API Framework (for FastAPI deployment)
 fastapi>=0.109.0
