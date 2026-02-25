@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { FileDown, Lock } from 'lucide-react'
+import { useAuth } from '@clerk/nextjs'
 import { Button } from '@/components/ui/button'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { canAccessFeature } from '@/lib/entitlements'
@@ -34,6 +35,7 @@ interface DownloadPDFButtonProps {
  */
 export function DownloadPDFButton({ runId, tickers }: DownloadPDFButtonProps) {
   const [isLoading, setIsLoading] = useState(false)
+  const { getToken } = useAuth()
   const { data: user, isLoading: userLoading } = useCurrentUser()
 
   const hasAccess = user
@@ -48,7 +50,10 @@ export function DownloadPDFButton({ runId, tickers }: DownloadPDFButtonProps) {
   const handleDownload = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch(`/api/proxy/runs/${runId}/report/pdf`)
+      const token = await getToken()
+      const response = await fetch(`/api/proxy/runs/${runId}/report/pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
 
       // Backend returned 403 — show upgrade CTA regardless of client-side check
       if (response.status === 403) {
