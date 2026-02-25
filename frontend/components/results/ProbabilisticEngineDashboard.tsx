@@ -160,6 +160,37 @@ function degradingGlowClass(prior: number | null | undefined, current: number | 
   return worsening ? 'ring-1 ring-error/40 shadow-error/20 shadow-sm animate-pulse' : ''
 }
 
+// ── Probability display utilities ─────────────────────────────────────────────
+
+/**
+ * Visual floor/ceiling clamp. 0% → "<1%", 100% → ">99%". Pure presentation.
+ * pct: value in percentage points (0–100).
+ */
+function clampProbPct(pct: number): string {
+  const rounded = Math.round(pct)
+  if (rounded <= 0) return '<1%'
+  if (rounded >= 100) return '>99%'
+  return `${rounded}%`
+}
+
+/** Clamp for fraction (0–1) inputs. */
+function clampProbFrac(frac: number): string {
+  return clampProbPct(frac * 100)
+}
+
+/**
+ * Qualitative probability band (pct in 0–100 range).
+ * Returns band label only — caller appends the numeric value.
+ */
+function probBandPct(pct: number): string {
+  if (pct < 1)  return 'Negligible'
+  if (pct < 5)  return 'Very Low'
+  if (pct < 15) return 'Low'
+  if (pct < 35) return 'Moderate'
+  if (pct < 60) return 'Balanced'
+  return 'High'
+}
+
 // ── Sub-components ───────────────────────────────────────────────────────────
 
 function MetricRow({ label, value, className = '' }: { label: string; value: React.ReactNode; className?: string }) {
@@ -392,11 +423,11 @@ function ScenarioWeightsPanel({ data, delta }: { data: ScenarioWeightDiagnostics
               <div className="flex justify-between text-xs">
                 <span className="text-text-tertiary">{s.label}</span>
                 <span className="text-text-secondary flex items-center gap-1">
-                  Model {(s.model * 100).toFixed(0)}% → Effective {(s.effective * 100).toFixed(0)}%
+                  Model {clampProbFrac(s.model)} → Effective {clampProbFrac(s.effective)}
                   {/* Run-to-run arrow */}
                   {priorPct != null && curPct != null && (
                     <span className="text-[9px] text-text-tertiary ml-1">
-                      (prev: {priorPct.toFixed(0)}%{' '}
+                      (prev: {clampProbPct(priorPct)}{' '}
                       {driftArrow(priorPct, curPct, s.key === 'bear')})
                     </span>
                   )}
@@ -445,7 +476,7 @@ function ScenarioWeightsPanel({ data, delta }: { data: ScenarioWeightDiagnostics
               return (
                 <div key={s} className="rounded bg-surface p-2">
                   <p className="text-[9px] text-text-tertiary capitalize mb-0.5">{s}</p>
-                  <p className="text-[10px] font-bold text-text-primary">{prev.toFixed(0)}% → {cur.toFixed(0)}%</p>
+                  <p className="text-[10px] font-bold text-text-primary">{clampProbPct(prev)} → {clampProbPct(cur)}</p>
                   <p className={`text-[9px] font-semibold ${color}`}>{d > 0 ? '+' : ''}{d.toFixed(0)}%</p>
                 </div>
               )
@@ -497,8 +528,11 @@ function StopProbabilityPanel({ data, delta }: { data: StopProbabilityDecomposit
       <div className={`flex items-center gap-3 rounded-md p-3 ${glowClass}`}>
         <div className="text-center">
           <p className="text-xs text-text-tertiary">Effective Stop Probability</p>
-          <p className={`text-3xl font-bold ${stopColor(data.stop_probability_label)}`}>
-            {data.effective_stop_probability_pct.toFixed(0)}%
+          <p className={`text-xl font-bold ${stopColor(data.stop_probability_label)}`}>
+            {probBandPct(data.effective_stop_probability_pct)}
+          </p>
+          <p className={`text-sm font-medium ${stopColor(data.stop_probability_label)}`}>
+            ({clampProbPct(data.effective_stop_probability_pct)})
           </p>
         </div>
         <div>
@@ -510,7 +544,7 @@ function StopProbabilityPanel({ data, delta }: { data: StopProbabilityDecomposit
           {/* Run-to-run delta */}
           {priorStop != null && curStop != null && (
             <p className="text-[10px] text-text-tertiary mt-1">
-              Prior: {priorStop.toFixed(0)}% {driftArrow(priorStop, curStop, true)} {curStop > priorStop ? `(+${(curStop - priorStop).toFixed(0)}%)` : `(${(curStop - priorStop).toFixed(0)}%)`}
+              Prior: {clampProbPct(priorStop)} {driftArrow(priorStop, curStop, true)} {curStop > priorStop ? `(+${(curStop - priorStop).toFixed(0)}%)` : `(${(curStop - priorStop).toFixed(0)}%)`}
             </p>
           )}
           <p className="text-xs text-text-tertiary mt-1">Bear scenario probability</p>
@@ -840,7 +874,7 @@ function ModelDriftPanel({ delta }: { delta: PreviousAnalysisDelta }) {
               return (
                 <div key={s} className="rounded bg-surface p-2 text-center">
                   <p className="text-[9px] text-text-tertiary capitalize mb-0.5">{s}</p>
-                  <p className="text-xs font-bold text-text-primary">{prev.toFixed(0)}%→{cur.toFixed(0)}%</p>
+                  <p className="text-xs font-bold text-text-primary">{clampProbPct(prev)}→{clampProbPct(cur)}</p>
                   <p className={`text-[9px] font-semibold ${color}`}>{d > 0 ? '+' : ''}{d.toFixed(0)}%</p>
                 </div>
               )
@@ -1122,7 +1156,7 @@ export function ProbabilisticEngineDashboard({
                       delta!.current_stop_probability_pct >= 35 ? 'text-warning' :
                       delta!.current_stop_probability_pct >= 20 ? 'text-amber-400' : 'text-success'
                     }`}>
-                      {delta!.current_stop_probability_pct.toFixed(0)}%
+                      {clampProbPct(delta!.current_stop_probability_pct)}
                     </p>
                     <p className="text-xs text-text-tertiary truncate">{noiseFilter.noise_regime}</p>
                   </>

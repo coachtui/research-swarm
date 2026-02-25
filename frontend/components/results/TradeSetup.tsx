@@ -113,6 +113,35 @@ function formatAnchor(price: number): string {
   return `~$${Math.round(price).toLocaleString()}`
 }
 
+// ── Probability display utilities ─────────────────────────────────────────────
+
+/**
+ * Visual floor/ceiling clamp for ALL probability displays.
+ * 0% → "<1%", 100% → ">99%". Pure presentation — no math change.
+ * Accepts a fraction (0–1).
+ */
+function clampProb(fraction: number): string {
+  const rounded = Math.round(fraction * 100)
+  if (rounded <= 0) return '<1%'
+  if (rounded >= 100) return '>99%'
+  return `${rounded}%`
+}
+
+/**
+ * Qualitative probability band for institutional cognition.
+ * Returns the band label only — caller appends the numeric value.
+ * Accepts a fraction (0–1).
+ */
+function probBand(fraction: number): string {
+  const pct = fraction * 100
+  if (pct < 1)  return 'Negligible'
+  if (pct < 5)  return 'Very Low'
+  if (pct < 15) return 'Low'
+  if (pct < 35) return 'Moderate'
+  if (pct < 60) return 'Balanced'
+  return 'High'
+}
+
 // Derive approximate time horizon from the target label (backend-supplied).
 // Returns a short string for display. This is interpretive only — no calculation.
 function inferTargetHorizon(label: string, index: number): string {
@@ -446,7 +475,7 @@ function OutcomeDistributionPanel({ dist, variant }: {
           <div>
             <span className="text-text-tertiary block text-[10px]">Stop Prob.</span>
             <span className={`font-semibold ${dist.stopTailRiskFlag ? 'text-error' : 'text-text-secondary'}`}>
-              {Math.round(dist.stopTriggerProb * 100)}%
+              {clampProb(dist.stopTriggerProb)}
             </span>
           </div>
         </div>
@@ -529,7 +558,7 @@ function OutcomeDistributionPanel({ dist, variant }: {
             {/* Stop row */}
             <div className="grid grid-cols-4 gap-0 px-2 py-1.5 border-t border-border/30 bg-error/3">
               <span className="text-xs font-medium text-error/80">Stop</span>
-              <span className="text-xs text-right text-text-secondary">{Math.round(dist.stop.prob * 100)}%</span>
+              <span className="text-xs text-right text-text-secondary">{clampProb(dist.stop.prob)}</span>
               <span className="text-xs text-right text-error font-mono">{dist.stop.returnPct.toFixed(1)}%</span>
               <span className="text-xs text-right text-error/70 font-mono">{dist.stop.evContrib.toFixed(2)}%</span>
             </div>
@@ -537,7 +566,7 @@ function OutcomeDistributionPanel({ dist, variant }: {
             {dist.targets.map((t, i) => (
               <div key={i} className="grid grid-cols-4 gap-0 px-2 py-1.5 border-t border-border/20">
                 <span className="text-xs text-text-secondary">{shortLabel(t.label, i)}</span>
-                <span className="text-xs text-right text-text-secondary">{Math.round(t.prob * 100)}%</span>
+                <span className="text-xs text-right text-text-secondary">{clampProb(t.prob)}</span>
                 <span className="text-xs text-right text-success/80 font-mono">+{t.returnPct.toFixed(1)}%</span>
                 <span className="text-xs text-right text-success/60 font-mono">+{t.evContrib.toFixed(2)}%</span>
               </div>
@@ -626,7 +655,7 @@ function OutcomeDistributionPanel({ dist, variant }: {
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-text-tertiary">Stop Trigger Probability</span>
                 <span className={`text-xs font-semibold ${dist.stopTailRiskFlag ? 'text-error' : 'text-text-secondary'}`}>
-                  {Math.round(dist.stopTriggerProb * 100)}%
+                  {probBand(dist.stopTriggerProb)} ({clampProb(dist.stopTriggerProb)})
                 </span>
               </div>
               {/* Minimal probability bar — institutional, not gamified */}
@@ -943,6 +972,23 @@ function SetupColumn({
       extractTargetNumber(a.t.label, a.originalIndex) - extractTargetNumber(b.t.label, b.originalIndex)
     )
 
+  // ── Entry Architecture — Institutional Multi-Anchor Framework ────────────────
+  // ATR proxy: stop distance approximates 1 ATR (by construction in the backend).
+  const atrProxy = Math.abs(side.entry - side.stop_loss)
+
+  // Tactical Entry Zone: volatility-responsive execution band around the modeled entry.
+  // Derived purely from existing ATR proxy — no new math.
+  const tacticalLow = side.entry - atrProxy * 0.45
+  const tacticalHigh = side.entry + atrProxy * 0.2
+  const tacticalZoneDisplay = `${formatAnchor(tacticalLow)} – ${formatAnchor(tacticalHigh)}`
+
+  // Liquidity Support Region: opportunity envelope floor as the volume-weighted acceptance zone.
+  // Only shown when it sits meaningfully below the structural entry (≥3% discount).
+  const liquidityAnchorPrice =
+    opportunityEnvelopeLow != null && opportunityEnvelopeLow < side.entry * 0.97
+      ? opportunityEnvelopeLow
+      : null
+
   // C2: Setup unavailable state — show instead of normal setup when risk buffer is insufficient
   const setupUnavailable = side.setup_unavailable
 
@@ -1097,7 +1143,7 @@ function SetupColumn({
           <div className="mt-2 pt-2 border-t border-amber-500/20 text-[10px] text-text-tertiary leading-relaxed space-y-1">
             <div className="flex items-center justify-between">
               <span>Asymmetry from structural anchor ({formatAnchor(structuralAnchorPrice)})</span>
-              <span className="font-semibold text-text-secondary ml-2">{side.risk_reward}:1 — requires mean reversion entry</span>
+              <span className="font-semibold text-text-secondary ml-2">{side.risk_reward}:1 — Valuation-dependent setup</span>
             </div>
             <div className="flex items-center justify-between">
               <span>Asymmetry from current price</span>
@@ -1119,28 +1165,59 @@ function SetupColumn({
 
       {/* Body */}
       <div className="p-4 space-y-3">
-        {/* Entry & Stop */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <span className="text-xs text-text-tertiary block">Execution Anchor</span>
-            <span className="text-sm font-semibold text-text-primary">
-              {formatAnchor(side.entry)}
+        {/* Entry Architecture — Institutional Multi-Anchor Framework */}
+        <div className="space-y-2">
+
+          {/* 1️⃣ Tactical Entry Zone — PRIMARY (highest visual weight, execution-aware) */}
+          <div className="rounded-md bg-primary/5 border border-primary/20 px-3 py-2">
+            <span className="text-[10px] font-semibold text-primary/70 uppercase tracking-wide block">
+              Tactical Entry Zone
             </span>
-            <span className="text-xs text-text-tertiary block mt-0.5">
-              Modeled entry — scale in or await pullback
+            <span className="text-sm font-bold text-text-primary">{tacticalZoneDisplay}</span>
+            <span className="text-[10px] text-text-tertiary block mt-0.5">
+              Volatility-responsive execution range · Short-horizon
             </span>
           </div>
-          <div>
-            <span className="text-xs text-text-tertiary block">Risk Control Zone</span>
-            <span className="text-sm font-semibold text-error">
-              {formatAnchor(side.stop_loss)}
-            </span>
-            {proximityWarning && (
-              <span className="text-[10px] text-warning block mt-0.5 leading-tight">
-                {proximityWarning}
+
+          {/* 2️⃣ Liquidity Support Region — SECONDARY (flow anchor, shown when meaningfully below entry) */}
+          {liquidityAnchorPrice && (
+            <div className="rounded-md bg-surface-elevated border border-border px-3 py-2">
+              <span className="text-[10px] text-text-tertiary/70 uppercase tracking-wide block">
+                Liquidity Support Region
               </span>
-            )}
+              <span className="text-sm font-semibold text-text-secondary">
+                {formatAnchor(liquidityAnchorPrice)}
+              </span>
+              <span className="text-[10px] text-text-tertiary/60 block mt-0.5">
+                Volume-weighted acceptance zone
+              </span>
+            </div>
+          )}
+
+          {/* 3️⃣ Structural Entry + Risk Control — TERTIARY (contextual / subdued) */}
+          <div className="grid grid-cols-2 gap-3 pt-0.5">
+            <div>
+              <span className="text-[10px] text-text-tertiary/60 block">
+                Structural Entry (Mean Reversion Basis)
+              </span>
+              <span className="text-sm text-text-tertiary">{formatAnchor(side.entry)}</span>
+              <span className="text-[10px] text-text-tertiary/50 block mt-0.5">
+                Valuation-dependent setup · Long-horizon
+              </span>
+            </div>
+            <div>
+              <span className="text-xs text-text-tertiary block">Risk Control Zone</span>
+              <span className="text-sm font-semibold text-error">
+                {formatAnchor(side.stop_loss)}
+              </span>
+              {proximityWarning && (
+                <span className="text-[10px] text-warning block mt-0.5 leading-tight">
+                  {proximityWarning}
+                </span>
+              )}
+            </div>
           </div>
+
         </div>
 
         {/* Target Validation + Scenario-Branched Rendering
@@ -1183,13 +1260,13 @@ function SetupColumn({
 
             if (validity === 'SUPPRESSED') {
               return (
-                <div key={i} className="rounded px-2 py-1.5 text-xs bg-error/5 border border-error/15">
+                <div key={i} className="rounded px-2 py-1.5 text-xs bg-surface-elevated/40 border border-border/40">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <span className="text-text-tertiary">{sanitizedLabel}</span>
-                    <span className="bg-error/10 text-error/70 text-[10px] px-1.5 py-0.5 rounded font-semibold">Suppressed</span>
+                    <span className="bg-surface-elevated text-text-tertiary/70 text-[10px] px-1.5 py-0.5 rounded font-semibold">Inactive in Current Regime</span>
                   </div>
-                  <p className="text-text-tertiary/70 leading-relaxed">
-                    {t.suppression_reason ?? 'Target below current price — not a valid profit target at current market levels.'}
+                  <p className="text-text-tertiary/60 leading-relaxed">
+                    {t.suppression_reason ?? 'Target inactive in current market regime.'}
                   </p>
                 </div>
               )
