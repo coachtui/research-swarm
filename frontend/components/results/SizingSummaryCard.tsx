@@ -3,13 +3,15 @@
 /**
  * SizingSummaryCard — Position sizing summary visible to all tiers.
  *
- * Tier rendering:
- *   Starter    → Allocation % + plain-language rationale
- *   Investor+  → + max %, dollar/100k, conviction level (3 numeric drivers)
- *   Trader     → + full conviction justification via FeatureGate
+ * Visual hierarchy:
+ *   PRIMARY   → Deployable Allocation (conviction-adjusted, actionable size)
+ *   SECONDARY → Sizing Framework: Baseline Model Weight, Policy Cap, Multiplier (Investor+)
+ *   TERTIARY  → Interpretation block + rationale + conviction justification (Trader)
  *
- * The full dynamic sizing tool (ExecutionLayer) remains Trader-only.
- * This card surfaces the essential "what to do" for Starter/Investor users.
+ * Tier rendering:
+ *   Starter    → Deployable Allocation + status tag + interpretation + rationale
+ *   Investor+  → + Sizing Framework panel (baseline, policy cap, multiplier, $/100k)
+ *   Trader     → + full conviction justification via FeatureGate
  */
 
 import { TrendingUp } from 'lucide-react'
@@ -31,10 +33,27 @@ function convictionBadgeVariant(level: string): 'success' | 'warning' | 'error' 
   return 'default'
 }
 
+/** Map conviction level to execution multiplier (mirrors backend strategy_calculator). */
+function getExecutionMultiplier(level: string): number {
+  const map: Record<string, number> = {
+    High: 1.0, Medium: 0.7, Low: 0.4,
+    HIGH: 1.0, MODERATE: 0.7, LOW: 0.4,
+  }
+  return map[level] ?? 0.7
+}
+
 export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummaryCardProps) {
   const { data: entitlements } = useEntitlements()
-  // Investor+: show numeric sizing drivers (max %, $/100k, conviction level)
   const canSeeSignalMetrics = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
+
+  const multiplier = getExecutionMultiplier(conviction.conviction_level)
+  const isExecutionBound = multiplier < 1.0
+
+  // Back-calculate the pre-multiplier baseline for display (no math change, display only)
+  const baselineModelWeight =
+    multiplier > 0
+      ? Math.round((conviction.recommended_pct / multiplier) * 10) / 10
+      : conviction.recommended_pct
 
   return (
     <Card className="border border-border">
@@ -53,39 +72,85 @@ export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummary
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Always visible: allocation % */}
-        <div className="flex items-end gap-3">
-          <div>
-            <p className="text-3xl font-bold text-text-primary tabular-nums">
-              {conviction.recommended_pct}
-              <span className="text-lg font-semibold text-text-tertiary">%</span>
-            </p>
-            <p className="text-xs text-text-tertiary mt-0.5">Recommended allocation</p>
-          </div>
 
-          {/* Investor+: numeric drivers */}
-          {canSeeSignalMetrics && (
-            <div className="flex gap-4 pb-1 ml-4">
-              <div className="text-center">
-                <p className="text-sm font-semibold text-text-primary tabular-nums">
-                  {conviction.max_pct}%
-                </p>
-                <p className="text-[10px] text-text-tertiary">Max %</p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm font-semibold text-text-primary tabular-nums">
-                  ${conviction.dollar_per_100k.toLocaleString()}
-                </p>
-                <p className="text-[10px] text-text-tertiary">per $100k</p>
-              </div>
-            </div>
-          )}
+        {/* ── PRIMARY DECISION VARIABLE ────────────────────────────────── */}
+        <div>
+          <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2">
+            Deployable Allocation
+          </p>
+          <div className="flex items-baseline gap-1">
+            <span className="text-4xl font-bold text-primary tabular-nums leading-none">
+              {conviction.recommended_pct}
+            </span>
+            <span className="text-xl font-semibold text-primary/60">%</span>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-text-tertiary">Execution-Adjusted Position Size</span>
+            <span
+              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-sm ${
+                isExecutionBound
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                  : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+              }`}
+            >
+              {isExecutionBound ? '· Execution-Bound' : '· Within Guardrails'}
+            </span>
+          </div>
         </div>
 
-        {/* Always visible: plain-language rationale */}
+        {/* ── SECONDARY: SIZING FRAMEWORK (Investor+) ───────────────────── */}
+        {canSeeSignalMetrics && (
+          <div className="rounded-md border border-border/60 bg-background/40 p-3">
+            <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-3">
+              Sizing Framework
+            </p>
+            <div className="grid grid-cols-3 gap-x-3 gap-y-1">
+              {/* Baseline Model Weight */}
+              <div>
+                <p className="text-xs font-medium text-text-secondary tabular-nums">
+                  {baselineModelWeight}%
+                </p>
+                <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">
+                  Baseline Model Weight
+                </p>
+              </div>
+              {/* Policy Cap */}
+              <div>
+                <p className="text-xs font-medium text-text-secondary tabular-nums">
+                  {conviction.max_pct}%
+                </p>
+                <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">
+                  Policy Cap
+                </p>
+              </div>
+              {/* Noise-Adjusted Multiplier */}
+              <div>
+                <p className="text-xs font-medium text-text-secondary tabular-nums">
+                  {multiplier.toFixed(3)}&times;
+                </p>
+                <p className="text-[10px] text-text-tertiary mt-0.5 leading-tight">
+                  Noise-Adjusted Multiplier
+                </p>
+              </div>
+            </div>
+            <div className="mt-2.5 pt-2 border-t border-border/40">
+              <p className="text-[10px] text-text-tertiary tabular-nums">
+                ${conviction.dollar_per_100k.toLocaleString()} per $100K deployed capital
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── INTERPRETATION BLOCK ─────────────────────────────────────── */}
+        <p className="text-[11px] text-text-tertiary leading-relaxed border-l-2 border-border/50 pl-2.5 italic">
+          Final position size reflects execution constraints rather than thesis deterioration.
+          Baseline sizing reduced due to signal dispersion, noise regime, or risk filters.
+        </p>
+
+        {/* ── PLAIN-LANGUAGE RATIONALE ─────────────────────────────────── */}
         <p className="text-sm text-text-secondary leading-relaxed">{conviction.rationale}</p>
 
-        {/* Trader: full conviction justification */}
+        {/* ── TRADER: FULL CONVICTION JUSTIFICATION ────────────────────── */}
         <FeatureGate
           flag="feature.report.multiplier_stack"
           fallback={
@@ -105,6 +170,7 @@ export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummary
             </div>
           )}
         </FeatureGate>
+
       </CardContent>
     </Card>
   )
