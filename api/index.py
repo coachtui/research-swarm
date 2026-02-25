@@ -14,6 +14,47 @@ if sys.platform == "darwin":
     if homebrew_lib not in current:
         os.environ["DYLD_LIBRARY_PATH"] = f"{homebrew_lib}:{current}".strip(":")
 
+# ── Linux (Railway/Nixpacks): patch find_library for WeasyPrint deps ─────────
+# Nix-managed Python's ldconfig cache doesn't include apt-installed .so files
+# in /usr/lib/x86_64-linux-gnu, so ctypes.util.find_library('gobject-2.0')
+# returns None and WeasyPrint falls back to the bare name 'libgobject-2.0-0'
+# which doesn't match any actual file. We patch find_library to do a direct
+# filesystem lookup as a fallback, which works regardless of ldconfig state.
+if sys.platform == "linux":
+    import ctypes.util as _cu
+
+    _LINUX_LIB_SONAMES = {
+        "gobject-2.0":   "libgobject-2.0.so.0",
+        "glib-2.0":      "libglib-2.0.so.0",
+        "gio-2.0":       "libgio-2.0.so.0",
+        "pango-1.0":     "libpango-1.0.so.0",
+        "pangoft2-1.0":  "libpangoft2-1.0.so.0",
+        "pangocairo-1.0":"libpangocairo-1.0.so.0",
+        "cairo":         "libcairo.so.2",
+        "harfbuzz":      "libharfbuzz.so.0",
+        "fontconfig":    "libfontconfig.so.1",
+        "freetype":      "libfreetype.so.6",
+    }
+    _LINUX_LIB_DIRS = [
+        "/usr/lib/x86_64-linux-gnu",
+        "/usr/lib/aarch64-linux-gnu",  # ARM64 hosts
+        "/usr/lib",
+        "/usr/local/lib",
+    ]
+    _orig_find_library = _cu.find_library
+
+    def _weasyprint_find_library(name):
+        result = _orig_find_library(name)
+        if result is None and name in _LINUX_LIB_SONAMES:
+            soname = _LINUX_LIB_SONAMES[name]
+            for d in _LINUX_LIB_DIRS:
+                p = os.path.join(d, soname)
+                if os.path.exists(p):
+                    return p
+        return result
+
+    _cu.find_library = _weasyprint_find_library
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
