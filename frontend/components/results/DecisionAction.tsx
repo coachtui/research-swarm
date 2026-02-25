@@ -9,6 +9,8 @@ import {
   deriveStructuralBias,
   deriveTacticalStance,
   derivePortfolioBias,
+  deriveCapitalPosture,
+  capitalPostureColor,
   deploymentGateCopy,
   isDeploymentGated,
   structuralBiasColor,
@@ -276,6 +278,8 @@ export function DecisionAction({
     isStructuralDislocation,
   )
   const portfolioBias = derivePortfolioBias(rating)
+  const capitalPosture = deriveCapitalPosture(rating, current_holders.action, new_buyers.action)
+  const postureColors = capitalPostureColor(capitalPosture)
   const gateCopy = deploymentGateCopy(stance)
   const gated = isDeploymentGated(stance)
 

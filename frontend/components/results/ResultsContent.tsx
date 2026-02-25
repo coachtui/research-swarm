@@ -28,7 +28,6 @@ import { simplifyKeyInsights } from '@/lib/analysis/simplifyKeyInsights'
 import { extractWhatsNew } from '@/lib/analysis/extractWhatsNew'
 import { extractWatchCalendar } from '@/lib/analysis/extractWatchCalendar'
 import { AddToWatchlistButton } from '@/components/dashboard/AddToWatchlistButton'
-import { DownloadPDFButton } from '@/components/results/DownloadPDFButton'
 import { OnboardingPanel } from '@/components/knowledge/OnboardingPanel'
 import { SmartMoneyAlert } from '@/components/results/SmartMoneyAlert'
 import { WatchForSummary } from '@/components/results/WatchForSummary'
@@ -265,7 +264,6 @@ export function ResultsContent({
             >
               {isReadingMode ? 'EXIT' : '[R]'}
             </button>
-            <DownloadPDFButton runId={run.id} tickers={result.ticker} />
             <AddToWatchlistButton
               ticker={result.ticker}
               companyName={full_output?.fundamentalist_output?.company_name}

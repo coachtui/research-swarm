@@ -4,7 +4,6 @@ Backend entitlement feature flags for DVRG.
 Feature matrix:
   feature.report.core                  → Starter, Investor, Trader
   feature.report.sizing_summary        → Starter, Investor, Trader  (allocation % + rationale)
-  feature.report.export_pdf            → Investor, Trader
   feature.report.signal_metrics        → Investor, Trader            (σ, noise score, stop prob headline)
   feature.report.stop_probability_detail → Investor, Trader          (decomposition table)
   feature.report.trade_setup           → Trader only
@@ -14,9 +13,9 @@ Feature matrix:
   feature.report.risk_matrix_full      → Trader only                 (full portfolio interaction metrics)
 
 Usage:
-    from api.lib.entitlements import FEAT_REPORT_PDF, has_feature
+    from api.lib.entitlements import has_feature
 
-    if not has_feature(user, FEAT_REPORT_PDF):
+    if not has_feature(user, FEAT_SIGNAL_METRICS):
         raise HTTPException(403, {"code": "NOT_ENTITLED", ...})
 """
 
@@ -28,7 +27,6 @@ if TYPE_CHECKING:
 # ── Feature flag constants ─────────────────────────────────────────────────
 FEAT_REPORT_CORE            = "feature.report.core"
 FEAT_SIZING_SUMMARY         = "feature.report.sizing_summary"
-FEAT_REPORT_PDF             = "feature.report.export_pdf"
 FEAT_SIGNAL_METRICS         = "feature.report.signal_metrics"
 FEAT_STOP_PROB_DETAIL       = "feature.report.stop_probability_detail"
 FEAT_REPORT_TRADE_SETUP     = "feature.report.trade_setup"
@@ -41,7 +39,6 @@ FEAT_RISK_MATRIX_FULL       = "feature.report.risk_matrix_full"
 ALL_FEATURES: list[str] = [
     FEAT_REPORT_CORE,
     FEAT_SIZING_SUMMARY,
-    FEAT_REPORT_PDF,
     FEAT_SIGNAL_METRICS,
     FEAT_STOP_PROB_DETAIL,
     FEAT_REPORT_TRADE_SETUP,
@@ -60,14 +57,12 @@ _ENTITLEMENTS: dict[str, set[str]] = {
     "investor": {
         FEAT_REPORT_CORE,
         FEAT_SIZING_SUMMARY,
-        FEAT_REPORT_PDF,
         FEAT_SIGNAL_METRICS,
         FEAT_STOP_PROB_DETAIL,
     },
     "trader": {
         FEAT_REPORT_CORE,
         FEAT_SIZING_SUMMARY,
-        FEAT_REPORT_PDF,
         FEAT_SIGNAL_METRICS,
         FEAT_STOP_PROB_DETAIL,
         FEAT_REPORT_TRADE_SETUP,

@@ -1,12 +1,9 @@
 """
 Report generation endpoints — PDF download from completed analysis runs.
 
-Entitlement matrix:
-  Starter  → 403 NOT_ENTITLED (no PDF export)
-  Investor → PDF rendered without Trader-only sections (enhanced_trade_setup,
-             fund_tech_divergence omitted from template via include_trader_content=False)
-  Trader   → Full PDF including all sections
-  Admin    → Full PDF, always
+Content gating:
+  Trader / Admin → Full PDF including all sections
+  Others         → Core PDF without Trader-only sections
 
 Ownership:
   Users may only export PDFs for their own runs (run.userId == user.id).
@@ -27,10 +24,8 @@ from api.dependencies import get_current_user
 from api.models.auth import User
 from api.lib.db import get_db
 from api.lib.entitlements import (
-    FEAT_REPORT_PDF,
     FEAT_REPORT_TRADE_SETUP,
     has_feature,
-    upgrade_hint,
 )
 
 router = APIRouter()
@@ -154,25 +149,11 @@ async def download_pdf_report(
 
     Enforces:
       1. Authentication (Clerk JWT via get_current_user)
-      2. Subscription entitlement — Starter → 403
-      3. Ownership — user may only export their own runs
-      4. Run must be in completed state
-      5. Tier-based content redaction (Investor vs Trader sections)
+      2. Ownership — user may only export their own runs
+      3. Run must be in completed state
+      4. Tier-based content redaction (Trader sections gated)
     """
-    # ── 1. Entitlement check — must happen before any DB query ──────────────
-    if not has_feature(user, FEAT_REPORT_PDF):
-        required_tier = upgrade_hint(FEAT_REPORT_PDF)
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "code": "NOT_ENTITLED",
-                "feature": "export_pdf",
-                "message": "PDF export requires an Investor or Trader subscription.",
-                "upgrade_to": required_tier,
-            },
-        )
-
-    # ── 2. Load run from DB ──────────────────────────────────────────────────
+    # ── 1. Load run from DB ──────────────────────────────────────────────────
     db = await get_db()
 
     run = await db.run.find_unique(

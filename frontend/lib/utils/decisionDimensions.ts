@@ -161,6 +161,71 @@ export function derivePortfolioBias(rating: string | null | undefined): Portfoli
 }
 
 // ---------------------------------------------------------------------------
+// Capital Posture — 5-state institutional capital deployment taxonomy
+// ---------------------------------------------------------------------------
+
+/**
+ * Capital Posture separates the portfolio decision from the analytical thesis.
+ *
+ * Accumulate → Thesis attractive + deployment conditions acceptable
+ * Maintain   → Thesis intact + balanced risk/reward
+ * Reduce     → Thesis deteriorating / asymmetric downside risk
+ * Deferred   → Thesis intact but entry unfavorable (valuation, regime, noise)
+ * Avoid      → Thesis unattractive for new capital
+ *
+ * NOTE: Thesis Direction (Bullish/Neutral/Bearish) and Capital Posture are
+ * independent dimensions — Bullish thesis does NOT auto-map to Accumulate.
+ */
+export type CapitalPosture = 'Accumulate' | 'Maintain' | 'Reduce' | 'Deferred' | 'Avoid'
+
+/**
+ * Derives Capital Posture from rating + decision framework actions.
+ * Pure semantic mapping — no new calculations.
+ *
+ * Priority order:
+ *   SELL/STRONG SELL rating  → Reduce (thesis degraded)
+ *   AVOID (new buyers)       → Avoid  (unattractive for new capital)
+ *   WAIT  (new buyers)       → Deferred (thesis intact, entry unfavorable)
+ *   BUY NOW / SCALE IN       → Accumulate (conditions support deployment)
+ *   REDUCE (current holders) → Reduce
+ *   ADD   (current holders)  → Accumulate
+ *   HOLD  (current holders)  → Maintain
+ *   Fallback                 → Maintain
+ */
+export function deriveCapitalPosture(
+  rating: string | null | undefined,
+  holdersAction: string | null | undefined,
+  buyersAction: string | null | undefined,
+): CapitalPosture {
+  const r = (rating ?? '').toUpperCase()
+  const h = (holdersAction ?? '').toUpperCase()
+  const b = (buyersAction ?? '').toUpperCase()
+
+  if (r === 'STRONG SELL' || r === 'SELL') return 'Reduce'
+  if (b === 'AVOID') return 'Avoid'
+  if (b === 'WAIT') return 'Deferred'
+  if (b === 'BUY NOW' || b === 'SCALE IN') return 'Accumulate'
+  if (h === 'REDUCE') return 'Reduce'
+  if (h === 'ADD') return 'Accumulate'
+  if (h === 'HOLD') return 'Maintain'
+  return 'Maintain'
+}
+
+export function capitalPostureColor(posture: CapitalPosture): {
+  text: string
+  bg: string
+  border: string
+} {
+  switch (posture) {
+    case 'Accumulate': return { text: 'text-success',        bg: 'bg-success/8',       border: 'border-success/25'  }
+    case 'Maintain':   return { text: 'text-primary',        bg: 'bg-primary/8',       border: 'border-primary/25'  }
+    case 'Deferred':   return { text: 'text-warning',        bg: 'bg-warning/8',       border: 'border-warning/25'  }
+    case 'Reduce':     return { text: 'text-error',          bg: 'bg-error/8',         border: 'border-error/25'    }
+    case 'Avoid':      return { text: 'text-text-secondary', bg: 'bg-surface-elevated', border: 'border-border'     }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Deployment Gate copy — deterministic banner text derived from Tactical Stance
 // ---------------------------------------------------------------------------
 

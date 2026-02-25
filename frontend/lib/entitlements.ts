@@ -20,7 +20,6 @@ export type Feature =
   | 'probabilistic_engine'      // Probabilistic Engine — full EV model, stop probability, scenario distribution
   | 'analyst_verdict'           // Full Analyst Verdict — investment thesis, full agents report
   | 'execution_layer'           // Execution Layer — position sizing, portfolio risk, trade stability
-  | 'export_pdf'                // PDF Export — institutional-grade downloadable report
   | 'trade_setup_details'       // Trader-only: enhanced trade setup table + fund/tech divergence
   // ── Engine diagnostics (granular sub-section gates) ──────────────────────
   | 'sizing_summary'            // All tiers: allocation % + plain-language rationale
@@ -38,7 +37,6 @@ const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
   probabilistic_engine:     'investor',
   analyst_verdict:          'investor',
   execution_layer:          'trader',
-  export_pdf:               'investor',
   trade_setup_details:      'trader',
   // Engine diagnostics
   sizing_summary:           'starter',
@@ -131,17 +129,6 @@ export const FEATURE_GATE_COPY: Record<Feature, {
       'Portfolio risk engine & concentration diagnostics',
       'Factor exposure approximation',
       'Trade stability monitoring & correlation crowding',
-    ],
-  },
-  export_pdf: {
-    title: 'PDF Report Export',
-    description: 'Institutional-grade PDF with full analysis, structured thesis, and price targets.',
-    requiredTier: 'investor',
-    bullets: [
-      'Title page, table of contents, and appendix',
-      'Structured investment thesis with highlights and risks',
-      'Valuation tables, signal breakdown, and catalysts',
-      'Print-ready format for client distribution or record-keeping',
     ],
   },
   trade_setup_details: {
