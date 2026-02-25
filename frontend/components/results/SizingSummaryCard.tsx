@@ -45,6 +45,13 @@ function getExecutionMultiplier(level: string): number {
   return map[level] ?? 0.7
 }
 
+/** Map execution multiplier to allocation stability label. */
+function getSizingConfidence(multiplier: number): string {
+  if (multiplier >= 1.0) return 'Stable'
+  if (multiplier >= 0.7) return 'Adaptive'
+  return 'Constrained'
+}
+
 export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummaryCardProps) {
   const { data: entitlements } = useEntitlements()
   const canSeeSignalMetrics = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
@@ -68,9 +75,12 @@ export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummary
               Position Sizing
             </CardTitle>
           </div>
-          <Badge variant={convictionBadgeVariant(conviction.conviction_level)}>
-            {conviction.conviction_level}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-medium text-text-tertiary">Risk Regime</span>
+            <Badge variant={convictionBadgeVariant(conviction.conviction_level)}>
+              {conviction.conviction_level}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
 
@@ -88,7 +98,7 @@ export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummary
             <span className="text-xl font-semibold text-primary/60">%</span>
           </div>
           <div className="flex items-center gap-2 mt-2">
-            <span className="text-xs text-text-tertiary">Final Position Size</span>
+            <span className="text-xs text-text-tertiary">Active Position Size</span>
             <span
               className={`text-[10px] font-medium px-1.5 py-0.5 rounded-sm ${
                 isExecutionBound
@@ -96,40 +106,48 @@ export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummary
                   : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
               }`}
             >
-              {isExecutionBound ? '· Execution-Bound' : '· Within Guardrails'}
+              {isExecutionBound ? '· Execution-Constrained' : '· Within Guardrails'}
             </span>
           </div>
+          {isExecutionBound && (
+            <p className="text-[10px] text-text-tertiary mt-1.5 leading-tight">
+              Constraint Drivers Active: Signal Dispersion · Noise Regime · Stop Risk
+            </p>
+          )}
+          <p className="text-[10px] text-text-tertiary mt-1 leading-tight">
+            Sizing Confidence: {getSizingConfidence(multiplier)}
+          </p>
         </div>
 
         {/* ── SECONDARY: SIZING FRAMEWORK (Investor+) ───────────────────── */}
         {canSeeSignalMetrics && (
           <div className="rounded-md border border-border/60 bg-background/40 p-3">
             <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-3">
-              Sizing Framework
+              Sizing Diagnostics
             </p>
             <div className="grid grid-cols-3 gap-x-4 gap-y-2.5">
-              {/* Baseline Model Weight — lowest salience */}
+              {/* Model Baseline — lowest salience */}
               <div>
                 <p className="text-[10px] text-text-tertiary leading-tight mb-0.5">
-                  Baseline Model Weight
+                  Model Baseline
                 </p>
                 <p className="text-xs font-normal text-text-tertiary tabular-nums">
-                  {baselineModelWeight}%
+                  {baselineModelWeight}{' '}%
                 </p>
               </div>
-              {/* Policy Cap — neutral, slightly above baseline */}
+              {/* Policy Constraint — neutral */}
               <div>
                 <p className="text-[10px] text-text-tertiary leading-tight mb-0.5">
-                  Policy Cap
+                  Policy Constraint
                 </p>
                 <p className="text-xs font-normal text-text-secondary tabular-nums">
-                  {conviction.max_pct}%
+                  {conviction.max_pct}{' '}%
                 </p>
               </div>
-              {/* Noise-Adjusted Multiplier — diagnostic, no numeric dominance */}
+              {/* Execution Multiplier — diagnostic, no numeric dominance */}
               <div>
                 <p className="text-[10px] text-text-tertiary leading-tight mb-0.5">
-                  Noise-Adjusted Multiplier
+                  Execution Multiplier
                 </p>
                 <p className="text-xs font-normal text-text-secondary tabular-nums">
                   {multiplier.toFixed(3)}&times;
@@ -146,8 +164,8 @@ export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummary
 
         {/* ── INTERPRETATION BLOCK ─────────────────────────────────────── */}
         <p className="text-[11px] text-text-tertiary leading-relaxed border-l-2 border-border/50 pl-2.5 italic">
-          Final position size reflects execution constraints rather than thesis deterioration.
-          Baseline sizing adjusted due to signal dispersion, noise regime, or portfolio risk filters.
+          Allocation calibrated to prevailing signal reliability and execution environment.
+          Thesis conditions unchanged; deployment governed by portfolio risk parameters.
         </p>
 
         {/* ── PLAIN-LANGUAGE RATIONALE ─────────────────────────────────── */}
