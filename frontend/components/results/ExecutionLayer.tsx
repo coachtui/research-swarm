@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, Settings } from 'lucide-react'
 import { TradeSetup } from './TradeSetup'
 import { PortfolioContext } from './PortfolioContext'
 import { PositionSizingCard } from './PositionSizingCard'
+import { FinalWeightResolver } from './FinalWeightResolver'
 import type { EnhancedTradeSetup, RecommendedStrategy, ConvictionPosition, SignalBreakdown, FairValueCalibration } from '@/types/api'
 
 const STORAGE_KEY = 'dvrg_execution_layer_expanded'
@@ -126,6 +127,11 @@ export function ExecutionLayer({
                 signalBreakdown={signalBreakdown}
               />
               <PositionSizingCard
+                ticker={ticker}
+                signalBreakdown={signalBreakdown}
+                convictionPosition={convictionPosition}
+              />
+              <FinalWeightResolver
                 ticker={ticker}
                 signalBreakdown={signalBreakdown}
                 convictionPosition={convictionPosition}
