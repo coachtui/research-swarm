@@ -1,12 +1,14 @@
 """Neon PostgreSQL persistence for orchestration state using Prisma ORM."""
+from __future__ import annotations
 
 import asyncio
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from prisma import Prisma
+if TYPE_CHECKING:
+    from prisma import Prisma
 
 from ..config import settings
 from ..logger import logger
@@ -28,6 +30,7 @@ class PersistenceManager:
     def _get_db(self) -> Prisma:
         """Get or create Prisma client and ensure connection."""
         if self._db is None:
+            from prisma import Prisma  # lazy — avoids import-time failure when client isn't generated
             self._db = Prisma()
             # Connect synchronously using asyncio.run
             asyncio.run(self._db.connect())

@@ -41,5 +41,5 @@ async def get_me(current_user: User = Depends(get_current_user)):
         is_active=current_user.is_active,
         is_admin=current_user.is_admin
     )
-    logger.info(f"📤 /auth/me returning: email={response.email}, is_admin={response.is_admin}")
+    logger.info("📤 /auth/me returning: user_id=%s is_admin=%s", current_user.id, response.is_admin)
     return response

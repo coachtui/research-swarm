@@ -4,12 +4,15 @@ Database client and helper functions.
 This module provides the Prisma database client and utility functions
 for interacting with the Neon Postgres database.
 """
+from __future__ import annotations
 
-from prisma import Prisma
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from contextlib import asynccontextmanager
 import json
 import logging
+
+if TYPE_CHECKING:
+    from prisma import Prisma
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,8 @@ async def get_db() -> Prisma:
     Usage:
         db: Prisma = Depends(get_db)
     """
+    from prisma import Prisma  # lazy — avoids import-time failure when client isn't generated
+
     global _db_client
 
     if _db_client is None:

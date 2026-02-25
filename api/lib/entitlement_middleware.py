@@ -39,12 +39,16 @@ Security contract:
   - Admins bypass all feature and limit guards.
 """
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timezone
-from typing import List
+from typing import List, TYPE_CHECKING
 
 from fastapi import Depends, HTTPException
-from prisma import Prisma
+
+if TYPE_CHECKING:
+    from prisma import Prisma
 
 from api.dependencies import get_current_user
 from api.lib.db import get_db

@@ -1,10 +1,38 @@
 """Shared test fixtures for Research Swarm test suite."""
 
+import asyncio
 import pytest
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
+
+
+# ============================================================================
+# Async test support — fallback when pytest-asyncio isn't installed
+# ============================================================================
+
+def pytest_configure(config):
+    """Register the asyncio marker so pytest doesn't warn about unknown marks."""
+    config.addinivalue_line(
+        "markers",
+        "asyncio: mark test as an asyncio coroutine (handled by pytest-asyncio or fallback hook)",
+    )
+
+
+try:
+    import pytest_asyncio  # noqa: F401 — plugin present, no fallback needed
+except ImportError:
+    # pytest-asyncio not installed: run coroutine tests with asyncio.run()
+    def pytest_runtest_call(item):
+        fn = getattr(item, "function", None)
+        if asyncio.iscoroutinefunction(fn):
+            orig_runtest = item.runtest
+
+            def _sync_runtest():
+                asyncio.run(fn(**{k: v for k, v in item.funcargs.items() if k in fn.__code__.co_varnames}))
+
+            item.runtest = _sync_runtest
 
 
 # ============================================================================
