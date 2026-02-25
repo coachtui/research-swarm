@@ -1,4 +1,5 @@
 # Railway Nixpacks configuration
-# xhtml2pdf → svglib → rlpycairo → pycairo requires libcairo system headers
+# xhtml2pdf → svglib → rlpycairo → pycairo requires libcairo system headers.
+# aptPkgs is additive — does not override Nixpacks' auto-detected Python env.
 [phases.setup]
-nixPkgs = ["cairo"]
+aptPkgs = ["libcairo2-dev", "pkg-config"]
