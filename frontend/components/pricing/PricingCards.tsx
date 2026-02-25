@@ -139,7 +139,7 @@ export function PricingCards({ quota }: PricingCardsProps) {
       )}
 
       <p className="text-center text-sm text-text-secondary mb-8">
-        Same institutional research quality. Different depth of tooling.
+        Same structured analysis. Different allocation depth.
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
@@ -216,18 +216,11 @@ export function PricingCards({ quota }: PricingCardsProps) {
             <div className="px-4 py-3 text-center text-text-primary font-semibold">15</div>
             <div className="px-4 py-3 text-center text-text-primary">50</div>
           </div>
-          {/* PDF export */}
+          {/* Allocation depth */}
           <div className="grid grid-cols-4 border-t border-surface-elevated bg-surface">
-            <div className="px-4 py-3 text-text-secondary font-medium">PDF export</div>
-            <div className="px-4 py-3 text-center text-text-tertiary">—</div>
-            <div className="px-4 py-3 text-center text-success font-semibold">✓</div>
-            <div className="px-4 py-3 text-center text-success font-semibold">✓</div>
-          </div>
-          {/* Decision depth */}
-          <div className="grid grid-cols-4 border-t border-surface-elevated bg-surface">
-            <div className="px-4 py-3 text-text-secondary font-medium">Decision depth</div>
-            <div className="px-4 py-3 text-center text-text-secondary text-xs">Summary</div>
-            <div className="px-4 py-3 text-center text-text-primary text-xs font-semibold">Metrics</div>
+            <div className="px-4 py-3 text-text-secondary font-medium">Allocation depth</div>
+            <div className="px-4 py-3 text-center text-text-secondary text-xs">Verdict Layer</div>
+            <div className="px-4 py-3 text-center text-text-primary text-xs font-semibold">Conviction Engine</div>
             <div className="px-4 py-3 text-center text-text-primary text-xs font-semibold">Full Console</div>
           </div>
         </div>

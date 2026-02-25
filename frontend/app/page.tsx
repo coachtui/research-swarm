@@ -103,29 +103,29 @@ export default function Home() {
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium text-primary"
               style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}>
               <Zap className="w-3.5 h-3.5" />
-              Risk Intelligence · Decision Engine
+              Capital Allocation · Decision Engine
             </div>
 
             <h1 className="text-4xl md:text-6xl font-bold text-text-primary leading-tight tracking-tight">
-              Probabilistic Risk Intelligence<br />
+              Structured Capital Allocation<br />
               for{' '}
-              <span className="text-primary">Stock Decisions</span>
+              <span className="text-primary">Serious Investors</span>
             </h1>
 
             <p className="text-lg text-text-secondary leading-relaxed max-w-2xl mx-auto">
-              DVRG models expected value, scenario probabilities, stop-out risk, and stability
-              so you can decide when to act, how much to allocate, and when to stay small.
+              DVRG models expected value, scenario probability, and stability to determine
+              how much capital to deploy — and when.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-              <Link href="/analyze">
+              <Link href="#how-it-works">
                 <Button size="lg" className="w-full sm:w-auto">
-                  Analyze a Ticker <ArrowRight className="ml-2 w-4 h-4" />
+                  See How Allocation Is Structured <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
               </Link>
               <Link href="/preview/nvda">
                 <Button size="lg" variant="outline" className="w-full sm:w-auto">
-                  See Example Report
+                  View Sample Decision
                 </Button>
               </Link>
             </div>
@@ -163,18 +163,18 @@ export default function Home() {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-px"
               style={{ background: 'var(--border)' }}>
               {[
-                { icon: <Target className="w-5 h-5" />, title: 'Price Targets',
-                  body: 'Single-point forecasts ignore uncertainty and path risk.' },
-                { icon: <BarChart3 className="w-5 h-5" />, title: 'Indicators & Signals',
-                  body: 'Signals without stability context encourage oversizing fragile setups.' },
-                { icon: <AlertTriangle className="w-5 h-5" />, title: 'Conviction Bias',
-                  body: 'Confidence ≠ probability. Markets punish sizing errors, not bad opinions.' },
+                { icon: <Target className="w-5 h-5" />, title: 'Price Targets without Probability',
+                  body: 'Single-point forecasts carry no probability weighting. Sizing off them is structurally unsound.' },
+                { icon: <BarChart3 className="w-5 h-5" />, title: 'Signals without Capital Translation',
+                  body: 'Indicators tell you direction. They say nothing about how much capital to deploy.' },
+                { icon: <AlertTriangle className="w-5 h-5" />, title: 'Narratives without Position Logic',
+                  body: 'Strong conviction is not the same as a large position. Markets punish sizing errors, not bad opinions.' },
                 { icon: <LineChart className="w-5 h-5" />, title: 'Missing Risk Geometry',
-                  body: 'No modeling of stop probability, distribution shape, or EV efficiency.' },
+                  body: 'No modeling of stop probability, distribution shape, or expected value efficiency.' },
                 { icon: <Newspaper className="w-5 h-5" />, title: 'Information Overload',
-                  body: 'More data, less clarity.' },
-                { icon: <Shield className="w-5 h-5" />, title: 'DVRG Approach',
-                  body: 'Quantifies outcome distributions, expected value, and setup stability.' },
+                  body: 'More data, less clarity. No structured path from signal to allocation decision.' },
+                { icon: <Shield className="w-5 h-5" />, title: 'The Gap',
+                  body: 'Most tools stop at opinion. DVRG ends at allocation.' },
               ].map(({ icon, title, body }) => (
                 <div key={title} className="p-6 bg-background flex gap-4 items-start">
                   <div className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 text-error"
@@ -188,6 +188,10 @@ export default function Home() {
                 </div>
               ))}
             </div>
+
+            <p className="mt-8 text-center text-sm font-semibold text-text-primary">
+              Most tools stop at opinion. DVRG ends at allocation.
+            </p>
           </div>
         </div>
       </section>
@@ -199,10 +203,11 @@ export default function Home() {
             <div className="mb-12">
               <SectionLabel>The Solution</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Meet DVRG: A Probabilistic Decision Engine
+                Meet DVRG: A Probabilistic Capital Allocation Engine
               </h2>
               <p className="mt-2 text-text-secondary max-w-xl">
-                DVRG evaluates trades through the lens of risk, probability, and stability — not prediction.
+                DVRG translates signal into conviction, conviction into position size, and position size
+                into executable decisions. Every analysis ends with a deployable allocation framework.
               </p>
             </div>
 
@@ -210,14 +215,16 @@ export default function Home() {
               {/* Feature list */}
               <div>
                 <div style={{ borderTop: '1px solid var(--border)' }}>
-                  <AgentRow icon={<BarChart3 className="w-4 h-4" />} title="Expected Value Engine"
-                    body="Scenario-weighted opportunity vs risk." />
-                  <AgentRow icon={<TrendingUp className="w-4 h-4" />} title="Outcome Distribution Model"
-                    body="Risk / Base / Re-rating paths with probability geometry." />
-                  <AgentRow icon={<Shield className="w-4 h-4" />} title="Stability & Noise Diagnostics"
-                    body="Identifies fragile vs reliable setups." />
-                  <AgentRow icon={<Target className="w-4 h-4" />} title="Stop Probability Framework"
-                    body="Models stop-out risk before capital is deployed." />
+                  <AgentRow icon={<BarChart3 className="w-4 h-4" />} title="Expected Value Computation"
+                    body="Opportunity quantified against scenario probability and risk geometry." />
+                  <AgentRow icon={<TrendingUp className="w-4 h-4" />} title="Scenario-Weighted Outcomes"
+                    body="Risk / Base / Re-rating paths modeled with probability distributions." />
+                  <AgentRow icon={<Target className="w-4 h-4" />} title="Confidence Calibration"
+                    body="Maps uncertainty into a structured conviction score before sizing." />
+                  <AgentRow icon={<Shield className="w-4 h-4" />} title="Stability Diagnostics"
+                    body="Identifies fragile setups before capital is committed." />
+                  <AgentRow icon={<Zap className="w-4 h-4" />} title="Capital Translation Layer"
+                    body="Every analysis ends with a structured, deployable allocation framework." />
                 </div>
               </div>
 
@@ -231,10 +238,10 @@ export default function Home() {
                 </h4>
                 <div className="space-y-3.5">
                   {[
-                    ['Expected Value', 'not opinion'],
+                    ['Expected Value', 'not guesswork'],
                     ['Probability', 'not narrative'],
-                    ['Stability', 'not signal'],
-                    ['Sizing', 'not conviction'],
+                    ['Conviction Sizing', 'not position guessing'],
+                    ['Capital Translation', 'not data overload'],
                   ].map(([title, sub]) => (
                     <div key={title} className="flex items-start gap-3">
                       <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" />
@@ -243,6 +250,12 @@ export default function Home() {
                       </span>
                     </div>
                   ))}
+                </div>
+
+                <div className="mt-6 pt-5" style={{ borderTop: '1px solid var(--border)' }}>
+                  <p className="text-xs text-text-secondary leading-relaxed">
+                    Replace fragmented research workflows with a unified decision system.
+                  </p>
                 </div>
               </div>
             </div>
@@ -264,35 +277,35 @@ export default function Home() {
             <div style={{ borderTop: '1px solid var(--border)' }}>
               <Step
                 n="1"
-                title="Detect Regime"
-                body="Volatility, liquidity, structure → market environment classification."
+                title="Detect Structural Divergence"
+                body="Volatility, liquidity, and structural signals → market environment classification."
               />
               <Step
                 n="2"
-                title="Build Scenarios"
-                body="Maps plausible outcome distributions."
+                title="Model Scenario-Weighted Outcomes"
+                body="Maps plausible outcome distributions with probability-weighted paths."
               />
               <Step
                 n="3"
-                title="Compute Expected Value"
-                body="Opportunity adjusted for risk geometry."
+                title="Quantify Expected Value"
+                body="Opportunity computed against risk geometry and scenario weighting."
               />
               <Step
                 n="4"
-                title="Evaluate Stability & Noise"
-                body="Separates strong setups from fragile ones."
+                title="Stress-Test Stability"
+                body="Separates high-conviction setups from fragile, noise-driven signals."
               />
               <Step
                 n="5"
-                title="Translate to Action"
-                body="Allocation bias + sizing logic."
+                title="Translate into Capital Allocation"
+                body="Allocation bias and position sizing derived from structured analysis — not opinion."
               />
             </div>
 
             <div className="mt-10 text-center">
               <Link href="/analyze">
                 <Button size="lg">
-                  Try DVRG Now <ArrowRight className="ml-2 w-4 h-4" />
+                  Start Your First Decision <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
               </Link>
             </div>
@@ -300,26 +313,84 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── Who DVRG Is For ───────────────────────────────────────────────── */}
+      <section className="py-20" style={{ borderTop: '1px solid var(--border)' }}>
+        <div className="container mx-auto px-4">
+          <div className="max-w-5xl mx-auto">
+            <div className="mb-12">
+              <SectionLabel>Audience</SectionLabel>
+              <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
+                Who DVRG Is For
+              </h2>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-10">
+              {/* Built For */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-success mb-6">Built For</p>
+                <div className="space-y-5">
+                  {[
+                    ['Active capital allocators', 'Investors who make deliberate, sized decisions — not passive accumulation.'],
+                    ['Investors deploying meaningful capital', 'You need a structured process, not just more data or opinions.'],
+                    ['Portfolio builders who size conviction', 'Position sizing is part of your edge. DVRG makes it systematic.'],
+                  ].map(([title, body]) => (
+                    <div key={title} className="flex gap-3 items-start">
+                      <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-text-primary">{title}</p>
+                        <p className="text-sm text-text-secondary mt-0.5">{body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Not For */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary mb-6">Not Built For</p>
+                <div className="space-y-5">
+                  {[
+                    ['Headline traders', 'If your decisions are driven by breaking news or momentum alerts, this is not your tool.'],
+                    ['Passive ETF allocators', 'DVRG is built for individual equity decisions, not index exposure.'],
+                    ['Newsletter followers', 'This replaces opinion-based research stacks — not supplements them.'],
+                  ].map(([title, body]) => (
+                    <div key={title} className="flex gap-3 items-start">
+                      <div className="w-4 h-4 shrink-0 mt-0.5 flex items-center justify-center">
+                        <span className="text-text-tertiary font-bold text-sm leading-none">—</span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-text-primary">{title}</p>
+                        <p className="text-sm text-text-secondary mt-0.5">{body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── Pricing ──────────────────────────────────────────────────────── */}
-      <section id="pricing" className="py-20" style={{ borderTop: '1px solid var(--border)' }}>
+      <section id="pricing" className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
         <div className="container mx-auto px-4">
           <div className="max-w-5xl mx-auto">
             <div className="mb-12">
               <SectionLabel>Pricing</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Choose Your Decision Depth
+                Choose Your Allocation Depth
               </h2>
             </div>
             <PricingCards />
             <p className="mt-8 text-center text-sm text-text-secondary">
-              DVRG does not predict prices. It models risk, probability, and decision stability.
+              DVRG does not predict prices. It structures risk, probability, and deployable capital decisions.
             </p>
           </div>
         </div>
       </section>
 
       {/* ── FAQ ──────────────────────────────────────────────────────────── */}
-      <section id="faq" className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
+      <section id="faq" className="py-20" style={{ borderTop: '1px solid var(--border)' }}>
         <div className="container mx-auto px-4">
           <div className="max-w-2xl mx-auto">
             <div className="mb-10">
@@ -330,28 +401,28 @@ export default function Home() {
             </div>
             <div style={{ borderTop: '1px solid var(--border)' }}>
               <FaqItem
-                q="How accurate is the AI analysis?"
-                a="Our AI agents use the same data sources as institutional investors (financial statements, SEC filings, market data). While no analysis can predict the future with certainty, DVRG excels at synthesizing large amounts of data objectively and detecting signal divergences that humans often miss."
+                q="What makes DVRG different from research tools?"
+                a="Most research tools optimize for narratives. DVRG optimizes for decisions. It quantifies expected value, scenario probability, and setup stability — then translates that into a structured allocation framework. The output is not a report. It is a capital deployment decision."
               />
               <FaqItem
                 q="Is this investment advice?"
-                a="No. DVRG provides analysis and research, not personalized investment advice. Always do your own due diligence and consult a licensed financial advisor before making investment decisions."
+                a="No. DVRG provides structured decision infrastructure, not personalized investment advice. Always do your own due diligence and consult a licensed financial advisor before making investment decisions."
               />
               <FaqItem
                 q="Can I get a refund if I'm not satisfied?"
-                a="Yes! We offer a 100% satisfaction guarantee. If you're not happy with your first report, contact us within 7 days for a full refund, no questions asked."
+                a="Yes. We offer a 100% satisfaction guarantee. If you're not satisfied with your first analysis, contact us within 7 days for a full refund, no questions asked."
               />
               <FaqItem
                 q="What stocks can I analyze?"
-                a="Currently, we support all US-listed stocks (NYSE, NASDAQ). We're working on adding international markets, ETFs, and cryptocurrencies soon."
+                a="Currently, we support all US-listed stocks (NYSE, NASDAQ). We're working on adding international markets and ETFs."
               />
               <FaqItem
                 q="How is this different from free stock screeners?"
-                a="Stock screeners show you raw data. DVRG synthesizes that data into actionable insights, detects divergences between signals, and delivers a comprehensive investment thesis—like having a team of analysts working for you."
+                a="Stock screeners show raw data. DVRG translates signal into conviction and conviction into position size. It replaces fragmented research workflows — spreadsheets, screeners, newsletters, analyst reports — with a single structured capital allocation system."
               />
               <FaqItem
-                q="Do reports get updated over time?"
-                a="Each report is a snapshot in time. However, you can re-run analysis on the same stock to get updated insights. All paid plan users receive automatic watchlist alerts when significant changes are detected."
+                q="Do analyses get updated over time?"
+                a="Each analysis is a snapshot in time. You can re-run analysis on the same stock to get an updated decision. All paid plan users receive watchlist alerts when significant changes are detected."
               />
             </div>
           </div>
@@ -359,18 +430,18 @@ export default function Home() {
       </section>
 
       {/* ── Final CTA ────────────────────────────────────────────────────── */}
-      <section className="py-20" style={{ borderTop: '1px solid var(--border)' }}>
+      <section className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
         <div className="container mx-auto px-4">
           <div className="max-w-2xl mx-auto text-center space-y-6">
             <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
               Stop Guessing Conviction. Start Sizing Decisions.
             </h2>
             <p className="text-text-secondary">
-              Expected value, probabilities, stability, stop risk, and dynamic sizing — built for real-world uncertainty.
+              Replace fragmented research workflows with a unified capital allocation system.
             </p>
             <Link href="/analyze">
               <Button size="lg" variant="outline">
-                Analyze Your Next Stock
+                Start Your First Decision
               </Button>
             </Link>
           </div>
