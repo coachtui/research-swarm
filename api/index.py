@@ -1,12 +1,24 @@
 """
 Main FastAPI application entry point for Vercel serverless deployment.
 """
+import os
+import sys
+
+# ── macOS: ensure Homebrew libs are discoverable by WeasyPrint ───────────────
+# libgobject-2.0 and friends live in /opt/homebrew/lib on Apple Silicon macs.
+# ctypes.util.find_library() only searches DYLD_LIBRARY_PATH, so we inject
+# it here at import time (before WeasyPrint is first imported anywhere).
+if sys.platform == "darwin":
+    homebrew_lib = "/opt/homebrew/lib"
+    current = os.environ.get("DYLD_LIBRARY_PATH", "")
+    if homebrew_lib not in current:
+        os.environ["DYLD_LIBRARY_PATH"] = f"{homebrew_lib}:{current}".strip(":")
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from mangum import Mangum
-import os
 import logging
 
 from api.routes import analyze, runs, health, reports, watchlist, admin, webhook, auth, stripe, position_sizing

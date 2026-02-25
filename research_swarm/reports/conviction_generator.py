@@ -209,7 +209,7 @@ class ConvictionGenerator:
         if valuation_metrics:
             pe = valuation_metrics.get("pe_ratio")
             cat = valuation_metrics.get("valuation_category") or "Fair"  # Ensure not None
-            context_parts.append(f"Valuation: P/E {pe:.1f if pe else 'N/A'}, {cat}")
+            context_parts.append(f"Valuation: P/E {f'{pe:.1f}' if pe else 'N/A'}, {cat}")
 
         if price_targets:
             context_parts.append(
