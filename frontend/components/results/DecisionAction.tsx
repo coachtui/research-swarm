@@ -56,9 +56,12 @@ function actionToBadgeVariant(action: string): 'success' | 'warning' | 'error' |
     case 'SCALE IN':
     case 'HOLD':
       return 'warning'
+    // WAIT / AVOID = Deferred / Constrained → amber, not red (constraint, not adverse)
     case 'WAIT':
-    case 'REDUCE':
     case 'AVOID':
+      return 'warning'
+    // REDUCE = Adverse/Deteriorating → red retained
+    case 'REDUCE':
       return 'error'
     default:
       return 'default'
@@ -528,7 +531,7 @@ export function DecisionAction({
                     <p className="text-[9px] text-text-tertiary/60 mb-0.5 italic">(Non-Tactical)</p>
                   )}
                   {/* Issue 2: Muted color + reduced weight for structural baseline — prevents anchor shock */}
-                  <p className={`text-sm ${isStructuralDislocation ? 'font-medium text-text-tertiary' : 'font-semibold text-success'}`}>
+                  <p className={`text-sm ${isStructuralDislocation ? 'font-medium text-text-tertiary' : 'font-semibold text-primary'}`}>
                     {opportunityEnvelope}
                   </p>
                   {isStructuralDislocation && (

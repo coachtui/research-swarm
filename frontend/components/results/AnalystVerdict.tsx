@@ -83,15 +83,17 @@ function ConfidencePill({ pct }: { pct: number }) {
     pct >= 45 ? 'LOW–MODERATE' :
     'LOW'
 
+  // Signal coherence — diagnostic metric, not directional endorsement.
+  // High = clean signal environment → soft teal (informational, not promotional)
   const color =
     pct >= 70
-      ? 'text-success bg-success/10 border-success/20'
+      ? 'text-teal-400 bg-teal-500/10 border-teal-500/20'
       : pct >= 50
       ? 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20'
       : 'text-warning bg-warning/10 border-warning/20'
 
   const barColor =
-    pct >= 70 ? 'bg-success' :
+    pct >= 70 ? 'bg-teal-400' :
     pct >= 50 ? 'bg-yellow-400' :
     'bg-warning'
 
@@ -231,7 +233,7 @@ export function AnalystVerdict({
               <ul className="space-y-2.5">
                 {(thesis as InvestmentThesisStructured).investment_highlights.map((item, idx) => (
                   <li key={idx} className="flex items-start gap-2.5 text-text-secondary" style={{ fontSize: 'var(--text-base)' }}>
-                    <span className="text-success mt-1 flex-shrink-0 font-bold">·</span>
+                    <span className="text-primary mt-1 flex-shrink-0 font-bold">·</span>
                     <span className="leading-relaxed">{item}</span>
                   </li>
                 ))}
@@ -247,9 +249,11 @@ export function AnalystVerdict({
               {valuationContext && (
                 <div className={`mt-3 rounded-md p-3 text-xs text-text-tertiary leading-relaxed border ${
                   valuationContext.variant === 'warning'
-                    ? 'bg-error/5 border-error/20'
+                    // Extreme premium = pricing risk, NOT thesis failure → amber, never red
+                    ? 'bg-amber-500/8 border-amber-500/20'
                     : valuationContext.variant === 'success'
-                    ? 'bg-success/5 border-success/20'
+                    // Favorable valuation context → teal/informational, not promotional green
+                    ? 'bg-primary/5 border-primary/15'
                     : 'bg-primary/5 border-primary/15'
                 }`}>
                   <span className="font-medium text-text-secondary">Valuation Context: </span>
@@ -264,7 +268,7 @@ export function AnalystVerdict({
               <ul className="space-y-2.5">
                 {(thesis as InvestmentThesisStructured).key_risks.map((item, idx) => (
                   <li key={idx} className="flex items-start gap-2.5 text-text-secondary" style={{ fontSize: 'var(--text-base)' }}>
-                    <span className="text-error mt-1 flex-shrink-0 font-bold">·</span>
+                    <span className="text-warning mt-1 flex-shrink-0 font-bold">·</span>
                     <span className="leading-relaxed">{item}</span>
                   </li>
                 ))}
@@ -293,9 +297,10 @@ export function AnalystVerdict({
           <div className="border-t border-border pt-5 space-y-4">
             <h3 className="label">What Changes This Rating</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Upgrade condition block — teal accent: analytical classifier, not endorsement */}
               {upgradeTriggers && upgradeTriggers.length > 0 && (
-                <div className="rounded-lg border border-success/25 bg-success/5 p-4">
-                  <p className="text-xs font-semibold text-success mb-3 flex items-center gap-1.5">
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+                  <p className="text-xs font-semibold text-primary mb-3 flex items-center gap-1.5">
                     <span>↗</span> Upgrade to BUY if...
                   </p>
                   <ul className="space-y-2">
@@ -308,9 +313,10 @@ export function AnalystVerdict({
                   </ul>
                 </div>
               )}
+              {/* Downgrade condition block — amber accent: risk awareness, not alarm */}
               {downgradeTriggers && downgradeTriggers.length > 0 && (
-                <div className="rounded-lg border border-error/25 bg-error/5 p-4">
-                  <p className="text-xs font-semibold text-error mb-3 flex items-center gap-1.5">
+                <div className="rounded-lg border border-warning/20 bg-warning/5 p-4">
+                  <p className="text-xs font-semibold text-warning mb-3 flex items-center gap-1.5">
                     <span>↘</span> Downgrade to SELL if...
                   </p>
                   <ul className="space-y-2">

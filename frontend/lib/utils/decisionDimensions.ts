@@ -94,9 +94,11 @@ export function structuralBiasColor(bias: StructuralBias): {
   border: string
 } {
   switch (bias) {
-    case 'Bullish': return { text: 'text-success', bg: 'bg-success/10', border: 'border-success/30' }
-    case 'Bearish': return { text: 'text-error',   bg: 'bg-error/10',   border: 'border-error/30'   }
-    default:        return { text: 'text-warning',  bg: 'bg-warning/10', border: 'border-warning/30' }
+    // Teal accent: analytical classification, not directional endorsement
+    case 'Bullish': return { text: 'text-primary',        bg: 'bg-primary/8',       border: 'border-primary/25'  }
+    // Slate/neutral: classification without alarm — Bearish is posture, not danger
+    case 'Bearish': return { text: 'text-text-secondary', bg: 'bg-surface-elevated', border: 'border-border'      }
+    default:        return { text: 'text-text-tertiary',  bg: 'bg-surface-elevated', border: 'border-border/60'   }
   }
 }
 
@@ -120,11 +122,11 @@ export function tacticalStanceColor(stance: TacticalStance): {
 
 export function structuralBiasBadgeVariant(
   bias: StructuralBias,
-): 'success' | 'warning' | 'error' | 'default' {
+): 'success' | 'warning' | 'error' | 'default' | 'secondary' {
   switch (bias) {
-    case 'Bullish': return 'success'
-    case 'Bearish': return 'error'
-    default:        return 'warning'
+    case 'Bullish': return 'default'    // Teal/primary — classification, not promotion
+    case 'Bearish': return 'secondary'  // Neutral slate — posture, not alarm
+    default:        return 'secondary'  // Muted — balanced classification
   }
 }
 

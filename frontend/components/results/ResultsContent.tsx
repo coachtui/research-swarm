@@ -325,6 +325,7 @@ export function ResultsContent({
             <SizingSummaryCard
               conviction={decision_intelligence.conviction_position}
               isAdmin={isAdmin}
+              rating={decision_intelligence.rating}
               tacticalStance={deriveTacticalStance(
                 decision_intelligence.decision_framework?.new_buyers?.action ?? null,
                 decision_intelligence.rating,
