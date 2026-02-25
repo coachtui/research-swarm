@@ -18,7 +18,6 @@ export function VerdictSummary({
   key_concern,
   the_call,
 }: VerdictSummaryProps) {
-  // Generate conversational summary based on score
   const verdictText = generateVerdictText(ticker, overall_score, rating, key_strength, key_concern, the_call)
 
   return (
@@ -29,9 +28,9 @@ export function VerdictSummary({
         </div>
         <div className="flex-1">
           <h3 className="font-semibold text-lg mb-3 flex items-center gap-2">
-            The Verdict
+            Structural Analysis Summary
             <span className="text-xs font-normal text-muted-foreground">
-              • 30-second summary
+              · Thesis overview
             </span>
           </h3>
           <div className="prose prose-sm dark:prose-invert max-w-none">
@@ -59,40 +58,40 @@ function generateVerdictText(
   concern: string,
   _call: string
 ): string {
-  // Focus on WHY (thesis, divergence, drivers) not WHAT (action)
-  // Remove action guidance - that's in DecisionAction card
+  // Focus on WHY (thesis, divergence, structural regime) not WHAT (action)
+  // Institutional portfolio-management voice — deterministic, no conversational phrasing
 
   if (score >= 8.0 || rating.includes('STRONG BUY')) {
     const variants = [
-      `${ticker} is firing on all cylinders. ${strength} creates a compelling opportunity with minimal friction. The fundamentals, technicals, and market sentiment are all aligned in a rare "green light" scenario.`,
-      `${ticker} has everything going for it right now. ${strength} — and the broader signal picture confirms it. Rare moments of full convergence like this are exactly what high-conviction setups look like.`,
-      `The bull case for ${ticker} is unusually clean. ${strength}, and there are few credible counterarguments at this stage. Market sentiment, fundamentals, and momentum are all reading from the same playbook.`,
+      `${ticker} exhibits rare cross-signal convergence. ${strength}. Structural thesis, fundamental quality, and capital flow indicators are fully aligned — a configuration consistent with high-conviction deployment environments.`,
+      `${ticker} presents an unusually coherent structural thesis. ${strength}. Full alignment across fundamental quality, institutional positioning, and directional momentum validates the long-term constructive posture.`,
+      `${ticker} demonstrates exceptional analytical coherence across all evaluation dimensions. ${strength}. Signal convergence at this magnitude is uncommon and supports a high-conviction structural case.`,
     ]
     return variants[tickerVariant(ticker, variants.length)]
 
   } else if (score >= 6.5 || rating === 'BUY') {
     const variants = [
-      `${ticker} shows solid fundamentals but faces timing headwinds. ${strength} provides long-term upside, but ${concern} suggests patience may be rewarded with better entry points.`,
-      `${ticker} is a compelling story with one chapter still unresolved. ${strength} anchors the bull case — the hangup is ${concern}. Quality is here; the question is when the market agrees.`,
-      `${ticker} earns its place on a buy list, but not without caveats. ${strength} is a genuine positive. ${concern} means the setup isn't perfect yet — better entries may come to those who wait.`,
+      `${ticker} presents a constructive structural thesis with identifiable tactical constraints. ${strength}. ${concern} introduces positioning discipline requirements without impairing the long-term directional case.`,
+      `${ticker} exhibits solid fundamental quality with execution-layer friction. ${strength}. ${concern} — the structural thesis remains intact, but optimal deployment awaits improved signal convergence.`,
+      `${ticker} warrants portfolio consideration under a calibrated deployment framework. ${strength}. ${concern} requires risk-adjusted entry discipline rather than immediate full deployment.`,
     ]
     return variants[tickerVariant(ticker, variants.length)]
 
   } else if (score >= 5.0 || rating === 'HOLD') {
     const variants = [
-      `${ticker} is telling two stories at once. ${strength}, which supports the bull case. But ${concern} keeps conviction in check. The market needs a catalyst to pick a direction.`,
-      `The picture for ${ticker} is genuinely mixed. ${strength} points toward upside, while ${concern} is hard to ignore. It's a name for watchlists, not portfolios — until one narrative wins out.`,
-      `${ticker} is at a fork in the road. ${strength} builds the case for patience. ${concern} is the friction preventing a breakout. How upcoming catalysts resolve this gap will determine the trade.`,
-      `${ticker} has real positives, but the math doesn't add up to a clear entry. ${strength} is legitimate. So is ${concern}. The signals are splitting the difference, which usually means the market is too.`,
-      `Right now, ${ticker} rewards careful observers more than active traders. ${strength} builds a long-term case, but ${concern} is stalling near-term momentum. Conviction is hard to sustain in both directions.`,
+      `${ticker} presents a mixed analytical profile. ${strength}. ${concern}. Directional conviction is constrained pending catalyst resolution.`,
+      `${ticker} exhibits cross-signal tension that prevents clear directional positioning. ${strength}. ${concern}. Capital deployment is deferred pending narrative resolution.`,
+      `${ticker} is at a fundamental inflection point. ${strength}. ${concern}. The analytical framework requires catalyst input before a constructive structural posture can be established.`,
+      `${ticker} reflects genuine analytical ambiguity that limits actionable conviction. ${strength}. ${concern}. Signal architecture is insufficient for high-conviction deployment under current conditions.`,
+      `${ticker} demonstrates balanced risk parameters that constrain directional conviction. ${strength}. ${concern}. Tactical monitoring is appropriate over active capital deployment.`,
     ]
     return variants[tickerVariant(ticker, variants.length)]
 
   } else {
     const variants = [
-      `${ticker} faces significant structural headwinds that outweigh near-term positives. ${concern} The risk-reward profile is unfavorable until these fundamental issues are resolved.`,
-      `The bear case for ${ticker} is hard to argue against right now. ${concern} What looked like temporary friction is looking more like a structural issue — and the signal picture reflects it.`,
-      `${ticker} is showing the kind of deterioration that's hard to ignore. ${concern} The positives exist but they're fighting uphill. This is a name to revisit when the damage is better understood.`,
+      `${ticker} faces structural headwinds that materially impair the investment thesis. ${concern}. Risk/reward profile does not support deployment under current conditions.`,
+      `${ticker} exhibits fundamental deterioration that outweighs residual positive signals. ${concern}. Capital preservation is the appropriate posture until structural improvement is evident.`,
+      `${ticker} presents an impaired analytical profile with limited near-term recovery visibility. ${concern}. The structural case requires meaningful rehabilitation before deployment is warranted.`,
     ]
     return variants[tickerVariant(ticker, variants.length)]
   }

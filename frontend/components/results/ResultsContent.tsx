@@ -23,6 +23,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatDateTime } from '@/lib/utils/formatting'
+import { deriveStructuralBias, structuralBiasBadgeVariant } from '@/lib/utils/decisionDimensions'
 import { simplifyKeyInsights } from '@/lib/analysis/simplifyKeyInsights'
 import { extractWhatsNew } from '@/lib/analysis/extractWhatsNew'
 import { extractWatchCalendar } from '@/lib/analysis/extractWatchCalendar'
@@ -245,14 +246,14 @@ export function ResultsContent({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {decision_intelligence?.rating && (
-              <Badge variant={
-                decision_intelligence.rating.includes('BUY') ? 'success' :
-                decision_intelligence.rating === 'HOLD' ? 'warning' : 'error'
-              }>
-                {decision_intelligence.rating}
-              </Badge>
-            )}
+            {decision_intelligence?.rating && (() => {
+              const bias = deriveStructuralBias(decision_intelligence.rating)
+              return (
+                <Badge variant={structuralBiasBadgeVariant(bias)}>
+                  {bias}
+                </Badge>
+              )
+            })()}
             <button
               onClick={() => setReadingMode(r => !r)}
               className={`text-[10px] font-mono border rounded px-1.5 py-0.5 transition-colors ${
@@ -292,6 +293,9 @@ export function ResultsContent({
             thesis={full_output?.investment_thesis ?? null}
             upgradeTriggers={upgrade_triggers}
             downgradeTriggers={downgrade_triggers}
+            newBuyersAction={decision_intelligence.decision_framework?.new_buyers?.action ?? null}
+            hasDivergence={signal_breakdown?.has_divergence ?? false}
+            divergenceSeverity={decision_intelligence.fund_tech_divergence?.severity ?? null}
           />
         )}
 

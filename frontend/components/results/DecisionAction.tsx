@@ -5,6 +5,12 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, CheckCircle } from 'lucide-react'
 import type { DecisionFramework, RecommendedStrategy, SignalBreakdown, FundTechDivergence, EnhancedTradeSetup } from '@/types/api'
+import {
+  deriveStructuralBias,
+  deriveTacticalStance,
+  structuralBiasColor,
+  tacticalStanceColor,
+} from '@/lib/utils/decisionDimensions'
 
 interface DecisionActionProps {
   framework: DecisionFramework
@@ -54,12 +60,6 @@ function actionToBadgeVariant(action: string): 'success' | 'warning' | 'error' |
     default:
       return 'default'
   }
-}
-
-function ratingToBadgeVariant(rating: string): 'success' | 'warning' | 'error' | 'default' {
-  if (rating.includes('STRONG BUY') || rating === 'BUY') return 'success'
-  if (rating === 'HOLD') return 'warning'
-  return 'error'
 }
 
 /**
@@ -199,6 +199,18 @@ export function DecisionAction({
     return divergenceSeverity === 'HIGH' ? 'Signal Dispersion — High' : 'Signal Dispersion Detected'
   })()
 
+  // Dual-dimension derivation — pure interpretation of existing model outputs
+  const bias = deriveStructuralBias(rating)
+  const stance = deriveTacticalStance(
+    new_buyers.action,
+    rating,
+    hasDivergence ?? false,
+    divergenceSeverity as 'HIGH' | 'MODERATE' | null | undefined,
+    isStructuralDislocation,
+  )
+  const biasColors = structuralBiasColor(bias)
+  const stanceColors = tacticalStanceColor(stance)
+
   return (
     <Card
       className="ambient-verdict"
@@ -206,18 +218,30 @@ export function DecisionAction({
     >
       <CardContent className="pt-6 space-y-5">
 
-        {/* Decision Hero */}
+        {/* Decision Hero — dual-dimension institutional framing */}
         <div className="space-y-3">
+          {/* Structural Bias + Tactical Stance — orthogonal, never competitive */}
+          <div className="grid grid-cols-2 gap-2.5">
+            {/* Structural Bias — dominant anchor */}
+            <div className={`rounded-lg border-2 ${biasColors.border} ${biasColors.bg} px-3.5 py-2.5`}>
+              <p className="text-[9px] uppercase tracking-[0.18em] text-text-tertiary font-bold mb-1">
+                Structural Bias
+              </p>
+              <p className={`text-lg font-bold ${biasColors.text}`}>{bias}</p>
+              <p className="text-[9px] text-text-tertiary mt-0.5">Long-term thesis direction</p>
+            </div>
+            {/* Tactical Stance — execution context */}
+            <div className={`rounded-lg border ${stanceColors.border} bg-surface-elevated px-3.5 py-2.5`}>
+              <p className="text-[9px] uppercase tracking-[0.18em] text-text-tertiary font-bold mb-1">
+                Tactical Stance
+              </p>
+              <p className={`text-lg font-bold ${stanceColors.text}`}>{stance}</p>
+              <p className="text-[9px] text-text-tertiary mt-0.5">Capital deployment conditions</p>
+            </div>
+          </div>
+
+          {/* Meta chips */}
           <div className="flex items-center gap-2 flex-wrap">
-            {rating && (
-              <Badge
-                variant={ratingToBadgeVariant(rating)}
-                className="px-3.5 py-1 font-semibold tracking-wide"
-                style={{ fontSize: 'var(--text-lg)' }}
-              >
-                {rating}
-              </Badge>
-            )}
             {riskLevel && (
               <Badge variant="secondary">{riskLevel} Risk</Badge>
             )}
@@ -225,6 +249,7 @@ export function DecisionAction({
               <Badge variant="secondary">Conviction: {convictionLevel}</Badge>
             )}
           </div>
+
           {/* Issue 4: Institutional language — presentation-only transform of tactical phrasing */}
           <p className="text-base font-semibold text-text-primary leading-relaxed">{institutionalizeLang(one_liner)}</p>
           {/* Structured per-reader-type subtext — replaces the pipe-delimited multi-audience line.
@@ -469,7 +494,7 @@ export function DecisionAction({
                   <div className="flex items-center justify-between text-xs">
                     {/* Issue 5: Entry deferral framing — regime-based language replaces pullback anchors */}
                     <span className="text-text-tertiary">
-                      {entryIsDeferred ? 'Positioning Posture' : 'Entry Urgency'}
+                      {entryIsDeferred ? 'Deployment Posture' : 'Deployment Priority'}
                     </span>
                     <span
                       className={`font-medium ${entryIsDeferred ? 'text-warning' : proximityStatus === 'CRITICAL' && new_buyers.action === 'BUY NOW' ? 'text-warning' : 'text-text-primary'}`}
