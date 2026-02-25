@@ -3,9 +3,35 @@
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# Re-export InvestmentThesisStructured so callers can import from one place
+from research_swarm.agents.manager.models import InvestmentThesisStructured
+
+__all__ = [
+    "ReportType",
+    "ReportSection",
+    "ReportConfig",
+    "StockReportData",
+    "ReportData",
+    "ReportOutput",
+    "InvestmentThesisStructured",
+]
+
+# ---- Stubs used when coercing a legacy string into InvestmentThesisStructured ----
+_STUB_OVERVIEW = "Investment analysis for this ticker using multi-factor quantitative model."
+_STUB_SUMMARY = "See quantitative scores and signal breakdown for the full recommendation."
+_STUB_VSA = (
+    "Valuation and signal analysis are captured in the quantitative breakdown. "
+    "Refer to the moat score, VGM scores, and signal breakdown for detailed factor-level insights."
+)
+_STUB_STRATEGY = (
+    "Entry strategy and investor fit guidance can be derived from the recommendation, "
+    "risk level, and price target scenarios shown in this report. "
+    "Consult a qualified financial advisor before acting on this information."
+)
 
 
 class ReportType(str, Enum):
@@ -62,7 +88,67 @@ class StockReportData(BaseModel):
     is_watchlist_candidate: bool = Field(
         ..., description="Whether stock is a watchlist candidate"
     )
-    investment_thesis: str = Field(..., description="Investment thesis paragraph")
+    investment_thesis: Optional[Union[InvestmentThesisStructured, str]] = Field(
+        default=None,
+        description=(
+            "Investment thesis — InvestmentThesisStructured (v2) or legacy string. "
+            "Always normalised to InvestmentThesisStructured by the field validator."
+        ),
+    )
+
+    @field_validator("investment_thesis", mode="before")
+    @classmethod
+    def _normalize_investment_thesis(cls, v: Any) -> Any:
+        """Coerce dict / legacy string → InvestmentThesisStructured."""
+        if v is None or v == "":
+            return None
+
+        if isinstance(v, InvestmentThesisStructured):
+            return v
+
+        if isinstance(v, dict) and v:
+            try:
+                return InvestmentThesisStructured(**v)
+            except Exception:
+                # Partial / malformed dict — extract best available text
+                summary = (
+                    v.get("recommendation_summary")
+                    or v.get("company_overview")
+                    or str(v)[:200]
+                )
+                return InvestmentThesisStructured(
+                    company_overview=summary[:200] if len(summary) >= 20 else _STUB_OVERVIEW,
+                    recommendation_summary=summary[:300] if len(summary) >= 20 else _STUB_SUMMARY,
+                    investment_highlights=[
+                        "Data partially available — see quantitative scores.",
+                        "Refer to signal breakdown for directional assessment.",
+                    ],
+                    valuation_signal_analysis=_STUB_VSA,
+                    key_risks=[
+                        "Investment involves market risk; past performance is not indicative of future results.",
+                        "See structured risk matrix for specific risk factors.",
+                    ],
+                    entry_strategy=_STUB_STRATEGY,
+                )
+
+        if isinstance(v, str) and v.strip():
+            text = v.strip()
+            overview = text[:200] if len(text) >= 20 else _STUB_OVERVIEW
+            summary = text[:300] if len(text) >= 20 else _STUB_SUMMARY
+            highlight = text[:150] if text else "Quantitative analysis available."
+            return InvestmentThesisStructured(
+                company_overview=overview,
+                recommendation_summary=summary,
+                investment_highlights=[highlight, "See quantitative scores for factor details."],
+                valuation_signal_analysis=text[:500] if len(text) >= 50 else _STUB_VSA,
+                key_risks=[
+                    "Investment involves market risk.",
+                    "See structured risk matrix for specific risk factors.",
+                ],
+                entry_strategy=_STUB_STRATEGY,
+            )
+
+        return v  # pass through (None, empty str already handled above)
     key_insights: List[str] = Field(
         ..., min_length=3, max_length=5, description="Top 3-5 investment insights"
     )

@@ -20,6 +20,8 @@ export type Feature =
   | 'probabilistic_engine'  // Probabilistic Engine — full EV model, stop probability, scenario distribution
   | 'analyst_verdict'       // Full Analyst Verdict — investment thesis, full agents report
   | 'execution_layer'       // Execution Layer — position sizing, portfolio risk, trade stability
+  | 'export_pdf'            // PDF Export — institutional-grade downloadable report
+  | 'trade_setup_details'   // Trader-only: enhanced trade setup table + fund/tech divergence
 
 /** Minimum tier required to access each feature. */
 const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
@@ -28,6 +30,8 @@ const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
   probabilistic_engine: 'investor',
   analyst_verdict:      'investor',
   execution_layer:      'trader',
+  export_pdf:           'investor',
+  trade_setup_details:  'trader',
 }
 
 const TIER_ORDER: Record<Tier, number> = {
@@ -111,6 +115,28 @@ export const FEATURE_GATE_COPY: Record<Feature, {
       'Portfolio risk engine & concentration diagnostics',
       'Factor exposure approximation',
       'Trade stability monitoring & correlation crowding',
+    ],
+  },
+  export_pdf: {
+    title: 'PDF Report Export',
+    description: 'Institutional-grade PDF with full analysis, structured thesis, and price targets.',
+    requiredTier: 'investor',
+    bullets: [
+      'Title page, table of contents, and appendix',
+      'Structured investment thesis with highlights and risks',
+      'Valuation tables, signal breakdown, and catalysts',
+      'Print-ready format for client distribution or record-keeping',
+    ],
+  },
+  trade_setup_details: {
+    title: 'Trade Setup Details',
+    description: 'Conservative vs aggressive entry/exit tables with 3-target playbook.',
+    requiredTier: 'trader',
+    bullets: [
+      'Conservative and aggressive entry price levels',
+      'Three-tier exit targets with partial-sell percentages',
+      'Stop-loss levels and risk/reward ratios',
+      'Fundamental vs technical divergence analysis',
     ],
   },
 }

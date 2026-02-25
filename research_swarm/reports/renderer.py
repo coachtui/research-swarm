@@ -111,21 +111,29 @@ class TemplateRenderer:
         self,
         report_data: ReportData,
         include_charts: bool = False,
+        tier: str = "investor",
     ) -> str:
         """Render the DVRG-branded HTML PDF report.
 
         Args:
             report_data: Complete report data
             include_charts: Whether to include chart references
+            tier: User subscription tier — controls Trader-only section visibility.
+                  "investor" hides trade_setup sections; "trader" includes them.
 
         Returns:
             Complete rendered HTML string for WeasyPrint
         """
+        tier = (tier or "investor").lower()
+        include_trader_content = (tier == "trader")
+
         template = self.env.get_template("pdf_report.html.j2")
         return template.render(
             report=report_data,
             stocks=report_data.stocks,
             include_charts=include_charts,
+            include_trader_content=include_trader_content,
+            tier=tier,
         )
 
     def render_custom(self, template_string: str, context: dict) -> str:

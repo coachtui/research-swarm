@@ -1,30 +1,75 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
+import { FileDown, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
+import { canAccessFeature } from '@/lib/entitlements'
 
 interface DownloadPDFButtonProps {
   runId: string
-  ticker: string
+  /**
+   * One or more ticker symbols — used for the local filename fallback.
+   * Pass all tickers for a multi-stock run so the filename is descriptive.
+   */
+  tickers: string | string[]
 }
 
-export function DownloadPDFButton({ runId, ticker }: DownloadPDFButtonProps) {
+/**
+ * DownloadPDFButton
+ *
+ * Renders one of three states based on the user's subscription tier:
+ *
+ *   Starter   → Disabled "Export PDF" button with lock icon + upgrade link
+ *               (clicking navigates to /#pricing rather than calling the API)
+ *
+ *   Investor  → Enabled "Download PDF" button (core sections, no trade table)
+ *
+ *   Trader    → Enabled "Download PDF" button (full report inc. trade setup)
+ *
+ * Entitlement is determined client-side from the cached /api/auth/me response.
+ * The backend enforces the same check independently; a 403 from the API shows
+ * an upgrade CTA toast rather than a generic error.
+ */
+export function DownloadPDFButton({ runId, tickers }: DownloadPDFButtonProps) {
   const [isLoading, setIsLoading] = useState(false)
+  const { data: user, isLoading: userLoading } = useCurrentUser()
+
+  const hasAccess = user
+    ? (user.is_admin || canAccessFeature('export_pdf', user.tier))
+    : false
+
+  // Build a descriptive local filename from the provided tickers
+  const tickerList = Array.isArray(tickers) ? tickers : [tickers]
+  const tickerLabel = tickerList.slice(0, 3).join('_') + (tickerList.length > 3 ? `_+${tickerList.length - 3}` : '')
+  const localFilename = `report_${tickerLabel}_${runId.slice(0, 8)}.pdf`
 
   const handleDownload = async () => {
     setIsLoading(true)
     try {
       const response = await fetch(`/api/proxy/runs/${runId}/report/pdf`)
+
+      // Backend returned 403 — show upgrade CTA regardless of client-side check
+      if (response.status === 403) {
+        const body = await response.json().catch(() => ({}))
+        if (body?.code === 'NOT_ENTITLED') {
+          window.location.href = '/#pricing'
+          return
+        }
+        throw new Error('Access denied')
+      }
+
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'PDF generation failed' }))
-        throw new Error(error.detail || error.error || 'Failed to generate PDF')
+        throw new Error(error.detail?.message || error.detail || error.error || 'Failed to generate PDF')
       }
 
       const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `report_${ticker}_${runId.slice(0, 8)}.pdf`
+      a.download = localFilename
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -36,6 +81,37 @@ export function DownloadPDFButton({ runId, ticker }: DownloadPDFButtonProps) {
     }
   }
 
+  // ── Still loading user data — render a neutral skeleton button ────────────
+  if (userLoading) {
+    return (
+      <Button size="lg" disabled className="w-full md:w-auto opacity-50">
+        <FileDown className="w-5 h-5 mr-2" />
+        Export PDF
+      </Button>
+    )
+  }
+
+  // ── Starter tier or unauthenticated — show locked upgrade prompt ──────────
+  if (!hasAccess) {
+    return (
+      <Link href="/#pricing" className="w-full md:w-auto">
+        <Button
+          size="lg"
+          variant="outline"
+          className="w-full md:w-auto border-border text-text-secondary hover:border-[#00D9B5] hover:text-[#00D9B5] transition-colors"
+          title="Upgrade to Investor to export PDFs"
+        >
+          <Lock className="w-4 h-4 mr-2 text-text-tertiary" />
+          Export PDF
+          <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide bg-surface-elevated text-text-tertiary px-1.5 py-0.5 rounded">
+            Investor
+          </span>
+        </Button>
+      </Link>
+    )
+  }
+
+  // ── Investor / Trader — enabled download ───────────────────────────────────
   return (
     <Button
       onClick={handleDownload}
@@ -53,24 +129,12 @@ export function DownloadPDFButton({ runId, ticker }: DownloadPDFButtonProps) {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
-          Generating PDF...
+          Generating PDF…
         </>
       ) : (
         <>
-          <svg
-            className="w-5 h-5 mr-2"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-            />
-          </svg>
-          Download Full PDF Report
+          <FileDown className="w-5 h-5 mr-2" />
+          Download PDF Report
         </>
       )}
     </Button>

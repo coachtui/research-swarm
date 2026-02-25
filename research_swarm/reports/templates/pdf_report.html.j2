@@ -2,13 +2,112 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>DVRG Report — {{ stocks[0].ticker if stocks else report.run_name }}</title>
+    <title>DVRG — AI Stock Analysis Report — {{ report.run_name or report.run_id }}</title>
 </head>
 <body>
 
-{# ===== PAGE 1: THE CALL ===== #}
+{# ═══════════════════════════════════════════════════════════════════════════
+   TITLE PAGE
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div class="cover-header" style="padding-top: 0.5in; margin-bottom: 0.3in;">
+    <p class="brand">DVRG</p>
+    <p class="subtitle">AI Stock Analysis Report</p>
+</div>
+
+<div class="cover-meta">
+    <div>
+        <div style="font-size: 16pt; font-weight: 700; color: #1a1a2e;">
+            {{ report.run_name or ("Run " ~ report.run_id[:8]) }}
+        </div>
+        <div style="font-size: 9pt; color: #718096; margin-top: 4pt;">
+            Run ID: {{ report.run_id }}
+        </div>
+    </div>
+    <div style="text-align: right;">
+        <div style="font-size: 10pt; color: #718096;">
+            Generated {{ report.generated_at.strftime('%B %d, %Y') }}
+        </div>
+        <div style="font-size: 10pt; color: #718096; margin-top: 2pt;">
+            Analysis Period: {{ report.analysis_period }}
+        </div>
+    </div>
+</div>
+
+<div class="metrics-row" style="margin: 0.35in 0;">
+    <div class="metric-item">
+        <p class="metric-label">Stocks Analyzed</p>
+        <p class="metric-value">{{ report.completed_count }}</p>
+    </div>
+    <div class="metric-item">
+        <p class="metric-label">Average Score</p>
+        <p class="metric-value">{{ "%.1f"|format(report.average_moat_score) }}/10</p>
+    </div>
+    <div class="metric-item">
+        <p class="metric-label">Top Picks</p>
+        <p class="metric-value">{{ report.top_picks|length }}</p>
+    </div>
+    <div class="metric-item">
+        <p class="metric-label">Watchlist</p>
+        <p class="metric-value">{{ report.watchlist_candidates|length }}</p>
+    </div>
+    {% if report.failed_count > 0 %}
+    <div class="metric-item">
+        <p class="metric-label">Failed</p>
+        <p class="metric-value" style="color: #EF4444;">{{ report.failed_count }}</p>
+    </div>
+    {% endif %}
+</div>
+
+{# Table of Contents #}
+<h2 class="section-header">Table of Contents</h2>
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Ticker</th>
+            <th>Rating</th>
+            <th style="text-align: right;">Score</th>
+            <th>Risk</th>
+            <th>Cohort</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% set top_tickers = report.top_picks | map(attribute='ticker') | list %}
+        {% set watchlist_tickers = report.watchlist_candidates | map(attribute='ticker') | list %}
+        {% for stock in stocks %}
+        <tr>
+            <td class="strong">{{ stock.ticker }}</td>
+            <td>
+                {% if stock.rating %}
+                <span class="badge badge-{{ stock.rating|lower|replace(' ', '-') }}">{{ stock.rating }}</span>
+                {% else %}—{% endif %}
+            </td>
+            <td class="num">{{ "%.1f"|format(stock.moat_score) }}/10</td>
+            <td>{{ stock.risk_level or "—" }}</td>
+            <td>
+                {% if stock.ticker in top_tickers %}Top Pick
+                {% elif stock.ticker in watchlist_tickers %}Watchlist
+                {% else %}Reviewed{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="disclaimer" style="margin-top: 0.4in;">
+    This report contains AI-generated probabilistic estimates and does not constitute
+    investment advice or a solicitation to buy or sell any security. All price targets and
+    scenarios are forward-looking and subject to material change. Past performance is not
+    indicative of future results. Consult a qualified financial advisor before acting on
+    any information in this report. © DVRG — AI-Powered Institutional-Grade Stock Analysis.
+</div>
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   PER-STOCK PAGES
+   ═══════════════════════════════════════════════════════════════════════════ #}
 {% for stock in stocks %}
-{% if not loop.first %}<div class="page-break"></div>{% endif %}
+<div class="page-break"></div>
+
+{# ── PAGE 1 of each stock: THE CALL ───────────────────────────────────────── #}
 
 <div class="cover-header">
     <p class="brand" data-ticker="{{ stock.ticker }}">DVRG</p>
@@ -20,23 +119,33 @@
     <span class="date">{{ report.analysis_date }} &middot; {{ report.analysis_period }}</span>
 </div>
 
-{# THE VERDICT BOX - Executive Summary #}
+{# VERDICT BOX #}
 {% if stock.decision_framework %}
 <div class="verdict-box">
     <h2 class="verdict-header">The Verdict</h2>
     <p class="verdict-summary">{{ stock.decision_framework.one_liner }}</p>
     {% if stock.conviction_statement %}
-    <p class="verdict-detail">{{ stock.conviction_statement.bottom_line[:200] }}{% if stock.conviction_statement.bottom_line|length > 200 %}...{% endif %}</p>
+    <p class="verdict-detail">
+        {{ stock.conviction_statement.bottom_line[:220] }}{% if stock.conviction_statement.bottom_line|length > 220 %}...{% endif %}
+    </p>
+    {% elif stock.investment_thesis and stock.investment_thesis is not string %}
+    <p class="verdict-detail">{{ stock.investment_thesis.recommendation_summary }}</p>
     {% endif %}
 </div>
 {% elif stock.investment_thesis %}
 <div class="verdict-box">
     <h2 class="verdict-header">The Verdict</h2>
-    <p class="verdict-summary">{{ stock.investment_thesis[:120] }}{% if stock.investment_thesis|length > 120 %}...{% endif %}</p>
+    {% if stock.investment_thesis is string %}
+    <p class="verdict-summary">
+        {{ stock.investment_thesis[:200] }}{% if stock.investment_thesis|length > 200 %}...{% endif %}
+    </p>
+    {% else %}
+    <p class="verdict-summary">{{ stock.investment_thesis.recommendation_summary }}</p>
+    {% endif %}
 </div>
 {% endif %}
 
-{# SIGNAL DIVERGENCE HERO - Moved from below for prominent positioning #}
+{# SIGNAL DIVERGENCE HERO #}
 {% if stock.signal_breakdown and stock.signal_breakdown.has_divergence %}
 <div class="divergence-alert{% if stock.fund_tech_divergence and stock.fund_tech_divergence.severity == 'MODERATE' %} moderate{% endif %}">
     <p class="alert-title">&#9888; SIGNAL DIVERGENCE DETECTED{% if stock.fund_tech_divergence %} ({{ stock.fund_tech_divergence.severity }}){% endif %}</p>
@@ -71,8 +180,14 @@
     </div>
     {% if stock.decision_framework %}
     <p class="one-liner">{{ stock.decision_framework.one_liner }}</p>
-    {% else %}
-    <p class="one-liner">{{ stock.investment_thesis[:120] }}{% if stock.investment_thesis|length > 120 %}...{% endif %}</p>
+    {% elif stock.investment_thesis %}
+    <p class="one-liner">
+        {% if stock.investment_thesis is string %}
+        {{ stock.investment_thesis[:160] }}{% if stock.investment_thesis|length > 160 %}...{% endif %}
+        {% else %}
+        {{ stock.investment_thesis.recommendation_summary }}
+        {% endif %}
+    </p>
     {% endif %}
 </div>
 
@@ -93,16 +208,22 @@
     </div>
 </div>
 
-{# QUICK ACTION SUMMARY - Current Holders vs New Buyers #}
+{# QUICK ACTION SUMMARY — Current Holders vs New Buyers #}
 {% if stock.decision_framework %}
 <div class="action-summary">
     <div class="action-col">
         <p class="action-header">Current Holders</p>
-        <p class="action-text"><strong>{{ stock.decision_framework.current_holders.action }}</strong> — {{ stock.decision_framework.current_holders.detail[:80] }}{% if stock.decision_framework.current_holders.detail|length > 80 %}...{% endif %}</p>
+        <p class="action-text">
+            <strong>{{ stock.decision_framework.current_holders.action }}</strong> —
+            {{ stock.decision_framework.current_holders.detail[:100] }}{% if stock.decision_framework.current_holders.detail|length > 100 %}...{% endif %}
+        </p>
     </div>
     <div class="action-col">
         <p class="action-header">New Buyers</p>
-        <p class="action-text"><strong>{{ stock.decision_framework.new_buyers.action }}</strong> — {{ stock.decision_framework.new_buyers.detail[:80] }}{% if stock.decision_framework.new_buyers.detail|length > 80 %}...{% endif %}</p>
+        <p class="action-text">
+            <strong>{{ stock.decision_framework.new_buyers.action }}</strong> —
+            {{ stock.decision_framework.new_buyers.detail[:100] }}{% if stock.decision_framework.new_buyers.detail|length > 100 %}...{% endif %}
+        </p>
     </div>
 </div>
 {% endif %}
@@ -115,36 +236,30 @@
         <ul class="compact-list">
         {% for insight in stock.key_insights[:3] %}
             {% set words = insight.split() %}
-            {% if words|length > 25 %}
-            <li>{{ words[:25]|join(' ') }}...</li>
-            {% else %}
-            <li>{{ insight }}</li>
-            {% endif %}
+            <li>{% if words|length > 28 %}{{ words[:28]|join(' ') }}...{% else %}{{ insight }}{% endif %}</li>
         {% endfor %}
         </ul>
         {% else %}
-        <ul class="compact-list">
-            <li><em>No insights available</em></li>
-        </ul>
+        <ul class="compact-list"><li><em>No insights available</em></li></ul>
         {% endif %}
     </div>
     <div class="col col-concerning">
         <p class="col-header">What's Concerning</p>
-        {% if stock.risk_factors %}
+        {% if stock.structured_risks %}
+        <ul class="compact-list">
+        {% for risk in stock.structured_risks[:3] %}
+            <li><strong>{{ risk.severity }}:</strong> {{ risk.risk[:80] }}{% if risk.risk|length > 80 %}...{% endif %}</li>
+        {% endfor %}
+        </ul>
+        {% elif stock.risk_factors %}
         <ul class="compact-list">
         {% for risk in stock.risk_factors[:3] %}
             {% set words = risk.split() %}
-            {% if words|length > 25 %}
-            <li>{{ words[:25]|join(' ') }}...</li>
-            {% else %}
-            <li>{{ risk }}</li>
-            {% endif %}
+            <li>{% if words|length > 28 %}{{ words[:28]|join(' ') }}...{% else %}{{ risk }}{% endif %}</li>
         {% endfor %}
         </ul>
         {% else %}
-        <ul class="compact-list">
-            <li><em>No risks available</em></li>
-        </ul>
+        <ul class="compact-list"><li><em>No risk factors available</em></li></ul>
         {% endif %}
     </div>
 </div>
@@ -161,8 +276,8 @@
     </div>
     <div class="metric-item">
         <p class="metric-label">Upside</p>
-        <p class="metric-value {% if stock.price_targets and stock.valuation_metrics and stock.valuation_metrics.current_price %}{% if (stock.price_targets.base_target / stock.valuation_metrics.current_price - 1) * 100 > 0 %}text-success{% else %}text-error{% endif %}{% endif %}">
-            {% if stock.price_targets and stock.valuation_metrics and stock.valuation_metrics.current_price %}
+        <p class="metric-value {% if stock.price_targets and stock.valuation_metrics and stock.valuation_metrics.current_price and stock.valuation_metrics.current_price > 0 %}{% if (stock.price_targets.base_target / stock.valuation_metrics.current_price - 1) * 100 > 0 %}text-success{% else %}text-error{% endif %}{% endif %}">
+            {% if stock.price_targets and stock.valuation_metrics and stock.valuation_metrics.current_price and stock.valuation_metrics.current_price > 0 %}
             {{ "%+.1f"|format((stock.price_targets.base_target / stock.valuation_metrics.current_price - 1) * 100) }}%
             {% else %}N/A{% endif %}
         </p>
@@ -177,19 +292,18 @@
     </div>
 </div>
 
-{# ===== PAGE 2: SIGNAL DEEP DIVE ===== #}
+{# ── PAGE 2: SIGNAL DEEP DIVE ─────────────────────────────────────────────── #}
 {% if stock.signal_breakdown %}
 <div class="page-break"></div>
 <h2 class="section-header">Signal Deep Dive</h2>
-
 <p style="font-size: 10pt; color: #4a5568;">Multi-source signal analysis with divergence detection. Each signal scored 0–10.</p>
 
 {% set signals = [
-    ("News Sentiment", stock.signal_breakdown.news_score, stock.signal_breakdown.news_interpretation),
-    ("Earnings Revisions", stock.signal_breakdown.earnings_score, stock.signal_breakdown.earnings_interpretation),
-    ("Analyst Ratings", stock.signal_breakdown.analyst_score, stock.signal_breakdown.analyst_interpretation),
-    ("Institutional Activity", stock.signal_breakdown.institutional_score, stock.signal_breakdown.institutional_interpretation),
-    ("Insider Activity", stock.signal_breakdown.insider_score, stock.signal_breakdown.insider_interpretation)
+    ("News Sentiment",       stock.signal_breakdown.news_score,          stock.signal_breakdown.news_interpretation),
+    ("Earnings Revisions",   stock.signal_breakdown.earnings_score,       stock.signal_breakdown.earnings_interpretation),
+    ("Analyst Ratings",      stock.signal_breakdown.analyst_score,        stock.signal_breakdown.analyst_interpretation),
+    ("Institutional",        stock.signal_breakdown.institutional_score,  stock.signal_breakdown.institutional_interpretation),
+    ("Insider Activity",     stock.signal_breakdown.insider_score,        stock.signal_breakdown.insider_interpretation)
 ] %}
 
 {% for name, score, interp in signals %}
@@ -211,101 +325,153 @@
 
 {# SCORE BREAKDOWN TABLE #}
 <h3 class="section-subheader" style="margin-top: 16pt;">Score Breakdown</h3>
-
 <table class="data-table">
     <thead>
-        <tr>
-            <th>Component</th>
-            <th style="text-align: right;">Score</th>
-        </tr>
+        <tr><th>Component</th><th style="text-align: right;">Weight</th><th style="text-align: right;">Score</th></tr>
     </thead>
     <tbody>
-        <tr><td class="strong">Earnings Momentum &#11088;</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.earnings_momentum) }}/10</td></tr>
-        <tr><td>Financial Health</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10</td></tr>
-        <tr><td>Valuation</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.valuation) }}/10</td></tr>
-        <tr><td>Technical/Momentum</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10</td></tr>
-        <tr><td>Sentiment/Catalysts</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10</td></tr>
-        <tr><td class="strong">Overall Score</td><td class="num strong">{{ "%.1f"|format(stock.moat_score) }}/10</td></tr>
+        <tr><td class="strong">Earnings Momentum &#11088;</td><td class="num">25%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.earnings_momentum if stock.moat_breakdown.earnings_momentum is not none else 0.0) }}/10</td></tr>
+        <tr><td>Financial Health</td><td class="num">25%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.financial_health if stock.moat_breakdown.financial_health is not none else 0.0) }}/10</td></tr>
+        <tr><td>Valuation</td><td class="num">20%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.valuation if stock.moat_breakdown.valuation is not none else 0.0) }}/10</td></tr>
+        <tr><td>Technical/Momentum</td><td class="num">15%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.technical_strength if stock.moat_breakdown.technical_strength is not none else 0.0) }}/10</td></tr>
+        <tr><td>Sentiment/Catalysts</td><td class="num">15%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts if stock.moat_breakdown.sentiment_catalysts is not none else 0.0) }}/10</td></tr>
+        <tr><td class="strong">Overall Score</td><td class="num"></td><td class="num strong">{{ "%.1f"|format(stock.moat_score) }}/10</td></tr>
     </tbody>
 </table>
-<p style="font-size: 8pt; color: #718096;">&#11088; Earnings Momentum = PRIMARY SIGNAL (estimate revisions)</p>
+<p style="font-size: 8pt; color: #718096;">&#11088; Earnings Momentum is the PRIMARY signal (consensus estimate revisions).</p>
 {% endif %}
 
-{# ===== PAGE 3: INVESTMENT THESIS & COMPETITIVE ADVANTAGE ===== #}
+{# ── PAGE 3: INVESTMENT THESIS & COMPETITIVE ADVANTAGE ───────────────────── #}
 <div class="page-break"></div>
 <h2 class="section-header">Investment Thesis</h2>
 
+{% if stock.investment_thesis and stock.investment_thesis is not string %}
+{# ── Structured InvestmentThesisStructured (v2 — normal case) ── #}
+
+<div class="thesis-block">
+    <p style="margin: 0 0 6pt 0;"><strong>Overview:</strong> {{ stock.investment_thesis.company_overview }}</p>
+    <p style="margin: 0;"><strong>Recommendation:</strong> {{ stock.investment_thesis.recommendation_summary }}</p>
+</div>
+
+{% if stock.investment_thesis.investment_highlights %}
+<h3 class="section-subheader">Investment Highlights</h3>
+<ul class="compact-list" style="font-size: 10pt;">
+    {% for highlight in stock.investment_thesis.investment_highlights %}
+    <li>{{ highlight }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<h3 class="section-subheader">Valuation &amp; Signal Analysis</h3>
+<p style="font-size: 10pt; line-height: 1.6; color: #4a5568;">{{ stock.investment_thesis.valuation_signal_analysis }}</p>
+
+<h3 class="section-subheader">Key Risks</h3>
+<ul class="compact-list" style="font-size: 10pt;">
+    {% for risk in stock.investment_thesis.key_risks %}
+    <li>{{ risk }}</li>
+    {% endfor %}
+</ul>
+
+<h3 class="section-subheader">Entry Strategy &amp; Investor Fit</h3>
+<p style="font-size: 10pt; line-height: 1.6; color: #4a5568;">{{ stock.investment_thesis.entry_strategy }}</p>
+
+{% elif stock.investment_thesis %}
+{# ── Legacy string fallback ── #}
 <div class="thesis-block">
     {% set words = stock.investment_thesis.split() %}
-    {% if words|length > 150 %}
-        {{ words[:150]|join(' ') }}...
-    {% else %}
-        {{ stock.investment_thesis }}
-    {% endif %}
+    {% if words|length > 150 %}{{ words[:150]|join(' ') }}...{% else %}{{ stock.investment_thesis }}{% endif %}
 </div>
+{% else %}
+<div class="thesis-block" style="color: #718096; font-style: italic;">
+    No investment thesis available for this analysis.
+</div>
+{% endif %}
 
 {% if stock.enhanced_moat %}
 <h3 class="section-subheader">Competitive Advantage Analysis</h3>
-
-<p style="font-size: 10pt;"><strong>Advantage Strength:</strong> {{ stock.enhanced_moat.moat_width }} &middot; <strong>Sustainability:</strong> {{ stock.enhanced_moat.moat_durability }} &middot; <strong>Composite:</strong> {{ "%.1f"|format(stock.enhanced_moat.composite_score) }}/10</p>
+<p style="font-size: 10pt;">
+    <strong>Advantage Strength:</strong> {{ stock.enhanced_moat.moat_width }}
+    &middot; <strong>Sustainability:</strong> {{ stock.enhanced_moat.moat_durability }}
+    &middot; <strong>Composite:</strong> {{ "%.1f"|format(stock.enhanced_moat.composite_score) }}/10
+</p>
 
 <table class="data-table">
     <thead>
         <tr><th>Category</th><th style="text-align: right;">Score</th><th>Assessment</th></tr>
     </thead>
     <tbody>
+        {% for cat_key, cat_label, strong_label, mod_label, weak_label in [
+            ('network_effects',         'Network Effects',   'Strong',      'Moderate',    'Weak'),
+            ('switching_costs',         'Switching Costs',   'High',        'Moderate',    'Low'),
+            ('brand_power',             'Brand Power',       'Premium',     'Recognized',  'Generic'),
+            ('cost_advantages',         'Cost Advantages',   'Significant', 'Moderate',    'Minimal'),
+            ('scale_economies',         'Scale Economies',   'Leader',      'Competitive', 'Disadvantaged'),
+            ('intangible_assets',       'Intangible Assets', 'Strong IP',   'Some IP',     'Limited'),
+            ('regulatory_barriers',     'Reg. Barriers',     'Protected',   'Some',        'Open'),
+            ('distribution_advantages', 'Distribution',      'Dominant',    'Established', 'Limited'),
+        ] %}
+        {% set score = stock.enhanced_moat[cat_key] if stock.enhanced_moat[cat_key] is defined else 0 %}
         <tr>
-            <td><span class="advantage-indicator {% if stock.enhanced_moat.network_effects >= 7 %}moat-strong{% elif stock.enhanced_moat.network_effects >= 4 %}moat-moderate{% else %}moat-weak{% endif %}"></span>Network Effects</td>
-            <td class="num">{{ "%.1f"|format(stock.enhanced_moat.network_effects) }}/10</td>
-            <td>{% if stock.enhanced_moat.network_effects >= 7 %}Strong{% elif stock.enhanced_moat.network_effects >= 4 %}Moderate{% else %}Weak{% endif %}</td>
+            <td>
+                <span class="advantage-indicator {% if score >= 7 %}moat-strong{% elif score >= 4 %}moat-moderate{% else %}moat-weak{% endif %}"></span>
+                {{ cat_label }}
+            </td>
+            <td class="num">{{ "%.1f"|format(score) }}/10</td>
+            <td>{% if score >= 7 %}{{ strong_label }}{% elif score >= 4 %}{{ mod_label }}{% else %}{{ weak_label }}{% endif %}</td>
         </tr>
-        <tr>
-            <td><span class="advantage-indicator {% if stock.enhanced_moat.switching_costs >= 7 %}moat-strong{% elif stock.enhanced_moat.switching_costs >= 4 %}moat-moderate{% else %}moat-weak{% endif %}"></span>Switching Costs</td>
-            <td class="num">{{ "%.1f"|format(stock.enhanced_moat.switching_costs) }}/10</td>
-            <td>{% if stock.enhanced_moat.switching_costs >= 7 %}High{% elif stock.enhanced_moat.switching_costs >= 4 %}Moderate{% else %}Low{% endif %}</td>
-        </tr>
-        <tr>
-            <td><span class="advantage-indicator {% if stock.enhanced_moat.brand_power >= 7 %}moat-strong{% elif stock.enhanced_moat.brand_power >= 4 %}moat-moderate{% else %}moat-weak{% endif %}"></span>Brand Power</td>
-            <td class="num">{{ "%.1f"|format(stock.enhanced_moat.brand_power) }}/10</td>
-            <td>{% if stock.enhanced_moat.brand_power >= 7 %}Premium{% elif stock.enhanced_moat.brand_power >= 4 %}Recognized{% else %}Generic{% endif %}</td>
-        </tr>
-        <tr>
-            <td><span class="advantage-indicator {% if stock.enhanced_moat.cost_advantages >= 7 %}moat-strong{% elif stock.enhanced_moat.cost_advantages >= 4 %}moat-moderate{% else %}moat-weak{% endif %}"></span>Cost Advantages</td>
-            <td class="num">{{ "%.1f"|format(stock.enhanced_moat.cost_advantages) }}/10</td>
-            <td>{% if stock.enhanced_moat.cost_advantages >= 7 %}Significant{% elif stock.enhanced_moat.cost_advantages >= 4 %}Moderate{% else %}Minimal{% endif %}</td>
-        </tr>
-        <tr>
-            <td><span class="advantage-indicator {% if stock.enhanced_moat.scale_economies >= 7 %}moat-strong{% elif stock.enhanced_moat.scale_economies >= 4 %}moat-moderate{% else %}moat-weak{% endif %}"></span>Scale Economies</td>
-            <td class="num">{{ "%.1f"|format(stock.enhanced_moat.scale_economies) }}/10</td>
-            <td>{% if stock.enhanced_moat.scale_economies >= 7 %}Leader{% elif stock.enhanced_moat.scale_economies >= 4 %}Competitive{% else %}Disadvantaged{% endif %}</td>
-        </tr>
-        <tr>
-            <td><span class="advantage-indicator {% if stock.enhanced_moat.intangible_assets >= 7 %}moat-strong{% elif stock.enhanced_moat.intangible_assets >= 4 %}moat-moderate{% else %}moat-weak{% endif %}"></span>Intangible Assets</td>
-            <td class="num">{{ "%.1f"|format(stock.enhanced_moat.intangible_assets) }}/10</td>
-            <td>{% if stock.enhanced_moat.intangible_assets >= 7 %}Strong IP{% elif stock.enhanced_moat.intangible_assets >= 4 %}Some IP{% else %}Limited{% endif %}</td>
-        </tr>
-        <tr>
-            <td><span class="advantage-indicator {% if stock.enhanced_moat.regulatory_barriers >= 7 %}moat-strong{% elif stock.enhanced_moat.regulatory_barriers >= 4 %}moat-moderate{% else %}moat-weak{% endif %}"></span>Regulatory Barriers</td>
-            <td class="num">{{ "%.1f"|format(stock.enhanced_moat.regulatory_barriers) }}/10</td>
-            <td>{% if stock.enhanced_moat.regulatory_barriers >= 7 %}Protected{% elif stock.enhanced_moat.regulatory_barriers >= 4 %}Some{% else %}Open{% endif %}</td>
-        </tr>
-        <tr>
-            <td><span class="advantage-indicator {% if stock.enhanced_moat.distribution_advantages >= 7 %}moat-strong{% elif stock.enhanced_moat.distribution_advantages >= 4 %}moat-moderate{% else %}moat-weak{% endif %}"></span>Distribution</td>
-            <td class="num">{{ "%.1f"|format(stock.enhanced_moat.distribution_advantages) }}/10</td>
-            <td>{% if stock.enhanced_moat.distribution_advantages >= 7 %}Dominant{% elif stock.enhanced_moat.distribution_advantages >= 4 %}Established{% else %}Limited{% endif %}</td>
-        </tr>
+        {% endfor %}
     </tbody>
 </table>
 {% endif %}
 
-{# ===== PAGE 4: VALUATION & PRICE TARGETS ===== #}
+{# UPGRADE / DOWNGRADE TRIGGERS #}
+{% if stock.upgrade_triggers or stock.downgrade_triggers %}
+<div class="two-col" style="margin-top: 12pt;">
+    <div class="col">
+        <table class="trigger-table">
+            <thead>
+                <tr><th class="upgrade" colspan="3">Upgrade Triggers</th></tr>
+                <tr><th style="font-size: 8pt;">Metric</th><th style="font-size: 8pt;">Threshold</th><th style="font-size: 8pt;">Action</th></tr>
+            </thead>
+            <tbody>
+                {% if stock.upgrade_triggers %}
+                    {% for t in stock.upgrade_triggers %}
+                    <tr><td>{{ t.metric }}</td><td>{{ t.threshold }}</td><td>{{ t.action }}</td></tr>
+                    {% endfor %}
+                {% else %}
+                <tr><td colspan="3" style="font-style: italic; color: #718096;">TBD</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+    <div class="col">
+        <table class="trigger-table">
+            <thead>
+                <tr><th class="downgrade" colspan="3">Downgrade Triggers</th></tr>
+                <tr><th style="font-size: 8pt;">Metric</th><th style="font-size: 8pt;">Threshold</th><th style="font-size: 8pt;">Action</th></tr>
+            </thead>
+            <tbody>
+                {% if stock.downgrade_triggers %}
+                    {% for t in stock.downgrade_triggers %}
+                    <tr><td>{{ t.metric }}</td><td>{{ t.threshold }}</td><td>{{ t.action }}</td></tr>
+                    {% endfor %}
+                {% else %}
+                <tr><td colspan="3" style="font-style: italic; color: #718096;">TBD</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{# ── PAGE 4: VALUATION & PRICE TARGETS ───────────────────────────────────── #}
 {% if stock.valuation_metrics or stock.price_targets %}
 <div class="page-break"></div>
 <h2 class="section-header">Valuation &amp; Price Targets</h2>
 
 {% if stock.valuation_metrics %}
 <h3 class="section-subheader">Valuation Multiples</h3>
-<p style="font-size: 10pt;"><strong>Category:</strong> {{ stock.valuation_metrics.valuation_category }}</p>
+<p style="font-size: 10pt;"><strong>Category:</strong> {{ stock.valuation_metrics.valuation_category or "N/A" }}</p>
 
 <table class="data-table">
     <thead>
@@ -322,7 +488,10 @@
 </table>
 
 {% if stock.valuation_metrics.dividend_yield %}
-<p style="font-size: 10pt; margin-top: 6pt;"><strong>Dividend:</strong> {{ "%.2f"|format(stock.valuation_metrics.dividend_yield) }}% yield &middot; {{ "%.1f"|format(stock.valuation_metrics.payout_ratio) }}% payout</p>
+<p style="font-size: 10pt; margin-top: 6pt;">
+    <strong>Dividend:</strong> {{ "%.2f"|format(stock.valuation_metrics.dividend_yield) }}% yield
+    &middot; {{ "%.1f"|format(stock.valuation_metrics.payout_ratio) }}% payout
+</p>
 {% endif %}
 {% endif %}
 
@@ -339,36 +508,42 @@
             <td class="strong text-success">Re-rating Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.bull_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.bull_probability * 100) }}%</td>
-            <td style="font-size: 8.5pt;">{{ stock.price_targets.bull_assumptions[:60] }}{% if stock.price_targets.bull_assumptions|length > 60 %}...{% endif %}</td>
+            <td style="font-size: 8.5pt;">{{ stock.price_targets.bull_assumptions[:70] }}{% if stock.price_targets.bull_assumptions|length > 70 %}...{% endif %}</td>
         </tr>
         <tr>
             <td class="strong">Continuation Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.base_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.base_probability * 100) }}%</td>
-            <td style="font-size: 8.5pt;">{{ stock.price_targets.base_assumptions[:60] }}{% if stock.price_targets.base_assumptions|length > 60 %}...{% endif %}</td>
+            <td style="font-size: 8.5pt;">{{ stock.price_targets.base_assumptions[:70] }}{% if stock.price_targets.base_assumptions|length > 70 %}...{% endif %}</td>
         </tr>
         <tr>
             <td class="strong text-error">Risk Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.bear_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.bear_probability * 100) }}%</td>
-            <td style="font-size: 8.5pt;">{{ stock.price_targets.bear_assumptions[:60] }}{% if stock.price_targets.bear_assumptions|length > 60 %}...{% endif %}</td>
+            <td style="font-size: 8.5pt;">{{ stock.price_targets.bear_assumptions[:70] }}{% if stock.price_targets.bear_assumptions|length > 70 %}...{% endif %}</td>
         </tr>
     </tbody>
 </table>
 
 {% if stock.price_targets.expected_value %}
-<p style="font-size: 10pt;"><strong>Expected Value:</strong> ${{ "%.2f"|format(stock.price_targets.expected_value) }}
-{% if stock.valuation_metrics and stock.valuation_metrics.current_price %}
-&middot; <strong>Upside:</strong> <span class="{% if (stock.price_targets.expected_value / stock.valuation_metrics.current_price - 1) * 100 > 0 %}text-success{% else %}text-error{% endif %}">{{ "%+.1f"|format((stock.price_targets.expected_value / stock.valuation_metrics.current_price - 1) * 100) }}%</span>
-{% endif %}
+<p style="font-size: 10pt;">
+    <strong>Expected Value:</strong> ${{ "%.2f"|format(stock.price_targets.expected_value) }}
+    {% if stock.valuation_metrics and stock.valuation_metrics.current_price and stock.valuation_metrics.current_price > 0 %}
+    &middot; <strong>Upside:</strong>
+    <span class="{% if (stock.price_targets.expected_value / stock.valuation_metrics.current_price - 1) * 100 > 0 %}text-success{% else %}text-error{% endif %}">
+        {{ "%+.1f"|format((stock.price_targets.expected_value / stock.valuation_metrics.current_price - 1) * 100) }}%
+    </span>
+    {% endif %}
 </p>
 {% endif %}
 {% endif %}
 
 {% if stock.valuation_sensitivity %}
 <h3 class="section-subheader">Sensitivity Analysis</h3>
-<p style="font-size: 9pt; color: #718096;">Base EPS: ${{ "%.2f"|format(stock.valuation_sensitivity.base_inputs.base_eps) }} &middot; Base P/E: {{ "%.1f"|format(stock.valuation_sensitivity.base_inputs.base_pe) }}x</p>
-
+<p style="font-size: 9pt; color: #718096;">
+    Base EPS: ${{ "%.2f"|format(stock.valuation_sensitivity.base_inputs.base_eps) }}
+    &middot; Base P/E: {{ "%.1f"|format(stock.valuation_sensitivity.base_inputs.base_pe) }}x
+</p>
 <table class="data-table">
     <thead><tr><th>EPS Scenario</th><th style="text-align: right;">EPS</th><th style="text-align: right;">Target Price</th><th style="text-align: right;">Upside</th></tr></thead>
     <tbody>
@@ -377,62 +552,72 @@
     {% endfor %}
     </tbody>
 </table>
-
-<p style="font-size: 10pt; margin-top: 6pt;"><strong>Most Likely:</strong> ${{ "%.2f"|format(stock.valuation_sensitivity.most_likely_outcome.price) }} ({{ "%+.1f"|format(stock.valuation_sensitivity.most_likely_outcome.upside_pct) }}%) &middot; <strong>Confidence:</strong> {{ stock.valuation_sensitivity.confidence_level }}</p>
+<p style="font-size: 10pt; margin-top: 6pt;">
+    <strong>Most Likely:</strong> ${{ "%.2f"|format(stock.valuation_sensitivity.most_likely_outcome.price) }}
+    ({{ "%+.1f"|format(stock.valuation_sensitivity.most_likely_outcome.upside_pct) }}%)
+    &middot; <strong>Confidence:</strong> {{ stock.valuation_sensitivity.confidence_level }}
+</p>
 {% endif %}
 {% endif %}
 
-{# ===== PAGE 5: TECHNICAL ANALYSIS ===== #}
+{# ── PAGE 5: TECHNICAL & STYLE ANALYSIS ──────────────────────────────────── #}
 {% if stock.vgm_scores %}
 <div class="page-break"></div>
 <h2 class="section-header">Technical &amp; Style Analysis</h2>
 
 <h3 class="section-subheader">VGM Investment Style</h3>
-<p style="font-size: 10pt;"><strong>Composite:</strong> {{ "%.1f"|format(stock.vgm_scores.vgm_composite) }}/10 ({{ stock.vgm_scores.vgm_grade }}) &middot; <strong>Best Fit:</strong> {{ stock.vgm_scores.best_fit_style }}</p>
+<p style="font-size: 10pt;">
+    <strong>Composite:</strong> {{ "%.1f"|format(stock.vgm_scores.vgm_composite) }}/10 ({{ stock.vgm_scores.vgm_grade }})
+    &middot; <strong>Best Fit:</strong> {{ stock.vgm_scores.best_fit_style }}
+</p>
 
 <table class="data-table">
     <thead><tr><th>Factor</th><th style="text-align: right;">Score</th><th>Grade</th><th>Rationale</th></tr></thead>
     <tbody>
-        <tr><td class="strong">Value</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.value_score) }}/10</td><td>{{ stock.vgm_scores.value_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.value_rationale[:60] }}{% if stock.vgm_scores.value_rationale|length > 60 %}...{% endif %}</td></tr>
-        <tr><td class="strong">Growth</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.growth_score) }}/10</td><td>{{ stock.vgm_scores.growth_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.growth_rationale[:60] }}{% if stock.vgm_scores.growth_rationale|length > 60 %}...{% endif %}</td></tr>
-        <tr><td class="strong">Momentum</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.momentum_score) }}/10</td><td>{{ stock.vgm_scores.momentum_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.momentum_rationale[:60] }}{% if stock.vgm_scores.momentum_rationale|length > 60 %}...{% endif %}</td></tr>
+        <tr><td class="strong">Value</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.value_score) }}/10</td><td>{{ stock.vgm_scores.value_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.value_rationale[:70] }}{% if stock.vgm_scores.value_rationale|length > 70 %}...{% endif %}</td></tr>
+        <tr><td class="strong">Growth</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.growth_score) }}/10</td><td>{{ stock.vgm_scores.growth_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.growth_rationale[:70] }}{% if stock.vgm_scores.growth_rationale|length > 70 %}...{% endif %}</td></tr>
+        <tr><td class="strong">Momentum</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.momentum_score) }}/10</td><td>{{ stock.vgm_scores.momentum_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.momentum_rationale[:70] }}{% if stock.vgm_scores.momentum_rationale|length > 70 %}...{% endif %}</td></tr>
     </tbody>
 </table>
 {% endif %}
 
 {% if stock.peer_comparison %}
-<h3 class="section-subheader">Peer Comparison</h3>
-<p style="font-size: 10pt;"><strong>Sector:</strong> {{ stock.peer_comparison.sector }} &middot; <strong>Industry:</strong> {{ stock.peer_comparison.industry }}</p>
+{% if not stock.vgm_scores %}<div class="page-break"></div><h2 class="section-header">Peer Context</h2>{% else %}<h3 class="section-subheader">Peer Comparison</h3>{% endif %}
+<p style="font-size: 10pt;">
+    <strong>Sector:</strong> {{ stock.peer_comparison.sector }}
+    &middot; <strong>Industry:</strong> {{ stock.peer_comparison.industry }}
+</p>
 <p style="font-size: 10pt;">{{ stock.peer_comparison.competitive_position }}</p>
-
 {% if stock.peer_comparison.peers %}
 <p style="font-size: 9pt; color: #718096;"><strong>Peers:</strong> {{ stock.peer_comparison.peers|join(', ') }}</p>
 {% endif %}
-
 <table class="data-table">
     <thead><tr><th>Metric</th><th style="text-align: center;">Rank</th><th>Note</th></tr></thead>
     <tbody>
-        {% if stock.peer_comparison.revenue_growth_rank %}<tr><td>Revenue Growth</td><td class="text-center"><span class="rank-badge">#{{ stock.peer_comparison.revenue_growth_rank }}</span></td><td style="font-size: 8.5pt;">1 = fastest</td></tr>{% endif %}
-        {% if stock.peer_comparison.profit_margin_rank %}<tr><td>Profit Margins</td><td class="text-center"><span class="rank-badge">#{{ stock.peer_comparison.profit_margin_rank }}</span></td><td style="font-size: 8.5pt;">1 = highest</td></tr>{% endif %}
+        {% if stock.peer_comparison.revenue_growth_rank %}<tr><td>Revenue Growth</td><td class="text-center"><span class="rank-badge">#{{ stock.peer_comparison.revenue_growth_rank }}</span></td><td style="font-size: 8.5pt;">1 = fastest growth</td></tr>{% endif %}
+        {% if stock.peer_comparison.profit_margin_rank %}<tr><td>Profit Margins</td><td class="text-center"><span class="rank-badge">#{{ stock.peer_comparison.profit_margin_rank }}</span></td><td style="font-size: 8.5pt;">1 = highest margins</td></tr>{% endif %}
         {% if stock.peer_comparison.roic_rank %}<tr><td>ROIC</td><td class="text-center"><span class="rank-badge">#{{ stock.peer_comparison.roic_rank }}</span></td><td style="font-size: 8.5pt;">1 = best efficiency</td></tr>{% endif %}
         {% if stock.peer_comparison.valuation_rank %}<tr><td>Valuation</td><td class="text-center"><span class="rank-badge">#{{ stock.peer_comparison.valuation_rank }}</span></td><td style="font-size: 8.5pt;">1 = cheapest</td></tr>{% endif %}
     </tbody>
 </table>
 {% endif %}
 
-{# ===== TRADE SETUP PLAYBOOK (Merged with Valuation Page) ===== #}
-{% if stock.enhanced_trade_setup or stock.recommended_strategy %}
+{# ── TRADE SETUP PLAYBOOK ─────────────────────────────────────────────────── #}
+{# Conviction position shown for Investor+; full trade table only for Trader #}
+{% if stock.conviction_position or stock.enhanced_trade_setup or stock.recommended_strategy %}
 <h3 class="section-subheader" style="margin-top: 16pt;">Trade Setup Playbook</h3>
 
 {% if stock.conviction_position %}
 <div class="conviction-box">
-    <strong>Conviction:</strong> <span class="conv-level">{{ stock.conviction_position.conviction_level }}</span> ({{ stock.conviction_position.conviction_score }}/10) &rarr;
-    <strong>Position Size:</strong> {{ "%.1f"|format(stock.conviction_position.recommended_pct) }}% of portfolio (${{ "%.0f"|format(stock.conviction_position.dollar_per_100k) }} per $100K)
+    <strong>Conviction:</strong> <span class="conv-level">{{ stock.conviction_position.conviction_level }}</span>
+    ({{ stock.conviction_position.conviction_score }}/10) &rarr;
+    <strong>Position Size:</strong> {{ "%.1f"|format(stock.conviction_position.recommended_pct) }}% of portfolio
+    (${{ "%.0f"|format(stock.conviction_position.dollar_per_100k) }} per $100K)
     <br><em style="font-size: 9pt; color: #718096;">{{ stock.conviction_position.conviction_justification }}</em>
 </div>
 {% endif %}
 
-{% if stock.enhanced_trade_setup %}
+{% if include_trader_content and stock.enhanced_trade_setup %}
 <table class="trade-table">
     <thead>
         <tr>
@@ -455,8 +640,14 @@
         {% for i in range(3) %}
         <tr>
             <td class="label-col">{{ stock.enhanced_trade_setup.conservative.targets[i].label }}</td>
-            <td class="num text-success">${{ "%.2f"|format(stock.enhanced_trade_setup.conservative.targets[i].price) }} <span style="font-size: 8pt; color: #718096;">(sell {{ stock.enhanced_trade_setup.conservative.targets[i].sell_pct }}%)</span></td>
-            <td class="num text-success">${{ "%.2f"|format(stock.enhanced_trade_setup.aggressive.targets[i].price) }} <span style="font-size: 8pt; color: #718096;">(sell {{ stock.enhanced_trade_setup.aggressive.targets[i].sell_pct }}%)</span></td>
+            <td class="num text-success">
+                ${{ "%.2f"|format(stock.enhanced_trade_setup.conservative.targets[i].price) }}
+                <span style="font-size: 8pt; color: #718096;">(sell {{ stock.enhanced_trade_setup.conservative.targets[i].sell_pct }}%)</span>
+            </td>
+            <td class="num text-success">
+                ${{ "%.2f"|format(stock.enhanced_trade_setup.aggressive.targets[i].price) }}
+                <span style="font-size: 8pt; color: #718096;">(sell {{ stock.enhanced_trade_setup.aggressive.targets[i].sell_pct }}%)</span>
+            </td>
         </tr>
         {% endfor %}
         <tr>
@@ -488,11 +679,29 @@
         <tr><td>Final</td><td class="num">{{ stock.recommended_strategy.entry.tranched_buying.final_percent }}%</td><td class="num">${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.final_price) }}</td></tr>
     </tbody>
 </table>
-<p style="font-size: 9pt; color: #718096;"><strong>Holding Period:</strong> {{ stock.recommended_strategy.exit.holding_period }} &middot; <strong>Expected Return:</strong> {{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_total) }}% total ({{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_annualized) }}% annualized)</p>
+<p style="font-size: 9pt; color: #718096;">
+    <strong>Holding Period:</strong> {{ stock.recommended_strategy.exit.holding_period }}
+    &middot; <strong>Expected Return:</strong>
+    {{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_total) }}% total
+    ({{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_annualized) }}% annualized)
+</p>
+{% endif %}
+
+{% if include_trader_content and stock.fund_tech_divergence %}
+<h3 class="section-subheader">Fundamental vs Technical Divergence</h3>
+<p style="font-size: 10pt;">
+    <strong>Severity:</strong> {{ stock.fund_tech_divergence.severity }}
+    {% if stock.fund_tech_divergence.resolution_bias %}
+    &middot; <strong>Resolution Bias:</strong> {{ stock.fund_tech_divergence.resolution_bias }}
+    {% endif %}
+</p>
+{% if stock.fund_tech_divergence.description %}
+<p style="font-size: 10pt; color: #4a5568;">{{ stock.fund_tech_divergence.description }}</p>
+{% endif %}
 {% endif %}
 {% endif %}
 
-{# ===== PAGE 6: PERFORMANCE DRIVERS (Merged Catalysts & Sentiment) ===== #}
+{# ── PAGE 6: PERFORMANCE DRIVERS ─────────────────────────────────────────── #}
 {% if stock.management_commentary or stock.upcoming_catalysts or stock.institutional_activity or stock.insider_activity or stock.short_interest or stock.earnings_estimates %}
 <div class="page-break"></div>
 <h2 class="section-header">Performance Drivers</h2>
@@ -501,17 +710,21 @@
 <h3 class="section-subheader">Earnings Revisions (Primary Signal)</h3>
 <p style="font-size: 10pt;">
     <strong>Direction:</strong> {{ stock.earnings_estimates.net_revision_direction }}
-    {% if stock.earnings_estimates.upward_revisions is defined %}&middot; Up: {{ stock.earnings_estimates.upward_revisions }} / Down: {{ stock.earnings_estimates.downward_revisions }}{% endif %}
-    {% if stock.earnings_estimates.beat_pattern %}&middot; <strong>Beat Pattern:</strong> {{ stock.earnings_estimates.beat_pattern }}{% endif %}
+    {% if stock.earnings_estimates.upward_revisions is defined %}
+    &middot; Up: {{ stock.earnings_estimates.upward_revisions }} / Down: {{ stock.earnings_estimates.downward_revisions }}
+    {% endif %}
+    {% if stock.earnings_estimates.beat_pattern %}
+    &middot; <strong>Beat Pattern:</strong> {{ stock.earnings_estimates.beat_pattern }}
+    {% endif %}
 </p>
 {% endif %}
 
 {% if stock.management_commentary %}
 <h3 class="section-subheader">Management Quality</h3>
 <p style="font-size: 10pt;">
-    <strong>Score:</strong> {{ "%.1f"|format(stock.management_commentary.management_quality_score) }}/10 &middot;
-    <strong>Tone:</strong> {{ stock.management_commentary.tone_assessment }} &middot;
-    <strong>Guidance:</strong> {{ stock.management_commentary.guidance_reliability }}
+    <strong>Score:</strong> {{ "%.1f"|format(stock.management_commentary.management_quality_score) }}/10
+    &middot; <strong>Tone:</strong> {{ stock.management_commentary.tone_assessment }}
+    &middot; <strong>Guidance:</strong> {{ stock.management_commentary.guidance_reliability }}
 </p>
 {% if stock.management_commentary.has_red_flags %}
 <div class="divergence-alert" style="margin: 6pt 0;">
@@ -523,15 +736,17 @@
 
 {% if stock.upcoming_catalysts and stock.upcoming_catalysts.catalysts %}
 <h3 class="section-subheader">Upcoming Catalysts</h3>
-<p style="font-size: 9pt; color: #718096;"><strong>Density:</strong> {{ stock.upcoming_catalysts.catalyst_density }} &middot; <strong>Outlook:</strong> {{ stock.upcoming_catalysts.outlook }}</p>
-
+<p style="font-size: 9pt; color: #718096;">
+    <strong>Density:</strong> {{ stock.upcoming_catalysts.catalyst_density }}
+    &middot; <strong>Outlook:</strong> {{ stock.upcoming_catalysts.outlook }}
+</p>
 <table class="catalyst-table">
     <thead><tr><th>Date</th><th>Event</th><th>Impact</th><th>Direction</th></tr></thead>
     <tbody>
     {% for cat in stock.upcoming_catalysts.catalysts[:6] %}
         <tr>
             <td>{% if cat.event_date %}{{ cat.event_date }}{% else %}TBD{% endif %}</td>
-            <td>{{ cat.description[:50] }}{% if cat.description|length > 50 %}...{% endif %}</td>
+            <td>{{ cat.description[:55] }}{% if cat.description|length > 55 %}...{% endif %}</td>
             <td>{{ cat.potential_impact }}</td>
             <td>{{ cat.impact_direction }}</td>
         </tr>
@@ -544,29 +759,37 @@
 <h3 class="section-subheader">Smart Money</h3>
 <p style="font-size: 10pt;">
     <strong>Institutional Sentiment:</strong> {{ stock.institutional_activity.institutional_sentiment }}
-    {% if stock.institutional_activity.institutional_ownership_pct %}&middot; <strong>Ownership:</strong> {{ "%.1f"|format(stock.institutional_activity.institutional_ownership_pct) }}%{% endif %}
+    {% if stock.institutional_activity.institutional_ownership_pct %}
+    &middot; <strong>Ownership:</strong> {{ "%.1f"|format(stock.institutional_activity.institutional_ownership_pct) }}%
+    {% endif %}
     &middot; <strong>Trend:</strong> {{ stock.institutional_activity.trend }}
 </p>
 {% endif %}
 
 {% if stock.insider_activity %}
 <p style="font-size: 10pt;">
-    <strong>Insider Sentiment:</strong> {{ stock.insider_activity.insider_sentiment }} &middot;
-    <strong>Net Position:</strong> {{ stock.insider_activity.net_shares|int }} shares (${{ "%.1f"|format(stock.insider_activity.net_value_usd / 1000) }}K)
+    <strong>Insider Sentiment:</strong> {{ stock.insider_activity.insider_sentiment }}
+    &middot; <strong>Net Position:</strong>
+    {{ stock.insider_activity.net_shares|int }} shares
+    (${{ "%.1f"|format(stock.insider_activity.net_value_usd / 1000) }}K)
 </p>
 {% endif %}
 
 {% if stock.short_interest %}
 <h3 class="section-subheader">Short Interest</h3>
 <p style="font-size: 10pt;">
-    {% if stock.short_interest.short_interest_pct %}<strong>Short Interest:</strong> {{ "%.1f"|format(stock.short_interest.short_interest_pct) }}% of float &middot; {% endif %}
-    {% if stock.short_interest.days_to_cover %}<strong>Days to Cover:</strong> {{ "%.1f"|format(stock.short_interest.days_to_cover) }} &middot; {% endif %}
+    {% if stock.short_interest.short_interest_pct %}
+    <strong>Short Interest:</strong> {{ "%.1f"|format(stock.short_interest.short_interest_pct) }}% of float &middot;
+    {% endif %}
+    {% if stock.short_interest.days_to_cover %}
+    <strong>Days to Cover:</strong> {{ "%.1f"|format(stock.short_interest.days_to_cover) }} &middot;
+    {% endif %}
     <strong>Squeeze Risk:</strong> {{ stock.short_interest.squeeze_risk }}
 </p>
 {% endif %}
 {% endif %}
 
-{# ===== PAGE 7: BOTTOM LINE ===== #}
+{# ── PAGE 7: BOTTOM LINE ──────────────────────────────────────────────────── #}
 <div class="page-break"></div>
 <h2 class="section-header">Bottom Line</h2>
 
@@ -608,75 +831,106 @@
 </div>
 {% endif %}
 
-{# UPGRADE / DOWNGRADE TRIGGERS #}
-{% if stock.upgrade_triggers or stock.downgrade_triggers %}
-<div class="two-col" style="margin-top: 12pt;">
-    <div class="col">
-        <table class="trigger-table">
-            <thead><tr><th class="upgrade" colspan="3">Upgrade Triggers</th></tr>
-            <tr><th style="font-size: 8pt;">Metric</th><th style="font-size: 8pt;">Threshold</th><th style="font-size: 8pt;">Action</th></tr></thead>
-            <tbody>
-            {% if stock.upgrade_triggers %}
-                {% for t in stock.upgrade_triggers %}
-                <tr><td>{{ t.metric }}</td><td>{{ t.threshold }}</td><td>{{ t.action }}</td></tr>
-                {% endfor %}
-            {% else %}
-                <tr><td colspan="3" style="font-style: italic;">TBD</td></tr>
-            {% endif %}
-            </tbody>
-        </table>
-    </div>
-    <div class="col">
-        <table class="trigger-table">
-            <thead><tr><th class="downgrade" colspan="3">Downgrade Triggers</th></tr>
-            <tr><th style="font-size: 8pt;">Metric</th><th style="font-size: 8pt;">Threshold</th><th style="font-size: 8pt;">Action</th></tr></thead>
-            <tbody>
-            {% if stock.downgrade_triggers %}
-                {% for t in stock.downgrade_triggers %}
-                <tr><td>{{ t.metric }}</td><td>{{ t.threshold }}</td><td>{{ t.action }}</td></tr>
-                {% endfor %}
-            {% else %}
-                <tr><td colspan="3" style="font-style: italic;">TBD</td></tr>
-            {% endif %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endif %}
-
 {% if stock.track_record %}
 <h3 class="section-subheader">Track Record</h3>
 <p style="font-size: 10pt;">
-    <strong>Previous:</strong> {{ stock.track_record.previous_report_date }} ({{ stock.track_record.previous_rating }}) &middot;
-    <strong>Stock:</strong> {{ "%+.1f"|format(stock.track_record.stock_performance_pct) }}% &middot;
-    <strong>vs S&amp;P 500:</strong> {{ "%+.1f"|format(stock.track_record.relative_performance_pct) }}% &middot;
-    <strong>Target Achievement:</strong> {{ "%.0f"|format(stock.track_record.target_achievement_pct) }}%
+    <strong>Previous:</strong> {{ stock.track_record.previous_report_date }} ({{ stock.track_record.previous_rating }})
+    &middot; <strong>Stock:</strong> {{ "%+.1f"|format(stock.track_record.stock_performance_pct) }}%
+    &middot; <strong>vs S&amp;P 500:</strong> {{ "%+.1f"|format(stock.track_record.relative_performance_pct) }}%
+    &middot; <strong>Target Achievement:</strong> {{ "%.0f"|format(stock.track_record.target_achievement_pct) }}%
 </p>
 {% endif %}
 
-{# STRUCTURED RISKS #}
 {% if stock.structured_risks %}
 <h3 class="section-subheader">Risk Matrix</h3>
 <table class="data-table">
     <thead><tr><th>Risk</th><th>Severity</th><th>Likelihood</th><th>Mitigation</th></tr></thead>
     <tbody>
     {% for risk in stock.structured_risks[:5] %}
-        <tr><td>{{ risk.risk }}</td><td>{{ risk.severity }}</td><td>{{ risk.likelihood }}</td><td style="font-size: 8.5pt;">{{ risk.mitigation[:60] }}{% if risk.mitigation|length > 60 %}...{% endif %}</td></tr>
+        <tr>
+            <td>{{ risk.risk }}</td>
+            <td>{{ risk.severity }}</td>
+            <td>{{ risk.likelihood }}</td>
+            <td style="font-size: 8.5pt;">{{ risk.mitigation[:65] }}{% if risk.mitigation|length > 65 %}...{% endif %}</td>
+        </tr>
     {% endfor %}
     </tbody>
 </table>
 {% endif %}
 
-{# REPORT FOOTER #}
+{# PER-STOCK FOOTER #}
 <div class="report-footer">
-    <p>Generated by <span class="brand-footer">DVRG</span> &mdash; AI-Powered Institutional-Grade Stock Analysis</p>
+    <p>
+        <span class="brand-footer">DVRG</span> — AI-Powered Institutional-Grade Stock Analysis
+        &middot; Run: {{ report.run_id[:12] }}
+    </p>
     <p class="disclaimer">
-        This report is for informational purposes only and does not constitute financial advice.
-        Past performance is not indicative of future results. Consult a qualified financial advisor before making investment decisions.
+        Probabilistic estimates — not investment advice. Past performance is not indicative
+        of future results. Forward-looking statements involve material uncertainty.
     </p>
 </div>
 
 {% endfor %}
+
+{# ═══════════════════════════════════════════════════════════════════════════
+   APPENDIX — METHODOLOGY & DISCLOSURES
+   ═══════════════════════════════════════════════════════════════════════════ #}
+<div class="page-break"></div>
+<h1 style="font-size: 18pt; font-weight: 800; color: #1a1a2e; border-bottom: 3px solid #00D9B5; padding-bottom: 6pt; margin-bottom: 16pt;">
+    Appendix — Methodology &amp; Disclosures
+</h1>
+
+<h2 class="section-header">Scoring Methodology</h2>
+<table class="data-table">
+    <thead><tr><th>Factor</th><th style="text-align: right;">Weight</th><th>Data Source</th></tr></thead>
+    <tbody>
+        <tr><td class="strong">Earnings Momentum</td><td class="num">25%</td><td>Analyst estimate revisions, beat/miss patterns</td></tr>
+        <tr><td class="strong">Financial Health</td><td class="num">25%</td><td>Balance sheet, cash flows, profitability ratios</td></tr>
+        <tr><td class="strong">Valuation</td><td class="num">20%</td><td>P/E, EV/EBITDA, PEG vs sector medians</td></tr>
+        <tr><td class="strong">Technical/Momentum</td><td class="num">15%</td><td>Price trend, RSI, MACD, 52-week range</td></tr>
+        <tr><td class="strong">Sentiment/Catalysts</td><td class="num">15%</td><td>News sentiment, analyst consensus, smart money</td></tr>
+    </tbody>
+</table>
+
+<h2 class="section-header" style="margin-top: 16pt;">Data Sources</h2>
+<ul class="compact-list" style="font-size: 10pt;">
+    <li>Financial statements and ratios: Yahoo Finance (TTM basis)</li>
+    <li>Analyst estimates and revisions: Yahoo Finance consensus data</li>
+    <li>Institutional ownership: SEC 13F filings via Yahoo Finance</li>
+    <li>Insider transactions: SEC Form 4 filings</li>
+    <li>Short interest: FINRA and exchange reported data</li>
+    <li>News and sentiment: Publicly available news aggregated algorithmically</li>
+</ul>
+
+<h2 class="section-header" style="margin-top: 16pt;">Full Disclosures</h2>
+<div class="disclaimer" style="font-size: 9pt; line-height: 1.6;">
+    <p>
+        This report has been generated by DVRG's AI analysis system and is provided for
+        informational and educational purposes only. It does not constitute investment
+        advice, a recommendation, or a solicitation to buy, sell, or hold any security.
+    </p>
+    <p>
+        All price targets, probability estimates, and scenario analyses are forward-looking
+        statements subject to significant uncertainty. Actual results may differ materially
+        from estimates due to market conditions, company-specific developments, macroeconomic
+        factors, and other risks not reflected in this analysis.
+    </p>
+    <p>
+        Past performance of any model, methodology, or individual recommendation is not
+        indicative of future results. Financial markets involve substantial risk including
+        the possible loss of principal.
+    </p>
+    <p>
+        DVRG does not hold positions in any securities mentioned in this report. This
+        analysis is generated using publicly available data and AI language models which
+        may contain errors or omissions. Users should conduct their own due diligence and
+        consult a licensed financial advisor before making any investment decision.
+    </p>
+    <p style="margin-top: 8pt; font-weight: 700;">
+        © DVRG — AI-Powered Stock Intelligence. All rights reserved.
+        Report generated {{ report.generated_at.strftime('%Y-%m-%d %H:%M UTC') }}.
+    </p>
+</div>
 
 </body>
 </html>

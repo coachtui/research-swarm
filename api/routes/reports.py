@@ -1,5 +1,16 @@
 """
 Report generation endpoints — PDF download from completed analysis runs.
+
+Entitlement matrix:
+  Starter  → 403 NOT_ENTITLED (no PDF export)
+  Investor → PDF rendered without Trader-only sections (enhanced_trade_setup,
+             fund_tech_divergence omitted from template via include_trader_content=False)
+  Trader   → Full PDF including all sections
+  Admin    → Full PDF, always
+
+Ownership:
+  Users may only export PDFs for their own runs (run.userId == user.id).
+  No public-run exception currently — add run.isPublic gate here if needed.
 """
 
 import asyncio
@@ -15,6 +26,12 @@ from loguru import logger
 from api.dependencies import get_current_user
 from api.models.auth import User
 from api.lib.db import get_db
+from api.lib.entitlements import (
+    FEAT_REPORT_PDF,
+    FEAT_REPORT_TRADE_SETUP,
+    has_feature,
+    upgrade_hint,
+)
 
 router = APIRouter()
 
@@ -96,13 +113,23 @@ def _build_report_data(run_row, stock_result_rows):
     )
 
 
-def _generate_pdf_bytes(report_data) -> bytes:
-    """Render ReportData → DVRG HTML → PDF bytes (synchronous, run in thread)."""
+def _generate_pdf_bytes(report_data, tier: str = "investor") -> bytes:
+    """
+    Render ReportData → DVRG HTML → PDF bytes (synchronous, run in thread).
+
+    Args:
+        report_data: Populated ReportData instance.
+        tier: Effective user tier — controls Trader-only section visibility.
+    """
     from research_swarm.reports.renderer import TemplateRenderer
     from research_swarm.reports.pdf_generator import PDFGenerator
 
     renderer = TemplateRenderer()
-    html_content = renderer.render_pdf_report(report_data, include_charts=False)
+    html_content = renderer.render_pdf_report(
+        report_data,
+        include_charts=False,
+        tier=tier,
+    )
 
     pdf_gen = PDFGenerator()
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
@@ -122,7 +149,30 @@ async def download_pdf_report(
     run_id: str,
     user: User = Depends(get_current_user),
 ):
-    """Generate and download a PDF report for a completed analysis run."""
+    """
+    Generate and download a PDF report for a completed analysis run.
+
+    Enforces:
+      1. Authentication (Clerk JWT via get_current_user)
+      2. Subscription entitlement — Starter → 403
+      3. Ownership — user may only export their own runs
+      4. Run must be in completed state
+      5. Tier-based content redaction (Investor vs Trader sections)
+    """
+    # ── 1. Entitlement check — must happen before any DB query ──────────────
+    if not has_feature(user, FEAT_REPORT_PDF):
+        required_tier = upgrade_hint(FEAT_REPORT_PDF)
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "NOT_ENTITLED",
+                "feature": "export_pdf",
+                "message": "PDF export requires an Investor or Trader subscription.",
+                "upgrade_to": required_tier,
+            },
+        )
+
+    # ── 2. Load run from DB ──────────────────────────────────────────────────
     db = await get_db()
 
     run = await db.run.find_unique(
@@ -132,23 +182,37 @@ async def download_pdf_report(
 
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    if run.userId != user.id:
+
+    # ── 3. Ownership check ───────────────────────────────────────────────────
+    if not user.is_admin and run.userId != user.id:
         raise HTTPException(status_code=403, detail="Access denied")
+
     if run.status != "completed":
         raise HTTPException(status_code=400, detail="Run is not completed yet")
 
+    # ── 4. Build report data ─────────────────────────────────────────────────
     try:
         report_data = _build_report_data(run, run.stockResults)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # ── 5. Determine tier for content gating ─────────────────────────────────
+    # Admins and Traders get the full report; Investors get core sections only.
+    if user.is_admin or has_feature(user, FEAT_REPORT_TRADE_SETUP):
+        effective_tier = "trader"
+    else:
+        effective_tier = "investor"
+
+    # ── 6. Generate PDF in thread pool ───────────────────────────────────────
     try:
-        pdf_bytes = await asyncio.to_thread(_generate_pdf_bytes, report_data)
+        pdf_bytes = await asyncio.to_thread(
+            _generate_pdf_bytes, report_data, effective_tier
+        )
     except Exception as e:
         logger.error(f"PDF generation failed for run {run_id}: {e}")
         raise HTTPException(status_code=500, detail="PDF generation failed")
 
-    # Build filename from tickers
+    # ── 7. Stream response ───────────────────────────────────────────────────
     tickers = "_".join(run.tickers[:3])
     if len(run.tickers) > 3:
         tickers += f"_+{len(run.tickers) - 3}"
