@@ -53,7 +53,13 @@ async def get_watchlist(user: User = Depends(get_current_user)):
     )
 
     # Check if user can refresh (has quota remaining)
-    can_refresh, _ = await check_can_analyze(user.id, user.tier, user.email, user.is_admin)
+    can_refresh, _ = await check_can_analyze(
+        user.id,
+        user.tier,
+        user.email,
+        user.is_admin,
+        stripe_status=user.stripe_subscription_status or ""
+    )
 
     # Enrich each item with calculated fields
     enriched_items = []
