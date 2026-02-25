@@ -139,3 +139,56 @@ export function tacticalStanceBadgeVariant(
     case 'Defensive':     return 'error'
   }
 }
+
+// ---------------------------------------------------------------------------
+// Portfolio Bias — institutional capital language mapped from rating
+// ---------------------------------------------------------------------------
+
+export type PortfolioBias = 'Accumulate' | 'Maintain' | 'Reduce'
+
+/**
+ * Maps the model's rating string to institutional portfolio-action language.
+ * BUY-family → Accumulate | HOLD → Maintain | SELL-family → Reduce
+ */
+export function derivePortfolioBias(rating: string | null | undefined): PortfolioBias {
+  if (!rating) return 'Maintain'
+  const r = rating.toUpperCase()
+  if (r.includes('BUY')) return 'Accumulate'
+  if (r === 'HOLD') return 'Maintain'
+  return 'Reduce'
+}
+
+// ---------------------------------------------------------------------------
+// Deployment Gate copy — deterministic banner text derived from Tactical Stance
+// ---------------------------------------------------------------------------
+
+export function deploymentGateCopy(stance: TacticalStance): { title: string; subtitle: string } {
+  switch (stance) {
+    case 'Favorable':
+    case 'Opportunistic':
+      return {
+        title: 'Deployment: Active',
+        subtitle: 'Conditions support initiating or adding exposure.',
+      }
+    case 'Deferred':
+      return {
+        title: 'Deployment: Deferred',
+        subtitle: 'Thesis intact, but entry conditions are not favorable at current levels.',
+      }
+    case 'Constrained':
+      return {
+        title: 'Deployment: Constrained',
+        subtitle: 'Signals/dispersion reduce allowable deployment size; scaling is gated.',
+      }
+    case 'Defensive':
+      return {
+        title: 'Deployment: Defensive',
+        subtitle: 'Risk regime dominates; prioritize protection over expansion.',
+      }
+  }
+}
+
+/** Returns true when Tactical Stance gates capital deployment. */
+export function isDeploymentGated(stance: TacticalStance): boolean {
+  return stance === 'Deferred' || stance === 'Constrained' || stance === 'Defensive'
+}

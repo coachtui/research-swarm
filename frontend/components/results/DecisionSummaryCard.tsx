@@ -4,6 +4,9 @@ import type { InvestmentThesisStructured, TriggerItem } from '@/types/api'
 import {
   deriveStructuralBias,
   deriveTacticalStance,
+  derivePortfolioBias,
+  deploymentGateCopy,
+  isDeploymentGated,
   structuralBiasColor,
   tacticalStanceColor,
 } from '@/lib/utils/decisionDimensions'
@@ -26,6 +29,7 @@ interface DecisionSummaryCardProps {
  *
  * Primary anchor : Structural Bias  — "Should this asset exist in my portfolio?"
  * Secondary layer: Tactical Stance  — "Should I deploy capital now?"
+ * Deployment Gate: explicit capital-deployment authorization/deferral signal
  *
  * Designed for PM consumption in <5 seconds. Eliminates BUY/HOLD/SELL retail semantics.
  */
@@ -48,9 +52,19 @@ export function DecisionSummaryCard({
     divergenceSeverity,
     false, // dislocation context not available at this level; full derivation in DecisionAction
   )
+  const portfolioBias = derivePortfolioBias(rating)
+  const gateCopy = deploymentGateCopy(stance)
+  const gated = isDeploymentGated(stance)
 
   const biasColors = structuralBiasColor(bias)
   const stanceColors = tacticalStanceColor(stance)
+
+  // Gate banner color — green for active, amber for deferred/constrained, red for defensive
+  const gateBannerColor = (() => {
+    if (!gated) return 'bg-success/8 border-success/25 text-success'
+    if (stance === 'Defensive') return 'bg-error/8 border-error/25 text-error'
+    return 'bg-warning/8 border-warning/25 text-warning'
+  })()
 
   const thesisLine = (() => {
     if (!thesis) return null
@@ -99,7 +113,25 @@ export function DecisionSummaryCard({
         </div>
       </div>
 
-      {/* Row 2: Meta chips */}
+      {/* Row 2: Deployment Gate Banner — most salient line after the dual-dimension block */}
+      <div className={`flex items-center justify-between rounded-lg border px-4 py-2.5 ${gateBannerColor}`}>
+        <div>
+          <p className="text-sm font-bold tracking-wide">{gateCopy.title}</p>
+          <p className="text-[11px] opacity-80 leading-snug mt-0.5">{gateCopy.subtitle}</p>
+        </div>
+        {/* Portfolio Bias — institutional label replacing retail BUY/HOLD/SELL */}
+        <div className="text-right shrink-0 pl-4">
+          <p className="text-[10px] uppercase tracking-wider opacity-60 font-semibold mb-0.5">
+            Portfolio Bias
+          </p>
+          <p className="text-base font-bold">{portfolioBias}</p>
+          {rating && (
+            <p className="text-[9px] opacity-50 mt-0.5">Legacy: {rating}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Row 3: Meta chips */}
       {(riskLevel || convictionLevel) && (
         <div className="flex flex-wrap items-center gap-2">
           {riskLevel && (
@@ -115,14 +147,14 @@ export function DecisionSummaryCard({
         </div>
       )}
 
-      {/* Row 3: 1-sentence thesis */}
+      {/* Row 4: 1-sentence thesis */}
       {thesisLine && (
         <p className="text-[15px] font-semibold text-text-primary leading-snug">
           {thesisLine}
         </p>
       )}
 
-      {/* Row 4: Primary Catalyst + Primary Risk */}
+      {/* Row 5: Primary Catalyst + Primary Risk */}
       {(primaryCatalyst || primaryRisk) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-border/60">
           {primaryCatalyst && (

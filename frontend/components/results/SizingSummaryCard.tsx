@@ -22,11 +22,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { FeatureGate } from '@/components/common/FeatureGate'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
+import { isDeploymentGated } from '@/lib/utils/decisionDimensions'
+import type { TacticalStance } from '@/lib/utils/decisionDimensions'
 import type { ConvictionPosition } from '@/types/api'
 
 interface SizingSummaryCardProps {
   conviction: ConvictionPosition
   isAdmin?: boolean
+  /** Tactical Stance derived from the decision framework — gates the allocation label. */
+  tacticalStance?: TacticalStance | null
 }
 
 function convictionBadgeVariant(level: string): 'success' | 'warning' | 'error' | 'default' {
@@ -52,12 +56,16 @@ function getSizingConfidence(multiplier: number): string {
   return 'Constrained'
 }
 
-export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummaryCardProps) {
+export function SizingSummaryCard({ conviction, isAdmin = false, tacticalStance }: SizingSummaryCardProps) {
   const { data: entitlements } = useEntitlements()
   const canSeeSignalMetrics = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
 
   const multiplier = getExecutionMultiplier(conviction.conviction_level)
   const isExecutionBound = multiplier < 1.0
+
+  // Deployment gate: use Tactical Stance when available, fall back to execution multiplier
+  const deploymentGated = tacticalStance != null ? isDeploymentGated(tacticalStance) : isExecutionBound
+  const allocationLabel = deploymentGated ? 'Deployable Allocation (Gated)' : 'Deployable Allocation (Active)'
 
   // Back-calculate the pre-multiplier baseline for display (no math change, display only)
   const baselineModelWeight =
@@ -89,7 +97,7 @@ export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummary
         {/* ── PRIMARY DECISION VARIABLE ────────────────────────────────── */}
         <div>
           <p className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider mb-2">
-            Deployable Allocation
+            {allocationLabel}
           </p>
           <div className="flex items-baseline gap-1">
             <span className="text-4xl font-bold text-primary tabular-nums leading-none">
@@ -109,9 +117,9 @@ export function SizingSummaryCard({ conviction, isAdmin = false }: SizingSummary
               {isExecutionBound ? '· Execution-Constrained' : '· Within Guardrails'}
             </span>
           </div>
-          {isExecutionBound && (
-            <p className="text-[10px] text-text-tertiary mt-1.5 leading-tight">
-              Constraint Drivers Active: Signal Dispersion · Noise Regime · Stop Risk
+          {deploymentGated && (
+            <p className="text-[10px] text-text-tertiary mt-1.5 leading-tight italic">
+              Allocation reflects execution constraints, not thesis impairment.
             </p>
           )}
           <p className="text-[10px] text-text-tertiary mt-1 leading-tight">

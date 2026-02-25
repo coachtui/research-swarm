@@ -23,7 +23,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatDateTime } from '@/lib/utils/formatting'
-import { deriveStructuralBias, structuralBiasBadgeVariant } from '@/lib/utils/decisionDimensions'
+import { deriveStructuralBias, deriveTacticalStance, structuralBiasBadgeVariant } from '@/lib/utils/decisionDimensions'
 import { simplifyKeyInsights } from '@/lib/analysis/simplifyKeyInsights'
 import { extractWhatsNew } from '@/lib/analysis/extractWhatsNew'
 import { extractWatchCalendar } from '@/lib/analysis/extractWatchCalendar'
@@ -325,6 +325,13 @@ export function ResultsContent({
             <SizingSummaryCard
               conviction={decision_intelligence.conviction_position}
               isAdmin={isAdmin}
+              tacticalStance={deriveTacticalStance(
+                decision_intelligence.decision_framework?.new_buyers?.action ?? null,
+                decision_intelligence.rating,
+                signal_breakdown?.has_divergence ?? false,
+                (decision_intelligence.fund_tech_divergence?.severity ?? null) as 'HIGH' | 'MODERATE' | null,
+                false, // structural dislocation not computed at page level; DecisionAction handles it
+              )}
             />
           )}
 

@@ -3,11 +3,14 @@
 import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { AlertTriangle, CheckCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import type { DecisionFramework, RecommendedStrategy, SignalBreakdown, FundTechDivergence, EnhancedTradeSetup } from '@/types/api'
 import {
   deriveStructuralBias,
   deriveTacticalStance,
+  derivePortfolioBias,
+  deploymentGateCopy,
+  isDeploymentGated,
   structuralBiasColor,
   tacticalStanceColor,
 } from '@/lib/utils/decisionDimensions'
@@ -112,8 +115,68 @@ function getAvoidProximity(currentPrice: number | null | undefined, avoidAbovePr
   return null
 }
 
+/** Derives the top gating reasons for deployment from existing signal data.
+ *  Presentation-only — no new math or thresholds are introduced. */
+interface GatingReason {
+  label: string
+  action: string
+}
+
+function buildGatingReasons(params: {
+  isStructuralDislocation: boolean
+  hasDivergence: boolean | undefined
+  divergenceSeverity: string | null
+  spreadLabel: string | null | undefined
+  noiseRegime: string | null | undefined
+  stopProbLabel: string | null | undefined
+  institutionalScore: number | null | undefined
+}): GatingReason[] {
+  const reasons: GatingReason[] = []
+
+  if (params.isStructuralDislocation) {
+    reasons.push({
+      label: 'Valuation regime extended',
+      action: 'Monitor for price normalization toward structural value zone before initiating.',
+    })
+  }
+
+  const hasHighDispersion =
+    params.spreadLabel === 'High' ||
+    (params.hasDivergence && params.divergenceSeverity === 'HIGH')
+  if (hasHighDispersion) {
+    reasons.push({
+      label: 'Signal dispersion elevated',
+      action: 'Wait for directional convergence across signal sources before scaling.',
+    })
+  }
+
+  if (params.noiseRegime && params.noiseRegime !== 'Clean') {
+    reasons.push({
+      label: `Noise regime: ${params.noiseRegime.toLowerCase()}`,
+      action: 'Confirm regime transition to cleaner signal environment before initiating.',
+    })
+  }
+
+  if (params.stopProbLabel && ['Elevated', 'High', 'Critical'].includes(params.stopProbLabel)) {
+    reasons.push({
+      label: `Stop risk: ${params.stopProbLabel.toLowerCase()}`,
+      action: 'Allow adverse exit probability to reduce before deploying full allocation.',
+    })
+  }
+
+  if (typeof params.institutionalScore === 'number' && params.institutionalScore < 5) {
+    reasons.push({
+      label: 'Institutional flow subdued',
+      action: 'Confirm re-accumulation signal before adding exposure.',
+    })
+  }
+
+  return reasons
+}
+
 export function DecisionAction({
   framework,
+  ticker,
   rating,
   riskLevel,
   currentPrice,
@@ -124,6 +187,7 @@ export function DecisionAction({
   enhancedTradeSetup,
 }: DecisionActionProps) {
   const [tab, setTab] = useState<Tab>('new')
+  const [accordionOpen, setAccordionOpen] = useState(false)
   const { current_holders, new_buyers, one_liner } = framework
 
   // Build price zones from strategy
@@ -208,8 +272,43 @@ export function DecisionAction({
     divergenceSeverity as 'HIGH' | 'MODERATE' | null | undefined,
     isStructuralDislocation,
   )
+  const portfolioBias = derivePortfolioBias(rating)
+  const gateCopy = deploymentGateCopy(stance)
+  const gated = isDeploymentGated(stance)
+
   const biasColors = structuralBiasColor(bias)
   const stanceColors = tacticalStanceColor(stance)
+
+  // Gate banner color
+  const gateBannerColor = (() => {
+    if (!gated) return 'bg-success/8 border-success/25 text-success'
+    if (stance === 'Defensive') return 'bg-error/8 border-error/25 text-error'
+    return 'bg-warning/8 border-warning/25 text-warning'
+  })()
+
+  // Gating reasons for the accordion and the institutional copy template
+  const gatingReasons = buildGatingReasons({
+    isStructuralDislocation,
+    hasDivergence,
+    divergenceSeverity,
+    spreadLabel: signalBreakdown?.signal_spread_label,
+    noiseRegime: signalBreakdown?.noise_filter?.noise_regime,
+    stopProbLabel: signalBreakdown?.stop_probability?.stop_probability_label,
+    institutionalScore: signalBreakdown?.institutional_score,
+  })
+
+  // Institutional copy template — deterministic PM-language headline sentence
+  const institutionalHeadline = (() => {
+    const priceStr = currentPrice ? `$${currentPrice.toLocaleString()}` : null
+    const reasonSummary = gatingReasons.length > 0
+      ? ` due to ${gatingReasons.slice(0, 2).map(r => r.label.toLowerCase()).join(' and ')}`
+      : ''
+    const deploymentPhrase = gated
+      ? `deployment is ${stance.toLowerCase()}${reasonSummary}`
+      : `conditions support deployment`
+    const atPrice = priceStr ? ` At ${priceStr},` : ''
+    return `${portfolioBias} —${atPrice} ${ticker} shows ${bias.toLowerCase()} structural characteristics; ${deploymentPhrase}.`
+  })()
 
   return (
     <Card
@@ -240,6 +339,70 @@ export function DecisionAction({
             </div>
           </div>
 
+          {/* Deployment Gate Banner — most salient line after the dual-dimension block.
+              Visually dominant over any legacy BUY language. */}
+          <div className={`rounded-lg border px-4 py-3 ${gateBannerColor}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold tracking-wide">{gateCopy.title}</p>
+                <p className="text-[11px] opacity-80 leading-snug mt-0.5">{gateCopy.subtitle}</p>
+              </div>
+              {/* Portfolio Bias + Legacy label — right-aligned, lower salience */}
+              <div className="text-right shrink-0">
+                <p className="text-[9px] uppercase tracking-wider opacity-60 font-semibold mb-0.5">
+                  Portfolio Bias
+                </p>
+                <p className="text-sm font-bold">{portfolioBias}</p>
+                {rating && (
+                  <p className="text-[9px] opacity-45 mt-0.5">Legacy: {rating}</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* "Why isn't this deployable?" accordion — shown only when deployment is gated */}
+          {gated && (
+            <div className="rounded-md border border-border/60 bg-surface-elevated overflow-hidden">
+              <button
+                onClick={() => setAccordionOpen(o => !o)}
+                className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-surface-elevated/80 transition-colors"
+              >
+                <span className="text-xs font-medium text-text-secondary">
+                  Why isn&apos;t this deployable right now?
+                </span>
+                {accordionOpen
+                  ? <ChevronUp className="h-3.5 w-3.5 text-text-tertiary flex-shrink-0" />
+                  : <ChevronDown className="h-3.5 w-3.5 text-text-tertiary flex-shrink-0" />
+                }
+              </button>
+              {accordionOpen && (
+                <div className="border-t border-border/40 px-4 pb-4 pt-3 space-y-2.5">
+                  {gatingReasons.length > 0 ? (
+                    gatingReasons.map((reason, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className="mt-1.5 w-1 h-1 rounded-full bg-warning flex-shrink-0" />
+                        <div>
+                          <span className="text-xs font-medium text-text-secondary">{reason.label}</span>
+                          <span className="text-xs text-text-tertiary"> — {reason.action}</span>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    /* Fallback when no specific signals are detected — generic stance explanation */
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1.5 w-1 h-1 rounded-full bg-warning flex-shrink-0" />
+                      <p className="text-xs text-text-tertiary">
+                        {stance === 'Deferred'
+                          ? 'Entry conditions not favorable at current levels — monitor for improved risk/reward before initiating.'
+                          : 'Current signal environment reduces confidence in full deployment — await improved conditions.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Meta chips */}
           <div className="flex items-center gap-2 flex-wrap">
             {riskLevel && (
@@ -250,8 +413,17 @@ export function DecisionAction({
             )}
           </div>
 
-          {/* Issue 4: Institutional language — presentation-only transform of tactical phrasing */}
-          <p className="text-base font-semibold text-text-primary leading-relaxed">{institutionalizeLang(one_liner)}</p>
+          {/* Institutional copy template — deterministic PM-language headline */}
+          <p className="text-base font-semibold text-text-primary leading-relaxed">
+            {institutionalHeadline}
+          </p>
+          {/* Supporting context: model-generated one-liner (lower salience) */}
+          {one_liner && institutionalizeLang(one_liner) !== institutionalHeadline && (
+            <p className="text-sm text-text-secondary leading-relaxed">
+              {institutionalizeLang(one_liner)}
+            </p>
+          )}
+
           {/* Structured per-reader-type subtext — replaces the pipe-delimited multi-audience line.
               When structurally dislocated, subtext lines reference the intrinsic baseline zone
               (e.g., $55–$65), not current tactical levels — frame accordingly to prevent misread. */}
