@@ -466,6 +466,28 @@ export interface TriggerItem {
   action: string
 }
 
+// --- Capital Deployment Rationale Types ---
+
+export interface CapitalDeploymentDriver {
+  label: string
+  impact: 'tighten' | 'loosen' | 'neutral'
+  evidence: string
+}
+
+export interface CapitalDeploymentBinding {
+  type: 'execution' | 'policy_cap'
+  explanation: string
+}
+
+export interface CapitalDeploymentRationale {
+  summary: string
+  drivers: CapitalDeploymentDriver[]
+  binding: CapitalDeploymentBinding
+  interpretation: string[]
+  next_actions: string[]
+  disclaimers: string
+}
+
 // --- Decision Intelligence Types ---
 
 export interface DecisionIntelligence {
@@ -479,6 +501,8 @@ export interface DecisionIntelligence {
   recommended_strategy: RecommendedStrategy | null
   /** QA flags: constraint violations and clamping events logged during calculation */
   report_qa_flags?: string[]
+  /** Pre-computed capital deployment rationale — available for PDF export */
+  capital_deployment_rationale?: CapitalDeploymentRationale | null
 }
 
 export interface DecisionFramework {

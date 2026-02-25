@@ -133,6 +133,7 @@ export function ExecutionLayer({
               />
               <FinalWeightResolver
                 ticker={ticker}
+                rating={rating}
                 signalBreakdown={signalBreakdown}
                 convictionPosition={convictionPosition}
               />

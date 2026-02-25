@@ -15,17 +15,19 @@
  * lower allocation becomes the binding constraint. No override, no blending.
  */
 
-import { useMemo } from 'react'
-import { Scale, Shield, ChevronRight, Info } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Scale, Shield, ChevronRight, Info, ChevronDown, ChevronUp, HelpCircle, AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { computePositionSizing, defaultConfig } from '@/lib/engine/computePositionSizing'
+import { buildCapitalDeploymentRationale } from '@/lib/engine/buildCapitalDeploymentRationale'
 import type { PositionSizingInput } from '@/lib/engine/types'
-import type { SignalBreakdown, ConvictionPosition } from '@/types/api'
+import type { SignalBreakdown, ConvictionPosition, CapitalDeploymentDriver } from '@/types/api'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface FinalWeightResolverProps {
   ticker: string
+  rating?: string | null
   signalBreakdown?: SignalBreakdown | null
   convictionPosition?: ConvictionPosition | null
 }
@@ -111,6 +113,47 @@ function InputSourceCard({
   )
 }
 
+// ─── Capital Deployment Rationale sub-components ──────────────────────────────
+
+function ImpactIcon({ impact }: { impact: CapitalDeploymentDriver['impact'] }) {
+  if (impact === 'tighten') return <TrendingDown className="h-3 w-3 text-warning/70 shrink-0" />
+  if (impact === 'loosen') return <TrendingUp className="h-3 w-3 text-success/70 shrink-0" />
+  return <Minus className="h-3 w-3 text-text-tertiary/50 shrink-0" />
+}
+
+function ImpactBadge({ impact }: { impact: CapitalDeploymentDriver['impact'] }) {
+  return (
+    <span
+      className={cn(
+        'text-[8px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border shrink-0',
+        impact === 'tighten'
+          ? 'text-warning border-warning/30 bg-warning/10'
+          : impact === 'loosen'
+            ? 'text-success border-success/30 bg-success/10'
+            : 'text-text-tertiary border-border/30 bg-surface-elevated'
+      )}
+    >
+      {impact === 'tighten' ? '↓ Tighten' : impact === 'loosen' ? '↑ Loosen' : '— Neutral'}
+    </span>
+  )
+}
+
+function BindingBadge({ type }: { type: 'execution' | 'policy_cap' }) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border',
+        type === 'execution'
+          ? 'text-primary border-primary/30 bg-primary/10'
+          : 'text-warning border-warning/30 bg-warning/10'
+      )}
+    >
+      <Shield className="h-2.5 w-2.5" />
+      {type === 'execution' ? 'Execution-bound' : 'Cap-bound'}
+    </span>
+  )
+}
+
 function ArbitrationRow({
   dimension,
   value,
@@ -149,6 +192,7 @@ function ArbitrationRow({
 
 export function FinalWeightResolver({
   ticker,
+  rating,
   signalBreakdown,
   convictionPosition,
 }: FinalWeightResolverProps) {
@@ -207,6 +251,22 @@ export function FinalWeightResolver({
 
     return { finalWeight, bindingSource, headroom, capUtilisation }
   }, [executionWeightPct, policyCap])
+
+  // ── Capital Deployment Rationale ───────────────────────────────────────────
+  const rationale = useMemo(() => {
+    if (!resolver || executionWeightPct == null || policyCap == null) return null
+    return buildCapitalDeploymentRationale({
+      rating: rating ?? 'HOLD',
+      signalBreakdown,
+      convictionPosition,
+      executionWeightPct,
+      policyCap,
+      finalWeight: resolver.finalWeight,
+      bindingSource: resolver.bindingSource,
+    })
+  }, [rating, signalBreakdown, convictionPosition, executionWeightPct, policyCap, resolver])
+
+  const [rationaleOpen, setRationaleOpen] = useState(true)
 
   // ── Early return: insufficient data ────────────────────────────────────────
   if (!resolver || executionWeightPct == null || policyCap == null) {
@@ -331,6 +391,109 @@ export function FinalWeightResolver({
             </div>
           </div>
         </div>
+
+        {/* ── Capital Deployment Rationale ──────────────────────────────────── */}
+        {rationale && (
+          <div className="rounded-lg border border-border/50 bg-surface-elevated/20 overflow-hidden">
+
+            {/* Collapsible header */}
+            <button
+              onClick={() => setRationaleOpen((o) => !o)}
+              className="w-full flex items-center justify-between px-3 py-2 hover:bg-surface-elevated/30 transition-colors text-left"
+            >
+              <div className="flex items-center gap-1.5">
+                <HelpCircle className="h-3.5 w-3.5 text-text-tertiary/60 shrink-0" />
+                <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-wider">
+                  Why is my allocation {fmt(resolver.finalWeight)}?
+                </span>
+                <BindingBadge type={rationale.binding.type} />
+              </div>
+              {rationaleOpen
+                ? <ChevronUp className="h-3.5 w-3.5 text-text-tertiary/40 shrink-0" />
+                : <ChevronDown className="h-3.5 w-3.5 text-text-tertiary/40 shrink-0" />
+              }
+            </button>
+
+            {rationaleOpen && (
+              <div className="px-3 pb-3 pt-0 space-y-3 border-t border-border/30">
+
+                {/* Summary */}
+                <p className="text-[11px] text-text-secondary leading-relaxed pt-2.5">
+                  {rationale.summary}
+                </p>
+
+                {/* Drivers (if any) */}
+                {rationale.drivers.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[9px] uppercase tracking-wider text-text-tertiary/50 font-semibold">
+                      Sizing Drivers
+                    </p>
+                    <div className="space-y-1">
+                      {rationale.drivers.map((d, i) => (
+                        <div key={i} className="flex items-start gap-2 py-1 border-b border-border/20 last:border-0">
+                          <ImpactIcon impact={d.impact} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-medium text-text-secondary">{d.label}</span>
+                              <ImpactBadge impact={d.impact} />
+                            </div>
+                            <p className="text-[10px] text-text-tertiary/70 leading-tight mt-0.5">{d.evidence}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Interpretation bullets */}
+                <div className="space-y-1">
+                  <p className="text-[9px] uppercase tracking-wider text-text-tertiary/50 font-semibold">
+                    Interpretation
+                  </p>
+                  <ul className="space-y-1">
+                    {rationale.interpretation.map((line, i) => (
+                      <li key={i} className="flex items-start gap-1.5">
+                        <span className="text-text-tertiary/30 text-[10px] shrink-0 mt-0.5">•</span>
+                        <span className="text-[10px] text-text-tertiary leading-relaxed">{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Binding explanation */}
+                <div className="rounded border border-border/40 bg-surface/30 px-2.5 py-2">
+                  <div className="flex items-start gap-1.5">
+                    <Info className="h-3 w-3 text-text-tertiary/40 shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-text-tertiary leading-relaxed">
+                      {rationale.binding.explanation}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Next actions */}
+                {rationale.next_actions.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[9px] uppercase tracking-wider text-text-tertiary/50 font-semibold">
+                      What would change this?
+                    </p>
+                    <ul className="space-y-0.5">
+                      {rationale.next_actions.map((action, i) => (
+                        <li key={i} className="flex items-start gap-1.5">
+                          <span className="text-primary/40 text-[10px] shrink-0 mt-0.5">→</span>
+                          <span className="text-[10px] text-text-tertiary/80 leading-relaxed">{action}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Disclaimer */}
+                <p className="text-[9px] text-text-tertiary/30 italic">{rationale.disclaimers}</p>
+
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Final Allowed Allocation — hero ───────────────────────────────── */}
         <div
