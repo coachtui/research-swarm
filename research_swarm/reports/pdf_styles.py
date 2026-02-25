@@ -1,22 +1,64 @@
-"""DVRG-branded CSS styles for xhtml2pdf PDF generation.
-
-CSS variables expanded to literal values; WeasyPrint-only features removed
-(running headers, string-set, flex, linear-gradient, box-shadow).
-"""
+"""DVRG-branded CSS styles for WeasyPrint PDF generation."""
 
 PDF_CSS = """
 /* ===== DVRG PDF Report Styles ===== */
 
+:root {
+    --dvrg-teal: #00D9B5;
+    --dvrg-teal-dark: #00B396;
+    --dvrg-dark: #0A0E1A;
+    --dvrg-surface: #1A1F2E;
+    --dvrg-border: #2A3040;
+    --text-primary: #1a1a2e;
+    --text-secondary: #4a5568;
+    --text-muted: #718096;
+    --success: #10B981;
+    --warning: #F59E0B;
+    --error: #EF4444;
+    --info: #3B82F6;
+}
+
 @page {
     size: letter;
     margin: 0.75in 0.75in 0.9in 0.75in;
+    @top-left {
+        content: "DVRG";
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        font-size: 9pt;
+        font-weight: 700;
+        color: #00D9B5;
+        padding-top: 0.15in;
+    }
+    @top-right {
+        content: string(ticker-name);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        font-size: 9pt;
+        color: #718096;
+        padding-top: 0.15in;
+    }
+    @bottom-center {
+        content: counter(page) " of " counter(pages);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        font-size: 8pt;
+        color: #718096;
+    }
+    @bottom-right {
+        content: "";
+        font-size: 7pt;
+        color: #a0aec0;
+    }
+}
+
+@page :first {
+    @top-left { content: none; }
+    @top-right { content: none; }
 }
 
 body {
-    font-family: Helvetica, Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     font-size: 10.5pt;
     line-height: 1.55;
-    color: #1a1a2e;
+    color: var(--text-primary);
     margin: 0;
     padding: 0;
 }
@@ -36,7 +78,9 @@ body {
     font-size: 28pt;
     font-weight: 800;
     color: #00D9B5;
+    letter-spacing: -0.5px;
     margin: 0;
+    string-set: ticker-name attr(data-ticker);
 }
 
 .cover-header .subtitle {
@@ -48,6 +92,9 @@ body {
 }
 
 .cover-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin: 0.15in 0;
     padding: 8pt 0;
     border-bottom: 1px solid #e2e8f0;
@@ -56,21 +103,29 @@ body {
 .cover-meta .ticker {
     font-size: 22pt;
     font-weight: 700;
-    color: #1a1a2e;
+    color: var(--text-primary);
 }
 
 .cover-meta .date {
     font-size: 10pt;
-    color: #718096;
+    color: var(--text-muted);
 }
 
 /* ===== THE CALL BOX ===== */
 .the-call-box {
     background: #f0fdf9;
     border: 2px solid #00D9B5;
+    border-radius: 8px;
     padding: 14pt 16pt;
     margin: 0.15in 0;
     page-break-inside: avoid;
+}
+
+.the-call-box .call-header {
+    display: flex;
+    align-items: center;
+    gap: 10pt;
+    margin-bottom: 8pt;
 }
 
 .the-call-box .call-label {
@@ -84,7 +139,7 @@ body {
 .the-call-box .one-liner {
     font-size: 13pt;
     font-weight: 600;
-    color: #1a1a2e;
+    color: var(--text-primary);
     line-height: 1.4;
     margin: 0;
 }
@@ -93,6 +148,7 @@ body {
 .badge {
     display: inline-block;
     padding: 3pt 10pt;
+    border-radius: 12pt;
     font-size: 9pt;
     font-weight: 700;
     text-transform: uppercase;
@@ -100,16 +156,19 @@ body {
 }
 
 .badge-strong-buy { background: #d1fae5; color: #065f46; }
-.badge-buy        { background: #d1fae5; color: #065f46; }
-.badge-hold       { background: #fef3c7; color: #92400e; }
-.badge-sell       { background: #fee2e2; color: #991b1b; }
-.badge-strong-sell{ background: #fee2e2; color: #991b1b; }
-.badge-high       { background: #fee2e2; color: #991b1b; }
-.badge-moderate   { background: #fef3c7; color: #92400e; }
-.badge-low        { background: #d1fae5; color: #065f46; }
+.badge-buy { background: #d1fae5; color: #065f46; }
+.badge-hold { background: #fef3c7; color: #92400e; }
+.badge-sell { background: #fee2e2; color: #991b1b; }
+.badge-strong-sell { background: #fee2e2; color: #991b1b; }
+.badge-high { background: #fee2e2; color: #991b1b; }
+.badge-moderate { background: #fef3c7; color: #92400e; }
+.badge-low { background: #d1fae5; color: #065f46; }
 
 /* ===== SCORE DISPLAY ===== */
 .score-display {
+    display: flex;
+    align-items: center;
+    gap: 12pt;
     margin: 0.1in 0;
     page-break-inside: avoid;
 }
@@ -122,33 +181,35 @@ body {
 
 .score-label {
     font-size: 14pt;
-    color: #718096;
+    color: var(--text-muted);
     font-weight: 400;
 }
 
 .score-band {
     font-size: 9pt;
-    color: #718096;
+    color: var(--text-muted);
     margin-top: 4pt;
 }
 
 .score-band .active {
     font-weight: 700;
-    color: #1a1a2e;
+    color: var(--text-primary);
     background: #f0fdf9;
     padding: 1pt 4pt;
+    border-radius: 3pt;
 }
 
-.score-strong-buy  { color: #059669; }
-.score-buy         { color: #10B981; }
-.score-hold        { color: #F59E0B; }
-.score-sell        { color: #EF4444; }
+.score-strong-buy { color: #059669; }
+.score-buy { color: #10B981; }
+.score-hold { color: #F59E0B; }
+.score-sell { color: #EF4444; }
 .score-strong-sell { color: #DC2626; }
 
 /* ===== DIVERGENCE ALERT ===== */
 .divergence-alert {
     background: #fef2f2;
     border-left: 4px solid #EF4444;
+    border-radius: 0 6px 6px 0;
     padding: 10pt 14pt;
     margin: 0.12in 0;
     page-break-inside: avoid;
@@ -166,11 +227,13 @@ body {
     margin: 0 0 4pt 0;
 }
 
-.divergence-alert.moderate .alert-title { color: #92400e; }
+.divergence-alert.moderate .alert-title {
+    color: #92400e;
+}
 
 .divergence-alert p {
     font-size: 9.5pt;
-    color: #4a5568;
+    color: var(--text-secondary);
     margin: 3pt 0;
 }
 
@@ -178,6 +241,7 @@ body {
 .all-clear {
     background: #f0fdf4;
     border-left: 4px solid #10B981;
+    border-radius: 0 6px 6px 0;
     padding: 8pt 14pt;
     margin: 0.12in 0;
     page-break-inside: avoid;
@@ -192,21 +256,20 @@ body {
 
 .all-clear p {
     font-size: 9.5pt;
-    color: #4a5568;
+    color: var(--text-secondary);
     margin: 2pt 0;
 }
 
-/* ===== TWO COLUMN LAYOUT (inline-block fallback) ===== */
+/* ===== TWO COLUMN LAYOUT ===== */
 .two-col {
+    display: flex;
+    gap: 16pt;
     margin: 0.1in 0;
     page-break-inside: avoid;
 }
 
 .two-col .col {
-    display: inline-block;
-    width: 47%;
-    vertical-align: top;
-    padding-right: 2%;
+    flex: 1;
 }
 
 .two-col .col-header {
@@ -217,35 +280,39 @@ body {
     border-bottom: 2px solid #e2e8f0;
 }
 
-.two-col .col-working   .col-header { color: #059669; border-bottom-color: #10B981; }
+.two-col .col-working .col-header { color: #059669; border-bottom-color: #10B981; }
 .two-col .col-concerning .col-header { color: #DC2626; border-bottom-color: #EF4444; }
 
-.two-col ul { margin: 0; padding: 0 0 0 14pt; }
+.two-col ul {
+    margin: 0;
+    padding: 0 0 0 14pt;
+}
 
 .two-col li {
     font-size: 9.5pt;
-    color: #4a5568;
+    color: var(--text-secondary);
     margin: 4pt 0;
     line-height: 1.4;
 }
 
 /* ===== METRICS ROW ===== */
 .metrics-row {
+    display: flex;
+    justify-content: space-between;
     background: #f7fafc;
+    border-radius: 6px;
     padding: 8pt 14pt;
     margin: 0.1in 0;
     page-break-inside: avoid;
 }
 
 .metric-item {
-    display: inline-block;
     text-align: center;
-    padding: 0 12pt;
 }
 
 .metric-item .metric-label {
     font-size: 8pt;
-    color: #718096;
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin: 0;
@@ -254,7 +321,7 @@ body {
 .metric-item .metric-value {
     font-size: 14pt;
     font-weight: 700;
-    color: #1a1a2e;
+    color: var(--text-primary);
     margin: 2pt 0 0 0;
 }
 
@@ -262,7 +329,7 @@ body {
 .section-header {
     font-size: 14pt;
     font-weight: 700;
-    color: #1a1a2e;
+    color: var(--text-primary);
     border-bottom: 2px solid #00D9B5;
     padding-bottom: 4pt;
     margin: 0.2in 0 0.1in 0;
@@ -272,7 +339,7 @@ body {
 .section-subheader {
     font-size: 11pt;
     font-weight: 600;
-    color: #1a1a2e;
+    color: var(--text-primary);
     margin: 0.12in 0 0.06in 0;
     page-break-after: avoid;
 }
@@ -300,41 +367,55 @@ body {
 .data-table td {
     padding: 5pt 10pt;
     border-bottom: 1px solid #e2e8f0;
-    color: #4a5568;
+    color: var(--text-secondary);
 }
 
-.data-table .num    { text-align: right; font-family: "Courier New", monospace; }
-.data-table .strong { font-weight: 600; color: #1a1a2e; }
+.data-table tr:nth-child(even) td {
+    background: #f7fafc;
+}
+
+.data-table .num { text-align: right; font-family: "Courier New", monospace; }
+.data-table .strong { font-weight: 600; color: var(--text-primary); }
 
 /* ===== SIGNAL BARS ===== */
 .signal-row {
+    display: flex;
+    align-items: center;
+    gap: 8pt;
     margin: 5pt 0;
     page-break-inside: avoid;
 }
 
 .signal-label {
+    width: 120pt;
     font-size: 9pt;
-    color: #4a5568;
+    color: var(--text-secondary);
 }
 
 .signal-bar-bg {
+    flex: 1;
     height: 10pt;
     background: #e2e8f0;
+    border-radius: 5pt;
+    overflow: hidden;
 }
 
 .signal-bar-fill {
     height: 100%;
+    border-radius: 5pt;
     min-width: 2pt;
 }
 
 .signal-score {
+    width: 35pt;
+    text-align: right;
     font-size: 9pt;
     font-weight: 600;
 }
 
-.bar-strong   { background-color: #10B981; }
+.bar-strong { background-color: #10B981; }
 .bar-moderate { background-color: #F59E0B; }
-.bar-weak     { background-color: #EF4444; }
+.bar-weak { background-color: #EF4444; }
 
 /* ===== TRADE SETUP TABLE ===== */
 .trade-table {
@@ -354,8 +435,8 @@ body {
 }
 
 .trade-table th.conservative { background: #d1fae5; color: #065f46; }
-.trade-table th.aggressive   { background: #fef3c7; color: #92400e; }
-.trade-table th.label-col    { background: #f1f5f9; color: #4a5568; }
+.trade-table th.aggressive { background: #fef3c7; color: #92400e; }
+.trade-table th.label-col { background: #f1f5f9; color: var(--text-secondary); }
 
 .trade-table td {
     padding: 5pt 10pt;
@@ -366,13 +447,14 @@ body {
 .trade-table td.label-col {
     text-align: left;
     font-weight: 500;
-    color: #1a1a2e;
+    color: var(--text-primary);
 }
 
 /* ===== CONVICTION BOX ===== */
 .conviction-box {
     background: #f0fdf9;
     border: 1px solid #99f6e4;
+    border-radius: 6px;
     padding: 8pt 14pt;
     margin: 0.08in 0;
     page-break-inside: avoid;
@@ -386,23 +468,28 @@ body {
 /* ===== BEST SUITED FOR ===== */
 .suited-box {
     background: #f7fafc;
+    border-radius: 6px;
     padding: 10pt 14pt;
     margin: 0.08in 0;
     page-break-inside: avoid;
 }
 
-.suited-row { margin: 4pt 0; }
+.suited-row {
+    display: flex;
+    gap: 20pt;
+    margin: 4pt 0;
+}
 
 .suited-item .suited-label {
     font-size: 8pt;
-    color: #718096;
+    color: var(--text-muted);
     text-transform: uppercase;
 }
 
 .suited-item .suited-value {
     font-size: 10pt;
     font-weight: 600;
-    color: #1a1a2e;
+    color: var(--text-primary);
 }
 
 /* ===== TRIGGERS ===== */
@@ -421,13 +508,13 @@ body {
     font-size: 8.5pt;
 }
 
-.trigger-table th.upgrade   { background: #d1fae5; color: #065f46; }
+.trigger-table th.upgrade { background: #d1fae5; color: #065f46; }
 .trigger-table th.downgrade { background: #fee2e2; color: #991b1b; }
 
 .trigger-table td {
     padding: 3pt 8pt;
     border-bottom: 1px solid #e2e8f0;
-    color: #4a5568;
+    color: var(--text-secondary);
 }
 
 /* ===== FOOTER ===== */
@@ -437,7 +524,7 @@ body {
     border-top: 2px solid #00D9B5;
     text-align: center;
     font-size: 8pt;
-    color: #718096;
+    color: var(--text-muted);
 }
 
 .report-footer .brand-footer {
@@ -465,7 +552,7 @@ body {
 .catalyst-table td {
     padding: 4pt 8pt;
     border-bottom: 1px solid #e2e8f0;
-    color: #4a5568;
+    color: var(--text-secondary);
 }
 
 /* ===== THESIS BLOCK ===== */
@@ -476,30 +563,32 @@ body {
     margin: 0.1in 0;
     font-size: 10pt;
     line-height: 1.6;
-    color: #4a5568;
+    color: var(--text-secondary);
     page-break-inside: avoid;
 }
 
-/* ===== COMPETITIVE ADVANTAGE ===== */
+/* ===== COMPETITIVE ADVANTAGE CATEGORY TABLE ===== */
 .advantage-indicator {
     display: inline-block;
     width: 8pt;
     height: 8pt;
+    border-radius: 50%;
     margin-right: 4pt;
 }
 
-.moat-strong,    .advantage-strong   { background: #10B981; }
-.moat-moderate,  .advantage-moderate { background: #F59E0B; }
-.moat-weak,      .advantage-weak     { background: #EF4444; }
+.moat-strong, .advantage-strong { background: #10B981; }
+.moat-moderate, .advantage-moderate { background: #F59E0B; }
+.moat-weak, .advantage-weak { background: #EF4444; }
 
 /* ===== PEER COMPARISON ===== */
 .rank-badge {
     display: inline-block;
     background: #e2e8f0;
-    color: #1a1a2e;
+    color: var(--text-primary);
     font-weight: 700;
     font-size: 9pt;
     padding: 1pt 6pt;
+    border-radius: 8pt;
 }
 
 /* ===== DISCLAIMER ===== */
@@ -515,22 +604,24 @@ body {
 /* ===== GENERAL UTILITIES ===== */
 .text-success { color: #10B981; }
 .text-warning { color: #F59E0B; }
-.text-error   { color: #EF4444; }
-.text-muted   { color: #718096; }
-.font-bold    { font-weight: 700; }
-.font-mono    { font-family: "Courier New", monospace; }
-.text-right   { text-align: right; }
-.text-center  { text-align: center; }
-.mt-sm        { margin-top: 0.06in; }
-.mb-sm        { margin-bottom: 0.06in; }
+.text-error { color: #EF4444; }
+.text-muted { color: #718096; }
+.font-bold { font-weight: 700; }
+.font-mono { font-family: "Courier New", monospace; }
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+.mt-sm { margin-top: 0.06in; }
+.mb-sm { margin-bottom: 0.06in; }
 
 /* ===== THE VERDICT BOX ===== */
 .verdict-box {
-    background: #f0fdf9;
+    background: linear-gradient(135deg, #f0fdf9 0%, #ecfdf5 100%);
     border: 3px solid #00D9B5;
+    border-radius: 10px;
     padding: 16pt 20pt;
     margin: 0.2in 0;
     page-break-inside: avoid;
+    box-shadow: 0 2px 8px rgba(0, 217, 181, 0.15);
 }
 
 .verdict-header {
@@ -547,31 +638,31 @@ body {
 .verdict-summary {
     font-size: 12pt;
     font-weight: 600;
-    color: #1a1a2e;
+    color: var(--text-primary);
     line-height: 1.5;
     margin: 6pt 0;
 }
 
 .verdict-detail {
     font-size: 10pt;
-    color: #4a5568;
+    color: var(--text-secondary);
     line-height: 1.5;
     margin: 4pt 0 0 0;
 }
 
-/* ===== ACTION SUMMARY ===== */
+/* ===== ACTION SUMMARY (Current Holders vs New Buyers) ===== */
 .action-summary {
+    display: flex;
+    gap: 14pt;
     background: #f7fafc;
+    border-radius: 8px;
     padding: 12pt 14pt;
     margin: 0.12in 0;
     page-break-inside: avoid;
 }
 
 .action-col {
-    display: inline-block;
-    width: 47%;
-    vertical-align: top;
-    padding-right: 2%;
+    flex: 1;
 }
 
 .action-header {
@@ -587,7 +678,7 @@ body {
 
 .action-text {
     font-size: 9pt;
-    color: #4a5568;
+    color: var(--text-secondary);
     line-height: 1.4;
     margin: 4pt 0 0 0;
 }
@@ -600,7 +691,7 @@ body {
 
 .compact-list li {
     font-size: 8.5pt;
-    color: #4a5568;
+    color: var(--text-secondary);
     margin: 3pt 0;
     line-height: 1.35;
 }

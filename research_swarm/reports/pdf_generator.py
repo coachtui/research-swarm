@@ -1,16 +1,16 @@
-"""PDF generation from HTML/Markdown reports using xhtml2pdf (pure Python, no system libs)."""
+"""PDF generation from HTML/Markdown reports using WeasyPrint."""
 
-from io import BytesIO
 from pathlib import Path
 
 import markdown
+from weasyprint import CSS, HTML
 
 from .pdf_styles import PDF_CSS
 
-# Legacy CSS for the backward-compatible markdown→PDF path (simplified for xhtml2pdf)
+# Legacy CSS for the backward-compatible markdown→PDF path
 _LEGACY_CSS = """
-@page { size: letter; margin: 1in; }
-body { font-family: Helvetica, Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #333; }
+@page { size: letter; margin: 1in; @bottom-right { content: counter(page) " / " counter(pages); font-size: 9pt; color: #666; } }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 11pt; line-height: 1.6; color: #333; }
 h1 { color: #1a1a2e; border-bottom: 3px solid #00D9B5; padding-bottom: 0.3em; page-break-after: avoid; }
 h2 { color: #16213e; border-bottom: 1px solid #ccc; padding-bottom: 0.2em; page-break-after: avoid; }
 h3 { color: #2c3e50; page-break-after: avoid; }
@@ -18,42 +18,22 @@ h4 { color: #34495e; }
 table { border-collapse: collapse; width: 100%; margin: 1em 0; page-break-inside: avoid; }
 th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; }
 th { background: #1a1a2e; color: white; font-weight: bold; }
+tr:nth-child(even) { background: #f9f9f9; }
 img { max-width: 100%; height: auto; page-break-inside: avoid; }
 blockquote { border-left: 4px solid #00D9B5; padding-left: 1em; color: #666; font-style: italic; }
 strong { color: #2c3e50; }
 hr { border: none; border-top: 1px solid #ccc; margin: 2em 0; }
+h1, h2, h3, h4, h5, h6 { break-after: avoid-page; }
 """
 
 
-def _inject_css(html_content: str, css: str) -> str:
-    """Inject a CSS block into the HTML <head> section."""
-    style_tag = f'<style type="text/css">\n{css}\n</style>'
-    if "<head>" in html_content:
-        return html_content.replace("<head>", f"<head>\n{style_tag}", 1)
-    if "<body>" in html_content:
-        body_idx = html_content.index("<body>")
-        return f"<html><head>{style_tag}</head>" + html_content[body_idx:]
-    return f"<html><head>{style_tag}</head><body>{html_content}</body></html>"
-
-
-def _html_to_pdf_bytes(html_content: str) -> bytes:
-    """Convert an HTML string to PDF bytes via xhtml2pdf/pisa."""
-    from xhtml2pdf import pisa  # lazy import — only needed when generating PDFs
-
-    buf = BytesIO()
-    result = pisa.CreatePDF(html_content, dest=buf)
-    if result.err:
-        raise RuntimeError(f"xhtml2pdf reported {result.err} error(s) during PDF generation")
-    return buf.getvalue()
-
-
 class PDFGenerator:
-    """Generates PDF files from HTML/Markdown content using xhtml2pdf."""
+    """Generates PDF files from HTML/Markdown content using WeasyPrint."""
 
     def __init__(self):
         """Initialize PDF generator with DVRG-branded CSS."""
-        self._css = PDF_CSS
-        self._legacy_css = _LEGACY_CSS
+        self._css = CSS(string=PDF_CSS)
+        self._legacy_css = CSS(string=_LEGACY_CSS)
 
     def generate_from_html(self, html_content: str, output_path: Path, base_dir: Path = None) -> Path:
         """Generate PDF from pre-rendered HTML string (DVRG branded template).
@@ -61,7 +41,7 @@ class PDFGenerator:
         Args:
             html_content: Complete HTML string from Jinja2 template
             output_path: Path for output PDF file
-            base_dir: Unused — kept for API compatibility
+            base_dir: Base directory for resolving relative paths (optional)
 
         Returns:
             Path to generated PDF file
@@ -70,9 +50,10 @@ class PDFGenerator:
             raise ValueError("HTML content is empty")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        html_with_css = _inject_css(html_content, self._css)
-        pdf_bytes = _html_to_pdf_bytes(html_with_css)
-        output_path.write_bytes(pdf_bytes)
+        base_url = str(base_dir) if base_dir else None
+        HTML(string=html_content, base_url=base_url).write_pdf(
+            output_path, stylesheets=[self._css]
+        )
         return output_path
 
     def generate(self, markdown_path: Path, output_path: Path) -> Path:
@@ -104,7 +85,7 @@ class PDFGenerator:
         Args:
             markdown_content: Markdown content string
             output_path: Path for output PDF file
-            base_dir: Unused — kept for API compatibility
+            base_dir: Base directory for resolving relative paths (optional)
 
         Returns:
             Path to generated PDF file
@@ -129,7 +110,8 @@ class PDFGenerator:
 </html>"""
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        html_with_css = _inject_css(full_html, self._legacy_css)
-        pdf_bytes = _html_to_pdf_bytes(html_with_css)
-        output_path.write_bytes(pdf_bytes)
+        base_url = str(base_dir) if base_dir else None
+        HTML(string=full_html, base_url=base_url).write_pdf(
+            output_path, stylesheets=[self._legacy_css]
+        )
         return output_path

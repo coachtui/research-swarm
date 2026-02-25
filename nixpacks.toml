@@ -1,0 +1,14 @@
+# Railway Nixpacks configuration
+# WeasyPrint uses cffi — no compilation needed, just runtime shared libraries.
+# aptPkgs is additive and does not override Nixpacks' auto-detected Python env.
+[phases.setup]
+aptPkgs = [
+  "libglib2.0-0",
+  "libpango-1.0-0",
+  "libpangoft2-1.0-0",
+  "libpangocairo-1.0-0",
+  "libcairo2",
+  "libharfbuzz0b",
+  "libfontconfig1",
+  "libfreetype6",
+]
