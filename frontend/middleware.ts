@@ -1,17 +1,28 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/api/webhook(.*)",
+// Routes that require authentication
+const isProtectedRoute = createRouteMatcher([
+  "/analyze(.*)",
+  "/dashboard(.*)",
+  "/results(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
-  // Temporarily disabled auth protection for debugging
-  // if (!isPublicRoute(request)) {
-  //   await auth.protect();
-  // }
+  if (isProtectedRoute(request)) {
+    const { userId } = await auth();
+    if (!userId) {
+      // Redirect unauthenticated users to sign-up (not sign-in).
+      // Preserve the destination so Clerk redirects back after account creation.
+      const signUpUrl = new URL("/sign-up", request.url);
+      signUpUrl.searchParams.set(
+        "redirect_url",
+        request.nextUrl.pathname + request.nextUrl.search
+      );
+      signUpUrl.searchParams.set("intent", "free");
+      return NextResponse.redirect(signUpUrl);
+    }
+  }
 });
 
 export const config = {

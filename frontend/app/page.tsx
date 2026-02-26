@@ -303,9 +303,9 @@ export default function Home() {
             </div>
 
             <div className="mt-10 text-center">
-              <Link href="/analyze">
+              <Link href="/welcome/free">
                 <Button size="lg">
-                  Start Your First Decision <ArrowRight className="ml-2 w-4 h-4" />
+                  Try Free — 2 Full Reports <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
               </Link>
             </div>
@@ -439,9 +439,9 @@ export default function Home() {
             <p className="text-text-secondary">
               Replace fragmented research workflows with a unified capital allocation system.
             </p>
-            <Link href="/analyze">
+            <Link href="/welcome/free">
               <Button size="lg" variant="outline">
-                Start Your First Decision
+                Try Free — 2 Full Reports
               </Button>
             </Link>
           </div>

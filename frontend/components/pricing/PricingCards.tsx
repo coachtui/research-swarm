@@ -245,7 +245,7 @@ export function PricingCards({ quota }: PricingCardsProps) {
                     You already have {quota.boost_analyses_added} boost analyses active this period.
                   </p>
                 )}
-                {quota.days_remaining < 7 && (
+                {(quota.days_remaining ?? 0) > 0 && (quota.days_remaining ?? 0) < 7 && (
                   <p className="text-xs text-text-tertiary mt-2">
                     ⚠️ Only {quota.days_remaining} day{quota.days_remaining !== 1 ? 's' : ''} left in your billing period.
                   </p>

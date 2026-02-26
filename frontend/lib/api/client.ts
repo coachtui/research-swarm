@@ -193,6 +193,14 @@ class ApiClient {
     return this.request('/api/entitlements')
   }
 
+  /**
+   * Idempotently ensure the user's Neon entitlement rows exist.
+   * Call once on first signed-in load of /analyze to handle missed Clerk webhooks.
+   */
+  async ensureEntitlements(): Promise<{ ensured: boolean; tier: string }> {
+    return this.request('/api/entitlements/ensure', { method: 'POST' })
+  }
+
   // Analysis endpoints
   async analyzeStock(request: AnalyzeRequest): Promise<AnalyzeResponse> {
     const deviceId = this.getDeviceId()

@@ -1,12 +1,13 @@
 """
-GET /api/entitlements
+GET  /api/entitlements         — feature-flag payload for the authenticated user
+POST /api/entitlements/ensure  — idempotently create missing entitlement state
 
-Returns a resolved feature-flag payload for the authenticated user.
-Derives everything from the User object — no extra DB hit beyond the initial
-auth lookup. Handles admin override and Stripe inactive-status downgrade.
+GET derives everything from the User object; handles admin override and Stripe
+inactive-status downgrade.  Frontend can cache the response for ~5 minutes.
 
-Frontend can cache this response for ~5 minutes and use it to gate UI sections
-without duplicating the tier-hierarchy logic client-side.
+POST /ensure is a lightweight "make sure the user's Neon rows exist" endpoint.
+Call it on first signed-in load of /analyze so the FreeReportCredit row is
+always present even when the Clerk webhook was delayed or missed.
 """
 
 from fastapi import APIRouter, Depends
@@ -20,7 +21,7 @@ from api.lib.entitlements import (
 )
 from api.lib.plan_limits import get_tier_limits
 from api.models.auth import User
-from api.services.quota_service import get_usage_summary
+from api.services.quota_service import get_usage_summary, get_or_create_free_credits
 
 router = APIRouter(tags=["entitlements"])
 
@@ -108,3 +109,25 @@ async def get_entitlements(user: User = Depends(get_current_user)) -> dict:
             "at_warning_threshold": usage.get("at_warning_threshold", False),
         },
     }
+
+
+@router.post("/entitlements/ensure", status_code=200)
+async def ensure_entitlements(user: User = Depends(get_current_user)) -> dict:
+    """
+    Idempotently ensure the user's entitlement rows exist in Neon.
+
+    Intended to be called on first signed-in load of /analyze so the
+    FreeReportCredit row is present even if the Clerk webhook was delayed
+    or missed during account creation.
+
+    - Free-tier users: creates FreeReportCredit(2 credits) if missing.
+    - Paid-tier users: no-op (their quota is managed by Stripe webhooks).
+    - Returns: { "ensured": true, "tier": "<effective tier>" }
+    """
+    user_tier_str = str(user.tier.value) if hasattr(user.tier, "value") else str(user.tier)
+
+    if user_tier_str == "free":
+        await get_or_create_free_credits(user.id)
+
+    tier = _effective_tier(user)
+    return {"ensured": True, "tier": tier}

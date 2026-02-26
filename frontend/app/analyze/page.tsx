@@ -1,54 +1,37 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import { apiClient } from '@/lib/api/client'
 import { TickerSearchForm } from '@/components/analyze/TickerSearchForm'
-import { Lock, TrendingUp } from 'lucide-react'
 
-function NoSubscriptionPanel() {
-  const router = useRouter()
-  return (
-    <div className="rounded-lg border border-border bg-surface p-8 text-center space-y-4">
-      <div className="flex justify-center">
-        <div className="rounded-full bg-surface-elevated p-3">
-          <Lock className="h-6 w-6 text-text-secondary" />
-        </div>
-      </div>
-      <div>
-        <h3 className="text-lg font-semibold text-text-primary">Subscription Required</h3>
-        <p className="text-sm text-text-secondary mt-1">
-          Purchase a plan to start running institutional-quality stock analyses.
-        </p>
-      </div>
-      <button
-        onClick={() => router.push('/#pricing-tiers')}
-        className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-button text-sm font-medium hover:bg-primary/90 transition-colors"
-      >
-        <TrendingUp className="h-4 w-4" />
-        View Plans
-      </button>
-    </div>
-  )
-}
-
+/**
+ * /analyze — authenticated stock analysis entry point.
+ *
+ * Auth gate is enforced by middleware (unauthenticated → /sign-up).
+ * This page just:
+ *   1. Wires the Clerk token getter into apiClient (needed for all API calls).
+ *   2. Calls POST /api/entitlements/ensure once to guarantee the user's
+ *      FreeReportCredit row exists in Neon even if the Clerk webhook was slow.
+ *   3. Renders TickerSearchForm, which handles credit display and paywall via
+ *      useEntitlements() + the backend quota system.
+ */
 export default function AnalyzePage() {
   const { getToken } = useAuth()
-  const [hasSubscription, setHasSubscription] = useState<boolean | null>(null)
+  const ensuredRef = useRef(false)
 
   useEffect(() => {
-    const checkSubscription = async () => {
-      try {
-        apiClient.setTokenGetter(getToken)
-        const user = await apiClient.getCurrentUser()
-        const PAID_STATUSES = ['active', 'trialing']
-        setHasSubscription(user.is_admin || PAID_STATUSES.includes(user.stripe_subscription_status ?? ''))
-      } catch {
-        setHasSubscription(false)
-      }
+    // Wire Clerk token into apiClient for all subsequent requests
+    apiClient.setTokenGetter(getToken)
+
+    // Ensure entitlement rows exist exactly once per page mount
+    if (!ensuredRef.current) {
+      ensuredRef.current = true
+      apiClient.ensureEntitlements().catch(() => {
+        // Non-fatal — report generation will still work; credits will be
+        // lazily created by the quota_service on the first analyze call.
+      })
     }
-    checkSubscription()
   }, [getToken])
 
   return (
@@ -72,16 +55,8 @@ export default function AnalyzePage() {
         {/* Divider */}
         <div style={{ borderTop: '1px solid var(--border)' }} />
 
-        {/* Search form — gated on active subscription */}
-        {hasSubscription === null ? (
-          <div className="h-40 flex items-center justify-center">
-            <div className="text-sm text-text-secondary">Loading...</div>
-          </div>
-        ) : hasSubscription ? (
-          <TickerSearchForm />
-        ) : (
-          <NoSubscriptionPanel />
-        )}
+        {/* Search form — credit/quota gating handled inside the form */}
+        <TickerSearchForm />
 
         {/* Popular tickers */}
         <div className="space-y-3">
