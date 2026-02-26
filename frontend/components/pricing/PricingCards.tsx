@@ -192,6 +192,17 @@ export function PricingCards({ quota }: PricingCardsProps) {
             >
               {loadingPlan === plan.name ? 'Redirecting...' : `Get ${plan.name}`}
             </button>
+
+            {plan.key === 'investor' && (
+              <p className="mt-2 text-center text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-subtle, #6b7280)' }}>
+                For systematic capital allocators.
+              </p>
+            )}
+            {plan.key === 'trader' && (
+              <p className="mt-2 text-center text-[10px] uppercase tracking-widest" style={{ color: 'var(--text-subtle, #6b7280)' }}>
+                Extended asymmetry modeling + regime conditioning.
+              </p>
+            )}
           </div>
         ))}
       </div>
