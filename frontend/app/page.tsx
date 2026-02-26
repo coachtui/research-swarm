@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { PricingCards } from '@/components/pricing/PricingCards'
+import { LandingHero } from '@/components/landing/LandingHero'
 import {
   TrendingUp,
   Zap,
@@ -95,59 +96,7 @@ export default function Home() {
     <main className="min-h-screen bg-background">
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="py-24 md:py-32">
-        <div className="container mx-auto px-4">
-          <div className="max-w-3xl mx-auto text-center space-y-7">
-
-            {/* Label chip */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium text-primary"
-              style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}>
-              <Zap className="w-3.5 h-3.5" />
-              Capital Allocation · Decision Engine
-            </div>
-
-            <h1 className="text-4xl md:text-6xl font-bold text-text-primary leading-tight tracking-tight">
-              Structured Capital Allocation<br />
-              for{' '}
-              <span className="text-primary">Serious Investors</span>
-            </h1>
-
-            <p className="text-lg text-text-secondary leading-relaxed max-w-2xl mx-auto">
-              DVRG models expected value, scenario probability, and stability to determine
-              how much capital to deploy — and when.
-            </p>
-
-            <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-              <Link href="#how-it-works">
-                <Button size="lg" className="w-full sm:w-auto">
-                  See How Allocation Is Structured <ArrowRight className="ml-2 w-4 h-4" />
-                </Button>
-              </Link>
-              <Link href="/preview/nvda">
-                <Button size="lg" variant="outline" className="w-full sm:w-auto">
-                  View Sample Decision
-                </Button>
-              </Link>
-            </div>
-
-            {/* Trust strip */}
-            <div className="flex flex-wrap items-center justify-center gap-6 text-xs text-text-secondary pt-4">
-              {[
-                'Expected Value',
-                'Stop Probability',
-                'Stability & Noise',
-                'Scenario Distribution',
-                'Position Sizing',
-              ].map((item) => (
-                <div key={item} className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+      <LandingHero />
 
       {/* ── Pain Points ──────────────────────────────────────────────────── */}
       <section className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
