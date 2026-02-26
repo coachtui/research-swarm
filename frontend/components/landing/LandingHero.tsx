@@ -21,6 +21,7 @@ interface EngineStateData {
   allocation: number
   baseWeight: number
   multiplier: number
+  multiplierLabel: string
   totalEvStr: string
   riskEff: number
   stopProb: number       // decimal, e.g. 0.20
@@ -43,6 +44,7 @@ const STATES: Record<StateKey, EngineStateData> = {
     allocation: 6.2,
     baseWeight: 8.9,
     multiplier: 0.70,
+    multiplierLabel: 'medium conviction regime',
     totalEvStr: '+7.41%',
     riskEff: 0.49,
     stopProb: 0.20,
@@ -67,6 +69,7 @@ const STATES: Record<StateKey, EngineStateData> = {
     allocation: 8.4,
     baseWeight: 8.9,
     multiplier: 1.00,
+    multiplierLabel: 'high conviction regime',
     totalEvStr: '+12.6%',
     riskEff: 0.63,
     stopProb: 0.18,
@@ -91,6 +94,7 @@ const STATES: Record<StateKey, EngineStateData> = {
     allocation: 0.8,
     baseWeight: 5.0,
     multiplier: 0.15,
+    multiplierLabel: 'noise-dominated regime',
     totalEvStr: '+1.1%',
     riskEff: 0.18,
     stopProb: 0.42,
@@ -458,6 +462,18 @@ function EngineCard() {
               {allocDisplay.toFixed(1)}%
             </p>
             <p className="text-xs text-text-secondary mt-2">Satellite Position</p>
+            <p
+              className="text-[9px] mt-1.5 leading-snug"
+              style={{
+                color: 'var(--text-subtle)',
+                opacity: metricsVisible ? 1 : 0,
+                transition: 'opacity 200ms ease-out',
+              }}
+            >
+              Exec. multiplier applied: {state.multiplier.toFixed(2)}×
+              <br />
+              ({state.multiplierLabel})
+            </p>
           </div>
 
           {/* Computation ledger — fades on state switch */}
@@ -601,6 +617,9 @@ function EngineCard() {
             </span>
           </div>
         </div>
+        <p className="mt-2 text-[9px] leading-snug" style={{ color: 'var(--text-subtle)' }}>
+          Volatility-adjusted EV normalized across current regime state.
+        </p>
       </div>
 
       {/* ── Footer ── */}
@@ -609,7 +628,7 @@ function EngineCard() {
         style={{ borderTop: '1px solid var(--border)' }}
       >
         <p className="text-[9px] uppercase tracking-wider text-text-tertiary">
-          Illustrative output — example values only
+          Modeled on institutional capital discipline · Illustrative values only
         </p>
       </div>
     </div>
@@ -647,9 +666,16 @@ export function LandingHero() {
 
             {/* Tension line */}
             <p className="text-base md:text-lg font-semibold text-text-primary leading-tight tracking-tight">
-              Most research ends at conviction.
+              Most research stops at conviction.
               <br />
-              DVRG ends at capital allocation.
+              DVRG converts expected value, risk stability,
+              <br className="hidden sm:block" />
+              and regime alignment into capital size.
+            </p>
+
+            {/* Micro-caption */}
+            <p className="text-xs leading-snug" style={{ color: 'var(--text-subtle)' }}>
+              Allocation dynamically adjusts as probability structure shifts.
             </p>
 
             {/* Micro authority line */}

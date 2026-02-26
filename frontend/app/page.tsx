@@ -397,64 +397,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Who DVRG Is For ───────────────────────────────────────────────── */}
-      <section className="py-20" style={{ borderTop: '1px solid var(--border)' }}>
-        <div className="container mx-auto px-4">
-          <div className="max-w-5xl mx-auto">
-            <div className="mb-12">
-              <SectionLabel>Audience</SectionLabel>
-              <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Who DVRG Is For
-              </h2>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-10">
-              {/* Built For */}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-success mb-6">Built For</p>
-                <div className="space-y-5">
-                  {[
-                    ['Active capital allocators', 'Investors who make deliberate, sized decisions — not passive accumulation.'],
-                    ['Investors deploying meaningful capital', 'You need a structured process, not just more data or opinions.'],
-                    ['Portfolio builders who size conviction', 'Position sizing is part of your edge. DVRG makes it systematic.'],
-                  ].map(([title, body]) => (
-                    <div key={title} className="flex gap-3 items-start">
-                      <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-semibold text-text-primary">{title}</p>
-                        <p className="text-sm text-text-secondary mt-0.5">{body}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Not For */}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary mb-6">Not Built For</p>
-                <div className="space-y-5">
-                  {[
-                    ['Headline traders', 'If your decisions are driven by breaking news or momentum alerts, this is not your tool.'],
-                    ['Passive ETF allocators', 'DVRG is built for individual equity decisions, not index exposure.'],
-                    ['Newsletter followers', 'This replaces opinion-based research stacks — not supplements them.'],
-                  ].map(([title, body]) => (
-                    <div key={title} className="flex gap-3 items-start">
-                      <div className="w-4 h-4 shrink-0 mt-0.5 flex items-center justify-center">
-                        <span className="text-text-tertiary font-bold text-sm leading-none">—</span>
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-text-primary">{title}</p>
-                        <p className="text-sm text-text-secondary mt-0.5">{body}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* ── Pricing ──────────────────────────────────────────────────────── */}
       <section id="pricing" className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
         <div className="container mx-auto px-4">
@@ -467,8 +409,66 @@ export default function Home() {
             </div>
             <PricingCards />
             <p className="mt-8 text-center text-sm text-text-secondary">
-              DVRG does not predict prices. It structures risk, probability, and deployable capital decisions.
+              Designed for systematic capital allocation workflows.
             </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Who DVRG Is For ───────────────────────────────────────────────── */}
+      <section className="py-20" style={{ borderTop: '1px solid var(--border)' }}>
+        <div className="container mx-auto px-4">
+          <div className="max-w-5xl mx-auto">
+            <div className="mb-10">
+              <SectionLabel>Audience</SectionLabel>
+              <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
+                Who DVRG Is For
+              </h2>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-10">
+              {/* Built For */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-success mb-5">Built For</p>
+                <div style={{ borderTop: '1px solid var(--border)' }}>
+                  {[
+                    'Active capital allocators',
+                    'Probability-driven investors',
+                    'Portfolio managers managing volatility',
+                  ].map((item) => (
+                    <div
+                      key={item}
+                      className="flex items-center gap-3 py-3.5"
+                      style={{ borderBottom: '1px solid var(--border)' }}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
+                      <span className="text-sm font-medium text-text-primary">{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Not For */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-widest text-text-tertiary mb-5">Not Built For</p>
+                <div style={{ borderTop: '1px solid var(--border)' }}>
+                  {[
+                    'Headline-driven traders',
+                    'Passive ETF allocators',
+                    'Narrative-only investors',
+                  ].map((item) => (
+                    <div
+                      key={item}
+                      className="flex items-center gap-3 py-3.5"
+                      style={{ borderBottom: '1px solid var(--border)' }}
+                    >
+                      <span className="text-text-tertiary font-bold text-sm shrink-0 w-3.5 text-center">—</span>
+                      <span className="text-sm font-medium text-text-secondary">{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -528,6 +528,12 @@ export default function Home() {
                 Try Free — 2 Full Reports
               </Button>
             </Link>
+            <p
+              className="text-[10px] uppercase tracking-widest"
+              style={{ color: 'var(--text-subtle)' }}
+            >
+              Quantitative capital allocation framework.
+            </p>
           </div>
         </div>
       </section>
