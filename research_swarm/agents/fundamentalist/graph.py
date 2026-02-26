@@ -889,12 +889,37 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                 stock_info = None
                 historical_eps = None
                 sbc_ratio = None
+                currency_info = None   # set inside try; used for DCF normalization below
                 try:
                     import yfinance as yf
                     stock = yf.Ticker(state["ticker"])
                     stock_info = stock.info
 
-                    # Historical EPS: derive from annual income statement / shares outstanding
+                    # ── Currency normalization ──────────────────────────────────────────
+                    # Must run before any financial field is read from stock_info.
+                    # Converts all monetary fields (ebitda, totalDebt, cash, eps, …)
+                    # from the company's reporting currency to USD.
+                    from research_swarm.data.currency_normalizer import (
+                        detect_currency_info,
+                        normalize_stock_info_to_usd,
+                        normalize_eps_series_to_usd,
+                        normalize_series_to_usd,
+                    )
+                    currency_info = detect_currency_info(state["ticker"], stock_info)
+                    stock_info = normalize_stock_info_to_usd(stock_info, currency_info)
+                    # Store report-transparency metadata
+                    state["currency_normalization"] = currency_info.as_report_meta()
+                    if currency_info.is_converted:
+                        logger.info(
+                            f"✓ Currency: {currency_info.reporting_currency} → USD "
+                            f"@ {currency_info.fx_rate:.6f} (date: {currency_info.conversion_date})"
+                        )
+                    # ───────────────────────────────────────────────────────────────────
+
+                    # Historical EPS: derive from annual income statement / shares outstanding.
+                    # income_stmt rows are in the company's reporting currency, so EPS
+                    # computed here is in reporting_currency/share.  We then convert to
+                    # USD/share so it is consistent with the USD stock price used in P/E.
                     try:
                         income_stmt = stock.income_stmt  # columns = dates, rows = metrics
                         shares = stock_info.get("sharesOutstanding", 0) if stock_info else 0
@@ -904,26 +929,51 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                                     net_incomes = income_stmt.loc[row_name].dropna().tolist()
                                     historical_eps = [ni / shares for ni in net_incomes if ni is not None]
                                     break
+                        # Normalize EPS to USD (no-op for USD reporters)
+                        if historical_eps:
+                            historical_eps = normalize_eps_series_to_usd(historical_eps, currency_info)
                     except Exception as e:
                         logger.debug(f"Could not compute historical EPS: {e}")
 
-                    # SBC ratio: SBC / EBITDA to penalize high-SBC businesses
+                    # SBC ratio: SBC / EBITDA to penalize high-SBC businesses.
+                    # This is a dimensionless ratio — both SBC (from cashflow_stmt) and
+                    # EBITDA must be in the *same* currency.  cashflow_stmt is in reporting
+                    # currency, so we use the pre-conversion ebitda_original when available
+                    # (i.e. when normalization ran), otherwise the current ebitda value.
                     try:
                         cashflow_stmt = stock.cashflow
-                        ebitda = stock_info.get("ebitda", 0) if stock_info else 0
-                        if cashflow_stmt is not None and not cashflow_stmt.empty and ebitda and ebitda > 0:
+                        # Prefer original (reporting-currency) EBITDA to keep ratio dimensionless
+                        ebitda_for_ratio = (
+                            stock_info.get("ebitda_original")
+                            or stock_info.get("ebitda", 0)
+                            or 0
+                        )
+                        if cashflow_stmt is not None and not cashflow_stmt.empty and ebitda_for_ratio and ebitda_for_ratio > 0:
                             for sbc_label in ["Stock Based Compensation", "Share Based Compensation Expense",
                                               "Stock-based Compensation", "Share-based Compensation"]:
                                 if sbc_label in cashflow_stmt.index:
                                     sbc_val = cashflow_stmt.loc[sbc_label].iloc[0]
                                     if sbc_val is not None:
-                                        sbc_ratio = abs(float(sbc_val)) / ebitda
+                                        sbc_ratio = abs(float(sbc_val)) / ebitda_for_ratio
                                     break
                     except Exception as e:
                         logger.debug(f"Could not compute SBC ratio: {e}")
 
                 except Exception as e:
                     logger.debug(f"Could not fetch extended stock info: {e}")
+
+                # ── Normalize DCF FCF history to USD ───────────────────────────────
+                # dcf_inputs.fcf_history is extracted from SEC filing text by an LLM
+                # call and is therefore in the company's reporting currency.
+                # Normalize it here using the same currency_info resolved above.
+                if currency_info is not None and currency_info.is_converted and dcf_inputs and dcf_inputs.fcf_history:
+                    from research_swarm.data.currency_normalizer import normalize_series_to_usd as _norm_series
+                    dcf_inputs.fcf_history = _norm_series(dcf_inputs.fcf_history, currency_info)
+                    logger.debug(
+                        f"DCF FCF history normalized to USD "
+                        f"({currency_info.reporting_currency} → USD @ {currency_info.fx_rate:.6f})"
+                    )
+                # ──────────────────────────────────────────────────────────────────
 
                 # Quarterly margin std dev: measures earnings volatility for spread calculation
                 quarterly_margin_std = None
@@ -1261,6 +1311,7 @@ def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: 
         ValuationMetrics,
         PriceTargetScenarios,
         FairValueCalibration,
+        CurrencyNormalizationMeta,
     )
 
     # Parse earnings data into models
@@ -1306,6 +1357,7 @@ def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: 
         valuation_metrics=ValuationMetrics(**final_state["valuation_metrics"]) if final_state.get("valuation_metrics") else None,
         price_targets=PriceTargetScenarios(**final_state["price_targets"]) if final_state.get("price_targets") else None,
         fair_value_calibration=FairValueCalibration(**final_state["fair_value_calibration"]) if final_state.get("fair_value_calibration") else None,
+        currency_normalization=CurrencyNormalizationMeta(**final_state["currency_normalization"]) if final_state.get("currency_normalization") else None,
         confidence=final_state["confidence"],
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time

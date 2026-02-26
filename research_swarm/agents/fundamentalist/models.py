@@ -16,6 +16,19 @@ class SupplyChainOutput(BaseModel):
     pass
 
 
+class CurrencyNormalizationMeta(BaseModel):
+    """
+    Metadata about currency detection and FX conversion applied to this analysis.
+    Included in the report for institutional transparency.
+    """
+    reporting_currency: str = Field(..., description="Currency of the company's financial statements (e.g. 'TWD', 'EUR', 'USD')")
+    converted_to: str = Field("USD", description="Target currency for all valuation inputs")
+    fx_rate_used: float = Field(1.0, description="FX rate applied: 1 reporting_currency = fx_rate_used USD")
+    conversion_date: str = Field(..., description="ISO date when the FX rate was fetched")
+    adr_ratio: Optional[float] = Field(None, description="ADR/ordinary share ratio if applicable")
+    note: Optional[str] = Field(None, description="Human-readable note, e.g. 'No conversion required'")
+
+
 class FinancialMetricsOutput(BaseModel):
     """Financial metrics extracted from 10-K."""
 
@@ -529,6 +542,12 @@ class FundamentalistOutput(BaseModel):
     fair_value_calibration: Optional[FairValueCalibration] = Field(
         None,
         description="Calibration layer output comparing internal model to consensus proxy"
+    )
+
+    # Currency normalization metadata
+    currency_normalization: Optional[CurrencyNormalizationMeta] = Field(
+        None,
+        description="FX conversion details applied before valuation (reporting currency → USD)"
     )
 
     # Metadata

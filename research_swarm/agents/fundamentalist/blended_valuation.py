@@ -56,6 +56,15 @@ class BlendedValuationCalculator:
             logger.warning(f"No valuation metrics available for {ticker}")
             return None
 
+        # ── USD normalization guard ────────────────────────────────────────────
+        # All monetary inputs (ebitda, totalDebt, cash, eps) must be in USD
+        # before entering any valuation formula.  The currency_normalizer in
+        # fundamentalist/graph.py should have run first; this is a final check.
+        if stock_info:
+            from research_swarm.data.currency_normalizer import validate_usd_normalized
+            validate_usd_normalized(stock_info, ticker, raise_on_fail=False)
+        # ─────────────────────────────────────────────────────────────────────
+
         # Market cap and mega-cap flag
         market_cap_millions = valuation_metrics.get("market_cap_millions", 0)
         market_cap = market_cap_millions * 1_000_000 if market_cap_millions else 0

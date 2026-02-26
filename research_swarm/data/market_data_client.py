@@ -130,6 +130,10 @@ class MarketDataClient:
                 "market_cap": info.get("marketCap"),
                 "exchange": info.get("exchange"),
                 "revenueGrowth": info.get("revenueGrowth"),  # Used for Growth score fallback
+                # Currency detection fields — used by currency_normalizer
+                "currency": info.get("currency"),                  # trading currency (USD for ADR)
+                "financial_currency": info.get("financialCurrency"),  # reporting currency of statements
+                "quote_type": info.get("quoteType"),               # EQUITY, ETF, etc.
             }
 
             cache.set("market_info", cache_key, result, ttl_days=7)
