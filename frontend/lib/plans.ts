@@ -73,7 +73,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     pricePerMonth: 39.99,
     analysesPerMonth: 15,
     pricePerAnalysis: '$2.67',
-    description: 'Probabilistic conviction engine — EV, scenarios, confidence',
+    description: 'Full probabilistic capital deployment engine.',
     popular: true,
     bullets: [
       '15 analyses / month',
@@ -100,7 +100,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     pricePerMonth: 99.99,
     analysesPerMonth: 50,
     pricePerAnalysis: '$2.00',
-    description: 'Tactical capital deployment console — full engine access',
+    description: 'Extended scenario modeling + asymmetry layers + regime conditioning.',
     popular: false,
     bullets: [
       '50 analyses / month',

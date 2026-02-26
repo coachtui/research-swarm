@@ -98,49 +98,77 @@ export default function Home() {
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <LandingHero />
 
-      {/* ── Pain Points ──────────────────────────────────────────────────── */}
+      {/* ── Bold tagline ─────────────────────────────────────────────────── */}
+      <div
+        className="py-8 text-center"
+        style={{ borderTop: '1px solid var(--border)' }}
+      >
+        <p className="text-xl md:text-2xl font-bold text-text-primary tracking-tight">
+          Stop guessing conviction.{' '}
+          <span className="text-primary">Start sizing exposure.</span>
+        </p>
+      </div>
+
+      {/* ── Contrast Block ───────────────────────────────────────────────── */}
       <section className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
         <div className="container mx-auto px-4">
           <div className="max-w-5xl mx-auto">
-            <div className="mb-12">
-              <SectionLabel>The Problem</SectionLabel>
+            <div className="mb-10">
+              <SectionLabel>The Difference</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Most Research Tools Optimize Narratives — Not Decisions
+                Narrative-Based Research vs Probabilistic Allocation
               </h2>
             </div>
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-px"
-              style={{ background: 'var(--border)' }}>
-              {[
-                { icon: <Target className="w-5 h-5" />, title: 'Price Targets without Probability',
-                  body: 'Single-point forecasts carry no probability weighting. Sizing off them is structurally unsound.' },
-                { icon: <BarChart3 className="w-5 h-5" />, title: 'Signals without Capital Translation',
-                  body: 'Indicators tell you direction. They say nothing about how much capital to deploy.' },
-                { icon: <AlertTriangle className="w-5 h-5" />, title: 'Narratives without Position Logic',
-                  body: 'Strong conviction is not the same as a large position. Markets punish sizing errors, not bad opinions.' },
-                { icon: <LineChart className="w-5 h-5" />, title: 'Missing Risk Geometry',
-                  body: 'No modeling of stop probability, distribution shape, or expected value efficiency.' },
-                { icon: <Newspaper className="w-5 h-5" />, title: 'Information Overload',
-                  body: 'More data, less clarity. No structured path from signal to allocation decision.' },
-                { icon: <Shield className="w-5 h-5" />, title: 'The Gap',
-                  body: 'Most tools stop at opinion. DVRG ends at allocation.' },
-              ].map(({ icon, title, body }) => (
-                <div key={title} className="p-6 bg-background flex gap-4 items-start">
-                  <div className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 text-error"
-                    style={{ background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.15)' }}>
-                    {icon}
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold text-text-primary mb-1">{title}</h3>
-                    <p className="text-sm text-text-secondary leading-relaxed">{body}</p>
-                  </div>
+            <div className="grid md:grid-cols-2 gap-px" style={{ background: 'var(--border)' }}>
+              {/* Left — Narrative (muted red) */}
+              <div className="p-8 bg-background">
+                <p
+                  className="text-xs font-semibold uppercase tracking-widest mb-6"
+                  style={{ color: 'rgba(239,68,68,0.75)' }}
+                >
+                  Narrative Research
+                </p>
+                <div className="space-y-3.5">
+                  {[
+                    'Equal-weight sizing regardless of conviction',
+                    'Opinion-driven price targets, no probability weighting',
+                    'No regime compression or noise adjustment',
+                    'Binary buy / sell framing without EV geometry',
+                  ].map((item) => (
+                    <div key={item} className="flex items-start gap-3">
+                      <span
+                        className="text-xs font-bold mt-0.5 shrink-0"
+                        style={{ color: 'rgba(239,68,68,0.6)' }}
+                      >
+                        —
+                      </span>
+                      <span className="text-sm text-text-secondary">{item}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
 
-            <p className="mt-8 text-center text-sm font-semibold text-text-primary">
-              Most tools stop at opinion. DVRG ends at allocation.
-            </p>
+              {/* Right — DVRG (green) */}
+              <div className="p-8 bg-background">
+                <p className="text-xs font-semibold uppercase tracking-widest mb-6 text-success">
+                  Probabilistic Allocation
+                </p>
+                <div className="space-y-3.5">
+                  {[
+                    'Scenario-weighted EV drives position size',
+                    'Capital compression logic applied per volatility regime',
+                    'Execution multiplier calibrated to setup quality',
+                    'Risk-adjusted deployment — not directional guessing',
+                  ].map((item) => (
+                    <div key={item} className="flex items-start gap-3">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
+                      <span className="text-sm text-text-secondary">{item}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -249,6 +277,55 @@ export default function Home() {
                 title="Translate into Capital Allocation"
                 body="Allocation bias and position sizing derived from structured analysis — not opinion."
               />
+            </div>
+
+            {/* Risk-Off example card */}
+            <div
+              className="mt-8 rounded-card p-5"
+              style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-[9px] uppercase tracking-widest text-text-tertiary mb-1">
+                    Risk-Off Example
+                  </p>
+                  <p className="text-sm font-semibold text-text-primary">
+                    Allocation Compressed to 0.8%
+                  </p>
+                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">
+                    Elevated noise regime + low EV → execution multiplier near-zero.
+                    The engine disciplines out the trade before capital is committed.
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p
+                    className="text-2xl font-bold tracking-tight tabular-nums"
+                    style={{ color: '#F59E0B' }}
+                  >
+                    0.8%
+                  </p>
+                  <p className="text-[9px] uppercase tracking-wider text-text-tertiary mt-0.5">
+                    Final Allocation
+                  </p>
+                </div>
+              </div>
+              <div
+                className="mt-3 pt-3 flex items-center gap-5 flex-wrap text-xs"
+                style={{ borderTop: '1px solid var(--border)' }}
+              >
+                <span className="text-text-tertiary">
+                  Base Weight:{' '}
+                  <span className="font-mono text-text-secondary">4.5%</span>
+                </span>
+                <span className="text-text-tertiary">
+                  Exec. Multiplier:{' '}
+                  <span className="font-mono" style={{ color: '#F59E0B' }}>0.18×</span>
+                </span>
+                <span className="text-text-tertiary">
+                  EV:{' '}
+                  <span className="font-mono" style={{ color: '#EF4444' }}>+0.6%</span>
+                </span>
+              </div>
             </div>
 
             <div className="mt-10 text-center">

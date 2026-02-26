@@ -155,7 +155,7 @@ export function PricingCards({ quota }: PricingCardsProps) {
             {plan.popular && (
               <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                 <span className="bg-primary text-white text-xs font-semibold px-3 py-1 rounded-full">
-                  Most Popular
+                  Allocation Engine
                 </span>
               </div>
             )}
