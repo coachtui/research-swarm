@@ -239,7 +239,7 @@ function ProbDistCurve({ stopProb, distMu, distSigma, evCenterNorm }: ProbDistPr
         <path d={areaPath(midPts,   baseY)} fill="rgba(255,255,255,0.035)" />
         <path d={areaPath(rightPts, baseY)} fill="rgba(16,185,129,0.14)"   />
 
-        {/* ── Full smooth gaussian curve ── */}
+        {/* ── Full smooth gaussian curve — morphs on regime change ── */}
         <path
           d={smoothCurvePath(svgPts)}
           fill="none"
@@ -247,6 +247,7 @@ function ProbDistCurve({ stopProb, distMu, distSigma, evCenterNorm }: ProbDistPr
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
+          style={{ transition: 'd 200ms ease-out' } as React.CSSProperties}
         />
 
         {/* ── Stop threshold — dashed vertical ── */}
@@ -304,7 +305,7 @@ function ProbDistCurve({ stopProb, distMu, distSigma, evCenterNorm }: ProbDistPr
           Primary Cluster
         </span>
         <span className="text-[9px] leading-tight text-right" style={{ color: 'rgba(16,185,129,0.62)' }}>
-          Expansion Tail
+          Expansion Tail (Low Prob)
         </span>
       </div>
 
@@ -630,7 +631,7 @@ function EngineCard() {
         <EvContribBars scenarios={state.scenarios} totalEvStr={state.totalEvStr} />
       </div>
 
-      {/* ── Probability Distribution Curve ── */}
+      {/* ── Modeled Probability Structure ── */}
       <div
         className="px-5 py-3"
         style={{
@@ -650,50 +651,55 @@ function EngineCard() {
         />
       </div>
 
-      {/* ── Metrics strip ── */}
+      {/* ── Percentile Benchmarks ── */}
       <div
-        className="px-5 py-3 grid grid-cols-3"
+        className="px-5 pt-2.5 pb-3"
         style={{
           borderBottom: '1px solid var(--border)',
           opacity: metricsVisible ? 1 : 0,
           transition: 'opacity 200ms ease-out',
         }}
       >
-        <div className="text-center">
-          <p className="text-xs font-bold font-mono" style={{ color: '#10B981' }}>
-            {state.totalEvStr}
-          </p>
-          <p className="text-[9px] uppercase tracking-wider text-text-tertiary mt-0.5">
-            Expected Value
-          </p>
-        </div>
-        <div
-          className="text-center"
-          style={{
-            borderLeft: '1px solid var(--border)',
-            borderRight: '1px solid var(--border)',
-          }}
-        >
-          <p className="text-xs font-bold font-mono text-text-primary">
-            {state.evPercentile}
-          </p>
-          <p className="text-[9px] uppercase tracking-wider text-text-tertiary mt-0.5">
-            EV Percentile
-          </p>
-          <p className="text-[9px] text-text-tertiary mt-0.5 leading-none">
-            vs calibrated universe
-          </p>
-        </div>
-        <div className="text-center">
-          <p className="text-xs font-bold font-mono" style={{ color: '#10B981' }}>
-            {state.riskEff.toFixed(2)}
-          </p>
-          <p className="text-[9px] uppercase tracking-wider text-text-tertiary mt-0.5">
-            Risk Efficiency
-          </p>
-          <p className="text-[9px] text-text-tertiary mt-0.5 leading-none">
-            ≥ 0.30 institutional
-          </p>
+        <p className="text-[9px] uppercase tracking-widest text-text-tertiary mb-2">
+          Percentile Benchmarks
+        </p>
+        <div className="grid grid-cols-3">
+          <div className="text-center">
+            <p className="text-xs font-bold font-mono" style={{ color: '#10B981' }}>
+              {state.totalEvStr}
+            </p>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary mt-0.5">
+              Expected Value
+            </p>
+          </div>
+          <div
+            className="text-center"
+            style={{
+              borderLeft: '1px solid var(--border)',
+              borderRight: '1px solid var(--border)',
+            }}
+          >
+            <p className="text-xs font-bold font-mono text-text-primary">
+              {state.evPercentile}
+            </p>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary mt-0.5">
+              EV Percentile
+            </p>
+            <p className="text-[9px] text-text-tertiary mt-0.5 leading-none">
+              vs calibrated universe
+            </p>
+          </div>
+          <div className="text-center">
+            <p className="text-xs font-bold font-mono" style={{ color: '#10B981' }}>
+              {state.riskEff.toFixed(2)}
+            </p>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary mt-0.5">
+              Risk Efficiency
+            </p>
+            <p className="text-[9px] text-text-tertiary mt-0.5 leading-none">
+              ≥ 0.30 institutional
+            </p>
+          </div>
         </div>
       </div>
 
