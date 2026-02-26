@@ -83,10 +83,10 @@ app = FastAPI(
 )
 
 # CORS middleware
-allowed_origins = os.getenv(
-    "CORS_ORIGINS",
-    "https://www.dvrg.io,https://dvrg.io,https://research-swarm-frontend.vercel.app"
-).split(",")
+_default_origins = "https://www.dvrg.io,https://dvrg.io,https://research-swarm-frontend.vercel.app"
+if os.getenv("ENVIRONMENT", "development").lower() not in ("production", "prod"):
+    _default_origins += ",http://localhost:3000,http://localhost:3001"
+allowed_origins = os.getenv("CORS_ORIGINS", _default_origins).split(",")
 
 app.add_middleware(
     CORSMiddleware,
