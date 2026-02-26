@@ -86,7 +86,7 @@ function MultiplierRow({
   const isCompress = detail.value < 1.0
 
   return (
-    <div className="flex items-center gap-3 py-2 border-b border-border/40 last:border-0">
+    <div className="flex items-center gap-3 py-2 border-b border-border/60 last:border-0">
       {/* Name + bucket */}
       <div className="flex-1 min-w-0">
         <span className="text-xs font-medium text-text-secondary">{label}</span>
@@ -206,7 +206,7 @@ export function PositionSizingCard({
     <div className="rounded-lg border border-border bg-surface overflow-hidden">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-3 bg-surface-elevated/50 border-b border-border/60">
+      <div className="flex items-center justify-between px-4 py-3 bg-surface-elevated/70 border-b border-border/80">
         <div className="flex items-center gap-2">
           <Sliders className="h-4 w-4 text-text-tertiary" />
           <span className="text-xs font-semibold text-text-primary uppercase tracking-wide">
@@ -251,7 +251,7 @@ export function PositionSizingCard({
         </div>
 
         {/* ── Multiplier breakdown ────────────────────────────────────────── */}
-        <div className="rounded-lg border border-border/60 bg-surface/40 px-3 py-1">
+        <div className="rounded-lg border border-border/80 bg-surface/60 px-3 py-1">
           <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-semibold pt-2 pb-1">
             Multipliers
           </p>
@@ -260,7 +260,7 @@ export function PositionSizingCard({
           ))}
 
           {/* Product line */}
-          <div className="flex items-center justify-between pt-2 pb-1 border-t border-border/40 mt-1">
+          <div className="flex items-center justify-between pt-2 pb-1 border-t border-border/60 mt-1">
             <span className="text-[10px] text-text-tertiary font-mono">
               Product of multipliers
             </span>
@@ -297,7 +297,7 @@ export function PositionSizingCard({
           <p className="text-[10px] uppercase tracking-wider text-text-tertiary font-semibold">
             Dollar Exposure Calculator
           </p>
-          <div className="rounded-lg border border-border/60 bg-surface/40 divide-y divide-border/30">
+          <div className="rounded-lg border border-border/80 bg-surface/60 divide-y divide-border/60">
             {PORTFOLIO_SIZES.map((size) => (
               <div key={size} className="flex items-center justify-between px-3 py-2 text-xs">
                 <span className="text-text-tertiary">
@@ -348,7 +348,7 @@ export function PositionSizingCard({
         <div className="rounded-lg border border-border/60 overflow-hidden">
           <button
             onClick={() => setExplainOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-3 py-2.5 bg-surface-elevated/30 hover:bg-surface-elevated/50 transition-colors text-left"
+            className="w-full flex items-center justify-between px-3 py-2.5 bg-surface-elevated/50 hover:bg-surface-elevated/70 transition-colors text-left"
           >
             <div className="flex items-center gap-1.5">
               <Info className="h-3.5 w-3.5 text-text-tertiary" />
@@ -363,7 +363,7 @@ export function PositionSizingCard({
           </button>
 
           {explainOpen && (
-            <div className="px-3 py-3 bg-surface/20 border-t border-border/40 space-y-3">
+            <div className="px-3 py-3 bg-surface/40 border-t border-border/60 space-y-3">
               <p className="text-[11px] text-text-tertiary leading-relaxed">
                 The recommended weight is computed as:
               </p>

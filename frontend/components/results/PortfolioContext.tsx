@@ -329,7 +329,7 @@ export function PortfolioContext({
 
           {/* Risk Contribution sub-section */}
           <div>
-            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/50 mb-1.5 font-medium">Risk Contribution</p>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/75 mb-1.5 font-medium">Risk Contribution</p>
             <div className="grid grid-cols-3 gap-3 text-xs">
               <div>
                 <span className="text-[10px] text-text-tertiary block">Beta Contribution</span>
@@ -339,7 +339,7 @@ export function PortfolioContext({
                 }`}>
                   {portfolioRiskMetrics.betaCategory}
                 </span>
-                <span className="text-[10px] text-text-tertiary/60 block">
+                <span className="text-[10px] text-text-tertiary/80 block">
                   {portfolioRiskMetrics.betaEstimate}β · ~{portfolioRiskMetrics.betaContributionPct.toFixed(1)}% sys. exp.
                 </span>
               </div>
@@ -348,7 +348,7 @@ export function PortfolioContext({
                 <span className="font-semibold text-text-primary">
                   ~{portfolioRiskMetrics.volContribution.toFixed(1)}%
                 </span>
-                <span className="text-[10px] text-text-tertiary/60 block">of portfolio vol. (est.)</span>
+                <span className="text-[10px] text-text-tertiary/80 block">of portfolio vol. (est.)</span>
               </div>
               <div>
                 <span className="text-[10px] text-text-tertiary block">Drawdown Contribution</span>
@@ -357,14 +357,14 @@ export function PortfolioContext({
                 }`}>
                   ~{portfolioRiskMetrics.drawdownContribution.toFixed(1)}%
                 </span>
-                <span className="text-[10px] text-text-tertiary/60 block">tail drawdown impact</span>
+                <span className="text-[10px] text-text-tertiary/80 block">tail drawdown impact</span>
               </div>
             </div>
           </div>
 
           {/* Diversification Profile sub-section */}
           <div className="pt-2 border-t border-border/40">
-            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/50 mb-1.5 font-medium">Diversification Profile</p>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/75 mb-1.5 font-medium">Diversification Profile</p>
             <div className="grid grid-cols-3 gap-3 text-xs">
               <div>
                 <span className="text-[10px] text-text-tertiary block">Correlation Sensitivity</span>
@@ -374,14 +374,14 @@ export function PortfolioContext({
                 }`}>
                   {portfolioRiskMetrics.corrImpact}
                 </span>
-                <span className="text-[10px] text-text-tertiary/60 block">vs. broad market</span>
+                <span className="text-[10px] text-text-tertiary/80 block">vs. broad market</span>
               </div>
               <div>
                 <span className="text-[10px] text-text-tertiary block">Factor Tilt</span>
                 <span className="font-semibold text-text-secondary">
                   {portfolioRiskMetrics.factorTilt}
                 </span>
-                <span className="text-[10px] text-text-tertiary/60 block">{sector}</span>
+                <span className="text-[10px] text-text-tertiary/80 block">{sector}</span>
               </div>
               <div>
                 <span className="text-[10px] text-text-tertiary block">Concentration Impact</span>
@@ -391,7 +391,7 @@ export function PortfolioContext({
                 }`}>
                   {portfolioRiskMetrics.concentrationImpact}
                 </span>
-                <span className="text-[10px] text-text-tertiary/60 block">{allocation.max}% position size</span>
+                <span className="text-[10px] text-text-tertiary/80 block">{allocation.max}% position size</span>
               </div>
             </div>
           </div>
@@ -409,7 +409,7 @@ export function PortfolioContext({
               {portfolioRiskMetrics.riskBudgetEfficiency}
             </span>
           </div>
-          <p className="text-[10px] text-text-tertiary/50 italic">
+          <p className="text-[10px] text-text-tertiary/70 italic">
             Beta, vol., and drawdown contributions are heuristic approximations — sector proxies, not realized factor exposures. Systematic exposure = position weight × beta × 15% market vol proxy.
           </p>
         </div>

@@ -59,14 +59,14 @@
 :root,
 [data-theme="dark"] {
   /* === Background layers (R G B channels — used by Tailwind for opacity) === */
-  --bg-rgb: 8 12 24;           /* #080C18 — near-black navy base */
-  --surface-1-rgb: 16 24 40;   /* #101828 — card surface (lifted +2/4/6) */
-  --surface-2-rgb: 26 36 58;   /* #1A243A — elevated panel (lifted +4/6/8) */
+  --bg-rgb: 6 10 20;           /* #060A14 — deeper navy base (was #080C18) */
+  --surface-1-rgb: 16 24 40;   /* #101828 — card surface; gap vs bg ↑ due to deeper bg */
+  --surface-2-rgb: 28 40 66;   /* #1C2842 — elevated panel; more lift (was #1A243A) */
 
   /* === Text === */
   --text-rgb: 233 236 248;     /* #E9ECF8 — slightly brighter off-white */
-  --text-muted-rgb: 118 132 172; /* #7684AC — secondary body: up from 96 110 148 for 5.5:1+ contrast */
-  --text-subtle-rgb: 64 76 112;  /* #404C70 — tertiary/divider labels */
+  --text-muted-rgb: 118 132 172; /* #7684AC — secondary body; 5.2:1 on new bg */
+  --text-subtle-rgb: 100 120 172; /* #6478AC — raised from #404C70; ≥4.5:1 on new bg */
 
   /* === Brand accent === */
   --accent-rgb: 0 217 181;      /* #00D9B5 — keep existing teal */
@@ -74,27 +74,27 @@
   --accent-light-rgb: 51 228 200; /* #33E4C8 */
 
   /* === Computed full-value vars (for direct CSS / inline-style use) === */
-  --bg: rgb(8 12 24);
+  --bg: rgb(6 10 20);
   --surface-1: rgb(16 24 40);
-  --surface-2: rgb(26 36 58);
+  --surface-2: rgb(28 40 66);
   --text: rgb(233 236 248);
   --text-muted: rgb(118 132 172);
-  --text-subtle: rgb(64 76 112);
+  --text-subtle: rgb(100 120 172);
   --accent: rgb(0 217 181);
   --accent-dark: rgb(0 179 150);
   --accent-light: rgb(51 228 200);
 
-  /* === Hairline borders (rgba — intentionally light, not heavy outlines) === */
-  --border: rgba(255 255 255 / 0.09);
-  --border-strong: rgba(255 255 255 / 0.17);
+  /* === Hairline borders (rgba) === */
+  --border: rgba(255 255 255 / 0.13);       /* was 0.09 — +44% more visible */
+  --border-strong: rgba(255 255 255 / 0.24); /* was 0.17 — clearer dividers */
 
   /* === Accent tints (for chip hover / active states) === */
   --accent-weak: rgba(0 217 181 / 0.09);
   --accent-border: rgba(0 217 181 / 0.28);
 
   /* === Shadows === */
-  --shadow-sm: 0 1px 3px rgba(0 0 0 / 0.35);
-  --shadow: 0 4px 24px rgba(0 0 0 / 0.5);
+  --shadow-sm: 0 1px 3px rgba(0 0 0 / 0.40);
+  --shadow: 0 4px 24px rgba(0 0 0 / 0.55);
 
   /* === Misc === */
   --radius: 6px;
@@ -104,12 +104,12 @@
   --primary: rgb(0 217 181);
   --primary-dark: rgb(0 179 150);
   --primary-light: rgb(51 228 200);
-  --background: rgb(8 12 24);
+  --background: rgb(6 10 20);
   --surface: rgb(16 24 40);
-  --surface-elevated: rgb(26 36 58);
+  --surface-elevated: rgb(28 40 66);
   --text-primary: rgb(233 236 248);
   --text-secondary: rgb(118 132 172);
-  --text-tertiary: rgb(64 76 112);
+  --text-tertiary: rgb(100 120 172);
   --success: #10B981;
   --warning: #F59E0B;
   --error: #EF4444;
