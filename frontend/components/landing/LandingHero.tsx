@@ -95,9 +95,9 @@ function EngineCard() {
         <p className="text-[9px] uppercase tracking-widest text-text-tertiary mb-3">
           Final Allowed Allocation
         </p>
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start justify-between gap-6">
           {/* Animated big number */}
-          <div>
+          <div className="shrink-0">
             <p
               className="font-bold leading-none tracking-tighter tabular-nums"
               style={{ color: 'var(--accent)', fontSize: '3.25rem' }}
@@ -107,44 +107,37 @@ function EngineCard() {
             <p className="text-xs text-text-secondary mt-2">Satellite Position</p>
           </div>
 
-          {/* Causal computation chain */}
-          <div className="text-right shrink-0 space-y-2 pt-1">
-            {/* 3-line breakdown */}
-            <div className="text-[10px] font-mono space-y-1">
-              <p className="flex justify-end gap-2">
-                <span style={{ color: 'var(--text-subtle)' }}>Base Weight</span>
-                <span className="font-medium text-text-secondary">8.9%</span>
-              </p>
-              <p className="flex justify-end gap-2">
-                <span style={{ color: 'var(--text-subtle)' }}>Exec. Multiplier</span>
-                <span className="font-medium" style={{ color: '#F59E0B' }}>0.7×</span>
-              </p>
-              <p className="flex justify-end gap-2">
-                <span style={{ color: 'var(--text-subtle)' }}>Policy Cap</span>
-                <span className="font-medium text-text-secondary">8.4%</span>
-              </p>
+          {/* Vertical computation ledger */}
+          <div className="flex-1 font-mono text-[11px]">
+            {/* Row 1 */}
+            <div className="flex items-baseline justify-between gap-2 pb-1">
+              <span style={{ color: 'var(--text-subtle)' }}>Base Weight</span>
+              <span className="font-medium text-text-secondary tabular-nums">8.9%</span>
             </div>
-            {/* Emphasized formula result */}
+            {/* Row 2 */}
+            <div className="flex items-baseline justify-between gap-2 pb-1.5">
+              <span style={{ color: 'var(--text-subtle)' }}>
+                <span style={{ color: '#F59E0B' }}>×</span> Exec. Multiplier
+              </span>
+              <span className="font-medium tabular-nums" style={{ color: '#F59E0B' }}>0.7×</span>
+            </div>
+            {/* Divider */}
+            <div className="mb-1.5" style={{ borderTop: '1px solid var(--border-strong)' }} />
+            {/* Result row — fades in after animation */}
             <div
-              className="flex items-center gap-1 justify-end font-mono text-xs pt-2"
-              style={{ borderTop: '1px solid var(--border)' }}
+              className="flex items-baseline justify-between gap-2 transition-opacity duration-700"
+              style={{ opacity: animDone ? 1 : 0 }}
             >
-              <span className="text-text-secondary">8.9%</span>
-              <span className="text-text-tertiary">×</span>
-              <span style={{ color: '#F59E0B' }}>0.7×</span>
-              <span
-                className="text-text-secondary transition-opacity duration-500"
-                style={{ opacity: animDone ? 1 : 0 }}
-              >
-                →
-              </span>
-              <span
-                className="font-bold transition-opacity duration-500"
-                style={{ color: 'var(--accent)', opacity: animDone ? 1 : 0 }}
-              >
-                6.2%
-              </span>
+              <span className="font-semibold text-text-primary">Final Allocation</span>
+              <span className="font-bold tabular-nums" style={{ color: 'var(--accent)' }}>6.2%</span>
             </div>
+            {/* Policy cap note */}
+            <p
+              className="text-[9px] text-right mt-1.5 leading-none"
+              style={{ color: 'var(--text-subtle)' }}
+            >
+              Policy cap 8.4% applied
+            </p>
           </div>
         </div>
       </div>
@@ -216,14 +209,12 @@ function EngineCard() {
           >
             <p className="text-xs font-bold font-mono text-text-primary">62nd</p>
             <p className="text-[9px] uppercase tracking-wider text-text-tertiary mt-0.5">EV Percentile</p>
+            <p className="text-[9px] text-text-tertiary mt-0.5 leading-none">vs calibrated universe</p>
           </div>
           <div className="text-center">
             <p className="text-xs font-bold font-mono" style={{ color: '#10B981' }}>
               0.49
-              <span
-                className="text-[9px] font-medium ml-1"
-                style={{ color: 'rgba(16,185,129,0.7)' }}
-              >
+              <span className="text-[9px] font-medium ml-1" style={{ color: 'rgba(16,185,129,0.7)' }}>
                 Efficient
               </span>
             </p>
@@ -239,6 +230,7 @@ function EngineCard() {
           <div>
             <span className="text-text-tertiary">Stop Trigger Prob.: </span>
             <span className="font-mono font-medium text-text-primary">20%</span>
+            <span className="text-text-tertiary ml-1 text-[9px]">(inst. range 15–35%)</span>
           </div>
           <div>
             <span className="text-text-tertiary">Volatility Regime: </span>
@@ -298,6 +290,11 @@ export function LandingHero() {
               Most research ends at conviction.
               <br />
               DVRG ends at capital allocation.
+            </p>
+
+            {/* Edge micro-line */}
+            <p className="text-xs leading-snug" style={{ color: 'var(--text-subtle)' }}>
+              Capital is deployed only when probabilistic edge exceeds risk threshold.
             </p>
 
             {/* Micro-proof bullets */}
@@ -364,7 +361,7 @@ export function LandingHero() {
           </div>
 
           {/* ── RIGHT: Engine card ────────────────────────────────────────────── */}
-          <div className="w-full">
+          <div id="engine-state-container" className="w-full">
             <EngineCard />
           </div>
 

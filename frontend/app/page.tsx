@@ -98,6 +98,45 @@ export default function Home() {
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <LandingHero />
 
+      {/* ── Proof-of-edge strip ──────────────────────────────────────────── */}
+      <div
+        className="py-3"
+        style={{
+          background: 'var(--surface-1)',
+          borderTop: '1px solid var(--border)',
+          borderBottom: '1px solid var(--border)',
+        }}
+      >
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <div className="flex items-center justify-center gap-6 sm:gap-10 flex-wrap">
+            {[
+              { label: 'EV Percentile',     value: '62nd' },
+              { label: 'Risk Efficiency',   value: '76th percentile' },
+              { label: 'Stop Risk Rank',    value: '75th percentile' },
+            ].map(({ label, value }, i) => (
+              <div key={label} className="flex items-center gap-2 text-xs">
+                {i > 0 && (
+                  <span className="text-text-tertiary hidden sm:block select-none">·</span>
+                )}
+                <span
+                  className="uppercase tracking-wider"
+                  style={{ fontSize: '9px', color: 'var(--text-subtle)' }}
+                >
+                  {label}:
+                </span>
+                <span className="font-mono font-semibold text-text-primary">{value}</span>
+              </div>
+            ))}
+          </div>
+          <p
+            className="text-center mt-1.5 uppercase tracking-wider"
+            style={{ fontSize: '9px', color: 'var(--text-subtle)' }}
+          >
+            Illustrative — relative to calibrated universe
+          </p>
+        </div>
+      </div>
+
       {/* ── Bold tagline ─────────────────────────────────────────────────── */}
       <div
         className="py-8 text-center"
@@ -137,7 +176,7 @@ export default function Home() {
                   className="text-xs font-semibold uppercase tracking-widest mb-6"
                   style={{ color: 'rgba(239,68,68,0.70)' }}
                 >
-                  Narrative Research
+                  Opinion-Driven Research
                 </p>
                 <div className="space-y-3">
                   {[
@@ -171,7 +210,7 @@ export default function Home() {
                   className="text-xs font-semibold uppercase tracking-widest mb-6"
                   style={{ color: '#10B981' }}
                 >
-                  Probabilistic Allocation
+                  Systematic Capital Deployment
                 </p>
                 <div className="space-y-3">
                   {[
@@ -274,27 +313,27 @@ export default function Home() {
               <Step
                 n="1"
                 title="Detect Structural Divergence"
-                body="Signal environment classified — volatility, liquidity, structure."
+                body="Identify regime, liquidity, and volatility state."
               />
               <Step
                 n="2"
-                title="Model Scenario-Weighted Outcomes"
-                body="Stop, target, and re-rating paths weighted by probability."
+                title="Weight Scenarios by Probability"
+                body="Model stop, targets, and expansion paths."
               />
               <Step
                 n="3"
                 title="Quantify Expected Value"
-                body="Expected value computed against risk geometry."
+                body="Compute probability-weighted return."
               />
               <Step
                 n="4"
-                title="Stress-Test Stability"
-                body="Conviction separated from fragile, noise-driven signals."
+                title="Enforce Risk Stability"
+                body="Apply multiplier and policy cap."
               />
               <Step
                 n="5"
-                title="Translate into Capital Allocation"
-                body="Execution multiplier applied. Policy cap enforced. Allocation output."
+                title="Convert Probability into Size"
+                body="Translate edge into allocation."
               />
             </div>
 
