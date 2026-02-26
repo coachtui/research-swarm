@@ -125,11 +125,14 @@ async def billing_refresh(
             best_rank = rank
 
     if best_sub is None:
-        # No eligible subscription — downgrade gracefully
+        # No eligible subscription — downgrade paid users gracefully.
+        # Free users (never subscribed) must NOT have their tier changed.
+        current_tier = user_db.tier if hasattr(user_db, "tier") else "free"
+        downgrade_tier = "free" if current_tier == "free" else "starter"
         await db.user.update(
             where={"id": current_user.id},
             data={
-                "tier":                    "starter",
+                "tier":                    downgrade_tier,
                 "stripeSubscriptionStatus": "canceled",
                 "isActive":                True,
             },

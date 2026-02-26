@@ -1,9 +1,9 @@
 """
 Plan limits configuration for tier-based access control.
-Defines quotas and features for Starter, Investor, and Trader tiers.
+Defines quotas and features for Free, Starter, Investor, and Trader tiers.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple
 
 
@@ -17,10 +17,22 @@ class PlanLimits:
     concurrent_analyses: int
     priority_queue: bool
     api_access: bool
+    # Free-tier-only: credit-based (lifetime) rather than monthly rolling
+    is_credit_based: bool = False
+    free_credits_total: int = 0
 
 
 # Tier limit definitions
 TIER_LIMITS = {
+    "free": PlanLimits(
+        analyses_per_month=0,    # Free uses lifetime credits, not monthly rolling
+        watchlist_max=5,          # Limited watchlist for free users
+        concurrent_analyses=1,
+        priority_queue=False,
+        api_access=False,
+        is_credit_based=True,
+        free_credits_total=2,
+    ),
     "starter": PlanLimits(
         analyses_per_month=5,    # Starter: $19.99/month for 5 reports
         watchlist_max=999,        # Unlimited watchlist for all tiers
@@ -50,18 +62,18 @@ def get_tier_limits(tier: str) -> PlanLimits:
     Get the plan limits for a given tier.
 
     Args:
-        tier: The tier name (starter, investor, trader)
+        tier: The tier name (free, starter, investor, trader)
 
     Returns:
         PlanLimits configuration for the tier
 
-    Defaults to starter tier if tier not found.
+    Defaults to free tier if tier not found.
     """
-    return TIER_LIMITS.get(tier.lower(), TIER_LIMITS["starter"])
+    return TIER_LIMITS.get(tier.lower(), TIER_LIMITS["free"])
 
 
 def get_analyses_limit(tier: str) -> int:
-    """Get monthly analysis limit for a tier."""
+    """Get monthly analysis limit for a tier (0 for free/credit-based tiers)."""
     return get_tier_limits(tier).analyses_per_month
 
 

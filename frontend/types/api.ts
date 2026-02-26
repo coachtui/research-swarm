@@ -762,6 +762,8 @@ export interface WatchlistStatsResponse {
 // --- Quota Types ---
 
 export interface QuotaData {
+  tier: string
+  is_free_tier: boolean
   analyses_used: number
   analyses_limit: number
   boost_analyses_added: number
@@ -769,12 +771,16 @@ export interface QuotaData {
   watchlist_count: number
   watchlist_limit: number
   watchlist_remaining: number
-  period_start: string
-  period_end: string
-  billing_period_end: string
-  days_remaining: number
+  period_start: string | null
+  period_end: string | null
+  billing_period_end: string | null
+  days_remaining: number | null
   boost_eligible: boolean
-  tier: string
+  at_warning_threshold: boolean
+  /** Free-tier lifetime credits (null for paid tiers). */
+  report_credits_total: number | null
+  report_credits_used: number | null
+  report_credits_remaining: number | null
 }
 
 // --- Admin Types ---
@@ -956,7 +962,7 @@ export interface PositionSizingResponse {
  */
 export interface EntitlementsResponse {
   /** Effective tier after admin override and Stripe status check. */
-  tier: 'starter' | 'investor' | 'trader'
+  tier: 'free' | 'starter' | 'investor' | 'trader'
   /** False when the Stripe subscription is in an inactive/delinquent status. */
   active: boolean
   /**
@@ -968,5 +974,25 @@ export interface EntitlementsResponse {
     analyses_per_month: number
     concurrent_analyses: number
     watchlist_max: number
+    /** True for the free tier (credit-based instead of monthly rolling). */
+    is_credit_based: boolean
+    /** Total lifetime credits available (free tier only). */
+    free_credits_total: number
+  }
+  /** Live usage counters — always fresh (no extra client-side DB hit). */
+  usage: {
+    analyses_used: number
+    analyses_remaining: number
+    analyses_limit: number
+    /** Free-tier lifetime credits total (null for paid tiers). */
+    report_credits_total: number | null
+    /** Free-tier credits consumed so far (null for paid tiers). */
+    report_credits_used: number | null
+    /** Free-tier credits remaining (null for paid tiers). */
+    report_credits_remaining: number | null
+    /** True only for the free tier. */
+    is_free_tier: boolean
+    /** True when a paid-tier user has used ≥80% of their monthly analyses. */
+    at_warning_threshold: boolean
   }
 }

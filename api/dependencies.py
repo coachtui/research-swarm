@@ -259,10 +259,11 @@ async def get_current_user(
                         "clerkId": clerk_user_id,
                         "email": email,
                         "fullName": email.split("@")[0],
-                        "tier": "starter",  # Default to starter tier (requires subscription to activate)
+                        "tier": "free",  # Default to free tier (2 lifetime report credits)
                         "monthlyBudgetUsd": 200.0,
                         "isActive": True,
-                        "isAdmin": is_admin
+                        "isAdmin": is_admin,
+                        "emailVerified": False,
                     }
                 )
                 logger.info(f"✅ Auto-created user: {user.email} (admin={is_admin})")
@@ -308,7 +309,8 @@ async def get_current_user(
         monthly_budget_usd=user.monthlyBudgetUsd,
         stripe_subscription_status=user.stripeSubscriptionStatus,
         is_active=user.isActive,
-        is_admin=user.isAdmin
+        is_admin=user.isAdmin,
+        email_verified=getattr(user, "emailVerified", False) or False,
     )
 
 async def get_optional_user(

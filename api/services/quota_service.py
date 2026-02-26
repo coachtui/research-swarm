@@ -1,7 +1,13 @@
 """
 Quota management service for enforcing plan limits.
-Tracks usage per billing period and validates against tier limits.
-Supports 30-day rolling billing periods (set by Stripe) and boost purchases.
+
+Paid tiers (starter/investor/trader): monthly rolling quota via UsageQuota.
+Free tier: lifetime credit quota via FreeReportCredit (2 total reports).
+
+Anti-abuse:
+  - Device-level tracking via DeviceFreeUsage (max 2 free reports per device).
+  - Email verification required for free report #2.
+  - Idempotency via UsageRecord (unique per generation_id/run_id).
 """
 
 from datetime import datetime, timezone, timedelta
@@ -10,6 +16,12 @@ from calendar import monthrange
 
 from api.lib.db import get_db
 from api.lib.plan_limits import get_tier_limits
+
+# Threshold above which we warn paid users they are approaching their limit
+_WARN_THRESHOLD = 0.80  # 80%
+
+# Maximum free reports per device before blocking additional accounts
+_DEVICE_FREE_LIMIT = 2
 
 
 def _get_month_start() -> datetime:
@@ -23,6 +35,141 @@ def _get_month_end(start: datetime) -> datetime:
     last_day = monthrange(start.year, start.month)[1]
     return start.replace(day=last_day, hour=23, minute=59, second=59, microsecond=999999)
 
+
+# ── Free-tier helpers ─────────────────────────────────────────────────────────
+
+async def get_or_create_free_credits(user_id: str):
+    """
+    Get or create the FreeReportCredit record for a free-tier user.
+
+    Returns the record with creditsTotal / creditsUsed fields.
+    """
+    db = await get_db()
+    credit = await db.freereportcredit.find_unique(where={"userId": user_id})
+    if not credit:
+        credit = await db.freereportcredit.create(
+            data={"userId": user_id, "creditsTotal": 2, "creditsUsed": 0}
+        )
+    return credit
+
+
+async def check_device_limit(device_id: str) -> bool:
+    """
+    Return True if the given device_id has exhausted the device-level free limit.
+
+    Conservative threshold: _DEVICE_FREE_LIMIT reports across ALL accounts on this device.
+    """
+    if not device_id:
+        return False
+    db = await get_db()
+    record = await db.devicefreeusage.find_unique(where={"deviceId": device_id})
+    return bool(record and record.totalFreeReports >= _DEVICE_FREE_LIMIT)
+
+
+async def increment_device_usage(device_id: str) -> None:
+    """Increment the per-device free report counter."""
+    if not device_id:
+        return
+    db = await get_db()
+    existing = await db.devicefreeusage.find_unique(where={"deviceId": device_id})
+    if existing:
+        await db.devicefreeusage.update(
+            where={"deviceId": device_id},
+            data={
+                "totalFreeReports": existing.totalFreeReports + 1,
+                "lastUsedAt": datetime.now(timezone.utc),
+            },
+        )
+    else:
+        await db.devicefreeusage.create(
+            data={
+                "deviceId": device_id,
+                "totalFreeReports": 1,
+                "lastUsedAt": datetime.now(timezone.utc),
+            }
+        )
+
+
+async def check_can_analyze_free(
+    user_id: str,
+    email_verified: bool,
+    device_id: str = "",
+) -> Tuple[bool, str, str]:
+    """
+    Check whether a free-tier user may generate a report.
+
+    Returns:
+        (can_proceed: bool, message: str, error_code: str)
+
+    error_code values:
+        ""                   – allowed
+        "DEVICE_LIMIT"       – device has exceeded free report threshold
+        "EMAIL_REQUIRED"     – report #2 needs verified email
+        "CREDITS_EXHAUSTED"  – all 2 free reports used
+    """
+    # Account cycling detection: check device before granting credits
+    if await check_device_limit(device_id):
+        return (
+            False,
+            "Free trial limit reached on this device. Upgrade to continue.",
+            "DEVICE_LIMIT",
+        )
+
+    credit = await get_or_create_free_credits(user_id)
+
+    # Report #2 requires a verified email address
+    if credit.creditsUsed >= 1 and not email_verified:
+        return (
+            False,
+            "Verify your email to unlock your second free report.",
+            "EMAIL_REQUIRED",
+        )
+
+    if credit.creditsUsed >= credit.creditsTotal:
+        return (
+            False,
+            f"You've used all {credit.creditsTotal} free reports. Upgrade to continue.",
+            "CREDITS_EXHAUSTED",
+        )
+
+    return True, "", ""
+
+
+async def increment_free_credit_used(
+    user_id: str,
+    run_id: str,
+    device_id: str = "",
+) -> None:
+    """
+    Consume one free credit.
+
+    Idempotent: a UsageRecord keyed on run_id prevents double-counting on
+    retry or page refresh.  Also increments the device-level counter.
+    """
+    db = await get_db()
+
+    # Idempotency guard — if a record already exists for this run, bail out
+    existing = await db.usagerecord.find_unique(where={"generationId": run_id})
+    if existing:
+        return
+
+    credit = await get_or_create_free_credits(user_id)
+    await db.freereportcredit.update(
+        where={"id": credit.id},
+        data={"creditsUsed": credit.creditsUsed + 1},
+    )
+    await db.usagerecord.create(
+        data={
+            "generationId": run_id,
+            "userId": user_id,
+            "planAtTime": "free",
+            "usageType": "free_credit",
+        }
+    )
+    await increment_device_usage(device_id)
+
+
+# ── Paid-tier helpers ─────────────────────────────────────────────────────────
 
 async def get_or_create_current_quota(user_id: str, tier: str):
     """
@@ -86,30 +233,41 @@ async def get_or_create_current_quota(user_id: str, tier: str):
     return quota
 
 
-async def check_can_analyze(user_id: str, tier: str, user_email: str = "", is_admin: bool = False, stripe_status: str = "") -> Tuple[bool, str]:
+async def check_can_analyze(
+    user_id: str,
+    tier: str,
+    user_email: str = "",
+    is_admin: bool = False,
+    stripe_status: str = "",
+    email_verified: bool = False,
+    device_id: str = "",
+) -> Tuple[bool, str]:
     """
     Check if user can run another analysis.
 
-    Args:
-        user_id: User UUID
-        tier: User tier
-        user_email: User email (optional, for test account bypass)
-        is_admin: Whether user is an admin (bypasses all limits)
-        stripe_status: Stripe subscription status (must be active/trialing to analyze)
+    For free-tier users this checks lifetime credits; for paid tiers it
+    checks the monthly quota + Stripe subscription status.
 
     Returns:
-        (can_proceed, error_message)
-        - can_proceed: True if user has quota remaining
-        - error_message: Empty if allowed, error message if denied
+        (can_proceed: bool, error_message: str)
     """
-    print(f"🔍 check_can_analyze: user_email='{user_email}', tier='{tier}', is_admin={is_admin}, stripe_status='{stripe_status}'")
+    print(
+        f"🔍 check_can_analyze: user_email='{user_email}', tier='{tier}', "
+        f"is_admin={is_admin}, stripe_status='{stripe_status}', "
+        f"email_verified={email_verified}"
+    )
 
-    # Bypass for admins - unlimited analyses
+    # Admins bypass all checks
     if is_admin:
         print(f"✅ Bypassing quota check for admin user: {user_email}")
         return True, ""
 
-    # Require an active paid subscription before counting quota
+    # Free tier: credit-based gating
+    if tier == "free":
+        can, msg, _code = await check_can_analyze_free(user_id, email_verified, device_id)
+        return can, msg
+
+    # Paid tiers: require an active Stripe subscription
     _PAID_STATUSES = {"active", "trialing"}
     if stripe_status not in _PAID_STATUSES:
         print(f"❌ No active subscription for {user_email}: stripe_status='{stripe_status}'")
@@ -177,7 +335,12 @@ async def add_boost_analyses(user_id: str, tier: str, count: int = 5) -> None:
     )
 
 
-async def check_can_add_to_watchlist(user_id: str, tier: str, user_email: str = "", is_admin: bool = False) -> Tuple[bool, str]:
+async def check_can_add_to_watchlist(
+    user_id: str,
+    tier: str,
+    user_email: str = "",
+    is_admin: bool = False,
+) -> Tuple[bool, str]:
     """
     Check if user can add another stock to watchlist.
 
@@ -202,6 +365,18 @@ async def check_can_add_to_watchlist(user_id: str, tier: str, user_email: str = 
         print(f"✅ Bypassing watchlist quota for test account: {user_email}")
         return True, ""
 
+    # Free tier: use their own limit (5 max)
+    if tier == "free":
+        db = await get_db()
+        count = await db.watchlist.count(where={"userId": user_id})
+        limit = get_tier_limits("free").watchlist_max
+        if count >= limit:
+            return False, (
+                f"Watchlist limit reached ({limit} stocks on Free plan). "
+                f"Upgrade to Starter for unlimited watchlist slots."
+            )
+        return True, ""
+
     quota = await get_or_create_current_quota(user_id, tier)
 
     if quota.watchlistCount >= quota.watchlistLimit:
@@ -213,14 +388,44 @@ async def check_can_add_to_watchlist(user_id: str, tier: str, user_email: str = 
     return True, ""
 
 
-async def increment_analysis_count(user_id: str, tier: str) -> None:
+async def increment_analysis_count(
+    user_id: str,
+    tier: str,
+    run_id: str = "",
+    device_id: str = "",
+) -> None:
     """
-    Increment analysis counter after successful analysis.
+    Record successful analysis completion.
+
+    Free tier: consumes one lifetime credit (idempotent via UsageRecord).
+    Paid tiers: increments monthly UsageQuota counter (also idempotent via UsageRecord).
 
     Args:
         user_id: User UUID
-        tier: User tier
+        tier: User tier at time of analysis
+        run_id: Run UUID — used for idempotency
+        device_id: Device identifier — used for device anti-abuse tracking on free tier
     """
+    if tier == "free":
+        if run_id:
+            await increment_free_credit_used(user_id, run_id, device_id)
+        return
+
+    # Paid tier: idempotency check
+    if run_id:
+        db = await get_db()
+        existing = await db.usagerecord.find_unique(where={"generationId": run_id})
+        if existing:
+            return  # Already counted
+        await db.usagerecord.create(
+            data={
+                "generationId": run_id,
+                "userId": user_id,
+                "planAtTime": tier,
+                "usageType": "monthly_report",
+            }
+        )
+
     quota = await get_or_create_current_quota(user_id, tier)
     db = await get_db()
 
@@ -238,6 +443,8 @@ async def increment_watchlist_count(user_id: str, tier: str) -> None:
         user_id: User UUID
         tier: User tier
     """
+    if tier == "free":
+        return  # Free tier uses live DB count, not UsageQuota
     quota = await get_or_create_current_quota(user_id, tier)
     db = await get_db()
 
@@ -255,6 +462,8 @@ async def decrement_watchlist_count(user_id: str, tier: str) -> None:
         user_id: User UUID
         tier: User tier
     """
+    if tier == "free":
+        return  # Free tier uses live DB count
     quota = await get_or_create_current_quota(user_id, tier)
     db = await get_db()
 
@@ -267,9 +476,18 @@ async def decrement_watchlist_count(user_id: str, tier: str) -> None:
     )
 
 
-async def get_usage_summary(user_id: str, tier: str, stripe_status: str = "", is_admin: bool = False) -> Dict[str, Any]:
+async def get_usage_summary(
+    user_id: str,
+    tier: str,
+    stripe_status: str = "",
+    is_admin: bool = False,
+) -> Dict[str, Any]:
     """
     Get current usage summary for dashboard display.
+
+    For free tier returns credit-based fields.
+    For paid tiers returns monthly quota fields with an at_warning_threshold flag
+    when usage has reached 80% of the monthly limit.
 
     Args:
         user_id: User UUID
@@ -280,6 +498,74 @@ async def get_usage_summary(user_id: str, tier: str, stripe_status: str = "", is
     Returns:
         Dict with usage stats including boost info and billing period
     """
+    # ── Admin ──────────────────────────────────────────────────────────────────
+    if is_admin:
+        try:
+            quota = await get_or_create_current_quota(
+                user_id, tier if tier not in ("free",) else "starter"
+            )
+        except Exception:
+            quota = None
+
+        now = datetime.now(timezone.utc)
+        period_end = getattr(quota, "periodEnd", now + timedelta(days=30))
+        if hasattr(period_end, "tzinfo") and period_end.tzinfo is None:
+            period_end = period_end.replace(tzinfo=timezone.utc)
+        days_remaining = max(0, (period_end - now).days)
+
+        return {
+            "plan": "admin",
+            "analyses_used": getattr(quota, "analysesUsed", 0),
+            "analyses_limit": 9999,
+            "boost_analyses_added": 0,
+            "analyses_remaining": 9999,
+            "watchlist_count": getattr(quota, "watchlistCount", 0),
+            "watchlist_limit": 9999,
+            "watchlist_remaining": 9999,
+            "period_start": getattr(quota, "periodStart", now),
+            "period_end": period_end,
+            "billing_period_end": period_end,
+            "days_remaining": days_remaining,
+            "boost_eligible": False,
+            "tier": tier,
+            "is_free_tier": False,
+            "at_warning_threshold": False,
+            "report_credits_total": None,
+            "report_credits_used": None,
+            "report_credits_remaining": None,
+        }
+
+    # ── Free tier ──────────────────────────────────────────────────────────────
+    if tier == "free":
+        credit = await get_or_create_free_credits(user_id)
+        credits_remaining = max(0, credit.creditsTotal - credit.creditsUsed)
+        db = await get_db()
+        wl_count = await db.watchlist.count(where={"userId": user_id})
+        wl_limit = get_tier_limits("free").watchlist_max
+        return {
+            "plan": "free",
+            "tier": "free",
+            "is_free_tier": True,
+            "report_credits_total": credit.creditsTotal,
+            "report_credits_used": credit.creditsUsed,
+            "report_credits_remaining": credits_remaining,
+            # Aliases used by existing UI components
+            "analyses_used": credit.creditsUsed,
+            "analyses_limit": credit.creditsTotal,
+            "analyses_remaining": credits_remaining,
+            "period_start": None,
+            "period_end": None,
+            "billing_period_end": None,
+            "days_remaining": None,
+            "boost_eligible": False,
+            "boost_analyses_added": 0,
+            "watchlist_count": wl_count,
+            "watchlist_limit": wl_limit,
+            "watchlist_remaining": max(0, wl_limit - wl_count),
+            "at_warning_threshold": False,
+        }
+
+    # ── Paid tiers ─────────────────────────────────────────────────────────────
     quota = await get_or_create_current_quota(user_id, tier)
 
     now = datetime.now(timezone.utc)
@@ -290,27 +576,20 @@ async def get_usage_summary(user_id: str, tier: str, stripe_status: str = "", is
     days_remaining = max(0, (period_end - now).days)
     boost_eligible = await check_boost_eligibility(user_id, stripe_status, tier) if stripe_status else False
 
-    # Admins get unlimited analyses — bypass all quota limits
-    if is_admin:
-        return {
-            "analyses_used": quota.analysesUsed,
-            "analyses_limit": 9999,
-            "boost_analyses_added": 0,
-            "analyses_remaining": 9999,
-            "watchlist_count": quota.watchlistCount,
-            "watchlist_limit": 9999,
-            "watchlist_remaining": 9999,
-            "period_start": quota.periodStart,
-            "period_end": quota.periodEnd,
-            "billing_period_end": quota.periodEnd,
-            "days_remaining": days_remaining,
-            "boost_eligible": False,
-            "tier": tier
-        }
+    total_limit = quota.analysesLimit + quota.boostAnalysesAdded
+    total_available = max(0, total_limit - quota.analysesUsed)
 
-    total_available = max(0, quota.analysesLimit + quota.boostAnalysesAdded - quota.analysesUsed)
+    # 80% warning threshold
+    at_warning = (
+        total_limit > 0
+        and quota.analysesUsed / total_limit >= _WARN_THRESHOLD
+        and total_available > 0
+    )
 
     return {
+        "plan": tier,
+        "tier": tier,
+        "is_free_tier": False,
         "analyses_used": quota.analysesUsed,
         "analyses_limit": quota.analysesLimit,
         "boost_analyses_added": quota.boostAnalysesAdded,
@@ -323,7 +602,10 @@ async def get_usage_summary(user_id: str, tier: str, stripe_status: str = "", is
         "billing_period_end": quota.periodEnd,
         "days_remaining": days_remaining,
         "boost_eligible": boost_eligible,
-        "tier": tier
+        "at_warning_threshold": at_warning,
+        "report_credits_total": None,
+        "report_credits_used": None,
+        "report_credits_remaining": None,
     }
 
 
@@ -359,6 +641,8 @@ async def sync_watchlist_count(user_id: str, tier: str) -> None:
         user_id: User UUID
         tier: User tier
     """
+    if tier == "free":
+        return  # Free tier always reads live from DB
     actual_count = await get_current_watchlist_size(user_id)
     quota = await get_or_create_current_quota(user_id, tier)
     db = await get_db()

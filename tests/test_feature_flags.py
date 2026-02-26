@@ -2,10 +2,10 @@
 Feature flag entitlements — unit tests for api/lib/entitlements.py.
 
 Coverage:
-  - Tier flag matrix correctness (all tiers, all new flags)
+  - Tier flag matrix correctness (all tiers including free, all feature flags)
   - has_feature() correct for each tier
   - _effective_tier() admin override
-  - _effective_tier() Stripe inactive-status downgrade
+  - _effective_tier() Stripe inactive-status downgrade (free users stay free)
   - ALL_FEATURES list completeness
   - upgrade_hint() accuracy
 
@@ -107,10 +107,69 @@ class TestEffectiveTier:
     def test_starter_no_stripe_status_stays_starter(self):
         assert _effective_tier(make_user("starter")) == "starter"
 
+    def test_free_user_no_stripe_stays_free(self):
+        """Free users have no Stripe sub — must not be changed."""
+        assert _effective_tier(make_user("free")) == "free"
+
+    def test_free_user_canceled_stripe_stays_free(self):
+        """
+        If a free user somehow ends up with a canceled Stripe record,
+        they should stay 'free' — NOT be downgraded to 'starter'.
+        """
+        assert _effective_tier(make_user("free", stripe_status="canceled")) == "free"
+
+    def test_free_user_past_due_stays_free(self):
+        assert _effective_tier(make_user("free", stripe_status="past_due")) == "free"
+
     def test_admin_ignores_inactive_stripe_status(self):
         """Admin override trumps Stripe downgrade."""
         u = make_user("starter", is_admin=True, stripe_status="canceled")
         assert _effective_tier(u) == "trader"
+
+
+# ── Free entitlements ────────────────────────────────────────────────────────
+
+class TestFreeEntitlements:
+    """
+    Free tier has identical feature flags to Starter.
+    The difference is quota gating (2 lifetime credits), not features.
+    """
+
+    def test_has_core(self):
+        assert has_feature(make_user("free"), FEAT_REPORT_CORE)
+
+    def test_has_sizing_summary(self):
+        assert has_feature(make_user("free"), FEAT_SIZING_SUMMARY)
+
+    def test_lacks_pdf(self):
+        assert not has_feature(make_user("free"), FEAT_REPORT_PDF)
+
+    def test_lacks_signal_metrics(self):
+        assert not has_feature(make_user("free"), FEAT_SIGNAL_METRICS)
+
+    def test_lacks_stop_prob_detail(self):
+        assert not has_feature(make_user("free"), FEAT_STOP_PROB_DETAIL)
+
+    def test_lacks_trade_setup(self):
+        assert not has_feature(make_user("free"), FEAT_REPORT_TRADE_SETUP)
+
+    def test_lacks_engine_diagnostics(self):
+        assert not has_feature(make_user("free"), FEAT_ENGINE_DIAGNOSTICS)
+
+    def test_lacks_scenario_weights(self):
+        assert not has_feature(make_user("free"), FEAT_SCENARIO_WEIGHTS)
+
+    def test_lacks_multiplier_stack(self):
+        assert not has_feature(make_user("free"), FEAT_MULTIPLIER_STACK)
+
+    def test_lacks_risk_matrix_full(self):
+        assert not has_feature(make_user("free"), FEAT_RISK_MATRIX_FULL)
+
+    def test_free_flags_equal_starter_flags(self):
+        """Free and Starter must have exactly the same feature set."""
+        free_features = {f for f in ALL_FEATURES if has_feature(make_user("free"), f)}
+        starter_features = {f for f in ALL_FEATURES if has_feature(make_user("starter"), f)}
+        assert free_features == starter_features
 
 
 # ── Starter entitlements ──────────────────────────────────────────────────────
@@ -241,6 +300,16 @@ class TestStripeDowngrade:
     def test_admin_ignores_canceled(self):
         u = make_user("investor", is_admin=True, stripe_status="canceled")
         assert has_feature(u, FEAT_ENGINE_DIAGNOSTICS)
+
+    def test_canceled_free_user_still_has_core(self):
+        """Free users with a (stale) canceled Stripe status stay on free — not starter."""
+        u = make_user("free", stripe_status="canceled")
+        assert has_feature(u, FEAT_REPORT_CORE)
+
+    def test_canceled_free_user_still_lacks_pdf(self):
+        """Free users are not upgraded to Starter on any Stripe event."""
+        u = make_user("free", stripe_status="canceled")
+        assert not has_feature(u, FEAT_REPORT_PDF)
 
 
 # ── upgrade_hint() ────────────────────────────────────────────────────────────

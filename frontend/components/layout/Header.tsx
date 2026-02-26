@@ -4,9 +4,10 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { ThemeButton } from '@/components/ui/theme-toggle'
-import { Menu, X } from 'lucide-react'
+import { Menu, X, TrendingUp } from 'lucide-react'
 import { useState } from 'react'
 import { UserButton, useUser } from '@clerk/nextjs'
+import { useEntitlements } from '@/lib/hooks/useEntitlements'
 
 const PUBLIC_NAV_LINKS = [
   { href: '/#how-it-works', label: 'How It Works' },
@@ -18,6 +19,43 @@ const AUTH_NAV_LINKS = [
   { href: '/dashboard',     label: 'Dashboard'    },
   ...PUBLIC_NAV_LINKS,
 ]
+
+/**
+ * Upgrade CTA chip shown in the header for:
+ *   - Free users (always, to drive conversion)
+ *   - Paid users who have hit ≥80% of their monthly quota (soft nudge)
+ */
+function UpgradeChip() {
+  const { data: ents } = useEntitlements()
+  if (!ents) return null
+
+  const isFreeTier = ents.usage.is_free_tier
+  const atWarning = ents.usage.at_warning_threshold
+  const creditsLeft = ents.usage.report_credits_remaining
+
+  // Show for free tier or paid users at/near limit
+  const showUpgrade = isFreeTier || atWarning
+  if (!showUpgrade) return null
+
+  const label = isFreeTier
+    ? creditsLeft === 0
+      ? 'Upgrade'
+      : `${creditsLeft} free report${creditsLeft !== 1 ? 's' : ''} left · Upgrade`
+    : 'Upgrade'
+
+  return (
+    <Link
+      href="/#pricing"
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold
+                 bg-primary/10 text-primary border border-primary/20
+                 hover:bg-primary/20 transition-colors duration-150"
+      aria-label="Upgrade your plan"
+    >
+      <TrendingUp className="h-3.5 w-3.5" />
+      {label}
+    </Link>
+  )
+}
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -64,6 +102,8 @@ export function Header() {
 
           {isSignedIn ? (
             <>
+              {/* Upgrade chip — visible for free users + paid users near limit */}
+              <UpgradeChip />
               <Link href="/analyze">
                 <Button size="sm">Analyze Stock</Button>
               </Link>
@@ -78,7 +118,7 @@ export function Header() {
                 <Button variant="ghost" size="sm">Sign In</Button>
               </Link>
               <Link href="/sign-up">
-                <Button size="sm">Get Started</Button>
+                <Button size="sm">Get Started Free</Button>
               </Link>
             </>
           )}
@@ -120,6 +160,8 @@ export function Header() {
             <div className="flex flex-col gap-2 pt-3 mt-1" style={{ borderTop: '1px solid var(--border)' }}>
               {isSignedIn ? (
                 <>
+                  {/* Upgrade chip mobile */}
+                  <UpgradeChip />
                   <Link href="/analyze" onClick={() => setMobileMenuOpen(false)}>
                     <Button size="sm" className="w-full">Analyze Stock</Button>
                   </Link>
@@ -139,7 +181,7 @@ export function Header() {
                     <Button variant="ghost" size="sm" className="w-full">Sign In</Button>
                   </Link>
                   <Link href="/sign-up" onClick={() => setMobileMenuOpen(false)}>
-                    <Button size="sm" className="w-full">Get Started</Button>
+                    <Button size="sm" className="w-full">Get Started Free</Button>
                   </Link>
                 </>
               )}

@@ -2,8 +2,8 @@
 Backend entitlement feature flags for DVRG.
 
 Feature matrix:
-  feature.report.core                  → Starter, Investor, Trader
-  feature.report.sizing_summary        → Starter, Investor, Trader  (allocation % + rationale)
+  feature.report.core                  → Free, Starter, Investor, Trader
+  feature.report.sizing_summary        → Free, Starter, Investor, Trader  (allocation % + rationale)
   feature.report.signal_metrics        → Investor, Trader            (σ, noise score, stop prob headline)
   feature.report.stop_probability_detail → Investor, Trader          (decomposition table)
   feature.report.trade_setup           → Trader only
@@ -11,6 +11,9 @@ Feature matrix:
   feature.report.scenario_weights      → Trader only                 (model vs effective weights)
   feature.report.multiplier_stack      → Trader only                 (multiplier list + product)
   feature.report.risk_matrix_full      → Trader only                 (full portfolio interaction metrics)
+
+  Free tier has identical report content to Starter (same feature flags).
+  The difference is how generation is gated: lifetime credits (2 total) vs. monthly quota.
 
 Usage:
     from api.lib.entitlements import has_feature
@@ -27,6 +30,7 @@ if TYPE_CHECKING:
 # ── Feature flag constants ─────────────────────────────────────────────────
 FEAT_REPORT_CORE            = "feature.report.core"
 FEAT_SIZING_SUMMARY         = "feature.report.sizing_summary"
+FEAT_REPORT_PDF             = "feature.report.export_pdf"
 FEAT_SIGNAL_METRICS         = "feature.report.signal_metrics"
 FEAT_STOP_PROB_DETAIL       = "feature.report.stop_probability_detail"
 FEAT_REPORT_TRADE_SETUP     = "feature.report.trade_setup"
@@ -39,6 +43,7 @@ FEAT_RISK_MATRIX_FULL       = "feature.report.risk_matrix_full"
 ALL_FEATURES: list[str] = [
     FEAT_REPORT_CORE,
     FEAT_SIZING_SUMMARY,
+    FEAT_REPORT_PDF,
     FEAT_SIGNAL_METRICS,
     FEAT_STOP_PROB_DETAIL,
     FEAT_REPORT_TRADE_SETUP,
@@ -50,6 +55,11 @@ ALL_FEATURES: list[str] = [
 
 # ── Tier entitlement matrix ────────────────────────────────────────────────
 _ENTITLEMENTS: dict[str, set[str]] = {
+    # Free tier: identical content to Starter (gating is credit-based, not feature-based)
+    "free": {
+        FEAT_REPORT_CORE,
+        FEAT_SIZING_SUMMARY,
+    },
     "starter": {
         FEAT_REPORT_CORE,
         FEAT_SIZING_SUMMARY,
@@ -57,12 +67,14 @@ _ENTITLEMENTS: dict[str, set[str]] = {
     "investor": {
         FEAT_REPORT_CORE,
         FEAT_SIZING_SUMMARY,
+        FEAT_REPORT_PDF,
         FEAT_SIGNAL_METRICS,
         FEAT_STOP_PROB_DETAIL,
     },
     "trader": {
         FEAT_REPORT_CORE,
         FEAT_SIZING_SUMMARY,
+        FEAT_REPORT_PDF,
         FEAT_SIGNAL_METRICS,
         FEAT_STOP_PROB_DETAIL,
         FEAT_REPORT_TRADE_SETUP,
@@ -94,8 +106,9 @@ def _effective_tier(user: "User") -> str:
     tier = str(user.tier.value).lower() if hasattr(user.tier, "value") else str(user.tier).lower()
 
     stripe_status = user.stripe_subscription_status
+    # Inactive Stripe subscription: paid users drop to starter, free users stay free
     if stripe_status and stripe_status in _INACTIVE_STATUSES:
-        return "starter"
+        return "free" if tier == "free" else "starter"
 
     return tier
 
@@ -109,7 +122,7 @@ def has_feature(user: "User", feature: str) -> bool:
         feature: One of the FEAT_* constants defined in this module.
     """
     tier = _effective_tier(user)
-    return feature in _ENTITLEMENTS.get(tier, _ENTITLEMENTS["starter"])
+    return feature in _ENTITLEMENTS.get(tier, _ENTITLEMENTS["free"])
 
 
 def upgrade_hint(feature: str) -> str:

@@ -159,6 +159,13 @@ async def handle_user_created(db, event: dict):
         where={"clerkId": clerk_id}
     )
 
+    # Determine email verification status for the primary address
+    email_verified = False
+    for addr in email_addresses:
+        if addr.get("id") == user_data.get("primary_email_address_id"):
+            email_verified = addr.get("verification", {}).get("status") == "verified"
+            break
+
     if existing_user:
         logger.warning(f"User {clerk_id} already exists, updating instead")
         await db.user.update(
@@ -167,36 +174,40 @@ async def handle_user_created(db, event: dict):
                 "email": primary_email,
                 "fullName": full_name,
                 "isActive": True,
+                "emailVerified": email_verified,
                 "updatedAt": datetime.utcnow(),
             }
         )
     else:
-        # Create new user with Starter tier (requires subscription to activate)
+        # Create new user with Free tier (2 lifetime report credits)
         await db.user.create(
             data={
                 "clerkId": clerk_id,
                 "email": primary_email,
                 "fullName": full_name,
-                "tier": "starter",
+                "tier": "free",
                 "monthlyBudgetUsd": 200.0,
                 "isActive": True,
                 "isAdmin": False,
+                "emailVerified": email_verified,
             }
         )
-        logger.info(f"Created user: {clerk_id} ({primary_email})")
+        logger.info(f"Created user: {clerk_id} ({primary_email}) [tier=free, email_verified={email_verified}]")
 
 
 async def handle_user_updated(db, event: dict):
-    """Handle user.updated event."""
+    """Handle user.updated event — syncs email, name, and email_verified status."""
     user_data = event["data"]
     clerk_id = user_data["id"]
 
-    # Get primary email
+    # Get primary email and its verification status
     email_addresses = user_data.get("email_addresses", [])
     primary_email = None
-    for email in email_addresses:
-        if email.get("id") == user_data.get("primary_email_address_id"):
-            primary_email = email.get("email_address")
+    email_verified = False
+    for addr in email_addresses:
+        if addr.get("id") == user_data.get("primary_email_address_id"):
+            primary_email = addr.get("email_address")
+            email_verified = addr.get("verification", {}).get("status") == "verified"
             break
 
     if not primary_email and email_addresses:
@@ -207,16 +218,17 @@ async def handle_user_updated(db, event: dict):
     last_name = user_data.get("last_name", "")
     full_name = f"{first_name} {last_name}".strip() or None
 
-    # Update user
+    # Update user — this also propagates emailVerified so free-tier report #2 unlocks
     await db.user.update(
         where={"clerkId": clerk_id},
         data={
             "email": primary_email,
             "fullName": full_name,
+            "emailVerified": email_verified,
             "updatedAt": datetime.utcnow(),
         }
     )
-    logger.info(f"Updated user: {clerk_id}")
+    logger.info(f"Updated user: {clerk_id} (email_verified={email_verified})")
 
 
 async def handle_user_deleted(db, event: dict):

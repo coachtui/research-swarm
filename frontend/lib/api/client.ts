@@ -48,6 +48,25 @@ class ApiClient {
     this.authToken = token
   }
 
+  // Device ID for anti-abuse tracking on free tier
+  private _deviceId: string | null = null
+
+  getDeviceId(): string {
+    if (this._deviceId) return this._deviceId
+    if (typeof window === 'undefined') return ''
+    let id = localStorage.getItem('dvrg_device_id')
+    if (!id) {
+      // Generate a secure random UUID-like identifier
+      id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0
+        return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+      })
+      localStorage.setItem('dvrg_device_id', id)
+    }
+    this._deviceId = id
+    return id
+  }
+
   // Preferred: store Clerk's getToken function so each request gets a fresh token
   setTokenGetter(getter: () => Promise<string | null>) {
     this.tokenGetter = getter
@@ -176,9 +195,13 @@ class ApiClient {
 
   // Analysis endpoints
   async analyzeStock(request: AnalyzeRequest): Promise<AnalyzeResponse> {
+    const deviceId = this.getDeviceId()
     return this.request('/api/analyze', {
       method: 'POST',
       body: JSON.stringify(request),
+      headers: {
+        ...(deviceId && { 'X-Device-ID': deviceId }),
+      },
     })
   }
 

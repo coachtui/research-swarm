@@ -9,6 +9,7 @@ from enum import Enum
 
 class UserTier(str, Enum):
     """User subscription tier."""
+    FREE = "free"
     STARTER = "starter"
     INVESTOR = "investor"
     TRADER = "trader"
@@ -22,13 +23,14 @@ class User(BaseModel):
     email: EmailStr = Field(..., description="User email address")
     full_name: Optional[str] = Field(None, description="User's full name")
 
-    tier: UserTier = Field(default=UserTier.STARTER, description="Subscription tier")
+    tier: UserTier = Field(default=UserTier.FREE, description="Subscription tier")
     monthly_budget_usd: float = Field(default=200.0, description="Monthly API budget in USD")
 
     stripe_subscription_status: Optional[str] = Field(None, description="Stripe subscription status (active, trialing, canceled, etc.)")
 
     is_active: bool = Field(default=True, description="Account active status")
     is_admin: bool = Field(default=False, description="Admin access for dashboard")
+    email_verified: bool = Field(default=False, description="Whether the user's primary email is verified (synced from Clerk)")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:

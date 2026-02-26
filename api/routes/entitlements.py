@@ -20,6 +20,7 @@ from api.lib.entitlements import (
 )
 from api.lib.plan_limits import get_tier_limits
 from api.models.auth import User
+from api.services.quota_service import get_usage_summary
 
 router = APIRouter(tags=["entitlements"])
 
@@ -35,14 +36,25 @@ async def get_entitlements(user: User = Depends(get_current_user)) -> dict:
           "active": true,
           "features": {
             "feature.report.core": true,
-            "feature.report.export_pdf": true,
             "feature.report.signal_metrics": true,
             ...
           },
           "limits": {
             "analyses_per_month": 15,
             "concurrent_analyses": 3,
-            "watchlist_max": 999
+            "watchlist_max": 999,
+            "is_credit_based": false,
+            "free_credits_total": 0
+          },
+          "usage": {
+            "analyses_used": 3,
+            "analyses_remaining": 12,
+            "analyses_limit": 15,
+            "report_credits_total": null,
+            "report_credits_used": null,
+            "report_credits_remaining": null,
+            "is_free_tier": false,
+            "at_warning_threshold": false
           }
         }
 
@@ -52,16 +64,27 @@ async def get_entitlements(user: User = Depends(get_current_user)) -> dict:
       is inactive.
     - `active` is false when the Stripe subscription is in a terminal/delinquent
       state (canceled, past_due, unpaid, incomplete_expired).
+    - Free-tier users: `usage.is_free_tier=true`, credit fields are populated;
+      monthly fields (analyses_limit, etc.) mirror credits for compatibility.
     - All known feature flags are included in `features`; missing flags default
       to false on the client side.
     """
     tier = _effective_tier(user)
-    granted = _ENTITLEMENTS.get(tier, _ENTITLEMENTS["starter"])
+    granted = _ENTITLEMENTS.get(tier, _ENTITLEMENTS["free"])
 
     stripe_status = user.stripe_subscription_status
     active = stripe_status not in _INACTIVE_STATUSES if stripe_status else True
 
     limits = get_tier_limits(tier)
+
+    # Fetch live usage so frontend always has accurate credit/quota counts
+    user_tier_str = str(user.tier.value) if hasattr(user.tier, "value") else str(user.tier)
+    usage = await get_usage_summary(
+        user.id,
+        user_tier_str,
+        stripe_status=stripe_status or "",
+        is_admin=user.is_admin,
+    )
 
     return {
         "tier": tier,
@@ -71,5 +94,17 @@ async def get_entitlements(user: User = Depends(get_current_user)) -> dict:
             "analyses_per_month": limits.analyses_per_month,
             "concurrent_analyses": limits.concurrent_analyses,
             "watchlist_max": limits.watchlist_max,
+            "is_credit_based": limits.is_credit_based,
+            "free_credits_total": limits.free_credits_total,
+        },
+        "usage": {
+            "analyses_used": usage.get("analyses_used", 0),
+            "analyses_remaining": usage.get("analyses_remaining", 0),
+            "analyses_limit": usage.get("analyses_limit", 0),
+            "report_credits_total": usage.get("report_credits_total"),
+            "report_credits_used": usage.get("report_credits_used"),
+            "report_credits_remaining": usage.get("report_credits_remaining"),
+            "is_free_tier": usage.get("is_free_tier", False),
+            "at_warning_threshold": usage.get("at_warning_threshold", False),
         },
     }
