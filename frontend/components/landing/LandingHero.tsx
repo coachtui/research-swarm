@@ -34,6 +34,9 @@ interface EngineStateData {
   regime: string
   regimeColor: string
   policyCap: string
+  distMu: number         // gaussian center (0–1)
+  distSigma: number      // gaussian spread
+  evCenterNorm: number   // EV center-of-mass x position (0–1)
   scenarios: ScenarioRow[]
 }
 
@@ -57,6 +60,9 @@ const STATES: Record<StateKey, EngineStateData> = {
     regime: 'Elevated',
     regimeColor: '#F59E0B',
     policyCap: 'Policy cap 8.4% applied',
+    distMu: 0.58,
+    distSigma: 0.17,
+    evCenterNorm: 0.60,
     scenarios: [
       { label: 'Stop', prob: 35, ret: '−12.0%', evContrib: -4.20, positive: false },
       { label: 'T1',   prob: 38, ret: '+14.5%', evContrib:  5.51, positive: true  },
@@ -82,6 +88,9 @@ const STATES: Record<StateKey, EngineStateData> = {
     regime: 'Favorable',
     regimeColor: '#10B981',
     policyCap: 'Policy cap binding at 8.4%',
+    distMu: 0.63,
+    distSigma: 0.15,
+    evCenterNorm: 0.65,
     scenarios: [
       { label: 'Stop', prob: 18, ret: '−11.0%', evContrib: -1.98, positive: false },
       { label: 'T1',   prob: 42, ret: '+14.5%', evContrib:  6.09, positive: true  },
@@ -107,6 +116,9 @@ const STATES: Record<StateKey, EngineStateData> = {
     regime: 'Stressed',
     regimeColor: '#EF4444',
     policyCap: 'Capital preserved — no deployment',
+    distMu: 0.50,
+    distSigma: 0.21,
+    evCenterNorm: 0.46,
     scenarios: [
       { label: 'Stop', prob: 42, ret: '−11.5%', evContrib: -4.83, positive: false },
       { label: 'T1',   prob: 33, ret:  '+7.5%', evContrib:  2.48, positive: true  },
@@ -130,55 +142,89 @@ const MICRO_PROOF = [
   { label: 'Final Allocation', value: '6.2%',   green: false },
 ]
 
+/* ─── SVG smooth-curve helpers ────────────────────────────────────────────── */
+
+// Catmull-Rom → cubic bezier: produces a smooth C1 curve through the points
+function smoothCurvePath(pts: [number, number][]): string {
+  if (pts.length < 2) return ''
+  const n = pts.length
+  let d = `M ${pts[0][0].toFixed(1)},${pts[0][1].toFixed(1)}`
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[Math.min(n - 1, i + 2)]
+    const cp1x = p1[0] + (p2[0] - p0[0]) / 6
+    const cp1y = p1[1] + (p2[1] - p0[1]) / 6
+    const cp2x = p2[0] - (p3[0] - p1[0]) / 6
+    const cp2y = p2[1] - (p3[1] - p1[1]) / 6
+    d += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`
+  }
+  return d
+}
+
+// Closed area path: smooth curve + drop to baseline + close
+function areaPath(pts: [number, number][], baseY: number): string {
+  if (pts.length < 2) return ''
+  const last  = pts[pts.length - 1]
+  const first = pts[0]
+  return (
+    `${smoothCurvePath(pts)}` +
+    ` L ${last[0].toFixed(1)},${baseY.toFixed(1)}` +
+    ` L ${first[0].toFixed(1)},${baseY.toFixed(1)} Z`
+  )
+}
+
 /* ─── Probability Distribution Curve ─────────────────────────────────────── */
 
-function ProbDistCurve({ stopProb }: { stopProb: number }) {
-  const W = 280
-  const H = 54
-  const padX = 6
-  const innerW = W - padX * 2
-  const baseY = H - 2
+interface ProbDistProps {
+  stopProb: number
+  distMu: number
+  distSigma: number
+  evCenterNorm: number
+}
 
-  // Bell curve: center right-of-middle (positive EV skew)
-  const mu = 0.58
-  const sigma = 0.17
-  const gauss = (x: number) => Math.exp(-0.5 * ((x - mu) / sigma) ** 2)
+function ProbDistCurve({ stopProb, distMu, distSigma, evCenterNorm }: ProbDistProps) {
+  const W         = 280
+  const H         = 72
+  const padX      = 6
+  const innerW    = W - padX * 2
+  const baseY     = H - 4   // = 68 — baseline
+  const amplitude = 50      // max curve height above baseline (SVG units)
 
-  const N = 100
-  const pts: [number, number][] = []
-  for (let i = 0; i <= N; i++) {
-    const xn = i / N
-    pts.push([xn, gauss(xn)])
-  }
-  const maxY = Math.max(...pts.map(([, y]) => y))
-  const norm = pts.map(([x, y]): [number, number] => [x, y / maxY])
+  const gauss = (x: number) =>
+    Math.exp(-0.5 * ((x - distMu) / distSigma) ** 2)
 
-  const toSvg = ([xn, yn]: [number, number]) =>
-    `${(padX + xn * innerW).toFixed(1)},${(baseY - yn * (H - 10)).toFixed(1)}`
+  // Sample 80 points across [0, 1]
+  const rawPts: [number, number][] = Array.from({ length: 81 }, (_, i) => {
+    const xn = i / 80
+    return [xn, gauss(xn)]
+  })
+  const maxG = Math.max(...rawPts.map(([, y]) => y))
 
-  // Visual mapping: stopProb [0.15, 0.45] → cutoffNorm [0.22, 0.40]
-  const rawCutoff = 0.22 + ((stopProb - 0.15) / 0.30) * 0.18
+  // Convert to SVG coordinates
+  const svgPts: [number, number][] = rawPts.map(([xn, yn]) => [
+    padX + xn * innerW,
+    baseY - (yn / maxG) * amplitude,
+  ])
+
+  // Stop threshold x (visual mapping: stopProb [0.15, 0.45] → [0.22, 0.40])
+  const rawCutoff  = 0.22 + ((stopProb - 0.15) / 0.30) * 0.18
   const cutoffNorm = Math.max(0.14, Math.min(0.44, rawCutoff))
-  const cutoffX = (padX + cutoffNorm * innerW).toFixed(1)
+  const cutoffX    = padX + cutoffNorm * innerW
 
-  // Expansion tail start
-  const expNorm = 0.83
-  const expX = (padX + expNorm * innerW).toFixed(1)
-  const rightEndX = (padX + innerW).toFixed(1)
+  // Expansion tail start x
+  const expX = padX + 0.83 * innerW
 
-  // Left fill path (stop zone)
-  const leftPts = norm.filter(([x]) => x <= cutoffNorm)
-  const leftArea =
-    `M ${padX},${baseY} ` +
-    leftPts.map(toSvg).join(' ') +
-    ` L ${cutoffX},${baseY} Z`
+  // EV center-of-mass marker
+  const evX    = padX + evCenterNorm * innerW
+  const evGVal = gauss(evCenterNorm) / maxG
+  const evY    = baseY - evGVal * amplitude
 
-  // Right fill path (expansion tail)
-  const rightPts = norm.filter(([x]) => x >= expNorm)
-  const rightArea =
-    `M ${expX},${baseY} ` +
-    rightPts.map(toSvg).join(' ') +
-    ` L ${rightEndX},${baseY} Z`
+  // Split into three zone point sets
+  const leftPts  = svgPts.filter(([x]) => x <= cutoffX)
+  const midPts   = svgPts.filter(([x]) => x > cutoffX && x < expX)
+  const rightPts = svgPts.filter(([x]) => x >= expX)
 
   return (
     <div>
@@ -188,24 +234,69 @@ function ProbDistCurve({ stopProb }: { stopProb: number }) {
         style={{ display: 'block', overflow: 'visible' }}
         aria-hidden
       >
-        <path d={leftArea}  fill="rgba(239,68,68,0.22)" />
-        <path d={rightArea} fill="rgba(16,185,129,0.20)" />
-        <polyline
-          points={norm.map(toSvg).join(' ')}
+        {/* ── Three zone fills ── */}
+        <path d={areaPath(leftPts,  baseY)} fill="rgba(239,68,68,0.17)"    />
+        <path d={areaPath(midPts,   baseY)} fill="rgba(255,255,255,0.035)" />
+        <path d={areaPath(rightPts, baseY)} fill="rgba(16,185,129,0.14)"   />
+
+        {/* ── Full smooth gaussian curve ── */}
+        <path
+          d={smoothCurvePath(svgPts)}
           fill="none"
-          stroke="rgba(255,255,255,0.22)"
+          stroke="rgba(255,255,255,0.28)"
           strokeWidth="1.5"
+          strokeLinecap="round"
           strokeLinejoin="round"
         />
+
+        {/* ── Stop threshold — dashed vertical ── */}
         <line
-          x1={cutoffX} y1="2"
-          x2={cutoffX} y2={String(baseY)}
+          x1={cutoffX.toFixed(1)} y1={(baseY - amplitude * 0.90).toFixed(1)}
+          x2={cutoffX.toFixed(1)} y2={String(baseY)}
           stroke="rgba(239,68,68,0.38)"
-          strokeWidth="1"
+          strokeWidth="0.75"
           strokeDasharray="2,3"
         />
+
+        {/* ── EV center of mass — dashed drop line ── */}
+        <line
+          x1={evX.toFixed(1)} y1={evY.toFixed(1)}
+          x2={evX.toFixed(1)} y2={String(baseY)}
+          stroke="rgba(255,255,255,0.16)"
+          strokeWidth="0.75"
+          strokeDasharray="1.5,2.5"
+        />
+        {/* Dot on curve */}
+        <circle
+          cx={evX.toFixed(1)}
+          cy={evY.toFixed(1)}
+          r="2.2"
+          fill="rgba(255,255,255,0.40)"
+        />
+        {/* Label above dot */}
+        <text
+          x={evX.toFixed(1)}
+          y={(evY - 6).toFixed(1)}
+          textAnchor="middle"
+          fontSize="6"
+          fill="rgba(255,255,255,0.28)"
+          fontFamily="ui-monospace,SFMono-Regular,monospace"
+          letterSpacing="0.04em"
+        >
+          EV CENTER OF MASS
+        </text>
+
+        {/* ── Subtle baseline rule ── */}
+        <line
+          x1={String(padX)} y1={String(baseY)}
+          x2={(padX + innerW).toFixed(1)} y2={String(baseY)}
+          stroke="rgba(255,255,255,0.07)"
+          strokeWidth="0.5"
+        />
       </svg>
-      <div className="grid grid-cols-3 mt-0.5">
+
+      {/* Zone labels */}
+      <div className="grid grid-cols-3 mt-1">
         <span className="text-[9px] leading-tight" style={{ color: 'rgba(239,68,68,0.72)' }}>
           Stop Risk ({Math.round(stopProb * 100)}%)
         </span>
@@ -216,6 +307,11 @@ function ProbDistCurve({ stopProb }: { stopProb: number }) {
           Expansion Tail
         </span>
       </div>
+
+      {/* Regime annotation */}
+      <p className="mt-1 text-[9px] leading-snug" style={{ color: 'var(--text-subtle)' }}>
+        Distribution adjusted for current volatility regime.
+      </p>
     </div>
   )
 }
@@ -544,9 +640,14 @@ function EngineCard() {
         }}
       >
         <p className="text-[9px] uppercase tracking-widest text-text-tertiary mb-1.5">
-          Probability Distribution
+          Modeled Probability Structure
         </p>
-        <ProbDistCurve stopProb={state.stopProb} />
+        <ProbDistCurve
+          stopProb={state.stopProb}
+          distMu={state.distMu}
+          distSigma={state.distSigma}
+          evCenterNorm={state.evCenterNorm}
+        />
       </div>
 
       {/* ── Metrics strip ── */}
