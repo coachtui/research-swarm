@@ -93,7 +93,7 @@ function EngineCard() {
         style={{ borderBottom: '1px solid var(--border)' }}
       >
         <p className="text-[9px] uppercase tracking-widest text-text-tertiary mb-3">
-          Recommended Allocation
+          Final Allowed Allocation
         </p>
         <div className="flex items-start justify-between gap-4">
           {/* Animated big number */}
@@ -107,36 +107,43 @@ function EngineCard() {
             <p className="text-xs text-text-secondary mt-2">Satellite Position</p>
           </div>
 
-          {/* Calculation chain */}
-          <div className="text-right space-y-2 pt-1 shrink-0">
-            <div>
-              <p className="text-[9px] uppercase tracking-widest text-text-tertiary mb-1.5">
-                Compression Chain
+          {/* Causal computation chain */}
+          <div className="text-right shrink-0 space-y-2 pt-1">
+            {/* 3-line breakdown */}
+            <div className="text-[10px] font-mono space-y-1">
+              <p className="flex justify-end gap-2">
+                <span style={{ color: 'var(--text-subtle)' }}>Base Weight</span>
+                <span className="font-medium text-text-secondary">8.9%</span>
               </p>
-              <div className="flex items-center gap-1 justify-end font-mono text-xs">
-                <span className="text-text-secondary">8.9%</span>
-                <span className="text-text-tertiary mx-0.5">×</span>
-                <span style={{ color: '#F59E0B' }}>0.7×</span>
-                <span
-                  className="text-text-tertiary mx-0.5 transition-opacity duration-500"
-                  style={{ opacity: animDone ? 1 : 0 }}
-                >
-                  →
-                </span>
-                <span
-                  className="font-bold transition-opacity duration-500"
-                  style={{ color: 'var(--accent)', opacity: animDone ? 1 : 0 }}
-                >
-                  6.2%
-                </span>
-              </div>
+              <p className="flex justify-end gap-2">
+                <span style={{ color: 'var(--text-subtle)' }}>Exec. Multiplier</span>
+                <span className="font-medium" style={{ color: '#F59E0B' }}>0.7×</span>
+              </p>
+              <p className="flex justify-end gap-2">
+                <span style={{ color: 'var(--text-subtle)' }}>Policy Cap</span>
+                <span className="font-medium text-text-secondary">8.4%</span>
+              </p>
             </div>
+            {/* Emphasized formula result */}
             <div
-              className="text-[9px] font-mono space-y-0.5 text-right"
-              style={{ color: 'var(--text-subtle)' }}
+              className="flex items-center gap-1 justify-end font-mono text-xs pt-2"
+              style={{ borderTop: '1px solid var(--border)' }}
             >
-              <p>Base Weight: 8.9%</p>
-              <p>Policy Cap: 8.4%</p>
+              <span className="text-text-secondary">8.9%</span>
+              <span className="text-text-tertiary">×</span>
+              <span style={{ color: '#F59E0B' }}>0.7×</span>
+              <span
+                className="text-text-secondary transition-opacity duration-500"
+                style={{ opacity: animDone ? 1 : 0 }}
+              >
+                →
+              </span>
+              <span
+                className="font-bold transition-opacity duration-500"
+                style={{ color: 'var(--accent)', opacity: animDone ? 1 : 0 }}
+              >
+                6.2%
+              </span>
             </div>
           </div>
         </div>
@@ -221,6 +228,7 @@ function EngineCard() {
               </span>
             </p>
             <p className="text-[9px] uppercase tracking-wider text-text-tertiary mt-0.5">Risk Efficiency</p>
+            <p className="text-[9px] text-text-tertiary mt-0.5 leading-none">≥ 0.30 institutional</p>
           </div>
         </div>
       </div>
@@ -285,15 +293,12 @@ export function LandingHero() {
               <span style={{ color: 'var(--accent)' }}>a precise position size.</span>
             </h1>
 
-            {/* Sub-lines */}
-            <div className="space-y-1">
-              <p className="text-base text-text-secondary leading-relaxed">
-                DVRG doesn&apos;t tell you what to buy.
-              </p>
-              <p className="text-base font-medium text-text-primary leading-relaxed">
-                It tells you how much to risk — using probability-weighted expected value.
-              </p>
-            </div>
+            {/* Tension line */}
+            <p className="text-base md:text-lg font-semibold text-text-primary leading-tight tracking-tight">
+              Most research ends at conviction.
+              <br />
+              DVRG ends at capital allocation.
+            </p>
 
             {/* Micro-proof bullets */}
             <div

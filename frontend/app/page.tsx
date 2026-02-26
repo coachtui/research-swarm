@@ -103,8 +103,9 @@ export default function Home() {
         className="py-8 text-center"
         style={{ borderTop: '1px solid var(--border)' }}
       >
-        <p className="text-xl md:text-2xl font-bold text-text-primary tracking-tight">
-          Stop guessing conviction.{' '}
+        <p className="text-xl md:text-2xl font-bold text-text-primary tracking-tight leading-tight">
+          Stop guessing conviction.
+          <br />
           <span className="text-primary">Start sizing exposure.</span>
         </p>
       </div>
@@ -120,26 +121,35 @@ export default function Home() {
               </h2>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-px" style={{ background: 'var(--border)' }}>
-              {/* Left — Narrative (muted red) */}
-              <div className="p-8 bg-background">
+            <div
+              className="grid md:grid-cols-2 rounded-card overflow-hidden"
+              style={{ border: '1px solid var(--border)' }}
+            >
+              {/* Left — Narrative (red tint) */}
+              <div
+                className="p-8"
+                style={{
+                  background: 'rgba(239,68,68,0.04)',
+                  borderRight: '1px solid var(--border)',
+                }}
+              >
                 <p
                   className="text-xs font-semibold uppercase tracking-widest mb-6"
-                  style={{ color: 'rgba(239,68,68,0.75)' }}
+                  style={{ color: 'rgba(239,68,68,0.70)' }}
                 >
                   Narrative Research
                 </p>
-                <div className="space-y-3.5">
+                <div className="space-y-3">
                   {[
-                    'Equal-weight sizing regardless of conviction',
-                    'Opinion-driven price targets, no probability weighting',
-                    'No regime compression or noise adjustment',
-                    'Binary buy / sell framing without EV geometry',
+                    'Equal weight sizing',
+                    'Opinion-based targets',
+                    'No regime compression',
+                    'Binary buy/sell framing',
                   ].map((item) => (
-                    <div key={item} className="flex items-start gap-3">
+                    <div key={item} className="flex items-center gap-3">
                       <span
-                        className="text-xs font-bold mt-0.5 shrink-0"
-                        style={{ color: 'rgba(239,68,68,0.6)' }}
+                        className="text-xs font-bold shrink-0"
+                        style={{ color: 'rgba(239,68,68,0.55)' }}
                       >
                         —
                       </span>
@@ -149,20 +159,29 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Right — DVRG (green) */}
-              <div className="p-8 bg-background">
-                <p className="text-xs font-semibold uppercase tracking-widest mb-6 text-success">
+              {/* Right — DVRG (green tint, stronger left border) */}
+              <div
+                className="p-8"
+                style={{
+                  background: 'rgba(16,185,129,0.04)',
+                  borderLeft: '1px solid rgba(16,185,129,0.15)',
+                }}
+              >
+                <p
+                  className="text-xs font-semibold uppercase tracking-widest mb-6"
+                  style={{ color: '#10B981' }}
+                >
                   Probabilistic Allocation
                 </p>
-                <div className="space-y-3.5">
+                <div className="space-y-3">
                   {[
-                    'Scenario-weighted EV drives position size',
-                    'Capital compression logic applied per volatility regime',
-                    'Execution multiplier calibrated to setup quality',
-                    'Risk-adjusted deployment — not directional guessing',
+                    'Scenario-weighted EV',
+                    'Capital compression logic',
+                    'Regime-aware multiplier',
+                    'Risk-adjusted deployment',
                   ].map((item) => (
-                    <div key={item} className="flex items-start gap-3">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
+                    <div key={item} className="flex items-center gap-3">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
                       <span className="text-sm text-text-secondary">{item}</span>
                     </div>
                   ))}
@@ -177,62 +196,62 @@ export default function Home() {
       <section className="py-20" style={{ borderTop: '1px solid var(--border)' }}>
         <div className="container mx-auto px-4">
           <div className="max-w-5xl mx-auto">
-            <div className="mb-12">
+            <div className="mb-10">
               <SectionLabel>The Solution</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
                 Meet DVRG: A Probabilistic Capital Allocation Engine
               </h2>
-              <p className="mt-2 text-text-secondary max-w-xl">
-                DVRG translates signal into conviction, conviction into position size, and position size
-                into executable decisions. Every analysis ends with a deployable allocation framework.
-              </p>
             </div>
 
-            <div className="grid lg:grid-cols-2 gap-12">
-              {/* Feature list */}
-              <div>
-                <div style={{ borderTop: '1px solid var(--border)' }}>
-                  <AgentRow icon={<BarChart3 className="w-4 h-4" />} title="Expected Value Computation"
-                    body="Opportunity quantified against scenario probability and risk geometry." />
-                  <AgentRow icon={<TrendingUp className="w-4 h-4" />} title="Scenario-Weighted Outcomes"
-                    body="Risk / Base / Re-rating paths modeled with probability distributions." />
-                  <AgentRow icon={<Target className="w-4 h-4" />} title="Confidence Calibration"
-                    body="Maps uncertainty into a structured conviction score before sizing." />
-                  <AgentRow icon={<Shield className="w-4 h-4" />} title="Stability Diagnostics"
-                    body="Identifies fragile setups before capital is committed." />
-                  <AgentRow icon={<Zap className="w-4 h-4" />} title="Capital Translation Layer"
-                    body="Every analysis ends with a structured, deployable allocation framework." />
-                </div>
+            <div className="grid lg:grid-cols-2 gap-10">
+              {/* System component list */}
+              <div style={{ borderTop: '1px solid var(--border)' }}>
+                {[
+                  { icon: <BarChart3 className="w-4 h-4" />, label: 'Expected value compression' },
+                  { icon: <TrendingUp className="w-4 h-4" />, label: 'Regime-aware multipliers' },
+                  { icon: <Target className="w-4 h-4" />, label: 'Stop probability modeling' },
+                  { icon: <Shield className="w-4 h-4" />, label: 'Policy cap enforcement' },
+                  { icon: <Zap className="w-4 h-4" />, label: 'Capital deployment translation' },
+                ].map(({ icon, label }) => (
+                  <div
+                    key={label}
+                    className="flex items-center gap-4 py-3.5"
+                    style={{ borderBottom: '1px solid var(--border)' }}
+                  >
+                    <div
+                      className="w-7 h-7 rounded flex items-center justify-center shrink-0 text-primary"
+                      style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}
+                    >
+                      {icon}
+                    </div>
+                    <span className="text-sm font-medium text-text-primary">{label}</span>
+                  </div>
+                ))}
               </div>
 
               {/* Key differentiators panel */}
               <div
-                className="rounded-card p-7"
+                className="rounded-card p-6"
                 style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
               >
-                <h4 className="text-sm font-semibold text-text-primary mb-5 uppercase tracking-wider text-text-secondary">
-                  Key Differentiators
+                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-5">
+                  Output vs Alternatives
                 </h4>
-                <div className="space-y-3.5">
+                <div className="space-y-3">
                   {[
                     ['Expected Value', 'not guesswork'],
                     ['Probability', 'not narrative'],
-                    ['Conviction Sizing', 'not position guessing'],
+                    ['Conviction Sizing', 'not gut positioning'],
                     ['Capital Translation', 'not data overload'],
                   ].map(([title, sub]) => (
-                    <div key={title} className="flex items-start gap-3">
-                      <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                    <div key={title} className="flex items-center gap-3">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
                       <span className="text-sm text-text-secondary">
-                        <strong className="text-text-primary">{title}</strong> &gt; {sub}
+                        <strong className="text-text-primary">{title}</strong>
+                        <span className="text-text-tertiary"> — {sub}</span>
                       </span>
                     </div>
                   ))}
-                </div>
-
-                <div className="mt-6 pt-5" style={{ borderTop: '1px solid var(--border)' }}>
-                  <p className="text-xs text-text-secondary leading-relaxed">
-                    Replace fragmented research workflows with a unified decision system.
-                  </p>
                 </div>
               </div>
             </div>
@@ -255,27 +274,27 @@ export default function Home() {
               <Step
                 n="1"
                 title="Detect Structural Divergence"
-                body="Volatility, liquidity, and structural signals → market environment classification."
+                body="Signal environment classified — volatility, liquidity, structure."
               />
               <Step
                 n="2"
                 title="Model Scenario-Weighted Outcomes"
-                body="Maps plausible outcome distributions with probability-weighted paths."
+                body="Stop, target, and re-rating paths weighted by probability."
               />
               <Step
                 n="3"
                 title="Quantify Expected Value"
-                body="Opportunity computed against risk geometry and scenario weighting."
+                body="Expected value computed against risk geometry."
               />
               <Step
                 n="4"
                 title="Stress-Test Stability"
-                body="Separates high-conviction setups from fragile, noise-driven signals."
+                body="Conviction separated from fragile, noise-driven signals."
               />
               <Step
                 n="5"
                 title="Translate into Capital Allocation"
-                body="Allocation bias and position sizing derived from structured analysis — not opinion."
+                body="Execution multiplier applied. Policy cap enforced. Allocation output."
               />
             </div>
 
