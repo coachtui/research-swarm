@@ -19,54 +19,50 @@ logger = logging.getLogger(__name__)
 # Global Prisma client instance
 _db_client: Optional[Prisma] = None
 
+async def connect_db() -> None:
+    """
+    Connect the global Prisma singleton.  Called ONCE at FastAPI startup via lifespan.
+    Safe to call in non-lifespan contexts (CLI, tests) — idempotent if already connected.
+    """
+    from prisma import Prisma
+    global _db_client
+    if _db_client is not None and _db_client.is_connected():
+        return
+    if _db_client is None:
+        _db_client = Prisma(http={'timeout': 120.0})
+    await _db_client.connect()
+    logger.info("Prisma: database connected")
+
+
+async def disconnect_db() -> None:
+    """
+    Disconnect the global Prisma singleton.  Called ONCE at FastAPI shutdown via lifespan.
+    """
+    global _db_client
+    if _db_client is not None:
+        try:
+            await _db_client.disconnect()
+        except Exception as e:
+            logger.warning(f"Prisma: disconnect error (ignored on shutdown): {e}")
+        finally:
+            _db_client = None
+    logger.info("Prisma: database disconnected")
+
+
 async def get_db() -> Prisma:
     """
-    Get or create the database client with automatic reconnection.
+    Return the live Prisma singleton.  Never calls connect() — that is the
+    lifespan's responsibility.  Falls back to a lazy connect for CLI / test
+    contexts where a lifespan is not running.
 
-    This is the dependency injection function for FastAPI routes.
-    Usage:
+    Usage in routes:
         db: Prisma = Depends(get_db)
     """
-    from prisma import Prisma  # lazy — avoids import-time failure when client isn't generated
-    import asyncio
-
     global _db_client
-
-    last_exc: Optional[Exception] = None
-    for attempt in range(3):
-        try:
-            if _db_client is not None:
-                # Probe the existing client — any error means it's stale
-                try:
-                    if _db_client.is_connected():
-                        return _db_client
-                except Exception:
-                    pass
-                # Client is stale — tear it down and fall through to create a fresh one
-                try:
-                    await _db_client.disconnect()
-                except Exception:
-                    pass
-                _db_client = None
-
-            # Create a fresh Prisma client and connect
-            _db_client = Prisma(http={'timeout': 120.0})
-            await _db_client.connect()
-            return _db_client
-
-        except Exception as e:
-            last_exc = e
-            logger.warning(f"DB connect attempt {attempt + 1}/3 failed: {e}")
-            try:
-                if _db_client is not None:
-                    await _db_client.disconnect()
-            except Exception:
-                pass
-            _db_client = None
-            if attempt < 2:
-                await asyncio.sleep(0.5 * (attempt + 1))
-
-    raise last_exc  # type: ignore[misc]
+    if _db_client is None or not _db_client.is_connected():
+        logger.warning("get_db(): no live connection — lazy-connecting (expected only in CLI/test)")
+        await connect_db()
+    return _db_client  # type: ignore[return-value]
 
 @asynccontextmanager
 async def db_session():
@@ -161,14 +157,6 @@ async def create_pending_run(user_id: str, ticker: str, news_days_back: int = 30
 async def update_run_failed(run_id: str, error_message: str) -> None:
     """Mark a Run as failed with an error message."""
     from datetime import datetime
-    global _db_client
-    # Force fresh connection — this is called after a long analysis
-    if _db_client:
-        try:
-            await _db_client.disconnect()
-        except Exception:
-            pass
-    _db_client = None
     db = await get_db()
     await db.run.update(
         where={"id": run_id},
@@ -210,21 +198,7 @@ async def save_analysis_result(
     Returns:
         Dictionary with run_id and result_id
     """
-    global _db_client
-
-    # CRITICAL: Force fresh connection BEFORE saving
-    # Stock analysis takes 4+ minutes, exceeding Prisma connection timeout
-    print(f"⚠️  Forcing fresh database connection for {ticker}...")
-    if _db_client:
-        try:
-            await _db_client.disconnect()
-        except Exception as e:
-            print(f"   (Disconnect error ignored: {e})")
-    _db_client = None
-
-    # Get brand new connection
     db = await get_db()
-    print(f"✅ Fresh database connection established")
 
     # Retry logic for connection timeouts
     max_retries = 2
@@ -661,20 +635,7 @@ async def get_user_monthly_cost(user_id: str) -> float:
     """
     from datetime import datetime
 
-    # Force reconnect to handle long-running timeouts
-    global _db_client
-    try:
-        db = await get_db()
-
-        # Ensure connection is active
-        if not db.is_connected():
-            print("⚠️  Database connection closed, reconnecting...")
-            await db.disconnect()
-            await db.connect()
-    except Exception as conn_error:
-        print(f"⚠️  Connection error: {conn_error}, creating fresh connection...")
-        _db_client = None
-        db = await get_db()
+    db = await get_db()
 
     # Get start of current month
     now = datetime.utcnow()
@@ -704,10 +665,6 @@ async def get_or_create_cli_user() -> str:
         str: The user ID of the CLI user
     """
     db = await get_db()
-
-    # Ensure connection is active
-    if not db.is_connected():
-        await db.connect()
 
     CLI_USER_EMAIL = "cli@local.research-swarm"
 

@@ -75,43 +75,25 @@ async def get_current_user(
         # Mock user for development
         user_id = "ec2e1e65-e0eb-4aaf-9b1a-6b2b6cb9a817"
 
-        # Try to ensure user exists in database with connection recovery
-        for attempt in range(2):
-            try:
-                db = await get_db()
-                if not db.is_connected():
-                    await db.connect()
-
-                existing_user = await db.user.find_unique(where={"id": user_id})
-                if not existing_user:
-                    await db.user.create(
-                        data={
-                            "id": user_id,
-                            "clerkId": "user_mock_123",
-                            "email": "test@example.com",
-                            "fullName": "Test User",
-                            "tier": "trader",
-                            "monthlyBudgetUsd": 200.0,
-                            "isActive": True,
-                            "isAdmin": True
-                        }
-                    )
-                break  # Success
-            except Exception as e:
-                error_str = str(e)
-                if "Closed" in error_str and attempt == 0:
-                    # Force reconnection on first attempt
-                    from api.lib.db import _db_client
-                    import api.lib.db as db_module
-                    if db_module._db_client:
-                        try:
-                            await db_module._db_client.disconnect()
-                        except:
-                            pass
-                    db_module._db_client = None
-                    continue
-                else:
-                    logger.warning(f"Could not ensure mock user exists: {e}")
+        # Try to ensure user exists in database
+        try:
+            db = await get_db()
+            existing_user = await db.user.find_unique(where={"id": user_id})
+            if not existing_user:
+                await db.user.create(
+                    data={
+                        "id": user_id,
+                        "clerkId": "user_mock_123",
+                        "email": "test@example.com",
+                        "fullName": "Test User",
+                        "tier": "trader",
+                        "monthlyBudgetUsd": 200.0,
+                        "isActive": True,
+                        "isAdmin": True
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Could not ensure mock user exists: {e}")
 
         return User(
             id=user_id,
@@ -190,46 +172,16 @@ async def get_current_user(
             detail="Authentication failed"
         )
 
-    # Fetch user from database with connection recovery
-    # Handle stale connections (Neon closes idle connections)
-    max_retries = 2
-    user = None
-
-    for attempt in range(max_retries):
-        try:
-            db = await get_db()
-            if not db.is_connected():
-                await db.connect()
-
-            user = await db.user.find_unique(where={"clerkId": clerk_user_id})
-            break  # Success, exit retry loop
-
-        except Exception as e:
-            error_str = str(e)
-            # Check for connection closed errors
-            if "Closed" in error_str or "connection" in error_str.lower():
-                logger.warning(f"⚠️  Database connection error (attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    # Force fresh connection
-                    from api.lib.db import _db_client
-                    import api.lib.db as db_module
-                    if db_module._db_client:
-                        try:
-                            await db_module._db_client.disconnect()
-                        except:
-                            pass
-                    db_module._db_client = None
-                    continue
-                else:
-                    # Last attempt failed
-                    logger.error(f"❌ Database connection failed after {max_retries} attempts")
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Database connection unavailable"
-                    )
-            else:
-                # Non-connection error, re-raise immediately
-                raise
+    # Fetch user from database
+    try:
+        db = await get_db()
+        user = await db.user.find_unique(where={"clerkId": clerk_user_id})
+    except Exception as e:
+        logger.error(f"❌ Database query failed for user {clerk_user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database connection unavailable"
+        )
 
     # Auto-create user if they don't exist (webhook fallback)
     if not user:
@@ -251,45 +203,31 @@ async def get_current_user(
         # Check if this is the admin user
         is_admin = email == "tui@aigaai.com"
 
-        # Create user with retry on connection errors
-        for create_attempt in range(2):
-            try:
-                user = await db.user.create(
-                    data={
-                        "clerkId": clerk_user_id,
-                        "email": email,
-                        "fullName": email.split("@")[0],
-                        "tier": "free",  # Default to free tier (2 lifetime report credits)
-                        "monthlyBudgetUsd": 200.0,
-                        "isActive": True,
-                        "isAdmin": is_admin,
-                        "emailVerified": False,
-                    }
-                )
-                logger.info(f"✅ Auto-created user: {user.email} (admin={is_admin})")
-                break
-            except Exception as create_err:
-                err_str = str(create_err)
-                if "UniqueConstraint" in err_str or "Unique constraint" in err_str:
-                    # Email collision — look up the existing user by clerkId or email
-                    logger.warning(f"⚠️  Email collision on auto-create for {clerk_user_id}, looking up existing user...")
-                    user = await db.user.find_first(where={"OR": [{"clerkId": clerk_user_id}, {"email": email}]})
-                    if user:
-                        logger.info(f"✅ Recovered existing user after collision: {user.email}")
-                    break
-                elif "Closed" in err_str and create_attempt == 0:
-                    # Reconnect and retry
-                    import api.lib.db as db_module
-                    if db_module._db_client:
-                        try:
-                            await db_module._db_client.disconnect()
-                        except Exception:
-                            pass
-                    db_module._db_client = None
-                    db = await get_db()
-                    continue
-                else:
-                    raise
+        # Create user
+        try:
+            user = await db.user.create(
+                data={
+                    "clerkId": clerk_user_id,
+                    "email": email,
+                    "fullName": email.split("@")[0],
+                    "tier": "free",  # Default to free tier (2 lifetime report credits)
+                    "monthlyBudgetUsd": 200.0,
+                    "isActive": True,
+                    "isAdmin": is_admin,
+                    "emailVerified": False,
+                }
+            )
+            logger.info(f"✅ Auto-created user: {user.email} (admin={is_admin})")
+        except Exception as create_err:
+            err_str = str(create_err)
+            if "UniqueConstraint" in err_str or "Unique constraint" in err_str:
+                # Email collision — look up the existing user by clerkId or email
+                logger.warning(f"⚠️  Email collision on auto-create for {clerk_user_id}, looking up existing user...")
+                user = await db.user.find_first(where={"OR": [{"clerkId": clerk_user_id}, {"email": email}]})
+                if user:
+                    logger.info(f"✅ Recovered existing user after collision: {user.email}")
+            else:
+                raise
     else:
         logger.info(f"✅ Found existing user: {user.email} (admin={user.isAdmin})")
 

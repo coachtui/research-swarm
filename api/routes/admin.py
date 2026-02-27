@@ -100,17 +100,7 @@ async def get_platform_metrics(admin: User = Depends(require_admin)):
 
     Admin-only endpoint for monitoring overall platform health.
     """
-    # Ensure fresh DB connection
-    from api.lib.db import _db_client
-    global _db_client
-    try:
-        db = await get_db()
-        if not db.is_connected():
-            await db.disconnect()
-            await db.connect()
-    except Exception:
-        _db_client = None
-        db = await get_db()
+    db = await get_db()
 
     # User counts by tier
     total_users = await db.user.count()
@@ -161,17 +151,7 @@ async def list_all_users(
 
     Admin-only endpoint for user management.
     """
-    # Ensure fresh DB connection
-    from api.lib.db import _db_client
-    global _db_client
-    try:
-        db = await get_db()
-        if not db.is_connected():
-            await db.disconnect()
-            await db.connect()
-    except Exception:
-        _db_client = None
-        db = await get_db()
+    db = await get_db()
 
     # Get users
     users = await db.user.find_many(
@@ -224,17 +204,7 @@ async def update_user_tier(
     if request.new_tier not in ["starter", "investor", "trader"]:
         raise HTTPException(400, "Invalid tier. Must be one of: starter, investor, trader")
 
-    # Ensure fresh DB connection
-    from api.lib.db import _db_client
-    global _db_client
-    try:
-        db = await get_db()
-        if not db.is_connected():
-            await db.disconnect()
-            await db.connect()
-    except Exception:
-        _db_client = None
-        db = await get_db()
+    db = await get_db()
 
     # Check if user exists
     user = await db.user.find_unique(where={"id": user_id})
@@ -271,20 +241,7 @@ async def list_all_analyses(
 
     Admin-only endpoint for QA and monitoring.
     """
-    # Ensure fresh DB connection
-    from api.lib.db import _db_client
-    global _db_client
-
-    try:
-        db = await get_db()
-        if not db.is_connected():
-            print("⚠️  DB connection closed, reconnecting...")
-            await db.disconnect()
-            await db.connect()
-    except Exception as e:
-        print(f"⚠️  DB connection error, forcing fresh connection: {e}")
-        _db_client = None
-        db = await get_db()
+    db = await get_db()
 
     try:
         # Build where clause
@@ -337,17 +294,7 @@ async def get_cost_summary(admin: User = Depends(require_admin)):
     Admin-only endpoint for tracking platform costs per run.
     Returns running tallies for today, week, month, year, and all-time.
     """
-    # Ensure fresh DB connection
-    from api.lib.db import _db_client
-    global _db_client
-    try:
-        db = await get_db()
-        if not db.is_connected():
-            await db.disconnect()
-            await db.connect()
-    except Exception:
-        _db_client = None
-        db = await get_db()
+    db = await get_db()
 
     # Calculate time boundaries
     now = datetime.now(timezone.utc)
@@ -415,17 +362,7 @@ async def get_revenue_timeseries(admin: User = Depends(require_admin)):
     """
     from collections import defaultdict
 
-    # Fresh DB connection
-    from api.lib.db import _db_client
-    global _db_client
-    try:
-        db = await get_db()
-        if not db.is_connected():
-            await db.disconnect()
-            await db.connect()
-    except Exception:
-        _db_client = None
-        db = await get_db()
+    db = await get_db()
 
     now = datetime.now(timezone.utc)
 

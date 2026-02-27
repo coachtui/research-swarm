@@ -100,21 +100,7 @@ async def clerk_webhook(
     event_type = event.get("type")
     logger.info(f"Received Clerk webhook: {event_type}")
 
-    # Get database connection with reconnect on error
-    import api.lib.db as db_module
-    try:
-        db = await get_db()
-        if not db.is_connected():
-            await db.connect()
-    except Exception as e:
-        logger.error(f"Database connection error: {e}")
-        if db_module._db_client:
-            try:
-                await db_module._db_client.disconnect()
-            except Exception:
-                pass
-        db_module._db_client = None
-        db = await get_db()
+    db = await get_db()
 
     try:
         if event_type == "user.created":

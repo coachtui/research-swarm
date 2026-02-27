@@ -55,6 +55,8 @@ if sys.platform == "linux":
 
     _cu.find_library = _weasyprint_find_library
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -65,12 +67,21 @@ import logging
 from api.routes import analyze, runs, health, reports, watchlist, admin, webhook, auth, stripe, position_sizing
 from api.routes import billing
 from api.routes import entitlements as entitlements_route
+from api.lib.db import connect_db, disconnect_db
 
 # Configure logging to show INFO level messages
 logging.basicConfig(
     level=logging.INFO,
     format='%(levelname)s:     %(name)s - %(message)s'
 )
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Connect Prisma once on startup; disconnect cleanly on shutdown."""
+    await connect_db()
+    yield
+    await disconnect_db()
+
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -79,7 +90,8 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan,
 )
 
 # CORS middleware
@@ -132,5 +144,5 @@ async def root():
         "docs": "/api/docs"
     }
 
-# Vercel serverless function handler
-handler = Mangum(app, lifespan="off")
+# Serverless/ASGI adapter — lifespan="on" so startup/shutdown hooks fire
+handler = Mangum(app, lifespan="on")

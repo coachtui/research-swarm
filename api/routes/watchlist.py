@@ -16,7 +16,7 @@ from api.models.watchlist import (
 )
 from api.models.auth import User
 from api.dependencies import get_current_user
-from api.lib.db import get_db, save_analysis_result, close_db
+from api.lib.db import get_db, save_analysis_result
 from api.services.quota_service import (
     check_can_add_to_watchlist,
     check_can_analyze,
@@ -224,9 +224,6 @@ async def refresh_watchlist_item(
     if not can_analyze:
         raise HTTPException(status_code=402, detail=error_msg)
 
-    # Close DB before long-running analysis
-    await close_db()
-
     # Trigger analysis (reuse existing analyze logic)
     from api.services.analysis_service import run_stock_analysis
 
@@ -246,11 +243,6 @@ async def refresh_watchlist_item(
 
     # Save to database
     saved = await save_analysis_result(user.id, ticker, result)
-
-    # Re-fetch db after long-running analysis — close_db() was called before analysis
-    # and save_analysis_result() opens a fresh connection internally, so the original
-    # `db` reference is stale. get_db() returns the fresh client save_analysis_result set up.
-    db = await get_db()
 
     # Update watchlist item with new score
     new_score = result.get('moat_score')
