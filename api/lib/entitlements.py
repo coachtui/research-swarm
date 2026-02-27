@@ -38,6 +38,7 @@ FEAT_ENGINE_DIAGNOSTICS     = "feature.report.engine_diagnostics"
 FEAT_SCENARIO_WEIGHTS       = "feature.report.scenario_weights"
 FEAT_MULTIPLIER_STACK       = "feature.report.multiplier_stack"
 FEAT_RISK_MATRIX_FULL       = "feature.report.risk_matrix_full"
+FEAT_DEPLOYMENT_STRUCTURAL  = "feature.deployment.structural_update"
 
 # ── Ordered list of all flags (used by /api/entitlements response) ─────────
 ALL_FEATURES: list[str] = [
@@ -51,6 +52,7 @@ ALL_FEATURES: list[str] = [
     FEAT_SCENARIO_WEIGHTS,
     FEAT_MULTIPLIER_STACK,
     FEAT_RISK_MATRIX_FULL,
+    FEAT_DEPLOYMENT_STRUCTURAL,
 ]
 
 # ── Tier entitlement matrix ────────────────────────────────────────────────
@@ -70,6 +72,7 @@ _ENTITLEMENTS: dict[str, set[str]] = {
         FEAT_REPORT_PDF,
         FEAT_SIGNAL_METRICS,
         FEAT_STOP_PROB_DETAIL,
+        FEAT_DEPLOYMENT_STRUCTURAL,
     },
     "trader": {
         FEAT_REPORT_CORE,
@@ -82,6 +85,7 @@ _ENTITLEMENTS: dict[str, set[str]] = {
         FEAT_SCENARIO_WEIGHTS,
         FEAT_MULTIPLIER_STACK,
         FEAT_RISK_MATRIX_FULL,
+        FEAT_DEPLOYMENT_STRUCTURAL,
     },
 }
 

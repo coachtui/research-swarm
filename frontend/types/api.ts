@@ -996,3 +996,50 @@ export interface EntitlementsResponse {
     at_warning_threshold: boolean
   }
 }
+
+// ── Structural Deployment Update (Investor+) ──────────────────────────────────
+
+export interface DeployableTickerItem {
+  ticker: string
+  sector: string
+  allocation_current: number
+  /** null when no prior run exists to compare against */
+  allocation_delta_30d: number | null
+  /** 0–5: count of moat breakdown components above confirmation threshold */
+  confirmation_score: number
+  /** 0–100 rank-based percentile within tracked universe */
+  vol_adj_ev_percentile: number
+  /** 0–100 effective stop probability */
+  stop_probability: number
+  /** Percentage of same-sector tickers that are structurally confirmed */
+  sector_breadth_pct: number
+}
+
+export interface SectorBreadthRow {
+  sector: string
+  confirmed: number
+  total: number
+  pct_confirmed: number
+  trend: 'rising' | 'stable' | 'falling'
+}
+
+export interface MarketDeployabilitySnapshot {
+  universe_size: number
+  /** Percentage of universe with confirmation_score >= 4 */
+  pct_universe_confirmed: number
+  avg_allocation_delta: number | null
+  avg_stop_probability: number
+  /** Percentage of universe with stable regime */
+  regime_stable_pct: number
+  capital_posture: 'Low' | 'Moderate' | 'Expanding'
+}
+
+export interface DeploymentUpdateResponse {
+  generated_at: string
+  cache_age_hours: number
+  snapshot: MarketDeployabilitySnapshot
+  deployable_tickers: DeployableTickerItem[]
+  sector_breadth: SectorBreadthRow[]
+  /** Set when deployable_tickers is empty */
+  no_deployable_message: string | null
+}

@@ -345,9 +345,9 @@ async def get_cost_summary(admin: User = Depends(require_admin)):
 
 # Subscription pricing by tier (USD/month)
 _TIER_PRICE = {
-    "starter": 9.99,
-    "investor": 19.99,
-    "trader": 49.99,
+    "starter": 19.99,
+    "investor": 39.99,
+    "trader": 99.99,
     "free": 0.0,
 }
 

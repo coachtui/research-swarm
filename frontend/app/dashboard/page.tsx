@@ -7,7 +7,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { AnalysisHistoryView } from '@/components/dashboard/AnalysisHistoryView'
+import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
 import { useQuota } from '@/lib/hooks/useQuota'
+import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import { apiClient } from '@/lib/api/client'
 import { TickerSearchForm } from '@/components/analyze/TickerSearchForm'
 import { UserInfo } from '@/types/api'
@@ -82,11 +84,15 @@ function NoSubscriptionPanel() {
 
 function DashboardContent({ currentUser }: { currentUser: UserInfo | null }) {
   const { data: quota, isLoading: quotaLoading } = useQuota()
+  const { data: entitlements } = useEntitlements()
 
   const PAID_STATUSES = ['active', 'trialing']
   const hasSubscription = currentUser
     ? (currentUser.is_admin || PAID_STATUSES.includes(currentUser.stripe_subscription_status ?? ''))
     : false
+
+  // Show Deployment tab for Investor+ users (and locked preview for others)
+  const showDeploymentTab = entitlements != null
 
   return (
     <div className="min-h-screen bg-background">
@@ -104,6 +110,13 @@ function DashboardContent({ currentUser }: { currentUser: UserInfo | null }) {
             <TabsTrigger value="analyze">
               {hasSubscription ? 'Analyze' : 'Analyze 🔒'}
             </TabsTrigger>
+            {showDeploymentTab && (
+              <TabsTrigger value="deployment">
+                {entitlements?.features['feature.deployment.structural_update']
+                  ? 'Deployment'
+                  : 'Deployment 🔒'}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="watchlist">
@@ -117,6 +130,12 @@ function DashboardContent({ currentUser }: { currentUser: UserInfo | null }) {
           <TabsContent value="analyze">
             {hasSubscription ? <TickerSearchForm /> : <NoSubscriptionPanel />}
           </TabsContent>
+
+          {showDeploymentTab && (
+            <TabsContent value="deployment">
+              <StructuralDeploymentUpdate />
+            </TabsContent>
+          )}
         </Tabs>
       </main>
     </div>

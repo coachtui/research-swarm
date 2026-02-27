@@ -29,6 +29,7 @@ export type Feature =
   | 'scenario_weights'          // Trader: model vs effective scenario weights + rotation
   | 'multiplier_stack'          // Trader: position-sizing multiplier list + product
   | 'risk_matrix_full'          // Trader: full portfolio interaction metrics
+  | 'structural_deployment_update' // Investor+: monthly capital deployability report
 
 /** Minimum tier required to access each feature. */
 const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
@@ -45,7 +46,8 @@ const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
   engine_diagnostics:       'trader',
   scenario_weights:         'trader',
   multiplier_stack:         'trader',
-  risk_matrix_full:         'trader',
+  risk_matrix_full:                'trader',
+  structural_deployment_update:    'investor',
 }
 
 const TIER_ORDER: Record<Tier, number> = {
@@ -214,6 +216,16 @@ export const FEATURE_GATE_COPY: Record<Feature, {
       'Crowding and concentration risk flags',
       'Factor exposure breakdown',
       'Liquidity and volatility risk interaction metrics',
+    ],
+  },
+  structural_deployment_update: {
+    title: 'Structural Deployment Update',
+    description: 'Monthly capital deployability report — structurally confirmed names only.',
+    requiredTier: 'investor',
+    bullets: [
+      'Market deployability snapshot with capital posture classification',
+      'Confirmed deployable tickers filtered by 5-criterion structural gate',
+      'Sector breadth overview with trend direction',
     ],
   },
 }

@@ -438,6 +438,31 @@ model DeviceFreeUsage {
   @@map("device_free_usage")
 }
 
+// Per-user, per-ticker deployment metrics cache.
+// Extracted from existing StockResult.fullOutput — NO new LLM calls.
+// TTL: 24 hours. Refreshed on next GET /api/deployment/structural-update when stale.
+model DeploymentMetricsCache {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+
+  ticker             String
+  sector             String  @default("Unknown")
+  allocationCurrent  Float   @default(0)  @map("allocation_current")
+  allocationDelta30d Float?  @map("allocation_delta_30d")  // null = no prior run
+  confirmationScore  Int     @default(0)  @map("confirmation_score")  // 0-5
+  evRatio            Float?  @map("ev_ratio")               // probability_weighted_ev / current_price
+  volAdjEvScore      Float?  @map("vol_adj_ev_score")       // evRatio * (1 - stop_prob/100)
+  stopProbability    Float   @default(50) @map("stop_probability")
+  regimeStable       Boolean @default(true) @map("regime_stable")
+  sourceRunId        String  @map("source_run_id")
+
+  computedAt DateTime @default(now()) @map("computed_at")
+
+  @@unique([userId, ticker])
+  @@index([userId, computedAt])
+  @@map("deployment_metrics_cache")
+}
+
 // Usage records — idempotency guard preventing double-counting on retry/refresh.
 // One record per generation_id (= run_id). The UNIQUE constraint is the guard.
 model UsageRecord {

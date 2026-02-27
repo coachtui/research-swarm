@@ -20,6 +20,7 @@ import type {
   RevenueTimeSeries,
   UserInfo,
   EntitlementsResponse,
+  DeploymentUpdateResponse,
 } from '@/types/api'
 
 class ApiClient {
@@ -353,6 +354,11 @@ class ApiClient {
     return this.request('/api/stripe/create-boost-session', {
       method: 'POST',
     })
+  }
+
+  // Deployment endpoints
+  async getDeploymentUpdate(): Promise<DeploymentUpdateResponse> {
+    return this.request('/api/deployment/structural-update')
   }
 }
 
