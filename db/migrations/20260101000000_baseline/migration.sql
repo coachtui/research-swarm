@@ -1,0 +1,15 @@
+-- Baseline migration — represents the full schema state before Prisma Migrate
+-- was introduced to this project.
+--
+-- This file intentionally contains no SQL.
+-- The production database already has all tables from prior `prisma db push` runs.
+--
+-- To onboard a production DB that was managed with db push, run ONCE:
+--
+--   DATABASE_URL=<prod_url> npx prisma migrate resolve \
+--     --schema=db/schema.prisma \
+--     --applied "20260101000000_baseline"
+--
+-- That command inserts a row into _prisma_migrations marking this file as
+-- already applied, without executing any SQL against the database.
+-- After that, `prisma migrate deploy` in CI/CD will only apply new migrations.

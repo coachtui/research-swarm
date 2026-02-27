@@ -440,11 +440,30 @@ model DeviceFreeUsage {
 
 // Per-user, per-ticker deployment metrics cache.
 // Extracted from existing StockResult.fullOutput — NO new LLM calls.
-// TTL: 24 hours. Refreshed on next GET /api/deployment/structural-update when stale.
+// Snapshots are bucketed by 24h UTC window. Cache is invalidated when
+// model_version or ruleset_version changes, forcing a fresh computation.
 model DeploymentMetricsCache {
   id     String @id @default(uuid())
   userId String @map("user_id")
 
+  // Snapshot identity (same values for all tickers in the same snapshot)
+  snapshotId      String   @map("snapshot_id")   // UUID shared by all rows in a snapshot
+  snapshotBucket  DateTime @map("snapshot_bucket") // UTC midnight of the snapshot day
+  universeHash    String   @map("universe_hash")  // SHA-256[:16] of sorted ticker set
+  modelVersion    String   @default("1.1.0") @map("model_version")
+  rulesetVersion  String   @default("1.0.0") @map("ruleset_version")
+
+  // Snapshot-level aggregates (denormalized for fast response building)
+  universeSize   Int    @default(0)    @map("universe_size")
+  eligibleCount  Int    @default(0)    @map("eligible_count")
+  capitalPosture String @default("Low") @map("capital_posture")
+  exposureCeiling Float  @default(50)  @map("exposure_ceiling")
+
+  // Snapshot timestamps
+  generatedAt  DateTime @default(now()) @map("generated_at")
+  ttlExpiresAt DateTime @map("ttl_expires_at")
+
+  // Per-ticker metrics
   ticker             String
   sector             String  @default("Unknown")
   allocationCurrent  Float   @default(0)  @map("allocation_current")
@@ -456,10 +475,9 @@ model DeploymentMetricsCache {
   regimeStable       Boolean @default(true) @map("regime_stable")
   sourceRunId        String  @map("source_run_id")
 
-  computedAt DateTime @default(now()) @map("computed_at")
-
-  @@unique([userId, ticker])
-  @@index([userId, computedAt])
+  @@unique([userId, snapshotBucket, ticker])
+  @@index([userId, universeHash, modelVersion, snapshotBucket])
+  @@index([userId, generatedAt])
   @@map("deployment_metrics_cache")
 }
 

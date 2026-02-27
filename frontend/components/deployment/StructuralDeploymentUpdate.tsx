@@ -1,5 +1,6 @@
 'use client'
 
+import React from 'react'
 import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow } from '@/types/api'
 import { useDeploymentUpdate } from '@/lib/hooks/useDeploymentUpdate'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
@@ -63,7 +64,12 @@ function DeployabilitySnapshot({ snapshot }: { snapshot: MarketDeployabilitySnap
         />
         <MetricTile
           label="Avg Stop Prob"
-          value={`${snapshot.avg_stop_probability.toFixed(1)}%`}
+          value={
+            <span className="inline-flex items-center gap-1">
+              {snapshot.avg_stop_probability.toFixed(1)}%
+              <TrendIcon trend={snapshot.avg_stop_probability_trend} />
+            </span>
+          }
           sub="across universe"
         />
         <MetricTile
@@ -81,11 +87,11 @@ function DeployabilitySnapshot({ snapshot }: { snapshot: MarketDeployabilitySnap
   )
 }
 
-function MetricTile({ label, value, sub }: { label: string; value: string; sub: string }) {
+function MetricTile({ label, value, sub }: { label: string; value: React.ReactNode; sub: string }) {
   return (
     <div className="rounded-lg border border-surface-elevated bg-surface p-3">
       <p className="text-xs text-text-secondary mb-1">{label}</p>
-      <p className="text-base font-mono font-semibold text-text-primary">{value}</p>
+      <div className="text-base font-mono font-semibold text-text-primary">{value}</div>
       <p className="text-xs text-text-secondary mt-0.5">{sub}</p>
     </div>
   )
@@ -240,6 +246,58 @@ function SectorBreadthTable({ rows }: { rows: SectorBreadthRow[] }) {
   )
 }
 
+// ── Section 4: Capital Deployment Guidance ────────────────────────────────────
+
+function getGuidanceDescription(
+  posture: string,
+  ceiling: number,
+  deployabilityRatioPct: number,
+): string {
+  if (posture === 'Expanding') {
+    return `Structural conditions support active capital deployment. ${deployabilityRatioPct.toFixed(1)}% of the tracked universe passes all inclusion criteria. Suggested maximum portfolio exposure is ${ceiling.toFixed(0)}%.`
+  }
+  if (posture === 'Moderate') {
+    return `Structural conditions are mixed. ${deployabilityRatioPct.toFixed(1)}% of the tracked universe is structurally confirmed. Suggested maximum portfolio exposure is ${ceiling.toFixed(0)}%. Deploy selectively in highest-conviction names only.`
+  }
+  return `Structural conditions do not support broad capital deployment. ${deployabilityRatioPct.toFixed(1)}% of the tracked universe meets confirmation criteria. Suggested maximum portfolio exposure is ${ceiling.toFixed(0)}%. Preserve capital until structural conditions improve.`
+}
+
+function CapitalDeploymentGuidance({ data }: { data: DeploymentUpdateResponse }) {
+  const { snapshot, eligible_count, universe_size } = data
+  const deployabilityRatioPct = universe_size > 0 ? (eligible_count / universe_size * 100) : 0
+  const description = getGuidanceDescription(snapshot.capital_posture, snapshot.exposure_ceiling, deployabilityRatioPct)
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider">
+        Capital Deployment Guidance
+      </h3>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <MetricTile
+          label="Capital Posture"
+          value={<PostureBadge posture={snapshot.capital_posture} />}
+          sub={`${snapshot.pct_universe_confirmed.toFixed(1)}% universe confirmed`}
+        />
+        <MetricTile
+          label="Exposure Ceiling"
+          value={`${snapshot.exposure_ceiling.toFixed(0)}%`}
+          sub="suggested max portfolio exposure"
+        />
+        <MetricTile
+          label="Deployability Ratio"
+          value={`${eligible_count} / ${universe_size}`}
+          sub={`${deployabilityRatioPct.toFixed(1)}% pass structural gate`}
+        />
+      </div>
+
+      <p className="text-xs text-text-secondary leading-relaxed max-w-prose">
+        {description}
+      </p>
+    </div>
+  )
+}
+
 // ── Upgrade card for locked tiers ─────────────────────────────────────────────
 
 function LockedCard() {
@@ -313,6 +371,16 @@ export function StructuralDeploymentUpdate() {
     ? 'Generated just now'
     : `Generated ${data.cache_age_hours.toFixed(1)}h ago`
 
+  const ttlLabel = (() => {
+    try {
+      const expires = new Date(data.ttl_expires_at)
+      const hoursUntil = (expires.getTime() - Date.now()) / 3_600_000
+      return hoursUntil > 0 ? `Refreshes in ${hoursUntil.toFixed(1)}h` : 'Refresh pending'
+    } catch {
+      return null
+    }
+  })()
+
   return (
     <Card className="bg-surface border-surface-elevated">
       <CardHeader className="pb-3">
@@ -320,7 +388,12 @@ export function StructuralDeploymentUpdate() {
           <CardTitle className="text-sm font-semibold text-text-primary">
             Structural Deployment Update
           </CardTitle>
-          <span className="text-xs text-text-secondary">{cacheLabel}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-text-secondary">{cacheLabel}</span>
+            {ttlLabel && (
+              <span className="text-xs text-text-secondary opacity-60">{ttlLabel}</span>
+            )}
+          </div>
         </div>
       </CardHeader>
 
@@ -340,6 +413,11 @@ export function StructuralDeploymentUpdate() {
 
         {/* Section 3 — Sector Breadth Overview */}
         <SectorBreadthTable rows={data.sector_breadth} />
+
+        <div className="border-t border-surface-elevated" />
+
+        {/* Section 4 — Capital Deployment Guidance */}
+        <CapitalDeploymentGuidance data={data} />
       </CardContent>
     </Card>
   )

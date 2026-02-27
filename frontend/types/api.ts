@@ -1029,14 +1029,25 @@ export interface MarketDeployabilitySnapshot {
   pct_universe_confirmed: number
   avg_allocation_delta: number | null
   avg_stop_probability: number
+  /** "rising" = worsening, "falling" = improving, "stable" = unchanged */
+  avg_stop_probability_trend: 'rising' | 'stable' | 'falling'
   /** Percentage of universe with stable regime */
   regime_stable_pct: number
   capital_posture: 'Low' | 'Moderate' | 'Expanding'
+  /** Suggested max portfolio exposure % based on posture */
+  exposure_ceiling: number
 }
 
 export interface DeploymentUpdateResponse {
+  snapshot_id: string
   generated_at: string
+  ttl_expires_at: string
   cache_age_hours: number
+  model_version: string
+  ruleset_version: string
+  universe_size: number
+  /** Count of tickers passing all 5 inclusion criteria */
+  eligible_count: number
   snapshot: MarketDeployabilitySnapshot
   deployable_tickers: DeployableTickerItem[]
   sector_breadth: SectorBreadthRow[]

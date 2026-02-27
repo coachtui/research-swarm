@@ -76,9 +76,21 @@ logging.basicConfig(
     format='%(levelname)s:     %(name)s - %(message)s'
 )
 
+_startup_logger = logging.getLogger("api.startup")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Connect Prisma once on startup; disconnect cleanly on shutdown."""
+    # Log DB target: host + database name only — never print the full URL or credentials.
+    try:
+        from urllib.parse import urlparse
+        _p = urlparse(os.getenv("DATABASE_URL", ""))
+        _db_name = _p.path.lstrip("/") or "(unknown)"
+        _startup_logger.info("DB target: %s/%s", _p.hostname or "(unknown)", _db_name)
+    except Exception:
+        _startup_logger.info("DB target: (could not parse DATABASE_URL)")
+
     await connect_db()
     yield
     await disconnect_db()
