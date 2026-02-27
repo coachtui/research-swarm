@@ -22,9 +22,9 @@ echo "[startup] Applying database migrations..."
 prisma migrate deploy --schema=db/schema.prisma
 echo "[startup] Migrations applied."
 
-# ── Regenerate Prisma client (ensures binary matches runtime) ─────────────────
-echo "[startup] Generating Prisma client..."
-prisma generate --schema=db/schema.prisma
+# NOTE: prisma generate runs in buildCommand (railway.toml) at image-build time.
+# Do NOT run it here — downloading the engine binary at startup delays uvicorn
+# past Railway's 30s healthcheck window.
 
 # ── WeasyPrint runtime: ensure apt-installed shared libs are visible ──────────
 # libgobject, libpango, libcairo etc. live in /usr/lib/x86_64-linux-gnu when
