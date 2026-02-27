@@ -10,9 +10,6 @@ import {
   CheckCircle2,
   ArrowRight,
   Target,
-  AlertTriangle,
-  LineChart,
-  Newspaper,
   ChevronDown,
 } from 'lucide-react'
 
@@ -22,32 +19,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <p className="text-xs font-medium tracking-widest uppercase text-text-secondary mb-3">
       {children}
     </p>
-  )
-}
-
-/* ─── Agent row ──────────────────────────────────────────────────────────── */
-function AgentRow({
-  icon,
-  title,
-  body,
-}: {
-  icon: React.ReactNode
-  title: string
-  body: string
-}) {
-  return (
-    <div className="flex items-start gap-4 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
-      <div
-        className="w-9 h-9 rounded-md flex items-center justify-center shrink-0 text-primary"
-        style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}
-      >
-        {icon}
-      </div>
-      <div>
-        <h4 className="text-sm font-semibold text-text-primary mb-0.5">{title}</h4>
-        <p className="text-sm text-text-secondary leading-relaxed">{body}</p>
-      </div>
-    </div>
   )
 }
 
@@ -143,28 +114,73 @@ export default function Home() {
         style={{ borderTop: '1px solid var(--border)' }}
       >
         <p className="text-xl md:text-2xl font-bold text-text-primary tracking-tight leading-tight">
-          Stop guessing conviction.
+          Stop researching in isolation.
           <br />
-          <span className="text-primary">Start sizing exposure.</span>
+          <span className="text-primary">Start building structured edge.</span>
         </p>
       </div>
 
-      {/* ── Contrast Block ───────────────────────────────────────────────── */}
+      {/* ── The Problem ──────────────────────────────────────────────────── */}
       <section className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
         <div className="container mx-auto px-4">
           <div className="max-w-5xl mx-auto">
             <div className="mb-10">
-              <SectionLabel>The Difference</SectionLabel>
+              <SectionLabel>The Problem</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Narrative-Based Research vs Probabilistic Allocation
+                Why Most Retail Research Breaks Down
               </h2>
+              <p className="mt-4 text-sm text-text-secondary leading-relaxed max-w-2xl">
+                The issue is not effort. Most retail investors research extensively.
+                The issue is structure — or the absence of it.
+              </p>
             </div>
 
+            <div className="grid md:grid-cols-2 gap-6 mb-12">
+              {[
+                {
+                  title: 'Fragmented Across Sources',
+                  body: 'Research lives across dozens of tabs — earnings calls, screeners, newsletters, analyst reports. No unified output. No synthesis.',
+                },
+                {
+                  title: 'Narrative Bias Distorts Conviction',
+                  body: 'When research is story-driven, conviction follows narrative. It inflates on positive headlines and collapses on noise.',
+                },
+                {
+                  title: 'Position Sizing is Emotional',
+                  body: 'Without a probabilistic framework, allocation decisions default to instinct. Equal-weight or arbitrary sizing replaces disciplined deployment.',
+                },
+                {
+                  title: 'Static Allocations Ignore Uncertainty',
+                  body: 'Market regimes shift. Volatility changes. Most approaches treat allocation as fixed — ignoring the probability structure underlying each setup.',
+                },
+              ].map(({ title, body }) => (
+                <div
+                  key={title}
+                  className="rounded-card p-5"
+                  style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className="text-sm font-bold shrink-0 mt-0.5"
+                      style={{ color: 'rgba(239,68,68,0.55)' }}
+                    >
+                      —
+                    </span>
+                    <div>
+                      <h4 className="text-sm font-semibold text-text-primary mb-1.5">{title}</h4>
+                      <p className="text-sm text-text-secondary leading-relaxed">{body}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* ── Before / After contrast ── */}
             <div
               className="grid md:grid-cols-2 rounded-card overflow-hidden"
               style={{ border: '1px solid var(--border)' }}
             >
-              {/* Left — Narrative (red tint) */}
+              {/* Left — Before */}
               <div
                 className="p-8"
                 style={{
@@ -176,14 +192,14 @@ export default function Home() {
                   className="text-xs font-semibold uppercase tracking-widest mb-6"
                   style={{ color: 'rgba(239,68,68,0.70)' }}
                 >
-                  Opinion-Driven Research
+                  Before DVRG
                 </p>
                 <div className="space-y-3">
                   {[
-                    'Equal weight sizing',
-                    'Opinion-based targets',
-                    'No regime compression',
-                    'Binary buy/sell framing',
+                    'Multiple tabs open, no synthesis',
+                    'Conflicting signals, no resolution',
+                    'Narrative-driven conviction',
+                    'Static allocation size',
                   ].map((item) => (
                     <div key={item} className="flex items-center gap-3">
                       <span
@@ -198,7 +214,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Right — DVRG (green tint, stronger left border) */}
+              {/* Right — After */}
               <div
                 className="p-8"
                 style={{
@@ -210,14 +226,14 @@ export default function Home() {
                   className="text-xs font-semibold uppercase tracking-widest mb-6"
                   style={{ color: '#10B981' }}
                 >
-                  Systematic Capital Deployment
+                  After DVRG
                 </p>
                 <div className="space-y-3">
                   {[
-                    'Scenario-weighted EV',
-                    'Capital compression logic',
-                    'Regime-aware multiplier',
-                    'Risk-adjusted deployment',
+                    'Unified thesis from consolidated signals',
+                    'Quantified expected value',
+                    'Confidence calibration, not narrative',
+                    'Probability-weighted position size',
                   ].map((item) => (
                     <div key={item} className="flex items-center gap-3">
                       <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
@@ -227,61 +243,75 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
           </div>
         </div>
       </section>
 
-      {/* ── Solution ─────────────────────────────────────────────────────── */}
+      {/* ── The Shift ────────────────────────────────────────────────────── */}
       <section className="py-20" style={{ borderTop: '1px solid var(--border)' }}>
         <div className="container mx-auto px-4">
           <div className="max-w-5xl mx-auto">
             <div className="mb-10">
-              <SectionLabel>The Solution</SectionLabel>
+              <SectionLabel>The Shift</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Meet DVRG: A Probabilistic Capital Allocation Engine
+                The Edge Comes From Structure
               </h2>
+              <p className="mt-4 text-sm text-text-secondary leading-relaxed max-w-2xl">
+                DVRG does not give you better predictions. It gives you a better process.
+                Structure is the edge.
+              </p>
             </div>
 
             <div className="grid lg:grid-cols-2 gap-10">
-              {/* System component list */}
               <div style={{ borderTop: '1px solid var(--border)' }}>
                 {[
-                  { icon: <BarChart3 className="w-4 h-4" />, label: 'Expected value compression' },
-                  { icon: <TrendingUp className="w-4 h-4" />, label: 'Regime-aware multipliers' },
-                  { icon: <Target className="w-4 h-4" />, label: 'Stop probability modeling' },
-                  { icon: <Shield className="w-4 h-4" />, label: 'Policy cap enforcement' },
-                  { icon: <Zap className="w-4 h-4" />, label: 'Capital deployment translation' },
-                ].map(({ icon, label }) => (
+                  {
+                    label: 'DVRG does not predict.',
+                    detail: 'It structures uncertainty into a probability-weighted model across defined scenarios.',
+                  },
+                  {
+                    label: 'DVRG quantifies expected value.',
+                    detail: 'Not directional opinion — a calibrated EV computed across probability-weighted outcomes.',
+                  },
+                  {
+                    label: 'DVRG calibrates confidence.',
+                    detail: 'Conviction is measured against regime state and signal stability — not narrative momentum.',
+                  },
+                  {
+                    label: 'DVRG converts conviction into exposure.',
+                    detail: 'Allocation size is derived from EV and regime multiplier, not instinct.',
+                  },
+                  {
+                    label: 'Capital discipline becomes systematic.',
+                    detail: 'The same framework governs every analysis. No exceptions for high-conviction narratives.',
+                  },
+                ].map(({ label, detail }) => (
                   <div
                     key={label}
-                    className="flex items-center gap-4 py-3.5"
+                    className="py-4"
                     style={{ borderBottom: '1px solid var(--border)' }}
                   >
-                    <div
-                      className="w-7 h-7 rounded flex items-center justify-center shrink-0 text-primary"
-                      style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}
-                    >
-                      {icon}
-                    </div>
-                    <span className="text-sm font-medium text-text-primary">{label}</span>
+                    <p className="text-sm font-semibold text-text-primary mb-0.5">{label}</p>
+                    <p className="text-sm text-text-secondary leading-relaxed">{detail}</p>
                   </div>
                 ))}
               </div>
 
-              {/* Key differentiators panel */}
               <div
                 className="rounded-card p-6"
                 style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
               >
                 <h4 className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-5">
-                  Output vs Alternatives
+                  What Structure Replaces
                 </h4>
                 <div className="space-y-3">
                   {[
-                    ['Expected Value', 'not guesswork'],
-                    ['Probability', 'not narrative'],
-                    ['Conviction Sizing', 'not gut positioning'],
-                    ['Capital Translation', 'not data overload'],
+                    ['Expected Value', 'replaces guesswork'],
+                    ['Probability Modeling', 'replaces narrative'],
+                    ['Conviction Sizing', 'replaces gut positioning'],
+                    ['Regime Awareness', 'replaces static allocation'],
+                    ['Unified Thesis', 'replaces fragmented research'],
                   ].map(([title, sub]) => (
                     <div key={title} className="flex items-center gap-3">
                       <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
@@ -397,6 +427,76 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── Allocation Engine ─────────────────────────────────────────────── */}
+      <section className="py-20" style={{ borderTop: '1px solid var(--border)' }}>
+        <div className="container mx-auto px-4">
+          <div className="max-w-5xl mx-auto">
+            <div className="mb-10">
+              <SectionLabel>The Engine</SectionLabel>
+              <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
+                Capital Allocation, Made Systematic
+              </h2>
+              <p className="mt-4 text-sm text-text-secondary leading-relaxed max-w-2xl">
+                Every analysis produces a binding allocation output. Not a recommendation — a structured capital decision derived from signal, probability, and regime state.
+              </p>
+            </div>
+
+            <div className="grid lg:grid-cols-2 gap-10">
+              {/* System component list */}
+              <div style={{ borderTop: '1px solid var(--border)' }}>
+                {[
+                  { icon: <BarChart3 className="w-4 h-4" />, label: 'Expected value compression' },
+                  { icon: <TrendingUp className="w-4 h-4" />, label: 'Regime-aware multipliers' },
+                  { icon: <Target className="w-4 h-4" />, label: 'Stop probability modeling' },
+                  { icon: <Shield className="w-4 h-4" />, label: 'Policy cap enforcement' },
+                  { icon: <Zap className="w-4 h-4" />, label: 'Capital deployment translation' },
+                ].map(({ icon, label }) => (
+                  <div
+                    key={label}
+                    className="flex items-center gap-4 py-3.5"
+                    style={{ borderBottom: '1px solid var(--border)' }}
+                  >
+                    <div
+                      className="w-7 h-7 rounded flex items-center justify-center shrink-0 text-primary"
+                      style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}
+                    >
+                      {icon}
+                    </div>
+                    <span className="text-sm font-medium text-text-primary">{label}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Key differentiators panel */}
+              <div
+                className="rounded-card p-6"
+                style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
+              >
+                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-5">
+                  Output vs Alternatives
+                </h4>
+                <div className="space-y-3">
+                  {[
+                    ['Expected Value', 'not guesswork'],
+                    ['Probability', 'not narrative'],
+                    ['Conviction Sizing', 'not gut positioning'],
+                    ['Capital Translation', 'not data overload'],
+                  ].map(([title, sub]) => (
+                    <div key={title} className="flex items-center gap-3">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
+                      <span className="text-sm text-text-secondary">
+                        <strong className="text-text-primary">{title}</strong>
+                        <span className="text-text-tertiary"> — {sub}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── Pricing ──────────────────────────────────────────────────────── */}
       <section id="pricing" className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
         <div className="container mx-auto px-4">
@@ -404,8 +504,11 @@ export default function Home() {
             <div className="mb-12">
               <SectionLabel>Pricing</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Choose Your Allocation Depth
+                Select Your Depth of Analysis
               </h2>
+              <p className="mt-4 text-sm text-text-secondary leading-relaxed max-w-xl">
+                Each tier unlocks a deeper layer of the allocation framework. Start with the structured core. Add diagnostics and advanced controls as your process matures.
+              </p>
             </div>
             <PricingCards />
             <p className="mt-8 text-center text-sm text-text-secondary">
@@ -432,9 +535,9 @@ export default function Home() {
                 <p className="text-xs font-semibold uppercase tracking-widest text-success mb-5">Built For</p>
                 <div style={{ borderTop: '1px solid var(--border)' }}>
                   {[
-                    'Active capital allocators',
-                    'Probability-driven investors',
-                    'Portfolio managers managing volatility',
+                    'Investors who want structure, not more data',
+                    'Capital allocators who want a repeatable process',
+                    'Active investors managing position size discipline',
                   ].map((item) => (
                     <div
                       key={item}
@@ -468,6 +571,63 @@ export default function Home() {
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── What DVRG Is Not ─────────────────────────────────────────────── */}
+      <section className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto">
+            <div className="mb-10">
+              <SectionLabel>Clarity</SectionLabel>
+              <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
+                What DVRG Is Not
+              </h2>
+              <p className="mt-4 text-sm text-text-secondary leading-relaxed">
+                Precision about what a tool is not builds more trust than what it claims to be.
+              </p>
+            </div>
+            <div style={{ borderTop: '1px solid var(--border)' }}>
+              {[
+                {
+                  title: 'Not a day-trading signal service',
+                  detail: 'DVRG is a structured capital allocation framework. It is not a real-time alert feed or a buy/sell trigger.',
+                },
+                {
+                  title: 'Not a hype-driven recommendation engine',
+                  detail: 'There are no hot stock picks, trending tickers, or urgency-based calls. Analysis is regime-aware and fundamentally grounded.',
+                },
+                {
+                  title: 'Not a guarantee engine',
+                  detail: 'No system predicts markets. DVRG structures probability. Outcomes remain uncertain — the process is what improves.',
+                },
+                {
+                  title: 'Not a replacement for your judgment',
+                  detail: 'DVRG provides a structured decision framework. You retain full discretion. It informs. You decide.',
+                },
+              ].map(({ title, detail }) => (
+                <div
+                  key={title}
+                  className="flex items-start gap-4 py-5"
+                  style={{ borderBottom: '1px solid var(--border)' }}
+                >
+                  <div
+                    className="w-7 h-7 rounded flex items-center justify-center shrink-0 mt-0.5"
+                    style={{
+                      background: 'rgba(239,68,68,0.08)',
+                      border: '1px solid rgba(239,68,68,0.20)',
+                    }}
+                  >
+                    <span className="text-sm font-bold" style={{ color: 'rgba(239,68,68,0.55)' }}>—</span>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-text-primary mb-1">{title}</h4>
+                    <p className="text-sm text-text-secondary leading-relaxed">{detail}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -518,10 +678,10 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="max-w-2xl mx-auto text-center space-y-6">
             <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-              Stop Guessing Conviction. Start Sizing Decisions.
+              Build Conviction. Deploy with Discipline.
             </h2>
             <p className="text-text-secondary">
-              Replace fragmented research workflows with a unified capital allocation system.
+              Replace fragmented research workflows with a single structured capital allocation system.
             </p>
             <Link href="/welcome/free">
               <Button size="lg" variant="outline">

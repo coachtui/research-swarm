@@ -759,30 +759,30 @@ export function LandingHero() {
               style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}
             >
               <Zap className="w-3.5 h-3.5 shrink-0" />
-              Probabilistic Capital Allocation Engine
+              Research Consolidation · Structured Edge
             </div>
 
             {/* Headline */}
             <h1 className="text-[2.25rem] md:text-[2.75rem] font-bold text-text-primary leading-[1.15] tracking-tight">
-              Your conviction,
+              From scattered research
               <br />
-              converted into
+              to a unified thesis —
               <br />
-              <span style={{ color: 'var(--accent)' }}>a precise position size.</span>
+              <span style={{ color: 'var(--accent)' }}>built to deploy capital.</span>
             </h1>
 
             {/* Tension line */}
             <p className="text-base md:text-lg font-semibold text-text-primary leading-tight tracking-tight">
-              Most research stops at conviction.
-              <br />
-              DVRG converts expected value, risk stability,
+              DVRG consolidates fundamental analysis, valuation signals,
               <br className="hidden sm:block" />
-              and regime alignment into capital size.
+              and structural diagnostics into a single output.
+              <br />
+              Then converts that thesis into a calibrated position size.
             </p>
 
             {/* Micro-caption */}
             <p className="text-xs leading-snug" style={{ color: 'var(--text-subtle)' }}>
-              Allocation dynamically adjusts as probability structure shifts.
+              Replace hours of fragmented research with one structured decision.
             </p>
 
             {/* Micro authority line */}
@@ -790,7 +790,7 @@ export function LandingHero() {
               className="text-[10px] font-medium uppercase tracking-widest"
               style={{ color: 'var(--text-subtle)' }}
             >
-              Designed for disciplined capital allocators — not narrative traders.
+              Built for disciplined capital allocators — not narrative traders.
             </p>
 
             {/* Edge line */}
@@ -834,10 +834,10 @@ export function LandingHero() {
             <div className="pt-4" style={{ borderTop: '1px solid var(--border)' }}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2.5 gap-x-4">
                 {[
-                  'Scenario-weighted EV — not single-point forecasts',
-                  'Conviction-to-position sizing framework',
-                  'Structural noise & stability diagnostics',
-                  'Binding allocation output per analysis',
+                  'Consolidates fundamental, valuation, and structural signals',
+                  'Translates research into quantified expected value',
+                  'Converts conviction into a probability-weighted position size',
+                  'Eliminates fragmented workflows — one structured output',
                 ].map((item) => (
                   <div key={item} className="flex items-start gap-2 text-xs text-text-secondary">
                     <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
