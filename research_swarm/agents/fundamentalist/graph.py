@@ -962,6 +962,22 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                 except Exception as e:
                     logger.debug(f"Could not fetch extended stock info: {e}")
 
+                # ── Fetch 10-year Treasury yield for regime-sensitive EV/EBITDA (Part 2) ──
+                ten_year_yield = None
+                try:
+                    import yfinance as _yf_macro
+                    tnx = _yf_macro.Ticker("^TNX")
+                    tnx_info = tnx.info
+                    ten_year_yield = (
+                        tnx_info.get("regularMarketPrice")
+                        or tnx_info.get("previousClose")
+                    )
+                    if ten_year_yield:
+                        logger.info(f"10yr Treasury yield: {ten_year_yield:.2f}%")
+                except Exception as e:
+                    logger.debug(f"Could not fetch 10yr yield (^TNX): {e}")
+                # ──────────────────────────────────────────────────────────────────
+
                 # ── Normalize DCF FCF history to USD ───────────────────────────────
                 # dcf_inputs.fcf_history is extracted from SEC filing text by an LLM
                 # call and is therefore in the company's reporting currency.
@@ -1001,6 +1017,8 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                         historical_eps=historical_eps,
                         sbc_ratio=sbc_ratio,
                         quarterly_margin_std=quarterly_margin_std,
+                        ten_year_yield=ten_year_yield,  # Part 2: regime sensitivity
+                        effective_probabilities=None,   # Part 5: future signal integration
                     )
                     if blended_result:
                         # Price targets committed as-is — calibration never mutates them

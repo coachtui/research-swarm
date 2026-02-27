@@ -427,6 +427,16 @@ class PriceTargetScenarios(BaseModel):
         description="Warnings if scenario ordering was auto-corrected (bear < base < bull)"
     )
 
+    # ── Valuation transparency metadata (Part 7) ──────────────────────────────
+    valuation_metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Institutional transparency: excess_cash_applied, regime_multiple_adj_pct, "
+            "quality_premium_pct, valuation_confidence_score, financial_services_ev_excluded, "
+            "confidence_filter_applied, quality_score"
+        )
+    )
+
     def expected_value(self) -> float:
         """Calculate probability-weighted expected value."""
         return (

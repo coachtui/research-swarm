@@ -7,6 +7,15 @@ Institutional-grade improvements over naive blended approach:
 3. Dynamic model weights by business archetype — high-growth gets DCF, mature gets P/E
 4. Confidence-weighted compression — preserves analytical signal, no blind price averaging
 5. Dynamic bull/bear spread — tied to actual uncertainty (volatility, leverage, growth stability)
+
+DVRG Engine Refinements (Phase 2):
+6.  Excess cash adjustment — 3% revenue floor prevents mega-cap cash from inflating equity value
+7.  Regime-sensitive EV/EBITDA — 10yr yield > 4% contracts sector multiple by 10% (±15% cap)
+8.  Capital efficiency quality layer — ROIC/FCF-margin/leverage score adjusts FV mid by ±10%
+9.  EV/EBITDA confidence filter — high volatility / leverage / negative EBITDA degrades score 25%
+10. Signal probability integration — blends static 25/50/25 with effective signal probs (±10% cap)
+11. Financial Services guardrail — excludes EV/EBITDA for banks/insurers, redistributes weight
+12. Transparency metadata — exposes all adjustments for institutional review
 """
 import statistics
 from typing import Optional, Dict, Any, List, Tuple
@@ -34,6 +43,8 @@ class BlendedValuationCalculator:
         historical_eps: Optional[List[float]] = None,
         sbc_ratio: Optional[float] = None,
         quarterly_margin_std: Optional[float] = None,
+        ten_year_yield: Optional[float] = None,  # Part 2: 10yr Treasury yield (%)
+        effective_probabilities: Optional[Tuple[float, float, float]] = None,  # Part 5: (bear, base, bull)
     ) -> Optional[PriceTargetScenarios]:
         """
         Calculate fair value using blended methodology.
@@ -87,6 +98,13 @@ class BlendedValuationCalculator:
         revenue_growth = None
         beta = None
 
+        # Quality metric inputs (for Part 3 capital efficiency scoring)
+        roic: Optional[float] = None        # returnOnEquity proxy
+        fcf_margin: Optional[float] = None  # freeCashflow / totalRevenue
+        net_debt_ebitda: Optional[float] = None  # (totalDebt - cash) / ebitda
+        revenue: Optional[float] = None     # totalRevenue (for excess cash calc, Part 1)
+        sector_name: str = ""               # for Financial Services guardrail (Part 6)
+
         if stock_info:
             ttm_eps = stock_info.get("trailingEps")
             if ttm_eps:
@@ -98,6 +116,18 @@ class BlendedValuationCalculator:
             capex = stock_info.get("capitalExpenditures")
             revenue_growth = stock_info.get("revenueGrowth")
             beta = stock_info.get("beta")
+
+            # Quality & sector inputs
+            revenue = stock_info.get("totalRevenue")
+            sector_name = stock_info.get("sector", "") or ""
+            roic = stock_info.get("returnOnEquity")  # ROE as ROIC proxy
+            if revenue and revenue > 0:
+                free_cf = stock_info.get("freeCashflow")
+                if free_cf is not None:
+                    fcf_margin = free_cf / revenue
+            if ebitda and ebitda > 0:
+                net_debt = (total_debt or 0) - (cash or 0)
+                net_debt_ebitda = net_debt / ebitda
 
         # Fallback EPS from P/E ratio — track this as a synthetic fallback
         eps_from_fallback = False
@@ -143,6 +173,40 @@ class BlendedValuationCalculator:
             is_mega_cap=is_mega_cap,
         )
 
+        # Part 6: Sector guardrail — Financial Services EV/EBITDA exclusion
+        # Banks and insurers use capital (deposits, reserves) differently; EV/EBITDA
+        # is not meaningful for regulated financial businesses.
+        ev_excluded_for_sector = False
+        if any(term in sector_name.lower() for term in ["financial", "bank", "insurance"]):
+            total_non_ev = pe_weight + dcf_weight
+            if total_non_ev > 0:
+                pe_weight = round(pe_weight + ev_weight * (pe_weight / total_non_ev), 3)
+                dcf_weight = round(dcf_weight + ev_weight * (dcf_weight / total_non_ev), 3)
+            else:
+                pe_weight = 0.65
+                dcf_weight = 0.35
+            ev_weight = 0.0
+            ev_excluded_for_sector = True
+            logger.info(
+                f"Part 6: Financial Services ({sector_name}) — EV/EBITDA excluded. "
+                f"Redistributed weights: P/E:{pe_weight:.0%} DCF:{dcf_weight:.0%}"
+            )
+
+        # Part 2: Regime-sensitive sector EV/EBITDA multiple
+        regime_adj_pct = 0.0
+        if ten_year_yield is not None and not ev_excluded_for_sector:
+            if ten_year_yield > 4.0:
+                regime_adj_pct = -10.0
+            elif ten_year_yield < 3.0:
+                regime_adj_pct = +10.0
+            regime_adj_pct = max(-15.0, min(15.0, regime_adj_pct))  # clamp ±15%
+            if regime_adj_pct != 0.0:
+                sector_ev_ebitda = sector_ev_ebitda * (1 + regime_adj_pct / 100.0)
+                logger.info(
+                    f"Part 2: Regime adj: 10yr={ten_year_yield:.2f}% → "
+                    f"EV/EBITDA multiple {regime_adj_pct:+.0f}% → {sector_ev_ebitda:.1f}x"
+                )
+
         logger.info(
             f"Fair value calc for {ticker}: mktcap=${market_cap/1e9:.1f}B, "
             f"sector_pe={sector_pe:.1f}x, ev_ebitda={sector_ev_ebitda:.1f}x, "
@@ -154,7 +218,8 @@ class BlendedValuationCalculator:
         fv_pe = self._calculate_pe_fair_value(normalized_eps, sector_pe)
         fv_ev_ebitda = self._calculate_ev_ebitda_fair_value(
             ebitda, enterprise_value_millions, sector_ev_ebitda,
-            total_debt, cash, shares_outstanding, ebitda_quality
+            total_debt, cash, shares_outstanding, ebitda_quality,
+            revenue=revenue,  # Part 1: excess cash normalization
         )
         fv_dcf = self._calculate_dcf_fair_value(dcf_inputs, current_price) if dcf_inputs else None
 
@@ -165,6 +230,21 @@ class BlendedValuationCalculator:
             logger.warning(f"Insufficient data for blended valuation of {ticker}")
             return None
 
+        # Part 3: Capital efficiency quality modifier
+        quality_score = self._calculate_quality_score(roic, fcf_margin, net_debt_ebitda)
+        quality_adj_pct = 0.0
+        if quality_score is not None:
+            raw_adj = (quality_score - 5) * 0.02   # ±2% per point above/below neutral (5)
+            quality_adj = max(-0.10, min(0.10, raw_adj))  # cap ±10%
+            quality_adj_pct = round(quality_adj * 100, 2)
+            fair_value_mid = fair_value_mid * (1 + quality_adj)
+            logger.info(
+                f"Part 3: Quality adj: score={quality_score:.2f}/10 "
+                f"→ {quality_adj:+.1%} → FV mid=${fair_value_mid:.2f}"
+            )
+
+        # Part 4: EV/EBITDA confidence filter — degrade score for unreliable inputs
+        excess_cash_applied = bool(revenue and revenue > 0)
         deviation = abs(fair_value_mid - current_price) / current_price
 
         # Hard gate: deviation > 100% is almost certainly a calculation error
@@ -191,6 +271,38 @@ class BlendedValuationCalculator:
             dcf_mostly_defaults=dcf_mostly_defaults,
             ttm_eps_direct=ttm_eps_from_stock,
         )
+
+        # Part 4: Apply EV/EBITDA confidence filter after base scoring
+        confidence_filter_notes: List[str] = []
+        confidence_filter_applied = False
+        confidence_score, confidence_filter_notes = self._apply_ev_confidence_filter(
+            confidence_score=confidence_score,
+            quarterly_margin_std=quarterly_margin_std,
+            net_debt_ebitda=net_debt_ebitda,
+            ebitda=ebitda,
+        )
+        if confidence_filter_notes:
+            confidence_filter_applied = True
+            uncertainty_drivers = list(uncertainty_drivers) + confidence_filter_notes
+            # Re-derive label after filter
+            if confidence_score >= 75:
+                confidence_label = "High"
+            elif confidence_score >= 45:
+                confidence_label = "Moderate"
+            else:
+                confidence_label = "Low"
+
+        # Part 7: Assemble valuation transparency metadata
+        valuation_metadata: Dict[str, Any] = {
+            "excess_cash_applied": excess_cash_applied,
+            "regime_multiple_adj_pct": round(regime_adj_pct, 1) if regime_adj_pct != 0.0 else None,
+            "quality_score": round(quality_score, 2) if quality_score is not None else None,
+            "quality_premium_pct": quality_adj_pct if quality_score is not None else None,
+            "valuation_confidence_score": confidence_score,
+            "financial_services_ev_excluded": ev_excluded_for_sector,
+            "confidence_filter_applied": confidence_filter_applied,
+            "ten_year_yield": round(ten_year_yield, 2) if ten_year_yield is not None else None,
+        }
 
         # Mega-cap with large deviation: do not error out — widen the band instead
         # (deviation ≠ error; market may be pricing in factors the model doesn't capture)
@@ -240,6 +352,8 @@ class BlendedValuationCalculator:
             fv_ev_ebitda=fv_ev_ebitda,
             fv_dcf=fv_dcf,
             revenue_growth=revenue_growth,
+            effective_probabilities=effective_probabilities,  # Part 5
+            valuation_metadata=valuation_metadata,             # Part 7
         )
 
     # ============================================================
@@ -633,6 +747,143 @@ class BlendedValuationCalculator:
         return spread
 
     # ============================================================
+    # Part 3: Capital Efficiency Quality Score
+    # ============================================================
+
+    def _calculate_quality_score(
+        self,
+        roic: Optional[float],         # returnOnEquity as proxy (0.0–1.0 decimal)
+        fcf_margin: Optional[float],   # freeCashflow/totalRevenue (0.0–1.0 decimal)
+        net_debt_ebitda: Optional[float],  # (totalDebt - cash) / ebitda
+    ) -> Optional[float]:
+        """
+        Score capital efficiency 1–10 from ROIC, FCF margin, and leverage.
+
+        Returns None if no quality inputs are available.
+        Score > 5 → quality premium; Score < 5 → quality discount.
+        """
+        score_items: List[Tuple[float, float]] = []  # (score, weight)
+
+        # ROIC score (returnOnEquity as proxy; higher = better)
+        if roic is not None:
+            roic_pct = roic * 100
+            if roic_pct >= 25:
+                rs = 10.0
+            elif roic_pct >= 20:
+                rs = 8.5
+            elif roic_pct >= 15:
+                rs = 7.0
+            elif roic_pct >= 10:
+                rs = 5.5
+            elif roic_pct >= 5:
+                rs = 3.5
+            elif roic_pct >= 0:
+                rs = 2.0
+            else:
+                rs = 1.0
+            score_items.append((rs, 0.40))
+
+        # FCF margin score (higher = better capital conversion)
+        if fcf_margin is not None:
+            fcf_pct = fcf_margin * 100
+            if fcf_pct >= 20:
+                fs = 10.0
+            elif fcf_pct >= 15:
+                fs = 8.0
+            elif fcf_pct >= 10:
+                fs = 6.5
+            elif fcf_pct >= 5:
+                fs = 5.0
+            elif fcf_pct >= 0:
+                fs = 3.0
+            else:
+                fs = 1.0
+            score_items.append((fs, 0.35))
+
+        # Leverage score (lower net debt/EBITDA = better)
+        if net_debt_ebitda is not None:
+            nd = net_debt_ebitda
+            if nd <= 0:     # net cash position
+                ls = 10.0
+            elif nd <= 1.0:
+                ls = 8.0
+            elif nd <= 2.0:
+                ls = 6.0
+            elif nd <= 3.0:
+                ls = 4.5
+            elif nd <= 4.0:
+                ls = 3.0
+            else:
+                ls = 1.0
+            score_items.append((ls, 0.25))
+
+        if not score_items:
+            return None
+
+        total_w = sum(w for _, w in score_items)
+        quality_score = sum(s * w for s, w in score_items) / total_w
+        logger.info(
+            f"Quality score: {quality_score:.2f}/10 "
+            f"(roic={roic}, fcf_margin={fcf_margin}, net_debt_ev={net_debt_ebitda})"
+        )
+        return quality_score
+
+    # ============================================================
+    # Part 4: EV/EBITDA Confidence Filter
+    # ============================================================
+
+    def _apply_ev_confidence_filter(
+        self,
+        confidence_score: int,
+        quarterly_margin_std: Optional[float],
+        net_debt_ebitda: Optional[float],
+        ebitda: Optional[float],
+    ) -> Tuple[int, List[str]]:
+        """
+        Degrade confidence when EBITDA inputs are structurally unreliable.
+
+        Triggers on any of:
+        - EBITDA margin volatility σ > 8%
+        - Net debt / EBITDA > 4x (high leverage amplification)
+        - Negative EBITDA
+
+        Returns (adjusted_confidence_score, list_of_filter_notes)
+        """
+        triggered = False
+        notes: List[str] = []
+
+        if quarterly_margin_std is not None and quarterly_margin_std > 8.0:
+            triggered = True
+            notes.append(
+                f"EBITDA margin volatility σ={quarterly_margin_std:.1f}% > 8% threshold — "
+                "EV multiple less reliable for cyclical margin profile"
+            )
+
+        if net_debt_ebitda is not None and net_debt_ebitda > 4.0:
+            triggered = True
+            notes.append(
+                f"Net debt/EBITDA={net_debt_ebitda:.1f}x > 4x — "
+                "high leverage amplifies valuation sensitivity"
+            )
+
+        if ebitda is not None and ebitda <= 0:
+            triggered = True
+            notes.append(
+                "Negative/zero EBITDA — EV/EBITDA multiple is not economically meaningful"
+            )
+
+        if triggered:
+            adjusted = int(confidence_score * 0.75)
+            adjusted = max(5, adjusted)
+            logger.info(
+                f"EV confidence filter triggered: {confidence_score} → {adjusted} "
+                f"(0.75x degradation). Notes: {notes}"
+            )
+            return adjusted, notes
+
+        return confidence_score, []
+
+    # ============================================================
     # Fair Value Band Construction
     # ============================================================
 
@@ -717,6 +968,7 @@ class BlendedValuationCalculator:
         cash: float,
         shares_outstanding: Optional[float],
         ebitda_quality: float = 1.0,
+        revenue: Optional[float] = None,  # Part 1: for excess cash normalization
     ) -> Optional[float]:
         """Calculate fair value using quality-adjusted EBITDA × sector EV/EBITDA multiple."""
         if enterprise_value_millions and sector_ev_ebitda and not ebitda:
@@ -737,7 +989,21 @@ class BlendedValuationCalculator:
 
         # Implied EV at sector multiple, back-calculate to equity per share
         implied_ev_millions = (adjusted_ebitda / 1_000_000) * sector_ev_ebitda
-        equity_value_millions = implied_ev_millions - (total_debt / 1_000_000) + (cash / 1_000_000)
+
+        # Part 1: Excess cash adjustment — prevent mega-cap strategic cash from distorting equity value
+        # Operational cash requirement = 3% of revenue; only excess above that adds equity value
+        if revenue is not None and revenue > 0:
+            required_cash = revenue * 0.03  # 3% of revenue = minimum operational float
+            excess_cash = max(0.0, cash - required_cash)
+            cash_for_equity = excess_cash
+            logger.info(
+                f"Excess cash adj: total cash=${cash/1e6:.0f}M, "
+                f"required (3% rev)=${required_cash/1e6:.0f}M, excess=${excess_cash/1e6:.0f}M"
+            )
+        else:
+            cash_for_equity = cash  # fallback: original behavior
+
+        equity_value_millions = implied_ev_millions - (total_debt / 1_000_000) + (cash_for_equity / 1_000_000)
         fair_value_per_share = (equity_value_millions * 1_000_000) / shares_outstanding
 
         logger.info(
@@ -944,6 +1210,8 @@ class BlendedValuationCalculator:
         fv_ev_ebitda: Optional[float] = None,
         fv_dcf: Optional[float] = None,
         revenue_growth: Optional[float] = None,
+        effective_probabilities: Optional[Tuple[float, float, float]] = None,  # Part 5: (bear, base, bull)
+        valuation_metadata: Optional[Dict[str, Any]] = None,  # Part 7
     ) -> PriceTargetScenarios:
         """
         Build the final PriceTargetScenarios output.
@@ -1051,8 +1319,34 @@ class BlendedValuationCalculator:
         else:
             price_vs_zone = "Within Intrinsic Value Band"
 
+        # Part 5: Probability integration — blend static 25/50/25 with effective signal probabilities
+        # Cap effective influence at ±10% shift from static baseline
+        static_bear, static_base, static_bull = 0.25, 0.50, 0.25
+        if effective_probabilities is not None:
+            eff_bear, eff_base, eff_bull = effective_probabilities
+            blend_weight = 0.50  # 50% static, 50% effective
+            adj_bear = static_bear * (1 - blend_weight) + eff_bear * blend_weight
+            adj_base = static_base * (1 - blend_weight) + eff_base * blend_weight
+            adj_bull = static_bull * (1 - blend_weight) + eff_bull * blend_weight
+            # Cap shift at ±10% from static baseline
+            adj_bear = max(static_bear - 0.10, min(static_bear + 0.10, adj_bear))
+            adj_base = max(static_base - 0.10, min(static_base + 0.10, adj_base))
+            adj_bull = max(static_bull - 0.10, min(static_bull + 0.10, adj_bull))
+            # Renormalize to sum to 1.0
+            total_p = adj_bear + adj_base + adj_bull
+            final_bear_p = round(adj_bear / total_p, 4)
+            final_base_p = round(adj_base / total_p, 4)
+            final_bull_p = round(adj_bull / total_p, 4)
+            logger.info(
+                f"Signal-blended probabilities: bear={final_bear_p:.2%} "
+                f"base={final_base_p:.2%} bull={final_bull_p:.2%} "
+                f"(effective_input={effective_probabilities})"
+            )
+        else:
+            final_bear_p, final_base_p, final_bull_p = static_bear, static_base, static_bull
+
         prob_weighted_ev = round(
-            bear_target * 0.25 + base_target_final * 0.50 + bull_target * 0.25, 2
+            bear_target * final_bear_p + base_target_final * final_base_p + bull_target * final_bull_p, 2
         )
 
         return PriceTargetScenarios(
@@ -1072,13 +1366,13 @@ class BlendedValuationCalculator:
             # Scenario targets (validated chain: bear < base < bull)
             base_target=round(base_target_final, 2),
             base_assumptions=base_assumptions,
-            base_probability=0.50,
+            base_probability=final_base_p,
             bull_target=round(bull_target, 2),
             bull_assumptions=bull_assumptions,
-            bull_probability=0.25,
+            bull_probability=final_bull_p,
             bear_target=round(bear_target, 2),
             bear_assumptions=bear_assumptions,
-            bear_probability=0.25,
+            bear_probability=final_bear_p,
             methodology=methodology_used,
             # P2: Cross-method dispersion
             valuation_dispersion_pct=valuation_dispersion_pct,
@@ -1090,6 +1384,8 @@ class BlendedValuationCalculator:
             premium_justification=premium_justification,
             # P0: Chain validation notes
             chain_validation_notes=chain_violations if chain_violations else None,
+            # Part 7: Transparency metadata
+            valuation_metadata=valuation_metadata,
         )
 
     def _create_uncertainty_scenarios(self, current_price: float) -> PriceTargetScenarios:
