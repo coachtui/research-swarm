@@ -512,31 +512,47 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
     from research_swarm.data.openinsider_client import openinsider_client
 
     try:
+        # Pull market cap and float from pre-fetched shared data (best-effort)
+        shared_data = state.get("shared_swarm_data") or {}
+        company_info = shared_data.get("company_info") or {}
+        short_data = shared_data.get("short_interest") or {}
+        market_cap = company_info.get("market_cap")        # dollars from yfinance
+        float_shares = short_data.get("float_shares")     # share count
+
         # Fetch insider transactions from OpenInsider (more reliable than yfinance)
         transactions = openinsider_client.get_insider_transactions(
             state["ticker"],
             days_back=365  # 1 year lookback
         )
 
-        # Calculate insider score using new scoring system
+        # Calculate insider score using 5-component institutional framework
         insider_result = openinsider_client.calculate_insider_score(
             transactions,
-            state["ticker"]
+            state["ticker"],
+            market_cap=market_cap,
+            float_shares=float_shares,
         )
 
-        # Format result to match expected structure
+        # Format result for state storage
         result = {
             "buy_transactions": insider_result["buy_transactions"],
             "sell_transactions": insider_result["sell_transactions"],
             "net_value_usd": insider_result["net_value"],
             "insider_sentiment": insider_result["sentiment"],
             "key_transactions": insider_result["key_transactions"],
-            "insider_score": insider_result["score"],  # Direct score (0-10)
+            "insider_score": insider_result["score"],
+            "insider_confidence_index": insider_result.get("insider_confidence_index"),
             "has_data": insider_result["has_data"],
-            # Layer breakdown
-            "layer1_dollar_volume": insider_result.get("layer1_dollar_volume"),
-            "layer2_pattern": insider_result.get("layer2_pattern"),
-            "layer3_role": insider_result.get("layer3_role"),
+            "divergence_ready_bearish": insider_result.get("divergence_ready_bearish", False),
+            "divergence_ready_bullish": insider_result.get("divergence_ready_bullish", False),
+            "cluster_buying_present": insider_result.get("cluster_buying_present", False),
+            "activity_summary": insider_result.get("activity_summary"),
+            # Component breakdown
+            "layer1_net_float": insider_result.get("layer1_net_float"),
+            "layer2_holdings": insider_result.get("layer2_holdings"),
+            "layer3_cluster": insider_result.get("layer3_cluster"),
+            "layer4_seniority": insider_result.get("layer4_seniority"),
+            "layer5_decay": insider_result.get("layer5_decay"),
         }
 
         # Store in state
@@ -545,10 +561,12 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
         state["tokens_used"] = state.get("tokens_used", 0)
 
         if result["has_data"]:
+            activity = result.get("activity_summary") or {}
             logger.success(
                 f"✓ Insider activity analyzed: {result['insider_score']:.1f}/10 "
-                f"({result['buy_transactions']} buys, {result['sell_transactions']} sells, "
-                f"net ${result['net_value_usd']:,.0f})"
+                f"(ICI={result.get('insider_confidence_index', 'N/A')}) — "
+                f"{result['buy_transactions']} buys, {result['sell_transactions']} sells, "
+                f"net ${result['net_value_usd']:,.0f} — {activity.get('cluster_status', '')}"
             )
         else:
             logger.info(f"No insider data available for {state['ticker']}")
@@ -565,10 +583,17 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
             "insider_sentiment": "neutral",
             "key_transactions": [],
             "insider_score": 5.0,
+            "insider_confidence_index": 50.0,
             "has_data": False,
-            "layer1_dollar_volume": None,
-            "layer2_pattern": None,
-            "layer3_role": None,
+            "divergence_ready_bearish": False,
+            "divergence_ready_bullish": False,
+            "cluster_buying_present": False,
+            "activity_summary": None,
+            "layer1_net_float": None,
+            "layer2_holdings": None,
+            "layer3_cluster": None,
+            "layer4_seniority": None,
+            "layer5_decay": None,
         }
 
     return state

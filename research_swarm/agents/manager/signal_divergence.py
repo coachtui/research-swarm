@@ -197,20 +197,44 @@ def calculate_signal_divergence(
                 "detail": volume_data_flag or "Volume reading below plausible threshold — data feed may be incomplete.",
             })
 
-        # P2: Insider anomaly flag — flag when insider score is at strong extreme (may reflect recent transactions)
+        # P2: Insider anomaly flag — flag strong extremes with context from new divergence flags
+        insider_data = news_hound_output.get("insider_activity") or {}
+        divergence_ready_bearish = insider_data.get("divergence_ready_bearish", False)
+        divergence_ready_bullish = insider_data.get("divergence_ready_bullish", False)
+        insider_activity_summary = insider_data.get("activity_summary") or {}
+        insider_ici = insider_data.get("insider_confidence_index")
+
         insider_anomaly_note = None
         if insider_has_data:
-            if insider_score <= 2.5:
-                insider_anomaly_note = (
-                    f"Insider activity score ({insider_score:.1f}/10) is in strongly bearish territory. "
-                    "Review Form 4 filings dated within the past 30 days for cluster selling transactions. "
-                    "CEO/CFO selling carries higher signal weight than routine officer disposals."
+            ici_str = f", ICI={insider_ici:.0f}/100" if insider_ici is not None else ""
+            if insider_score <= 3.0:
+                cluster_note = (
+                    f" Cluster status: {insider_activity_summary.get('cluster_status', 'unknown')}."
+                    if insider_activity_summary else ""
                 )
-            elif insider_score >= 8.0:
+                divergence_note = (
+                    " Divergence conditions met — holdings reduction >15% with no offsetting cluster buying."
+                    if divergence_ready_bearish else ""
+                )
                 insider_anomaly_note = (
-                    f"Insider activity score ({insider_score:.1f}/10) is in strongly bullish territory. "
-                    "Review Form 4 filings for recent cluster buying by senior executives. "
-                    "Open-market purchases by C-suite officers carry highest signal weight."
+                    f"Insider activity score ({insider_score:.1f}/10{ici_str}) is in distribution territory."
+                    f"{cluster_note}{divergence_note} "
+                    "Review Form 4 filings for cluster selling vs isolated routine disposals. "
+                    "10b5-1 and sub-5% holding reductions are excluded from this score."
+                )
+            elif insider_score >= 7.5:
+                cluster_note = (
+                    f" Cluster status: {insider_activity_summary.get('cluster_status', 'unknown')}."
+                    if insider_activity_summary else ""
+                )
+                divergence_note = (
+                    " Divergence conditions met — C-suite cluster buying with strong conviction signal."
+                    if divergence_ready_bullish else ""
+                )
+                insider_anomaly_note = (
+                    f"Insider activity score ({insider_score:.1f}/10{ici_str}) is in accumulation territory."
+                    f"{cluster_note}{divergence_note} "
+                    "Open-market purchases by C-suite officers carry the highest conviction weight."
                 )
 
         data_integrity_label = (
@@ -328,6 +352,11 @@ def calculate_signal_divergence(
             "analyst_score": round(analyst_score, 1),
             "institutional_score": round(institutional_score, 1),
             "insider_score": round(insider_score, 1),
+            "insider_confidence_index": insider_data.get("insider_confidence_index"),
+            "insider_divergence_ready_bearish": divergence_ready_bearish,
+            "insider_divergence_ready_bullish": divergence_ready_bullish,
+            "insider_cluster_buying_present": insider_data.get("cluster_buying_present", False),
+            "insider_activity_summary": insider_activity_summary or None,
             "dark_pool_score": round(dark_pool_score, 1),
             "tech_divergence_score": round(tech_div_score, 1),
             # Interpretations
@@ -646,69 +675,48 @@ def _extract_insider_score(news_hound_output: Dict[str, Any]) -> Tuple[float, bo
     """
     Extract insider activity score from news hound output.
 
-    Now uses OpenInsider data with role-based scoring:
-    - CEO/CFO buys = highly bullish
-    - Multiple insider buying = bullish
-    - Neutral = no significant activity
-    - CEO/CFO sells = bearish
-    - Multiple insider selling = highly bearish
+    Uses the 5-component institutional score from OpenInsider:
+      C1 Net Float Pressure (30%) + C2 Holdings Severity (25%)
+      + C3 Cluster Activity (20%) + C4 Seniority (15%) + C5 Decay (10%)
 
     Returns:
-        Tuple of (score, has_data)
+        Tuple of (score 1–10, has_data)
     """
     insider_data = news_hound_output.get("insider_activity")
     if not insider_data or not isinstance(insider_data, dict):
         logger.debug("No insider activity data available - using neutral score 5.0")
         return 5.0, False
 
-    # Check if we have the new insider_score field from OpenInsider
+    has_data = insider_data.get("has_data", False)
+
     if "insider_score" in insider_data:
         score = float(insider_data["insider_score"])
-        has_data = insider_data.get("has_data", False)
-
         if not has_data:
             logger.debug("Insider activity has no data - using neutral score 5.0")
             return 5.0, False
-
-        logger.debug(f"Using OpenInsider calculated score: {score:.1f}/10")
+        logger.debug(
+            f"Insider score: {score:.1f}/10 "
+            f"(ICI={insider_data.get('insider_confidence_index', 'N/A')}) — "
+            f"divergence_bearish={insider_data.get('divergence_ready_bearish', False)} "
+            f"divergence_bullish={insider_data.get('divergence_ready_bullish', False)}"
+        )
         return score, has_data
 
-    # Fallback: Legacy scoring system (for backwards compatibility)
+    # Fallback: pre-5-component data — sentiment label only, no dollar bias
     buy_transactions = insider_data.get("buy_transactions", 0)
     sell_transactions = insider_data.get("sell_transactions", 0)
-    net_value = insider_data.get("net_value_usd", 0.0)
-    sentiment = insider_data.get("insider_sentiment", "neutral").lower()
-
-    # If no transactions recorded, this is likely missing data not true neutral
-    if buy_transactions == 0 and sell_transactions == 0 and net_value == 0.0:
+    if buy_transactions == 0 and sell_transactions == 0:
         logger.warning("Insider activity exists but has no transaction data - defaulting to neutral 5.0")
         return 5.0, False
 
-    # We have real transaction data
     has_data = True
-
-    # Legacy scoring based on net value
-    if net_value > 1_000_000 or "bullish" in sentiment:  # $1M+ net buying
-        if net_value > 5_000_000:  # $5M+ = strong bullish
-            return 8.5, has_data
-        elif net_value > 2_000_000:  # $2M+ = bullish
-            return 7.5, has_data
-        else:
-            return 7.0, has_data
-    elif net_value < -1_000_000 or "bearish" in sentiment:  # $1M+ net selling
-        if net_value < -5_000_000:  # $5M+ selling = strong bearish
-            return 1.5, has_data
-        elif net_value < -2_000_000:  # $2M+ selling = bearish
-            return 2.5, has_data
-        else:
-            return 3.0, has_data
-    else:  # Truly neutral - small net value between -1M and +1M
-        if net_value > 500_000:  # Mild buying
-            return 6.0, has_data
-        elif net_value < -500_000:  # Mild selling
-            return 4.0, has_data
-        else:
-            return 5.0, has_data  # Truly neutral activity
+    sentiment = insider_data.get("insider_sentiment", "neutral").lower()
+    if "bullish" in sentiment:
+        return 7.0, has_data
+    elif "bearish" in sentiment:
+        return 3.0, has_data
+    else:
+        return 5.0, has_data
 
 
 def _extract_dark_pool_score(news_hound_output: Dict[str, Any]) -> Tuple[float, bool]:
