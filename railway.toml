@@ -8,10 +8,12 @@ buildCommand = "prisma generate --schema=db/schema.prisma"
 # start.sh runs in order:
 #   1. Log DB target (host + db name — no credentials)
 #   2. prisma migrate deploy  ← fails fast if migrations cannot apply
-#   3. prisma generate        ← ensures binary matches runtime
-#   4. uvicorn (2 workers: one handles health/short requests, one handles analyses)
+#   3. uvicorn (2 workers: one handles health/short requests, one handles analyses)
+# prisma generate runs at BUILD time (buildCommand) — not here.
+# healthcheckTimeout=60 because prisma migrate deploy + Neon cold connect takes ~15-20s,
+# leaving insufficient time for uvicorn within a 30s window.
 startCommand = "bash start.sh"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 healthcheckPath = "/api/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
