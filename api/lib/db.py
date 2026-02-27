@@ -28,33 +28,45 @@ async def get_db() -> Prisma:
         db: Prisma = Depends(get_db)
     """
     from prisma import Prisma  # lazy — avoids import-time failure when client isn't generated
+    import asyncio
 
     global _db_client
 
-    if _db_client is None:
-        # Create Prisma client with extended timeouts (60s connect, 120s query)
-        _db_client = Prisma(
-            http={'timeout': 120.0}  # 120 second timeout for long queries
-        )
-        await _db_client.connect()
-    else:
-        # Check if connection is still alive
+    last_exc: Optional[Exception] = None
+    for attempt in range(3):
         try:
-            if not _db_client.is_connected():
-                await _db_client.disconnect()
-                await _db_client.connect()
-        except Exception:
-            # Connection is stale, recreate client
-            try:
-                await _db_client.disconnect()
-            except:
-                pass
-            _db_client = Prisma(
-                http={'timeout': 120.0}
-            )
-            await _db_client.connect()
+            if _db_client is not None:
+                # Probe the existing client — any error means it's stale
+                try:
+                    if _db_client.is_connected():
+                        return _db_client
+                except Exception:
+                    pass
+                # Client is stale — tear it down and fall through to create a fresh one
+                try:
+                    await _db_client.disconnect()
+                except Exception:
+                    pass
+                _db_client = None
 
-    return _db_client
+            # Create a fresh Prisma client and connect
+            _db_client = Prisma(http={'timeout': 120.0})
+            await _db_client.connect()
+            return _db_client
+
+        except Exception as e:
+            last_exc = e
+            logger.warning(f"DB connect attempt {attempt + 1}/3 failed: {e}")
+            try:
+                if _db_client is not None:
+                    await _db_client.disconnect()
+            except Exception:
+                pass
+            _db_client = None
+            if attempt < 2:
+                await asyncio.sleep(0.5 * (attempt + 1))
+
+    raise last_exc  # type: ignore[misc]
 
 @asynccontextmanager
 async def db_session():
