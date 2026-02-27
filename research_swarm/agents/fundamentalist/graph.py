@@ -518,7 +518,7 @@ def parse_quarterly_sections_node(state: FundamentalistState) -> FundamentalistS
             # Fallback: section patterns didn't match (common for foreign filers
             # like MELI whose 20-F uses non-standard headers). Use raw filing
             # text directly — the LLM can extract metrics from unstructured text.
-            if len(filing_text) >= 5000:
+            if len(filing_text) >= 1000:
                 truncated = filing_text[:60000]  # ~60k chars is enough context
                 parsed_by_quarter[quarter_label] = {"Item 7": truncated}
                 logger.warning(

@@ -25,7 +25,7 @@ SECTION_PATTERNS_10K = {
         r"(?i)item\s+1a\.?",
     ],
     "Item 7": [
-        r"(?i)item\s+7\.?\s*\n?\s*management'?s\s+discussion\s+and\s+analysis",
+        r"(?i)item\s+7\.?\s*\n?\s*management[\u2019']?s\s+discussion\s+and\s+analysis",
         r"(?i)item\s+7\.?\s*\n?\s*md&a",
         r"(?i)item\s+7\.?",
     ],
@@ -39,14 +39,18 @@ SECTION_PATTERNS_10K = {
 # 10-Q files have different structure - mainly Part I with Items 1-4
 SECTION_PATTERNS_10Q = {
     "Item 7": [  # MD&A is in Part I, Item 2 for 10-Q
-        r"(?i)part\s+i[^a-z]*item\s+2\.?\s*\n?\s*management'?s\s+discussion",
-        r"(?i)item\s+2\.?\s*\n?\s*management'?s\s+discussion",
+        r"(?i)part\s+i[^a-z]*item\s+2\.?\s*\n?\s*management[\u2019']?s\s+discussion",
+        r"(?i)item\s+2\.?\s*\n?\s*management[\u2019']?s\s+discussion",
         r"(?i)part\s+i[^a-z]*item\s+2",
+        r"(?i)item\s+2\.?\s*\n?\s*management",  # broader: any "management" after Item 2
+        r"(?i)item\s+2\.?",  # last resort: bare Item 2 header (like 10-K's bare Item 7)
     ],
     "Item 8": [  # Financial statements are in Part I, Item 1 for 10-Q
         r"(?i)part\s+i[^a-z]*item\s+1\.?\s*\n?\s*financial\s+statements",
         r"(?i)item\s+1\.?\s*\n?\s*financial\s+statements",
-        r"(?i)part\s+i[^a-z]*item\s+1",
+        r"(?i)part\s+i[^a-z]*item\s+1[^a-z]",  # require non-alpha after "1" to avoid matching "1A"
+        r"(?i)condensed\s+consolidated\s+statements?\s+of\s+(income|operations|earnings)",
+        r"(?i)condensed\s+consolidated\s+balance\s+sheet",
     ],
 }
 
@@ -65,7 +69,7 @@ SECTION_PATTERNS_20F = {
     ],
     "Item 7": [  # MD&A = Item 5 in 20-F
         r"(?i)item\s+5\.?\s*\n?\s*operating\s+and\s+financial\s+review",
-        r"(?i)item\s+5\.?\s*\n?\s*management.?s?\s+discussion",
+        r"(?i)item\s+5\.?\s*\n?\s*management[\u2019']?s?\s+discussion",
         r"(?i)item\s+5\.?",
     ],
     "Item 8": [  # Financial statements = Item 8 in 20-F (same number)
