@@ -1048,6 +1048,16 @@ export interface SectorBreadthRow {
   rotation_signal: number | null
   /** True when this sector has no prior snapshot entry (newly tracked) */
   is_new_sector: boolean
+  /** EWMA-smoothed, confidence-weighted Rotation Momentum; null = no prior data */
+  rotation_momentum?: number | null
+  /** Flow state derived from RM threshold (±0.02) */
+  flow_state?: 'Inflow' | 'Outflow' | 'Neutral'
+  /** EWMA of ΔOpp across prior snapshots */
+  ewma_delta_opp?: number | null
+  /** EWMA of ΔStructural across prior snapshots */
+  ewma_delta_structural?: number | null
+  /** Confidence weight C = min(1, sqrt(n/10)); null = no prior data */
+  confidence_weight?: number | null
 }
 
 export interface SectorLeadershipEntry {
@@ -1073,6 +1083,21 @@ export interface RotationSignalLeader {
   delta_structural: number
   /** "early_rotation" = opp improving faster than confirmation; "overextended" = inverse */
   direction: 'early_rotation' | 'overextended'
+}
+
+/** EWMA-smoothed, confidence-weighted rotation momentum leader/laggard. */
+export interface RotationMomentumLeader {
+  sector: string
+  /** RM = (ΔOpp_EWMA − ΔStruct_EWMA) × confidence */
+  rotation_momentum: number
+  /** "Inflow" | "Outflow" | "Neutral" */
+  flow_state: string
+  ewma_delta_opp: number
+  ewma_delta_structural: number
+  delta_tier2: number | null
+  total_tracked: number
+  /** C = min(1, sqrt(n/10)) */
+  confidence_weight: number
 }
 
 export interface MarketDeployabilitySnapshot {
@@ -1153,6 +1178,10 @@ export interface DeploymentUpdateResponse {
   rotation_signal_leaders: RotationSignalLeader[]
   /** True when a prior sector snapshot exists; delta fields are populated */
   has_sector_history: boolean
+  /** EWMA-smoothed rotation momentum leaders (top/bottom by RM) */
+  rotation_momentum_leaders?: RotationMomentumLeader[]
+  /** True when prior sector snapshot history exists for EWMA computation */
+  has_rotation_momentum?: boolean
   /** Set when deployable_tickers is empty */
   no_deployable_message: string | null
   eligibility_diagnostics: EligibilityDiagnostics

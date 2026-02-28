@@ -149,6 +149,12 @@ class SectorBreadthRow(BaseModel):
     delta_tier2: Optional[int] = None
     rotation_signal: Optional[float] = None   # delta_opp − delta_structural
     is_new_sector: bool = False  # True when sector appears for first time in this universe
+    # ── Rotation Momentum (EWMA-smoothed, confidence-weighted) ─────────────────
+    rotation_momentum: Optional[float] = None    # RM = RS_ewma * C
+    flow_state: str = "Neutral"                  # "Inflow" | "Outflow" | "Neutral"
+    ewma_delta_opp: Optional[float] = None       # EWMA of ΔOpp series
+    ewma_delta_structural: Optional[float] = None  # EWMA of ΔStructural series
+    confidence_weight: Optional[float] = None    # C = min(1, sqrt(n/10))
 
 
 class SectorLeadershipEntry(BaseModel):
@@ -174,6 +180,18 @@ class RotationSignalLeader(BaseModel):
     delta_opp: float
     delta_structural: float
     direction: str  # "early_rotation" | "overextended"
+
+
+class RotationMomentumLeader(BaseModel):
+    """Sector ranked by EWMA-smoothed, confidence-weighted Rotation Momentum."""
+    sector: str
+    rotation_momentum: float          # RM = (ΔOpp_EWMA − ΔStruct_EWMA) * C
+    flow_state: str                   # "Inflow" | "Outflow" | "Neutral"
+    ewma_delta_opp: float             # EWMA of ΔOpp
+    ewma_delta_structural: float      # EWMA of ΔStructural
+    delta_tier2: Optional[int]        # Δ tier2 count vs prior snapshot
+    total_tracked: int                # n tickers in sector (drives confidence)
+    confidence_weight: float          # C = min(1, sqrt(n/10))
 
 
 class MarketDeployabilitySnapshot(BaseModel):
@@ -234,6 +252,9 @@ class DeploymentUpdateResponse(BaseModel):
     sector_leadership: List[SectorLeadershipEntry]  # top 3 sectors by rotation score
     rotation_signal_leaders: List[RotationSignalLeader] = []
     has_sector_history: bool = False  # True when prior snapshot exists for delta display
+    # Rotation Momentum (EWMA-smoothed) — requires ≥ 1 prior sector snapshot
+    rotation_momentum_leaders: List[RotationMomentumLeader] = []
+    has_rotation_momentum: bool = False  # True when prior sector snapshots exist
     no_deployable_message: Optional[str]
     eligibility_diagnostics: EligibilityDiagnostics
 
@@ -490,6 +511,118 @@ def _sector_edge_trend_pct(
     if delta < -2.0:
         return "falling"
     return "stable"
+
+
+def _compute_rotation_momentum(
+    curr_opp: float,
+    curr_struct: float,
+    curr_total: int,
+    prior_snaps_asc: List[Any],
+    alpha: float = 0.5,
+) -> Tuple[Optional[float], Optional[float], Optional[float], str, float]:
+    """
+    Compute EWMA-smoothed Rotation Momentum for a sector.
+
+    Algorithm:
+      1. Build a delta series from prior snapshots (ΔOpp_i = Opp_i − Opp_{i-1}).
+         Append the current delta (Opp_t − Opp_{t-1}) as the last element.
+      2. Run EWMA from oldest to newest: EWMA_t = α * Δ_t + (1−α) * EWMA_{t-1}.
+      3. RS = EWMA_opp − EWMA_struct
+      4. C  = min(1, sqrt(n / 10))  — confidence weight (small sectors penalised)
+      5. RM = RS * C
+
+    Flow state thresholds: RM ≥ +0.02 → Inflow; RM ≤ −0.02 → Outflow; else Neutral.
+
+    Returns:
+        (ewma_delta_opp, ewma_delta_structural, rotation_momentum, flow_state, confidence_weight)
+        All are None / "Neutral" / 0.0 when there is no prior snapshot data.
+    """
+    if not prior_snaps_asc:
+        return None, None, None, "Neutral", 0.0
+
+    # Build delta series: inter-snapshot deltas among prior snapshots
+    deltas_opp:    List[float] = []
+    deltas_struct: List[float] = []
+    for i in range(1, len(prior_snaps_asc)):
+        deltas_opp.append(
+            prior_snaps_asc[i].oppScore        - prior_snaps_asc[i - 1].oppScore
+        )
+        deltas_struct.append(
+            prior_snaps_asc[i].structuralScore - prior_snaps_asc[i - 1].structuralScore
+        )
+
+    # Latest delta: current snapshot vs most-recent prior
+    latest = prior_snaps_asc[-1]
+    deltas_opp.append(   curr_opp    - latest.oppScore)
+    deltas_struct.append(curr_struct - latest.structuralScore)
+
+    # EWMA: seed with first delta, then iterate
+    ewma_opp    = deltas_opp[0]
+    ewma_struct = deltas_struct[0]
+    for i in range(1, len(deltas_opp)):
+        ewma_opp    = alpha * deltas_opp[i]    + (1.0 - alpha) * ewma_opp
+        ewma_struct = alpha * deltas_struct[i] + (1.0 - alpha) * ewma_struct
+
+    rs  = ewma_opp - ewma_struct
+    c   = min(1.0, math.sqrt(max(0, curr_total) / 10.0))
+    rm  = round(rs * c, 4)
+
+    if rm >= 0.02:
+        flow_state = "Inflow"
+    elif rm <= -0.02:
+        flow_state = "Outflow"
+    else:
+        flow_state = "Neutral"
+
+    return round(ewma_opp, 4), round(ewma_struct, 4), rm, flow_state, round(c, 4)
+
+
+def _build_rotation_momentum_leaders(
+    rows: List[SectorBreadthRow],
+) -> List[RotationMomentumLeader]:
+    """
+    Return top-3 Inflow sectors (highest RM) and top-3 Outflow sectors (lowest RM).
+    Skips Neutral sectors, sectors with no RM data, and sectors tracked by < 2 tickers.
+    """
+    eligible = [
+        r for r in rows
+        if r.rotation_momentum is not None
+        and r.ewma_delta_opp is not None
+        and r.ewma_delta_structural is not None
+        and r.total >= 2
+        and r.sector != "Unknown"
+    ]
+    if not eligible:
+        return []
+
+    sorted_desc = sorted(eligible, key=lambda r: r.rotation_momentum, reverse=True)  # type: ignore[arg-type]
+    result: List[RotationMomentumLeader] = []
+    seen: set = set()
+
+    def _make(r: SectorBreadthRow) -> RotationMomentumLeader:
+        return RotationMomentumLeader(
+            sector=r.sector,
+            rotation_momentum=r.rotation_momentum,  # type: ignore[arg-type]
+            flow_state=r.flow_state,
+            ewma_delta_opp=r.ewma_delta_opp,        # type: ignore[arg-type]
+            ewma_delta_structural=r.ewma_delta_structural,  # type: ignore[arg-type]
+            delta_tier2=r.delta_tier2,
+            total_tracked=r.total,
+            confidence_weight=r.confidence_weight or 0.0,
+        )
+
+    # Top 3 leaders (Inflow preferred, but take highest RM regardless)
+    for r in sorted_desc[:3]:
+        seen.add(r.sector)
+        result.append(_make(r))
+
+    # Bottom 3 laggards (Outflow preferred, deduplicated)
+    for r in reversed(sorted_desc[-3:]):
+        if r.sector not in seen:
+            seen.add(r.sector)
+            result.append(_make(r))
+
+    return result
 
 
 def _build_sector_leadership(rows: List[SectorBreadthRow]) -> List[SectorLeadershipEntry]:
@@ -815,22 +948,30 @@ async def _build_deployment_update(
     }
 
     # ── 2b. Load prior sector snapshot history ────────────────────────────────
-    # Maps sector → most-recent SectorSnapshotHistory row prior to today's bucket.
-    prior_sector_snaps: Dict[str, Any] = {}
+    # prior_sector_snaps  — most-recent-prior-bucket map (for simple Δ)
+    # prior_snaps_by_sector — all prior history per sector (for EWMA)
+    prior_sector_snaps:    Dict[str, Any]        = {}
+    prior_snaps_by_sector: Dict[str, List[Any]] = {}
     try:
+        # Load oldest-first so EWMA can iterate in chronological order
         prior_sec_all = await db.sectorsnapshothistory.find_many(
             where={
                 "userId": user_id,
                 "snapshotBucket": {"lt": current_bucket},
             },
-            order={"snapshotBucket": "desc"},
-            take=100,
+            order={"snapshotBucket": "asc"},
+            take=500,
         )
         if prior_sec_all:
-            latest_sec_bucket = prior_sec_all[0].snapshotBucket
+            # Latest bucket is the last element (loaded ASC)
+            latest_sec_bucket = prior_sec_all[-1].snapshotBucket
             for row in prior_sec_all:
                 if row.snapshotBucket == latest_sec_bucket:
                     prior_sector_snaps[row.sector] = row
+                prior_snaps_by_sector.setdefault(row.sector, []).append(row)
+            # Ensure each sector list is sorted ASC by snapshotBucket
+            for sec_list in prior_snaps_by_sector.values():
+                sec_list.sort(key=lambda r: r.snapshotBucket)
     except _TableNotFoundError:
         pass  # migration not yet applied — deltas will be None
     except Exception as _e:
@@ -1199,6 +1340,15 @@ async def _build_deployment_update(
             delta_opp = delta_structural = delta_tier2 = rotation_signal = None
             is_new_sector = False
 
+        # ── EWMA Rotation Momentum ───────────────────────────────────────────
+        prior_snaps_asc = prior_snaps_by_sector.get(sec, [])
+        ewma_opp, ewma_struct, rm, flow_state, conf_weight = _compute_rotation_momentum(
+            curr_opp=sd["opportunity_score"],
+            curr_struct=sd["structural_score"],
+            curr_total=total,
+            prior_snaps_asc=prior_snaps_asc,
+        )
+
         sector_breadth.append(SectorBreadthRow(
             sector=sec,
             confirmed=confirmed,
@@ -1218,6 +1368,11 @@ async def _build_deployment_update(
             delta_tier2=delta_tier2,
             rotation_signal=rotation_signal,
             is_new_sector=is_new_sector,
+            rotation_momentum=rm,
+            flow_state=flow_state,
+            ewma_delta_opp=ewma_opp,
+            ewma_delta_structural=ewma_struct,
+            confidence_weight=conf_weight if conf_weight and conf_weight > 0 else None,
         ))
     sector_breadth.sort(key=lambda r: r.rotation_score, reverse=True)
 
@@ -1387,9 +1542,11 @@ async def _build_deployment_update(
     if not deployable_tickers:
         no_deployable_message = "No capital structurally deployable this cycle."
 
-    sector_leadership       = _build_sector_leadership(sector_breadth)
-    rotation_signal_leaders = _build_rotation_signal_leaders(sector_breadth)
-    has_sector_history      = bool(prior_sector_snaps)
+    sector_leadership           = _build_sector_leadership(sector_breadth)
+    rotation_signal_leaders     = _build_rotation_signal_leaders(sector_breadth)
+    rotation_momentum_leaders   = _build_rotation_momentum_leaders(sector_breadth)
+    has_sector_history          = bool(prior_sector_snaps)
+    has_rotation_momentum       = bool(prior_snaps_by_sector)
 
     return DeploymentUpdateResponse(
         snapshot_id=snapshot_id,
@@ -1417,6 +1574,8 @@ async def _build_deployment_update(
         sector_leadership=sector_leadership,
         rotation_signal_leaders=rotation_signal_leaders,
         has_sector_history=has_sector_history,
+        rotation_momentum_leaders=rotation_momentum_leaders,
+        has_rotation_momentum=has_rotation_momentum,
         no_deployable_message=no_deployable_message,
         eligibility_diagnostics=eligibility_diagnostics,
     )
@@ -1453,6 +1612,8 @@ def _empty_response(
         sector_breadth=[],
         sector_coverage_label="Sector coverage: 0% (0/0)",
         sector_leadership=[],
+        rotation_momentum_leaders=[],
+        has_rotation_momentum=False,
         no_deployable_message="No capital structurally deployable this cycle.",
         eligibility_diagnostics=EligibilityDiagnostics(
             evaluated_count=0,

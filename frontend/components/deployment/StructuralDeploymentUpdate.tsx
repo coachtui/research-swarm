@@ -1,7 +1,8 @@
 'use client'
 
 import React from 'react'
-import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow, SectorLeadershipEntry, RotationSignalLeader, EligibilityDiagnostics, NearMissTicker } from '@/types/api'
+import ReactDOM from 'react-dom'
+import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow, SectorLeadershipEntry, RotationSignalLeader, RotationMomentumLeader, EligibilityDiagnostics, NearMissTicker } from '@/types/api'
 import { useDeploymentUpdate } from '@/lib/hooks/useDeploymentUpdate'
 import { useAdminDeploymentUpdate } from '@/lib/hooks/useAdminDeploymentUpdate'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
@@ -16,6 +17,7 @@ import { ThresholdCalibrationPanel } from '@/components/deployment/ThresholdCali
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
   Cell, ResponsiveContainer, CartesianGrid,
+  ScatterChart, Scatter, ZAxis,
 } from 'recharts'
 
 // ── Derived regime types ───────────────────────────────────────────────────────
@@ -492,9 +494,11 @@ function SectorBreadthChartTooltip({
   )
 }
 
-/** Bar chart — % confirmed by sector with hover highlight + rich tooltip. */
+/** Bar chart — % confirmed by sector with hover highlight + portal tooltip. */
 function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
   const [activeIndex, setActiveIndex] = React.useState<number | null>(null)
+  const [hoveredRow, setHoveredRow] = React.useState<SectorBreadthRow | null>(null)
+  const mousePos = useGlobalMousePos()
   if (rows.length === 0) return null
   const sorted = [...rows].sort((a, b) => b.pct_confirmed - a.pct_confirmed)
 
@@ -508,8 +512,11 @@ function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
           onMouseMove={(state) => {
             const idx = (state as { activeTooltipIndex?: number }).activeTooltipIndex
             setActiveIndex(idx ?? null)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const p = (state as any).activePayload
+            setHoveredRow(p?.[0]?.payload ?? null)
           }}
-          onMouseLeave={() => setActiveIndex(null)}
+          onMouseLeave={() => { setActiveIndex(null); setHoveredRow(null) }}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
           <XAxis
@@ -526,11 +533,8 @@ function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
             unit="%"
             width={32}
           />
-          <RechartsTooltip
-            content={<SectorBreadthChartTooltip />}
-            wrapperStyle={{ zIndex: 9999, outline: 'none' }}
-            cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-          />
+          {/* Disable built-in tooltip — we use portal instead */}
+          <RechartsTooltip content={() => null} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
           <Bar dataKey="pct_confirmed" radius={[2, 2, 0, 0]}>
             {sorted.map((r, idx) => {
               const baseColor = r.pct_confirmed > 60 ? '#2dd4bf' : r.pct_confirmed < 20 ? '#52525b' : '#6b7280'
@@ -546,6 +550,13 @@ function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+      {/* Portal tooltip — renders to document.body, never clipped */}
+      {hoveredRow && typeof document !== 'undefined' && ReactDOM.createPortal(
+        <div style={{ position: 'fixed', left: mousePos.x + 14, top: mousePos.y - 12, zIndex: 9999, pointerEvents: 'none' }}>
+          <SectorBreadthChartTooltip active payload={[{ payload: hoveredRow }]} />
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }
@@ -573,6 +584,38 @@ function DeltaCount({ v }: { v: number | null }) {
     <span className={`font-mono text-xs ${v > 0 ? 'text-teal-400' : 'text-red-400/80'}`}>
       {v > 0 ? '↑ +' : '↓ '}{v}
     </span>
+  )
+}
+
+// ── Global mouse position (for portal tooltips) ────────────────────────────
+
+function useGlobalMousePos() {
+  const [pos, setPos] = React.useState({ x: 0, y: 0 })
+  React.useEffect(() => {
+    const handler = (e: MouseEvent) => setPos({ x: e.clientX, y: e.clientY })
+    document.addEventListener('mousemove', handler, { passive: true })
+    return () => document.removeEventListener('mousemove', handler)
+  }, [])
+  return pos
+}
+
+/** Dark-theme tooltip shell — shared by bar + scatter charts. */
+function TooltipShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: '#0B0F19',
+      border: '1px solid rgba(255,255,255,0.10)',
+      borderRadius: 10,
+      padding: '10px 13px',
+      boxShadow: '0 16px 40px rgba(0,0,0,0.60)',
+      fontSize: 12,
+      lineHeight: 1.45,
+      minWidth: 210,
+      pointerEvents: 'none',
+      color: '#F8FAFC',
+    }}>
+      {children}
+    </div>
   )
 }
 
@@ -741,6 +784,318 @@ function RotationSignalPanel({ leaders }: { leaders: RotationSignalLeader[] }) {
   )
 }
 
+// ── Flow State helpers ─────────────────────────────────────────────────────────
+
+const FLOW_COLORS: Record<string, string> = {
+  Inflow:  '#2dd4bf',
+  Outflow: '#f87171',
+  Neutral: '#6b7280',
+}
+
+function FlowBadge({ state }: { state: string }) {
+  const styles: Record<string, string> = {
+    Inflow:  'bg-teal-500/15 text-teal-400 border-teal-500/30',
+    Outflow: 'bg-red-500/15 text-red-400 border-red-500/30',
+    Neutral: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30',
+  }
+  const arrow = state === 'Inflow' ? '↑' : state === 'Outflow' ? '↓' : '—'
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded border px-1.5 py-0.5 text-xs font-semibold ${styles[state] ?? styles.Neutral}`}>
+      {arrow} {state}
+    </span>
+  )
+}
+
+// ── Flow Summary Strip ─────────────────────────────────────────────────────────
+
+/** Compact horizontal strip showing Inflow leaders + Outflow laggards by RM. */
+function FlowSummaryStrip({ leaders }: { leaders: RotationMomentumLeader[] }) {
+  if (leaders.length === 0) return null
+
+  const inflow  = leaders.filter((l) => l.flow_state === 'Inflow')
+  const outflow = leaders.filter((l) => l.flow_state === 'Outflow')
+
+  function Chip({ l }: { l: RotationMomentumLeader }) {
+    const rm  = l.rotation_momentum
+    const pos = rm >= 0
+    return (
+      <div className="flex items-center gap-1.5 rounded-full border border-surface-elevated bg-surface px-3 py-1.5">
+        <span className="text-xs font-medium text-text-primary truncate max-w-[90px]" title={l.sector}>
+          {abbreviateSector(l.sector)}
+        </span>
+        <span className={`font-mono text-xs font-semibold ${pos ? 'text-teal-400' : 'text-red-400'}`}>
+          {pos ? '+' : ''}{(rm * 100).toFixed(1)}%
+        </span>
+        <FlowBadge state={l.flow_state} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-surface-elevated bg-surface/50 p-3 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
+          Sector Rotation Flow
+        </h4>
+        <span className="text-xs text-text-secondary opacity-50">RM = EWMA × confidence</span>
+      </div>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
+        {inflow.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-teal-400/70 font-medium uppercase tracking-wide">Rotation Leaders</p>
+            <div className="flex flex-wrap gap-2">
+              {inflow.map((l) => <Chip key={l.sector} l={l} />)}
+            </div>
+          </div>
+        )}
+        {outflow.length > 0 && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-red-400/60 font-medium uppercase tracking-wide">Rotation Laggards</p>
+            <div className="flex flex-wrap gap-2">
+              {outflow.map((l) => <Chip key={l.sector} l={l} />)}
+            </div>
+          </div>
+        )}
+        {inflow.length === 0 && outflow.length === 0 && (
+          <p className="text-xs text-text-secondary/60">
+            All sectors in neutral momentum — no strong rotation signal detected.
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Rotation Momentum Table ────────────────────────────────────────────────────
+
+/** Core rotation momentum table sorted by RM descending. */
+function RotationMomentumTable({
+  rows,
+  hasMomentum,
+}: {
+  rows: SectorBreadthRow[]
+  hasMomentum: boolean
+}) {
+  if (!hasMomentum) return null
+
+  const eligible = rows
+    .filter((r) => r.rotation_momentum !== null && r.rotation_momentum !== undefined)
+    .sort((a, b) => (b.rotation_momentum ?? 0) - (a.rotation_momentum ?? 0))
+
+  if (eligible.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
+          Rotation Momentum
+        </h4>
+        <span
+          className="text-xs text-text-secondary/50 cursor-help"
+          title="Rotation Momentum = Smoothed (ΔOpp − ΔStructural) × confidence factor. Confidence = min(1, √(n/10)) — prevents small sectors from dominating."
+        >
+          RM = EWMA(ΔOpp − ΔStruct) × C ⓘ
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-surface-elevated">
+              <Th>Sector</Th>
+              <Th>Flow</Th>
+              <Th align="right">RM</Th>
+              <Th align="right">ΔOpp</Th>
+              <Th align="right">ΔStruct</Th>
+              <Th align="right">n</Th>
+              <Th align="right">ΔTier2</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {eligible.map((r) => {
+              const rm  = r.rotation_momentum ?? 0
+              const rmPos = rm > 0
+              return (
+                <tr key={r.sector} className="border-b border-surface-elevated/40 hover:bg-surface-elevated/20 transition-colors">
+                  <td className="py-2 pr-3 font-medium text-text-primary truncate max-w-[120px]" title={r.sector}>
+                    {r.sector}
+                  </td>
+                  <td className="py-2 pr-3">
+                    <FlowBadge state={r.flow_state ?? 'Neutral'} />
+                  </td>
+                  <Td align="right">
+                    <span className={`font-mono font-semibold ${rmPos ? 'text-teal-400' : rm < 0 ? 'text-red-400/80' : 'text-zinc-500'}`}>
+                      {rmPos ? '+' : ''}{(rm * 100).toFixed(1)}%
+                    </span>
+                  </Td>
+                  <Td align="right"><DeltaScore v={r.ewma_delta_opp ?? null} /></Td>
+                  <Td align="right"><DeltaScore v={r.ewma_delta_structural ?? null} /></Td>
+                  <Td align="right">
+                    <span className="font-mono text-text-secondary">{r.total}</span>
+                  </Td>
+                  <Td align="right"><DeltaCount v={r.delta_tier2 ?? null} /></Td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-text-secondary/40">
+        C = min(1, √(n/10)) — sectors with &lt;10 tickers are confidence-discounted.
+      </p>
+    </div>
+  )
+}
+
+// ── Flow Map Scatter ────────────────────────────────────────────────────────────
+
+/** Scatter tooltip (portal-based). */
+function ScatterTooltipContent({
+  r,
+  hasMomentum,
+}: {
+  r: SectorBreadthRow & { total: number }
+  hasMomentum: boolean
+}) {
+  const edgeColor = r.avg_edge_pct > 0 ? '#34d399' : r.avg_edge_pct < 0 ? '#f87171' : '#f8fafc'
+  const stopColor = r.median_stop_pct > 40 ? '#fbbf24' : '#f8fafc'
+  const rm = r.rotation_momentum
+  return (
+    <TooltipShell>
+      <div style={{ fontWeight: 700, color: '#f8fafc', marginBottom: 7, fontSize: 13 }}>
+        {r.sector}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', columnGap: 14, rowGap: 3 }}>
+        <span style={{ color: '#9ca3af' }}>Structural</span>
+        <span style={{ color: '#f8fafc', fontWeight: 600, textAlign: 'right' }}>{(r.structural_score * 100).toFixed(1)}%</span>
+
+        <span style={{ color: '#9ca3af' }}>Opportunity</span>
+        <span style={{ color: '#f8fafc', fontWeight: 600, textAlign: 'right' }}>{(r.opportunity_score * 100).toFixed(1)}%</span>
+
+        {r.delta_opp !== null && r.delta_opp !== undefined && (
+          <>
+            <span style={{ color: '#9ca3af' }}>ΔOpp</span>
+            <span style={{ color: r.delta_opp > 0 ? '#2dd4bf' : '#f87171', fontWeight: 600, textAlign: 'right' }}>
+              {r.delta_opp > 0 ? '+' : ''}{(r.delta_opp * 100).toFixed(1)}%
+            </span>
+          </>
+        )}
+        {r.delta_structural !== null && r.delta_structural !== undefined && (
+          <>
+            <span style={{ color: '#9ca3af' }}>ΔStruct</span>
+            <span style={{ color: r.delta_structural > 0 ? '#2dd4bf' : '#f87171', fontWeight: 600, textAlign: 'right' }}>
+              {r.delta_structural > 0 ? '+' : ''}{(r.delta_structural * 100).toFixed(1)}%
+            </span>
+          </>
+        )}
+        {hasMomentum && rm !== null && rm !== undefined && (
+          <>
+            <span style={{ color: '#9ca3af' }}>RM</span>
+            <span style={{ color: rm > 0 ? '#2dd4bf' : rm < 0 ? '#f87171' : '#6b7280', fontWeight: 600, textAlign: 'right' }}>
+              {rm > 0 ? '+' : ''}{(rm * 100).toFixed(1)}%
+            </span>
+          </>
+        )}
+        {r.tier2 > 0 && (
+          <>
+            <span style={{ color: '#9ca3af' }}>Tier 2</span>
+            <span style={{ color: '#fbbf24', fontWeight: 600, textAlign: 'right' }}>{r.tier2}</span>
+          </>
+        )}
+        <span style={{ color: '#9ca3af' }}>Avg Edge</span>
+        <span style={{ color: edgeColor, fontWeight: 600, textAlign: 'right' }}>
+          {r.avg_edge_pct > 0 ? '+' : ''}{r.avg_edge_pct.toFixed(1)}%
+        </span>
+
+        <span style={{ color: '#9ca3af' }}>Median Stop</span>
+        <span style={{ color: stopColor, fontWeight: 600, textAlign: 'right' }}>{r.median_stop_pct.toFixed(1)}%</span>
+      </div>
+    </TooltipShell>
+  )
+}
+
+/** 2D scatter — structural vs opportunity score, sized by n, colored by flow state. */
+function FlowMapScatter({
+  rows,
+  hasMomentum,
+}: {
+  rows: SectorBreadthRow[]
+  hasMomentum: boolean
+}) {
+  const [hoveredSector, setHoveredSector] = React.useState<SectorBreadthRow | null>(null)
+  const mousePos = useGlobalMousePos()
+
+  if (rows.length === 0) return null
+
+  const scatterData = rows.map((r) => ({
+    x: r.structural_score,
+    y: r.opportunity_score,
+    z: Math.max(60, r.total * 30),
+    sector: r.sector,
+    _row: r,
+  }))
+
+  // Split into groups for per-color rendering
+  const groups: Record<string, typeof scatterData> = { Inflow: [], Outflow: [], Neutral: [] }
+  for (const d of scatterData) {
+    const fs = hasMomentum ? (d._row.flow_state ?? 'Neutral') : 'Neutral'
+    groups[fs]?.push(d)
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
+          Flow Map — Structural vs Opportunity
+        </h4>
+        <div className="flex items-center gap-3 text-xs text-text-secondary/60">
+          <span><span style={{ color: FLOW_COLORS.Inflow }}>●</span> Inflow</span>
+          <span><span style={{ color: FLOW_COLORS.Neutral }}>●</span> Neutral</span>
+          <span><span style={{ color: FLOW_COLORS.Outflow }}>●</span> Outflow</span>
+        </div>
+      </div>
+      <div style={{ height: 220, position: 'relative' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ScatterChart margin={{ top: 8, right: 16, bottom: 24, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+            <XAxis
+              type="number" dataKey="x" domain={[0, 1]} name="Structural"
+              tick={{ fontSize: 9, fill: '#9ca3af' }}
+              label={{ value: 'Structural', position: 'insideBottom', offset: -12, fontSize: 9, fill: '#6b7280' }}
+            />
+            <YAxis
+              type="number" dataKey="y" domain={[0, 1]} name="Opportunity"
+              tick={{ fontSize: 9, fill: '#9ca3af' }}
+              width={32}
+              label={{ value: 'Opp', angle: -90, position: 'insideLeft', offset: 12, fontSize: 9, fill: '#6b7280' }}
+            />
+            <ZAxis type="number" dataKey="z" range={[40, 350]} />
+            <RechartsTooltip content={() => null} />
+            {(Object.entries(groups) as [string, typeof scatterData][]).map(([fs, pts]) => (
+              pts.length > 0 && (
+                <Scatter
+                  key={fs}
+                  data={pts}
+                  fill={FLOW_COLORS[fs] ?? FLOW_COLORS.Neutral}
+                  fillOpacity={fs === 'Neutral' ? 0.5 : 0.8}
+                  onMouseEnter={(data) => setHoveredSector((data as typeof pts[0])._row)}
+                  onMouseLeave={() => setHoveredSector(null)}
+                />
+              )
+            ))}
+          </ScatterChart>
+        </ResponsiveContainer>
+        {/* Portal tooltip */}
+        {hoveredSector && typeof document !== 'undefined' && ReactDOM.createPortal(
+          <div style={{ position: 'fixed', left: mousePos.x + 14, top: mousePos.y - 12, zIndex: 9999, pointerEvents: 'none' }}>
+            <ScatterTooltipContent r={hoveredSector} hasMomentum={hasMomentum} />
+          </div>,
+          document.body,
+        )}
+      </div>
+    </div>
+  )
+}
+
 /** Section 1 of sector panel — structural confirmation breadth. */
 function SectorStructuralTable({ rows }: { rows: SectorBreadthRow[] }) {
   return (
@@ -756,7 +1111,7 @@ function SectorStructuralTable({ rows }: { rows: SectorBreadthRow[] }) {
               <Th align="right">Confirmed</Th>
               <Th align="right">Total</Th>
               <Th align="right">% Confirmed</Th>
-              <Th align="right">Structural Rank</Th>
+              <Th align="right">ΔStruct</Th>
               <Th>Structural Trend</Th>
             </tr>
           </thead>
@@ -767,9 +1122,7 @@ function SectorStructuralTable({ rows }: { rows: SectorBreadthRow[] }) {
               return (
                 <tr
                   key={r.sector}
-                  className={`border-b border-surface-elevated/50 transition-colors hover:bg-surface-elevated/20 ${
-                    highConf ? 'bg-teal-500/5' : lowConf ? 'bg-zinc-500/5' : ''
-                  }`}
+                  className="border-b border-surface-elevated/50 transition-colors hover:bg-surface-elevated/20"
                 >
                   <td className="py-2 pr-4 text-text-primary font-medium">{r.sector}</td>
                   <Td align="right">{r.confirmed}</Td>
@@ -784,9 +1137,7 @@ function SectorStructuralTable({ rows }: { rows: SectorBreadthRow[] }) {
                     </span>
                   </Td>
                   <Td align="right">
-                    <span className="font-mono text-text-secondary">
-                      {r.structural_score.toFixed(3)}
-                    </span>
+                    <DeltaScore v={r.delta_structural ?? null} />
                   </Td>
                   <td className="py-2 pr-4 text-text-secondary">
                     {(() => { const t = derivedStructuralTrend(r); return (<><TrendIcon trend={t} /><span className="ml-1">{t === 'rising' ? 'expanding' : t === 'falling' ? 'contracting' : 'stable'}</span></>) })()}
@@ -817,7 +1168,7 @@ function SectorOpportunityTable({ rows }: { rows: SectorBreadthRow[] }) {
               <Th align="right">% Positive Edge</Th>
               <Th align="right">Median Stop</Th>
               <Th align="right">Tier 2</Th>
-              <Th align="right">Opp. Score</Th>
+              <Th align="right">ΔOpp</Th>
               <Th>Opp. Trend</Th>
             </tr>
           </thead>
@@ -857,9 +1208,7 @@ function SectorOpportunityTable({ rows }: { rows: SectorBreadthRow[] }) {
                   </span>
                 </Td>
                 <Td align="right">
-                  <span className="font-mono text-text-secondary">
-                    {r.opportunity_score.toFixed(3)}
-                  </span>
+                  <DeltaScore v={r.delta_opp ?? null} />
                 </Td>
                 <td className="py-2 pr-4 text-text-secondary">
                   {(() => { const t = derivedOppTrend(r); return (<><TrendIcon trend={t} /><span className="ml-1">{t === 'rising' ? 'expanding' : t === 'falling' ? 'contracting' : 'stable'}</span></>) })()}
@@ -877,28 +1226,37 @@ function SectorBreadthTable({
   rows,
   leadership,
   rotationSignalLeaders,
+  rotationMomentumLeaders,
   hasSectorHistory,
+  hasRotationMomentum,
   coverageLabel,
   adminMode,
 }: {
   rows: SectorBreadthRow[]
   leadership: SectorLeadershipEntry[]
   rotationSignalLeaders: RotationSignalLeader[]
+  rotationMomentumLeaders: RotationMomentumLeader[]
   hasSectorHistory: boolean
+  hasRotationMomentum: boolean
   coverageLabel?: string
   adminMode?: boolean
 }) {
   return (
     <div className="space-y-6">
       <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider">
-        Sector Breadth Overview
+        Sector Flow
       </h3>
 
       {rows.length === 0 ? (
         <p className="text-xs text-text-secondary">No sector data available.</p>
       ) : (
         <>
-          {/* Section 3 — Composite rotation leaderboard (top 3) */}
+          {/* Rotation Flow Summary Strip — Inflow/Outflow chips */}
+          {hasRotationMomentum && (
+            <FlowSummaryStrip leaders={rotationMomentumLeaders} />
+          )}
+
+          {/* Composite rotation leaderboard (top 3) */}
           <SectorLeadershipBlock
             entries={leadership}
             coverageLabel={coverageLabel}
@@ -908,16 +1266,22 @@ function SectorBreadthTable({
           {/* Structural breadth bar chart */}
           <SectorBreadthChart rows={rows} />
 
-          {/* Section 1 — Structural confirmation breadth */}
-          <SectorStructuralTable rows={rows} />
+          {/* Two-Layer Sector Panel — structural + opportunity side by side */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <SectorStructuralTable rows={rows} />
+            <SectorOpportunityTable rows={rows} />
+          </div>
 
-          {/* Section 2 — Opportunity quality */}
-          <SectorOpportunityTable rows={rows} />
-
-          {/* Rotation Signal Panel — only when prior snapshot history exists */}
-          {hasSectorHistory && (
+          {/* Rotation Signal Panel (raw delta) — when prior snapshot exists */}
+          {hasSectorHistory && rotationSignalLeaders.length > 0 && (
             <RotationSignalPanel leaders={rotationSignalLeaders} />
           )}
+
+          {/* Rotation Momentum Table (EWMA-smoothed) */}
+          <RotationMomentumTable rows={rows} hasMomentum={hasRotationMomentum} />
+
+          {/* Flow Map Scatter — structural vs opportunity, sized + colored by flow */}
+          <FlowMapScatter rows={rows} hasMomentum={hasRotationMomentum} />
 
           {/* Admin diagnostic footer */}
           {adminMode && (
@@ -1539,14 +1903,17 @@ function TieredNamesSection({
 
 /** Section C: tabbed diagnostics. Lazy-renders tabs until first open. */
 function DiagnosticsTabContent({
-  diag, sectorRows, sectorLeadership, rotationSignalLeaders, hasSectorHistory,
+  diag, sectorRows, sectorLeadership, rotationSignalLeaders,
+  rotationMomentumLeaders, hasSectorHistory, hasRotationMomentum,
   coverageLabel, adminMode, activeTab, onTabChange,
 }: {
   diag: EligibilityDiagnostics
   sectorRows: SectorBreadthRow[]
   sectorLeadership: SectorLeadershipEntry[]
   rotationSignalLeaders: RotationSignalLeader[]
+  rotationMomentumLeaders: RotationMomentumLeader[]
   hasSectorHistory: boolean
+  hasRotationMomentum: boolean
   coverageLabel?: string
   adminMode: boolean
   activeTab: string
@@ -1561,8 +1928,8 @@ function DiagnosticsTabContent({
   }, [activeTab])
 
   const baseTabs = [
-    { id: 'why-not',        label: 'Why Not Eligible' },
-    { id: 'sector-breadth', label: 'Sector Breadth' },
+    { id: 'why-not',      label: 'Why Not Eligible' },
+    { id: 'sector-flow',  label: 'Sector Flow' },
   ]
   const adminTabs = adminMode ? [
     { id: 'stress-test',   label: 'Stress Test' },
@@ -1570,7 +1937,10 @@ function DiagnosticsTabContent({
     { id: 'calibration',   label: 'Calibration' },
   ] : []
   const tabs = [...baseTabs, ...adminTabs]
-  const safeActive = tabs.find((t) => t.id === activeTab) ? activeTab : 'why-not'
+  // Migrate old 'sector-breadth' saved tab ID to 'sector-flow'
+  const safeActive = tabs.find((t) => t.id === activeTab)
+    ? activeTab
+    : activeTab === 'sector-breadth' ? 'sector-flow' : 'why-not'
 
   return (
     <div className="space-y-4">
@@ -1593,15 +1963,17 @@ function DiagnosticsTabContent({
         )}
       </div>
 
-      {/* Sector Breadth */}
-      <div className={safeActive === 'sector-breadth' ? '' : 'hidden'}>
-        {mounted['sector-breadth'] && (
+      {/* Sector Flow */}
+      <div className={safeActive === 'sector-flow' ? '' : 'hidden'}>
+        {(mounted['sector-flow'] || mounted['sector-breadth']) && (
           <div className="pt-1">
             <SectorBreadthTable
               rows={sectorRows}
               leadership={sectorLeadership}
               rotationSignalLeaders={rotationSignalLeaders}
+              rotationMomentumLeaders={rotationMomentumLeaders}
               hasSectorHistory={hasSectorHistory}
+              hasRotationMomentum={hasRotationMomentum}
               coverageLabel={coverageLabel}
               adminMode={adminMode}
             />
@@ -1854,6 +2226,12 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
               gateOpen={gateOpen}
               diag={data.eligibility_diagnostics}
             />
+            {/* Sector Rotation Flow Summary Strip */}
+            {(data.has_rotation_momentum ?? false) && (data.rotation_momentum_leaders?.length ?? 0) > 0 && (
+              <div className="border-t border-surface-elevated/60 pt-5">
+                <FlowSummaryStrip leaders={data.rotation_momentum_leaders ?? []} />
+              </div>
+            )}
             <div className="border-t border-surface-elevated/60 pt-5">
               <RegimeExposureGuidance
                 regime={regime}
@@ -1898,7 +2276,9 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
                 sectorRows={data.sector_breadth}
                 sectorLeadership={data.sector_leadership ?? []}
                 rotationSignalLeaders={data.rotation_signal_leaders ?? []}
+                rotationMomentumLeaders={data.rotation_momentum_leaders ?? []}
                 hasSectorHistory={data.has_sector_history ?? false}
+                hasRotationMomentum={data.has_rotation_momentum ?? false}
                 coverageLabel={data.sector_coverage_label}
                 adminMode={adminMode}
                 activeTab={diagTab}
