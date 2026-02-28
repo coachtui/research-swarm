@@ -573,7 +573,7 @@ async def backfill_sector_meta(admin: User = Depends(require_admin)):
                     "metaUpdatedAt": meta.get("updated_at"),
                 },
             )
-            reports_updated += updated.count
+            reports_updated += updated if isinstance(updated, int) else updated.count
             tickers_processed += 1
 
         except Exception as exc:
