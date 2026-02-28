@@ -22,22 +22,19 @@ import { InstitutionalRiskDashboard } from '@/components/results/InstitutionalRi
 import { ProbabilisticEngineDashboard } from '@/components/results/ProbabilisticEngineDashboard'
 import { CompressedRiskPanel } from '@/components/results/CompressedRiskPanel'
 import { TerminalDashboard } from '@/components/results/TerminalDashboard'
-import { ModeToggle, type ReportMode } from '@/components/results/ModeToggle'
+import type { ReportMode } from '@/components/results/ModeToggle'
 import { TierGate } from '@/components/common/TierGate'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { formatDateTime } from '@/lib/utils/formatting'
 import {
   deriveStructuralBias,
   deriveTacticalStance,
-  structuralBiasBadgeVariant,
 } from '@/lib/utils/decisionDimensions'
 import { derivePositionType } from '@/lib/narratives/sizingNarrative'
 import { simplifyKeyInsights } from '@/lib/analysis/simplifyKeyInsights'
 import { extractWhatsNew } from '@/lib/analysis/extractWhatsNew'
 import { extractWatchCalendar } from '@/lib/analysis/extractWatchCalendar'
-import { AddToWatchlistButton } from '@/components/dashboard/AddToWatchlistButton'
+import { ReportCommandBar } from '@/components/results/ReportCommandBar'
 import { OnboardingPanel } from '@/components/knowledge/OnboardingPanel'
 import { SmartMoneyAlert } from '@/components/results/SmartMoneyAlert'
 import { WatchForSummary } from '@/components/results/WatchForSummary'
@@ -261,70 +258,21 @@ export function ResultsContent({
 
   return (
     <OnboardingPanel>
-    <div className="container mx-auto px-4 py-8">
-      <div className="max-w-6xl mx-auto space-y-4">
+      {/* ══ STICKY COMMAND BAR ══════════════════════════════════════════ */}
+      <ReportCommandBar
+        ticker={result.ticker}
+        price={decision_intelligence?.current_price ?? null}
+        timestamp={run.completed_at || run.created_at}
+        runId={run.id}
+        companyName={full_output?.fundamentalist_output?.company_name}
+        mode={reportMode}
+        onModeChange={setReportMode}
+        isReadingMode={isReadingMode}
+        onToggleReadingMode={() => setReadingMode(r => !r)}
+      />
 
-        {/* ══ IDENTITY BAR ══════════════════════════════════════════════ */}
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="relative w-10 h-10 rounded-lg bg-surface-elevated overflow-hidden flex-shrink-0 border border-border-subtle">
-              <img
-                src={`https://assets.parqet.com/logos/symbol/${result.ticker}`}
-                alt={`${result.ticker} logo`}
-                className="w-full h-full object-contain p-1.5"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement
-                  target.style.display = 'none'
-                  const fallback = target.nextElementSibling as HTMLDivElement
-                  if (fallback) fallback.style.display = 'flex'
-                }}
-              />
-              <div className="absolute inset-0 items-center justify-center bg-surface-elevated text-text-secondary text-xl font-bold hidden">
-                {result.ticker[0]}
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-2.5">
-                <span className="text-lg font-bold text-text-primary">{result.ticker}</span>
-                {decision_intelligence?.current_price && (
-                  <span className="text-base font-semibold text-text-primary">
-                    ${decision_intelligence.current_price.toFixed(2)}
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] text-text-tertiary">
-                {formatDateTime(run.completed_at || run.created_at)}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            {decision_intelligence?.rating && (() => {
-              const bias = deriveStructuralBias(decision_intelligence.rating)
-              return (
-                <Badge variant={structuralBiasBadgeVariant(bias)}>
-                  {bias}
-                </Badge>
-              )
-            })()}
-            <ModeToggle mode={reportMode} onChange={setReportMode} />
-            <button
-              onClick={() => setReadingMode(r => !r)}
-              className={`text-[10px] font-mono border rounded px-1.5 py-0.5 transition-colors ${
-                isReadingMode
-                  ? 'bg-primary/10 text-primary border-primary/30'
-                  : 'text-text-tertiary border-border hover:text-text-secondary hover:border-border-subtle'
-              }`}
-              title="Toggle Reading Mode (R)"
-            >
-              {isReadingMode ? 'EXIT' : '[R]'}
-            </button>
-            <AddToWatchlistButton
-              ticker={result.ticker}
-              companyName={full_output?.fundamentalist_output?.company_name}
-              runId={run.id}
-            />
-          </div>
-        </div>
+    <div className="container mx-auto px-4 pt-4 pb-8">
+      <div className="max-w-6xl mx-auto space-y-4">
 
         {/* ══ LONGITUDINAL DELTA ════════════════════════════════════════ */}
         {full_output?.previous_analysis_delta && (

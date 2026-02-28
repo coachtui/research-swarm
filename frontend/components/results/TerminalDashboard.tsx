@@ -1,13 +1,14 @@
 'use client'
 
 // Terminal-grade unified above-fold dashboard.
-// Replaces CapitalSignalPanel + AsymmetryPanel + CapitalDeploymentPanel.
+// Strict hierarchy: EV (largest) → Allocation (second) → PW Target (third).
+// Flat UI — no heavy fills, whitespace + subtle dividers only.
 //
-// ROW 1 — Signal Bar:  Rating · Ticker · Conviction  |  EV (dominant)  |  Price · FV · Implied
-// ROW 2 — Asymmetry:   BASE · BULL · BEAR → PW Target strip
-// ROW 3 — Deployment:  Rec Allocation (dominant %) + 4-cell secondary grid
+// ROW 1 — Signal strip:  Rating · Conviction  |  EV (dominant)  |  Price · FV · Implied
+// ROW 2 — Scenario band: minimalist strip with thin color accents + PW Target
+// ROW 3 — Deployment:    Allocation % (second-tier dominant) + 4-cell secondary grid
 //
-// No new model logic — all values are derived from existing output fields.
+// No new model logic — all values derived from existing output fields.
 
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, TrendingUp, TrendingDown } from 'lucide-react'
@@ -42,14 +43,14 @@ interface TerminalDashboardProps {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function ratingColors(rating: string | null) {
-  if (!rating) return { bg: 'bg-surface-elevated', border: 'border-border', text: 'text-text-secondary' }
+function ratingTextColor(rating: string | null): string {
+  if (!rating) return 'text-text-secondary'
   const r = rating.toUpperCase()
   if (['STRONG BUY', 'BUY', 'ACCUMULATE', 'BULLISH'].some(k => r.includes(k)))
-    return { bg: 'bg-success/10', border: 'border-success/40', text: 'text-success' }
+    return 'text-success'
   if (['AVOID', 'SELL', 'REDUCE', 'BEARISH'].some(k => r.includes(k)))
-    return { bg: 'bg-error/10', border: 'border-error/40', text: 'text-error' }
-  return { bg: 'bg-warning/10', border: 'border-warning/40', text: 'text-warning' }
+    return 'text-error'
+  return 'text-warning'
 }
 
 function signColor(v: number | null) {
@@ -74,6 +75,13 @@ function convictionTier(
   if (level === 'high') return 'High'
   if (level === 'medium' || level === 'moderate') return 'Moderate'
   return 'Low'
+}
+
+function convictionTierColor(tier: string): string {
+  if (tier === 'Strategic') return 'text-primary'
+  if (tier === 'High') return 'text-success'
+  if (tier === 'Moderate') return 'text-warning'
+  return 'text-text-tertiary'
 }
 
 function positionTypeLabel(convictionLevel: string): string {
@@ -103,7 +111,7 @@ function pct(target: number, current: number): number {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function SmallMetric({
+function MetricCell({
   label,
   value,
   valueClass = 'text-text-primary',
@@ -116,14 +124,14 @@ function SmallMetric({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/70">{label}</span>
-      <span className={`text-base font-bold font-mono leading-none ${valueClass}`}>{value}</span>
-      {sub && <span className="text-[9px] text-text-tertiary/50 font-mono">{sub}</span>}
+      <span className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/60">{label}</span>
+      <span className={`text-sm font-bold font-mono leading-none ${valueClass}`}>{value}</span>
+      {sub && <span className="text-[9px] text-text-tertiary/40 font-mono">{sub}</span>}
     </div>
   )
 }
 
-function SecondaryBlotterCell({
+function SecondaryCell({
   label,
   value,
   valueClass = 'text-text-primary',
@@ -134,8 +142,8 @@ function SecondaryBlotterCell({
 }) {
   return (
     <div className="px-4 py-3 flex flex-col gap-0.5">
-      <span className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/70">{label}</span>
-      <span className={`text-2xl font-bold font-mono leading-none ${valueClass}`}>{value}</span>
+      <span className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/60">{label}</span>
+      <span className={`text-lg font-bold font-mono leading-none ${valueClass}`}>{value}</span>
     </div>
   )
 }
@@ -182,13 +190,10 @@ export function TerminalDashboard({
     fvMid && currentPrice > 0 ? ((fvMid - currentPrice) / currentPrice) * 100 : null
 
   const bias = deriveStructuralBias(rating)
-  const { bg: rBg, border: rBorder, text: rText } = ratingColors(rating)
+  const ratingColor = ratingTextColor(rating)
   const tier = convictionTier(conviction.conviction_level, conviction.recommended_pct, effectiveEvPct)
-  const tierColor =
-    tier === 'Strategic' ? 'text-primary' :
-    tier === 'High' ? 'text-success' :
-    tier === 'Moderate' ? 'text-warning' :
-    'text-text-tertiary'
+  const tierColor = convictionTierColor(tier)
+  const irr = expectedReturnAnnualized ?? null
 
   // ── Row 2 calculations ─────────────────────────────────────────────────────
   let bearRet = 0, baseRet = 0, bullRet = 0, pwTarget = 0, pwRet = 0
@@ -219,7 +224,7 @@ export function TerminalDashboard({
       target: priceTargets.base_target,
       ret: baseRet,
       retColor: baseRet >= 0 ? 'text-success' : 'text-error',
-      topBorder: 'border-t-blue-500',
+      accentBorder: 'border-t-2 border-t-blue-500/70',
       labelColor: 'text-blue-400',
       assumptions: priceTargets.base_assumptions,
     },
@@ -229,8 +234,8 @@ export function TerminalDashboard({
       target: priceTargets.bull_target,
       ret: bullRet,
       retColor: 'text-success',
-      topBorder: 'border-t-success',
-      labelColor: 'text-success',
+      accentBorder: 'border-t-2 border-t-emerald-500/70',
+      labelColor: 'text-emerald-400',
       assumptions: priceTargets.bull_assumptions,
     },
     {
@@ -239,8 +244,8 @@ export function TerminalDashboard({
       target: priceTargets.bear_target,
       ret: bearRet,
       retColor: 'text-error',
-      topBorder: 'border-t-error',
-      labelColor: 'text-error',
+      accentBorder: 'border-t-2 border-t-red-500/70',
+      labelColor: 'text-red-400',
       assumptions: priceTargets.bear_assumptions,
     },
   ] : []
@@ -256,53 +261,52 @@ export function TerminalDashboard({
   const noiseRegime = signalBreakdown?.noise_filter?.noise_regime
   const scalingLabel = signalBreakdown?.portfolio_action?.conviction_scaling_label ?? null
 
-  const irr = expectedReturnAnnualized ?? null
-
   return (
-    <div className="rounded-xl border border-border/70 bg-surface-elevated/60 overflow-hidden">
+    <div className="rounded-xl border border-border/40 overflow-hidden">
 
       {/* ═══════════════════════════════════════════════════════════════════
-          ROW 1 — SIGNAL BAR
-          Left: Rating · Ticker · Conviction Tier
-          Center: EV (dominant) · PW Return · Confidence
-          Right: Price · FV Mid · Implied ↑/↓
+          ROW 1 — SIGNAL STRIP
+          Left:   Rating · Conviction tier
+          Center: EV (dominant, text-5xl) · PW Return · Confidence · IRR
+          Right:  Current Price · FV · Implied
           ═══════════════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border/40 border-b border-border/50">
+      <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border/30">
 
-        {/* Left */}
-        <div className="px-5 py-4 flex flex-col justify-center gap-2">
-          <div className={`self-start px-3 py-1.5 rounded-lg border ${rBg} ${rBorder}`}>
-            <span className={`text-xs font-bold tracking-widest uppercase ${rText}`}>
+        {/* Left — identity + rating */}
+        <div className="px-5 py-4 flex flex-col justify-center gap-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-xs font-bold tracking-widest uppercase ${ratingColor}`}>
               {bias || rating || '—'}
+            </span>
+            <span className="text-border/40 select-none text-xs">·</span>
+            <span className={`text-[10px] font-semibold ${tierColor}`}>
+              {tier} Conviction
             </span>
           </div>
           <div>
-            <span className="text-base font-bold text-text-primary">{ticker}</span>
-          </div>
-          <div className={`self-start text-[10px] font-semibold px-1.5 py-0.5 rounded border ${tierColor} border-current/30`}>
-            {tier} Conviction
+            <span className="text-base font-bold text-text-primary font-mono">{ticker}</span>
           </div>
         </div>
 
         {/* Center — EV dominant */}
-        <div className="px-5 py-4 flex flex-col justify-center gap-3 bg-surface/20">
+        <div className="px-5 py-4 flex flex-col justify-center gap-3">
           <div>
-            <p className="text-[9px] uppercase tracking-[0.15em] font-semibold text-text-tertiary/70 mb-1">
+            <p className="text-[9px] uppercase tracking-[0.15em] font-semibold text-text-tertiary/60 mb-1">
               Expected Value
             </p>
             <p className={`text-5xl font-bold font-mono leading-none ${signColor(effectiveEvPct)}`}>
               {fmt(effectiveEvPct)}
             </p>
           </div>
-          <div className="flex items-center gap-5">
-            <SmallMetric
+          <div className="flex items-center gap-4 flex-wrap">
+            <MetricCell
               label="PW Return"
               value={fmt(effectiveEvPct)}
               valueClass={signColor(effectiveEvPct)}
               sub="prob-weighted"
             />
-            <div className="w-px h-6 bg-border/40" />
-            <SmallMetric
+            <div className="w-px h-5 bg-border/30" />
+            <MetricCell
               label="Confidence"
               value={rawConfidence !== null ? `${rawConfidence}` : '—'}
               valueClass={
@@ -314,8 +318,8 @@ export function TerminalDashboard({
             />
             {irr !== null && (
               <>
-                <div className="w-px h-6 bg-border/40" />
-                <SmallMetric
+                <div className="w-px h-5 bg-border/30" />
+                <MetricCell
                   label="Ann. IRR"
                   value={fmt(irr)}
                   valueClass={signColor(irr)}
@@ -326,27 +330,27 @@ export function TerminalDashboard({
           </div>
         </div>
 
-        {/* Right */}
+        {/* Right — price + FV + implied */}
         <div className="px-5 py-4 flex flex-col justify-center gap-3">
           <div>
-            <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/70 mb-1">
+            <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/60 mb-1">
               Current Price
             </p>
             <p className="text-2xl font-bold font-mono text-text-primary leading-none">
               ${currentPrice.toFixed(2)}
             </p>
           </div>
-          <div className="flex items-center gap-5">
-            <SmallMetric
-              label="FV Mid"
+          <div className="flex items-center gap-4 flex-wrap">
+            <MetricCell
+              label="Fair Value"
               value={fvMid ? `$${fvMid.toFixed(0)}` : '—'}
               valueClass="text-text-primary"
               sub={fairValueCalibration?.display_label ?? 'blended'}
             />
             {impliedUpside !== null && (
               <>
-                <div className="w-px h-6 bg-border/40" />
-                <SmallMetric
+                <div className="w-px h-5 bg-border/30" />
+                <MetricCell
                   label="Implied ↑/↓"
                   value={
                     <span className="flex items-center gap-1">
@@ -366,47 +370,46 @@ export function TerminalDashboard({
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════
-          ROW 2 — ASYMMETRY SNAPSHOT
-          3 scenario columns + PW Target strip below.
-          Rendered only when price targets are available.
+          ROW 2 — SCENARIO STRIP
+          Minimalist horizontal band. Thin color accents. Compact pricing.
+          PW Target = third-tier dominant below the strip.
           ═══════════════════════════════════════════════════════════════════ */}
       {priceTargets && (
-        <div className="border-b border-border/50">
+        <div className="border-t border-border/30">
 
-          {/* 3-column scenario grid */}
-          <div className="grid grid-cols-3 divide-x divide-border/40">
+          {/* 3-scenario compact row */}
+          <div className="grid grid-cols-3 divide-x divide-border/25">
             {scenarioRows.map(row => (
               <div
                 key={row.label}
-                className={`px-5 py-4 border-t-4 ${row.topBorder}`}
+                className={`px-5 py-3.5 ${row.accentBorder}`}
               >
                 <p className={`text-[9px] font-bold uppercase tracking-[0.14em] mb-1.5 ${row.labelColor}`}>
-                  {row.label} CASE
+                  {row.label} · {row.weight}%
                 </p>
-                <p className="text-3xl font-bold font-mono text-text-primary leading-none">
-                  ${row.target.toFixed(0)}
-                </p>
-                <p className="text-sm font-semibold font-mono text-text-secondary mt-1">
-                  {row.weight}%
-                </p>
-                <p className={`text-sm font-bold font-mono mt-0.5 ${row.retColor}`}>
-                  {fmt(row.ret, true)}
-                </p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-xl font-bold font-mono text-text-primary leading-none">
+                    ${row.target.toFixed(0)}
+                  </span>
+                  <span className={`text-sm font-semibold font-mono ${row.retColor}`}>
+                    {fmt(row.ret, true)}
+                  </span>
+                </div>
               </div>
             ))}
           </div>
 
-          {/* PW Target — centered below */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 px-5 py-3 bg-surface/20">
-            <div className="text-center">
-              <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/70">
-                Probability-Weighted Target
+          {/* PW Target row — third in hierarchy */}
+          <div className="border-t border-border/25 px-5 py-3 flex items-center gap-6 flex-wrap">
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/60">
+                PW Target
               </p>
-              <div className="flex items-baseline justify-center gap-2 mt-0.5">
+              <div className="flex items-baseline gap-2 mt-0.5">
                 <span className="text-2xl font-bold font-mono text-text-primary">
                   ${pwTarget.toFixed(0)}
                 </span>
-                <span className={`text-base font-bold font-mono ${signColor(pwRet)}`}>
+                <span className={`text-sm font-bold font-mono ${signColor(pwRet)}`}>
                   {fmt(pwRet, true)}
                 </span>
                 {stabilityMod < 1 && (
@@ -416,21 +419,21 @@ export function TerminalDashboard({
                 )}
               </div>
             </div>
-            <div className="hidden sm:block w-px h-8 bg-border/30" />
-            <div className="text-center">
-              <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/70">
-                Downside Severity
+            <div className="w-px h-7 bg-border/25" />
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/60">
+                Downside
               </p>
-              <p className="text-2xl font-bold font-mono text-error mt-0.5">
+              <p className="text-sm font-bold font-mono text-error mt-0.5">
                 {downsideSeverity !== null ? fmt(downsideSeverity, true) : '—'}
               </p>
             </div>
-            <div className="hidden sm:block w-px h-8 bg-border/30" />
-            <div className="text-center">
-              <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/70">
-                Upside Skew
+            <div className="w-px h-7 bg-border/25" />
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/60">
+                Skew
               </p>
-              <p className={`text-2xl font-bold font-mono mt-0.5 ${
+              <p className={`text-sm font-bold font-mono mt-0.5 ${
                 upsideSkewRatio === null ? 'text-text-secondary' :
                 upsideSkewRatio >= 2 ? 'text-success' :
                 upsideSkewRatio >= 1 ? 'text-warning' : 'text-error'
@@ -441,24 +444,24 @@ export function TerminalDashboard({
           </div>
 
           {/* Scenario assumptions toggle */}
-          <div className="border-t border-border/30">
+          <div className="border-t border-border/20">
             <button
               onClick={() => setShowAssumptions(o => !o)}
-              className="w-full flex items-center justify-between px-5 py-2 text-left hover:bg-surface-elevated/20 transition-colors"
+              className="w-full flex items-center justify-between px-5 py-2 text-left hover:bg-surface-elevated/15 transition-colors"
             >
-              <span className="text-[10px] text-text-tertiary/50 uppercase tracking-wider font-medium">
+              <span className="text-[10px] text-text-tertiary/40 uppercase tracking-wider font-medium">
                 Scenario Assumptions
               </span>
               {showAssumptions
-                ? <ChevronUp className="h-3 w-3 text-text-tertiary/40" />
-                : <ChevronDown className="h-3 w-3 text-text-tertiary/40" />}
+                ? <ChevronUp className="h-3 w-3 text-text-tertiary/30" />
+                : <ChevronDown className="h-3 w-3 text-text-tertiary/30" />}
             </button>
             {showAssumptions && (
-              <div className="px-5 pb-4 pt-1 border-t border-border/20 space-y-3">
+              <div className="px-5 pb-4 pt-1 border-t border-border/15 space-y-3">
                 {scenarioRows.map(row => (
                   <div key={row.label} className={`border-l-2 pl-3 ${
-                    row.label === 'BASE' ? 'border-l-blue-500/60' :
-                    row.label === 'BULL' ? 'border-l-success/60' : 'border-l-error/60'
+                    row.label === 'BASE' ? 'border-l-blue-500/50' :
+                    row.label === 'BULL' ? 'border-l-emerald-500/50' : 'border-l-red-500/50'
                   }`}>
                     <p className={`text-[9px] font-bold uppercase tracking-wider mb-1 ${row.labelColor}`}>
                       {row.label} · {row.weight}%
@@ -475,70 +478,63 @@ export function TerminalDashboard({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════
-          ROW 3 — CAPITAL DEPLOYMENT BLOTTER
-          Left: Recommended Allocation % (dominant)
-          Right: 2×2 secondary metric grid
+          ROW 3 — CAPITAL DEPLOYMENT
+          Allocation % = second-tier dominant (text-4xl, EV is text-5xl).
+          Right: 2×2 secondary grid (text-lg, supporting only).
+          No fill backgrounds.
           ═══════════════════════════════════════════════════════════════════ */}
-      <div>
+      <div className="border-t border-border/30">
         {/* Header strip */}
-        <div className="px-5 py-2.5 border-b border-border/30 flex items-center justify-between">
-          <p className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/60">
+        <div className="px-5 py-2 border-b border-border/25 flex items-center justify-between">
+          <p className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">
             Capital Deployment · {posType} Position
           </p>
           <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
             bindingType === 'Within Guardrails'
-              ? 'text-success border-success/30 bg-success/5'
+              ? 'text-success border-success/25 bg-success/5'
               : bindingType === 'Cap-Bound'
-              ? 'text-warning border-warning/30 bg-warning/5'
-              : 'text-text-tertiary border-border/40'
+              ? 'text-warning border-warning/25 bg-warning/5'
+              : 'text-text-tertiary/60 border-border/30'
           }`}>
             {bindingType}
           </span>
         </div>
 
         {/* Allocation layout */}
-        <div className="flex divide-x divide-border/40">
+        <div className="flex divide-x divide-border/30">
 
           {/* Dominant: Recommended % */}
-          <div className="flex-[2] px-6 py-5 bg-primary/5 flex flex-col justify-center">
-            <p className="text-[9px] uppercase tracking-[0.15em] font-semibold text-text-tertiary/60 mb-1.5">
+          <div className="flex-[2] px-6 py-5 flex flex-col justify-center">
+            <p className="text-[9px] uppercase tracking-[0.15em] font-semibold text-text-tertiary/50 mb-1.5">
               Recommended Allocation
             </p>
-            <p className="text-6xl font-bold font-mono text-primary leading-none">
+            <p className="text-4xl font-bold font-mono text-primary leading-none">
               {conviction.recommended_pct.toFixed(1)}%
             </p>
             {conviction.dollar_per_100k !== undefined && conviction.dollar_per_100k !== null && (
-              <p className="text-[10px] text-text-tertiary/60 mt-2 font-mono">
-                ${conviction.dollar_per_100k.toLocaleString()} per $100k portfolio
+              <p className="text-[10px] text-text-tertiary/50 mt-2 font-mono">
+                ${conviction.dollar_per_100k.toLocaleString()} per $100k
               </p>
             )}
           </div>
 
-          {/* Secondary 2×2 grid */}
-          <div className="flex-[3] grid grid-cols-2 divide-x divide-y divide-border/30">
-            <SecondaryBlotterCell
-              label="Max Risk"
-              value={`${conviction.max_pct.toFixed(1)}%`}
-            />
-            <SecondaryBlotterCell
+          {/* Secondary 2×2 */}
+          <div className="flex-[3] grid grid-cols-2 divide-x divide-y divide-border/25">
+            <SecondaryCell label="Max Risk" value={`${conviction.max_pct.toFixed(1)}%`} />
+            <SecondaryCell
               label="Exec-Constrained"
               value={`${execPct.toFixed(1)}%`}
-              valueClass="text-text-primary"
             />
-            <SecondaryBlotterCell
+            <SecondaryCell
               label="Asymmetry Ratio"
-              value={
-                upsideSkewRatio !== null
-                  ? `${upsideSkewRatio.toFixed(1)}×`
-                  : '—'
-              }
+              value={upsideSkewRatio !== null ? `${upsideSkewRatio.toFixed(1)}×` : '—'}
               valueClass={
                 upsideSkewRatio === null ? 'text-text-secondary' :
                 upsideSkewRatio >= 2 ? 'text-success' :
                 upsideSkewRatio >= 1 ? 'text-warning' : 'text-error'
               }
             />
-            <SecondaryBlotterCell
+            <SecondaryCell
               label="Downside Severity"
               value={downsideSeverity !== null ? fmt(downsideSeverity, true) : '—'}
               valueClass="text-error"
@@ -548,34 +544,34 @@ export function TerminalDashboard({
 
         {/* Noise regime warning */}
         {noiseDefer && noiseRegime && (
-          <div className="px-5 py-2 bg-warning/5 border-t border-warning/20 flex items-center gap-2">
+          <div className="px-5 py-2 border-t border-warning/15 flex items-center gap-2">
             <span className="text-[10px] font-semibold text-warning uppercase tracking-wider">
               Noise Regime: {noiseRegime}
             </span>
-            <span className="text-[10px] text-text-tertiary/60">
+            <span className="text-[10px] text-text-tertiary/50">
               — defer full sizing; scale gradually
             </span>
           </div>
         )}
 
         {/* Deployment Logic toggle */}
-        <div className="border-t border-border/30">
+        <div className="border-t border-border/20">
           <button
             onClick={() => setShowDeploymentLogic(o => !o)}
-            className="w-full flex items-center justify-between px-5 py-2 text-left hover:bg-surface-elevated/20 transition-colors"
+            className="w-full flex items-center justify-between px-5 py-2 text-left hover:bg-surface-elevated/15 transition-colors"
           >
-            <span className="text-[10px] text-text-tertiary/50 uppercase tracking-wider font-medium">
+            <span className="text-[10px] text-text-tertiary/40 uppercase tracking-wider font-medium">
               Deployment Logic
             </span>
             {showDeploymentLogic
-              ? <ChevronUp className="h-3 w-3 text-text-tertiary/40" />
-              : <ChevronDown className="h-3 w-3 text-text-tertiary/40" />}
+              ? <ChevronUp className="h-3 w-3 text-text-tertiary/30" />
+              : <ChevronDown className="h-3 w-3 text-text-tertiary/30" />}
           </button>
           {showDeploymentLogic && (
-            <div className="px-5 pb-5 pt-2 border-t border-border/20 space-y-4">
+            <div className="px-5 pb-5 pt-2 border-t border-border/15 space-y-4">
               {conviction.rationale && (
                 <div>
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/60 mb-1.5">
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/50 mb-1.5">
                     Sizing Rationale
                   </p>
                   <p className="text-xs text-text-secondary leading-relaxed">
@@ -585,7 +581,7 @@ export function TerminalDashboard({
               )}
               {conviction.conviction_justification && (
                 <div>
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/60 mb-1.5">
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/50 mb-1.5">
                     Conviction Basis
                   </p>
                   <p className="text-xs text-text-secondary leading-relaxed">
@@ -595,7 +591,7 @@ export function TerminalDashboard({
               )}
               {signalBreakdown?.portfolio_action && (
                 <div className="space-y-2">
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/60">
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/50">
                     Portfolio Action Context
                   </p>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -605,14 +601,14 @@ export function TerminalDashboard({
                       ['Risk Budget Impact', signalBreakdown.portfolio_action.risk_budget_impact],
                       ['Mandate Fit', signalBreakdown.portfolio_action.mandate_fit],
                     ] as [string, string | undefined | null][]).map(([k, v]) => v && (
-                      <div key={k} className="rounded border border-border/40 px-2.5 py-1.5">
-                        <p className="text-[8px] uppercase tracking-wider text-text-tertiary/50 mb-0.5">{k}</p>
+                      <div key={k} className="rounded border border-border/30 px-2.5 py-1.5">
+                        <p className="text-[8px] uppercase tracking-wider text-text-tertiary/40 mb-0.5">{k}</p>
                         <p className="text-[11px] text-text-secondary">{v}</p>
                       </div>
                     ))}
                   </div>
                   {signalBreakdown.portfolio_action.sizing_guidance && (
-                    <p className="text-[11px] text-text-tertiary/70 italic border-l-2 border-border pl-2.5 leading-relaxed">
+                    <p className="text-[11px] text-text-tertiary/60 italic border-l-2 border-border/30 pl-2.5 leading-relaxed">
                       {signalBreakdown.portfolio_action.sizing_guidance}
                     </p>
                   )}
@@ -620,7 +616,7 @@ export function TerminalDashboard({
               )}
               {signalBreakdown?.noise_filter && (
                 <div>
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/60 mb-1">
+                  <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/50 mb-1">
                     Noise Filter
                   </p>
                   <p className="text-[11px] text-text-secondary">
