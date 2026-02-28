@@ -11,7 +11,7 @@ import { Lock, TrendingUp, TrendingDown, Minus, ShieldCheck, ShieldOff, Activity
 import Link from 'next/link'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
-  Cell, ResponsiveContainer,
+  Cell, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 
 // ── Derived regime types ───────────────────────────────────────────────────────
@@ -418,21 +418,103 @@ function Td({ children, align = 'left', className = '' }: {
 
 // ── Section 3: Sector Breadth Overview ────────────────────────────────────────
 
-/** Bar chart — % confirmed by sector (neutral zinc bars). */
+// Abbreviate long sector names so X-axis labels don't overlap.
+const SECTOR_ABBREV: Record<string, string> = {
+  'Communication Services': 'Comm. Svcs',
+  'Consumer Defensive':     'Cons. Def.',
+  'Consumer Cyclical':      'Cons. Cyc.',
+  'Financial Services':     'Financials',
+  'Basic Materials':        'Materials',
+}
+function abbreviateSector(s: string): string {
+  return SECTOR_ABBREV[s] ?? s
+}
+
+/** Rich tooltip content rendered inside the bar chart. */
+function SectorBreadthChartTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean
+  payload?: Array<{ payload: SectorBreadthRow }>
+}) {
+  if (!active || !payload?.length) return null
+  const r = payload[0].payload
+
+  const edgeColor = r.avg_edge_pct > 0 ? '#34d399' : r.avg_edge_pct < 0 ? '#f87171' : '#f8fafc'
+  const stopColor = r.median_stop_pct > 40 ? '#fbbf24' : '#f8fafc'
+
+  return (
+    <div style={{
+      background: '#0B0F19',
+      border: '1px solid rgba(255,255,255,0.10)',
+      borderRadius: 10,
+      padding: '10px 13px',
+      boxShadow: '0 12px 30px rgba(0,0,0,0.40)',
+      fontSize: 12,
+      lineHeight: 1.45,
+      minWidth: 210,
+      pointerEvents: 'none',
+    }}>
+      <div style={{ fontWeight: 700, color: '#f8fafc', marginBottom: 7, fontSize: 13 }}>
+        {r.sector}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', columnGap: 14, rowGap: 3 }}>
+        <span style={{ color: '#9ca3af' }}>% Confirmed</span>
+        <span style={{ color: '#f8fafc', fontWeight: 600, textAlign: 'right' }}>{r.pct_confirmed.toFixed(1)}%</span>
+
+        <span style={{ color: '#9ca3af' }}>Structural Rank</span>
+        <span style={{ color: '#f8fafc', fontWeight: 600, textAlign: 'right' }}>{r.structural_score.toFixed(3)}</span>
+
+        <span style={{ color: '#9ca3af' }}>Opp. Score</span>
+        <span style={{ color: '#f8fafc', fontWeight: 600, textAlign: 'right' }}>{r.opportunity_score.toFixed(3)}</span>
+
+        <span style={{ color: '#9ca3af' }}>Avg Risk-Adj Edge</span>
+        <span style={{ color: edgeColor, fontWeight: 600, textAlign: 'right' }}>
+          {r.avg_edge_pct > 0 ? '+' : ''}{r.avg_edge_pct.toFixed(1)}%
+        </span>
+
+        <span style={{ color: '#9ca3af' }}>Median Stop</span>
+        <span style={{ color: stopColor, fontWeight: 600, textAlign: 'right' }}>{r.median_stop_pct.toFixed(1)}%</span>
+
+        {r.tier2 > 0 && (
+          <>
+            <span style={{ color: '#9ca3af' }}>Tier 2</span>
+            <span style={{ color: '#fbbf24', fontWeight: 600, textAlign: 'right' }}>{r.tier2}</span>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Bar chart — % confirmed by sector with hover highlight + rich tooltip. */
 function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
+  const [activeIndex, setActiveIndex] = React.useState<number | null>(null)
   if (rows.length === 0) return null
   const sorted = [...rows].sort((a, b) => b.pct_confirmed - a.pct_confirmed)
 
   return (
-    <div className="h-44">
+    <div style={{ height: 200, overflow: 'visible' }}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={sorted} margin={{ top: 4, right: 4, bottom: 36, left: 0 }} barSize={18}>
+        <BarChart
+          data={sorted}
+          margin={{ top: 4, right: 4, bottom: 52, left: 0 }}
+          barSize={18}
+          onMouseMove={(state) => {
+            const idx = (state as { activeTooltipIndex?: number }).activeTooltipIndex
+            setActiveIndex(idx ?? null)
+          }}
+          onMouseLeave={() => setActiveIndex(null)}
+        >
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
           <XAxis
             dataKey="sector"
             tick={{ fontSize: 9, fill: '#9ca3af' }}
-            angle={-30}
+            angle={-28}
             textAnchor="end"
             interval={0}
+            tickFormatter={abbreviateSector}
           />
           <YAxis
             domain={[0, 100]}
@@ -441,16 +523,22 @@ function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
             width={32}
           />
           <RechartsTooltip
-            contentStyle={{ background: '#1c1c1e', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 11 }}
-            formatter={(v: number) => [`${v.toFixed(1)}%`, '% Confirmed']}
+            content={<SectorBreadthChartTooltip />}
+            wrapperStyle={{ zIndex: 9999, outline: 'none' }}
+            cursor={{ fill: 'rgba(255,255,255,0.03)' }}
           />
           <Bar dataKey="pct_confirmed" radius={[2, 2, 0, 0]}>
-            {sorted.map((r) => (
-              <Cell
-                key={r.sector}
-                fill={r.pct_confirmed > 60 ? '#2dd4bf' : r.pct_confirmed < 20 ? '#52525b' : '#6b7280'}
-              />
-            ))}
+            {sorted.map((r, idx) => {
+              const baseColor = r.pct_confirmed > 60 ? '#2dd4bf' : r.pct_confirmed < 20 ? '#52525b' : '#6b7280'
+              const dimmed = activeIndex !== null && activeIndex !== idx
+              return (
+                <Cell
+                  key={r.sector}
+                  fill={baseColor}
+                  opacity={dimmed ? 0.3 : 1}
+                />
+              )
+            })}
           </Bar>
         </BarChart>
       </ResponsiveContainer>
