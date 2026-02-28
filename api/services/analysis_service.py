@@ -6,9 +6,15 @@ core research_swarm agent orchestration.
 """
 
 from typing import Dict, Any
-from research_swarm.agents.manager.graph import analyze_swarm
 import asyncio
 import time
+
+# NOTE: research_swarm.agents.manager.graph is intentionally NOT imported at module
+# level. It pulls in the entire LangGraph/LangChain/agent stack (yfinance, pandas,
+# numpy, anthropic SDK, all sub-agents) which takes 15-40s to import cold.
+# Importing it at module level hangs uvicorn worker startup past Railway's 60s
+# healthcheck window, causing all healthcheck probes to return "service unavailable".
+# The lazy import below defers this cost to the first actual analysis request.
 
 async def run_stock_analysis(
     ticker: str,
@@ -35,6 +41,9 @@ async def run_stock_analysis(
     start_time = time.time()
 
     try:
+        # Lazy import — deferred from module level to avoid hanging worker startup.
+        from research_swarm.agents.manager.graph import analyze_swarm
+
         # analyze_swarm is synchronous (~4 minutes). Run it in a thread pool
         # so the asyncio event loop stays free to serve health checks and other
         # requests during the long analysis — prevents Railway 503s.
