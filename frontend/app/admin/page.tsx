@@ -11,10 +11,6 @@ import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
 import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
-import { EligibilityStressTestPanel } from '@/components/deployment/EligibilityStressTestPanel'
-import { EligibilityRollingSimPanel } from '@/components/deployment/EligibilityRollingSimPanel'
-import { OpportunityDistributionPanel } from '@/components/deployment/OpportunityDistributionPanel'
-import { ThresholdCalibrationPanel } from '@/components/deployment/ThresholdCalibrationPanel'
 import { Shield, AlertCircle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { apiClient } from '@/lib/api/client'
@@ -118,10 +114,6 @@ function AdminContent() {
 
           <TabsContent value="deployment">
             <StructuralDeploymentUpdate adminMode />
-            <EligibilityStressTestPanel />
-            <EligibilityRollingSimPanel />
-            <OpportunityDistributionPanel />
-            <ThresholdCalibrationPanel />
           </TabsContent>
         </Tabs>
       </main>

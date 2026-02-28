@@ -1,14 +1,18 @@
 'use client'
 
 import React from 'react'
-import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow, SectorLeadershipEntry, RotationSignalLeader, EligibilityDiagnostics } from '@/types/api'
+import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow, SectorLeadershipEntry, RotationSignalLeader, EligibilityDiagnostics, NearMissTicker } from '@/types/api'
 import { useDeploymentUpdate } from '@/lib/hooks/useDeploymentUpdate'
 import { useAdminDeploymentUpdate } from '@/lib/hooks/useAdminDeploymentUpdate'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Lock, TrendingUp, TrendingDown, Minus, ShieldCheck, ShieldOff, Activity } from 'lucide-react'
+import { Lock, TrendingUp, TrendingDown, Minus, ShieldCheck, ShieldOff, Activity, ChevronDown, X } from 'lucide-react'
 import Link from 'next/link'
+import { EligibilityStressTestPanel } from '@/components/deployment/EligibilityStressTestPanel'
+import { EligibilityRollingSimPanel } from '@/components/deployment/EligibilityRollingSimPanel'
+import { OpportunityDistributionPanel } from '@/components/deployment/OpportunityDistributionPanel'
+import { ThresholdCalibrationPanel } from '@/components/deployment/ThresholdCalibrationPanel'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
   Cell, ResponsiveContainer, CartesianGrid,
@@ -1281,6 +1285,429 @@ function EligibilityDiagnosticsSection({ diag }: { diag: EligibilityDiagnostics 
   )
 }
 
+// ── Layout primitives ──────────────────────────────────────────────────────────
+
+/** SSR-safe localStorage-backed state. */
+function useLocalStorage<T>(key: string, defaultVal: T): [T, (v: T) => void] {
+  const [val, setVal] = React.useState<T>(() => {
+    if (typeof window === 'undefined') return defaultVal
+    try {
+      const s = localStorage.getItem(key)
+      return s !== null ? (JSON.parse(s) as T) : defaultVal
+    } catch { return defaultVal }
+  })
+  const set = React.useCallback((v: T) => {
+    setVal(v)
+    try { localStorage.setItem(key, JSON.stringify(v)) } catch { /* ignore */ }
+  }, [key])
+  return [val, set]
+}
+
+/** Collapsible section with chevron toggle + optional badge. */
+function AccordionSection({
+  title, badge, isOpen, onToggle, children,
+}: {
+  title: string
+  badge?: React.ReactNode
+  isOpen: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-6 py-4 hover:bg-surface-elevated/20 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-sm font-semibold text-text-primary uppercase tracking-wider truncate">
+            {title}
+          </span>
+          {badge}
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 text-text-secondary transition-transform duration-200 shrink-0 ml-2 ${
+            isOpen ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+      {isOpen && (
+        <div className="px-6 pb-6 space-y-6">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Horizontal tab navigation strip. */
+function TabBar({
+  tabs, activeTab, onChange,
+}: {
+  tabs: { id: string; label: string }[]
+  activeTab: string
+  onChange: (id: string) => void
+}) {
+  return (
+    <div className="flex border-b border-surface-elevated overflow-x-auto -mx-0.5">
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          onClick={() => onChange(tab.id)}
+          className={`px-4 py-2.5 text-xs font-medium whitespace-nowrap transition-colors border-b-2 ${
+            activeTab === tab.id
+              ? 'border-teal-500 text-teal-400'
+              : 'border-transparent text-text-secondary hover:text-text-primary'
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Compact sticky strip visible while scrolling. */
+function StickyCapitalHeader({
+  gate, index, regime, diag, cacheLabel, ttlLabel, adminMode, onDrawerOpen,
+}: {
+  gate: boolean
+  index: number
+  regime: RegimeType
+  diag: EligibilityDiagnostics
+  cacheLabel: string
+  ttlLabel: string | null
+  adminMode: boolean
+  onDrawerOpen: () => void
+}) {
+  const t1 = diag.tier_counts[1] ?? 0
+  const t2 = diag.tier_counts[2] ?? 0
+  const t3 = diag.tier_counts[3] ?? 0
+  const regimeColor =
+    regime === 'Risk-Off'     ? 'text-zinc-400' :
+    regime === 'Transitional' ? 'text-amber-400' : 'text-teal-400'
+
+  return (
+    <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b border-surface-elevated px-4 sm:px-6 py-2">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        {/* Gate + Index + Regime */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          {gate
+            ? <ShieldCheck className="h-3.5 w-3.5 text-teal-400" />
+            : <ShieldOff   className="h-3.5 w-3.5 text-zinc-500" />
+          }
+          <span className={`text-xs font-bold ${gate ? 'text-teal-400' : 'text-zinc-500'}`}>
+            {gate ? 'OPEN' : 'CLOSED'}
+          </span>
+          <span className="text-zinc-700 select-none">·</span>
+          <span className="font-mono text-sm font-bold text-text-primary">{index}</span>
+          <span className="text-xs text-text-secondary hidden sm:inline">MDI</span>
+          <span className="text-zinc-700 select-none">·</span>
+          <span className={`text-xs font-semibold ${regimeColor}`}>{regime}</span>
+        </div>
+
+        {/* Pipeline + tiers */}
+        <div className="flex items-center gap-1.5 text-xs font-mono shrink-0">
+          <span className="text-text-secondary">{diag.evaluated_count}</span>
+          <span className="text-zinc-600">›</span>
+          <span className="text-teal-400">{diag.confirmed_count}</span>
+          <span className="text-zinc-700">·</span>
+          <span className={t1 > 0 ? 'text-emerald-400' : 'text-zinc-600'}>T1:{t1}</span>
+          <span className={t2 > 0 ? 'text-amber-400'  : 'text-zinc-600'}>T2:{t2}</span>
+          <span className={t3 > 0 ? 'text-zinc-400'   : 'text-zinc-700'}>T3:{t3}</span>
+        </div>
+
+        {/* Timer + drawer */}
+        <div className="flex items-center gap-2.5 ml-auto">
+          <span className="text-xs text-text-secondary opacity-60 hidden sm:inline">{cacheLabel}</span>
+          {ttlLabel && <span className="text-xs text-text-secondary opacity-40 hidden md:inline">{ttlLabel}</span>}
+          {adminMode && (
+            <button
+              onClick={onDrawerOpen}
+              className="text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-700/60 rounded px-2 py-1 transition-colors"
+            >
+              Debug ▸
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Section B: T1 table + T2 near-miss (expanded) + T3 watchlist (collapsed). */
+function TierNearMissRows({ items }: { items: NearMissTicker[] }) {
+  if (items.length === 0) return null
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-surface-elevated">
+            <Th>Tier</Th>
+            <Th>Ticker</Th>
+            <Th>Failing Rule</Th>
+            <Th>Metric vs Threshold</Th>
+            <Th>Suggested Focus</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((nm) => {
+            const primaryRule = nm.failing_rules[0]
+            const extraCount  = nm.failing_rules.length - 1
+            return (
+              <tr key={nm.ticker} className="border-b border-surface-elevated/50 hover:bg-surface-elevated/30 transition-colors">
+                <td className="py-2 pr-3 whitespace-nowrap"><TierBadge tier={nm.tier} /></td>
+                <td className="py-2 pr-4 font-mono font-semibold text-text-primary">{nm.ticker}</td>
+                <td className="py-2 pr-4 text-text-secondary whitespace-nowrap">
+                  {RULE_LABELS[primaryRule] ?? primaryRule}
+                  {extraCount > 0 && <span className="ml-1 text-zinc-500">+{extraCount}</span>}
+                </td>
+                <td className="py-2 pr-4 text-text-secondary font-mono whitespace-nowrap">
+                  {formatGap(primaryRule, nm.metric_values)}
+                </td>
+                <td className="py-2 pr-4 text-text-secondary italic whitespace-nowrap">
+                  {nm.suggested_action}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function TieredNamesSection({
+  tickers, nearMisses, noDeployableMessage,
+}: {
+  tickers: DeployableTickerItem[]
+  nearMisses: NearMissTicker[]
+  noDeployableMessage: string | null
+}) {
+  const [t2Open, setT2Open] = React.useState(true)
+  const [t3Open, setT3Open] = React.useState(false)
+  const t2Items = nearMisses.filter((nm) => nm.tier === 2)
+  const t3Items = nearMisses.filter((nm) => nm.tier === 3)
+
+  return (
+    <div className="space-y-5">
+      {/* T1 */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+          Tier 1 — Confirmed Deployable
+          <span className={`ml-2 font-mono font-bold ${tickers.length > 0 ? 'text-emerald-400' : 'text-zinc-600'}`}>
+            {tickers.length}
+          </span>
+        </p>
+        <DeployableTickersGrid tickers={tickers} noDeployableMessage={noDeployableMessage} />
+      </div>
+
+      {/* T2 */}
+      {t2Items.length > 0 && (
+        <div className="space-y-2">
+          <button
+            onClick={() => setT2Open(!t2Open)}
+            className="flex items-center gap-2 text-xs text-text-secondary hover:text-text-primary transition-colors"
+          >
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${t2Open ? 'rotate-180' : ''}`} />
+            <span className="font-semibold uppercase tracking-wide">Tier 2 — Near Miss</span>
+            <span className="font-mono font-bold text-amber-400">{t2Items.length}</span>
+            <span className="opacity-50">(1 rule away)</span>
+          </button>
+          {t2Open && <TierNearMissRows items={t2Items} />}
+        </div>
+      )}
+
+      {/* T3 */}
+      {t3Items.length > 0 && (
+        <div className="space-y-2">
+          <button
+            onClick={() => setT3Open(!t3Open)}
+            className="flex items-center gap-2 text-xs text-text-secondary hover:text-text-primary transition-colors"
+          >
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${t3Open ? 'rotate-180' : ''}`} />
+            <span className="font-semibold uppercase tracking-wide">Tier 3 — Watchlist</span>
+            <span className="font-mono font-bold text-zinc-400">{t3Items.length}</span>
+            <span className="opacity-50">(2 rules away)</span>
+          </button>
+          {t3Open && <TierNearMissRows items={t3Items} />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Section C: tabbed diagnostics. Lazy-renders tabs until first open. */
+function DiagnosticsTabContent({
+  diag, sectorRows, sectorLeadership, rotationSignalLeaders, hasSectorHistory,
+  coverageLabel, adminMode, activeTab, onTabChange,
+}: {
+  diag: EligibilityDiagnostics
+  sectorRows: SectorBreadthRow[]
+  sectorLeadership: SectorLeadershipEntry[]
+  rotationSignalLeaders: RotationSignalLeader[]
+  hasSectorHistory: boolean
+  coverageLabel?: string
+  adminMode: boolean
+  activeTab: string
+  onTabChange: (id: string) => void
+}) {
+  // Track which tabs have ever been opened so we keep their state alive
+  const [mounted, setMounted] = React.useState<Record<string, boolean>>({
+    [activeTab]: true,
+  })
+  React.useEffect(() => {
+    setMounted((prev) => ({ ...prev, [activeTab]: true }))
+  }, [activeTab])
+
+  const baseTabs = [
+    { id: 'why-not',        label: 'Why Not Eligible' },
+    { id: 'sector-breadth', label: 'Sector Breadth' },
+  ]
+  const adminTabs = adminMode ? [
+    { id: 'stress-test',   label: 'Stress Test' },
+    { id: 'distributions', label: 'Distributions' },
+    { id: 'calibration',   label: 'Calibration' },
+  ] : []
+  const tabs = [...baseTabs, ...adminTabs]
+  const safeActive = tabs.find((t) => t.id === activeTab) ? activeTab : 'why-not'
+
+  return (
+    <div className="space-y-4">
+      <TabBar tabs={tabs} activeTab={safeActive} onChange={onTabChange} />
+
+      {/* Why Not Eligible */}
+      <div className={safeActive === 'why-not' ? '' : 'hidden'}>
+        {mounted['why-not'] && (
+          <div className="space-y-5 pt-1">
+            <div className="rounded-md border border-zinc-700/40 bg-zinc-900/30 px-4 py-3">
+              <p className="text-xs text-text-secondary leading-relaxed italic">
+                {ELIGIBILITY_CONTEXT_NOTE}
+              </p>
+            </div>
+            <EligibilityRuleList />
+            {diag.confirmed_count > 0 && diag.eligible_count < diag.confirmed_count && (
+              <FailureReasonBreakdown diag={diag} />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Sector Breadth */}
+      <div className={safeActive === 'sector-breadth' ? '' : 'hidden'}>
+        {mounted['sector-breadth'] && (
+          <div className="pt-1">
+            <SectorBreadthTable
+              rows={sectorRows}
+              leadership={sectorLeadership}
+              rotationSignalLeaders={rotationSignalLeaders}
+              hasSectorHistory={hasSectorHistory}
+              coverageLabel={coverageLabel}
+              adminMode={adminMode}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Stress Test (admin, lazy) */}
+      {adminMode && (
+        <div className={safeActive === 'stress-test' ? '' : 'hidden'}>
+          {mounted['stress-test'] && (
+            <div className="space-y-6 pt-1">
+              <EligibilityStressTestPanel />
+              <EligibilityRollingSimPanel />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Distributions (admin, lazy) */}
+      {adminMode && (
+        <div className={safeActive === 'distributions' ? '' : 'hidden'}>
+          {mounted['distributions'] && (
+            <div className="pt-1">
+              <OpportunityDistributionPanel />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Calibration (admin, lazy) */}
+      {adminMode && (
+        <div className={safeActive === 'calibration' ? '' : 'hidden'}>
+          {mounted['calibration'] && (
+            <div className="pt-1">
+              <ThresholdCalibrationPanel />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Admin-only slide-over with snapshot metadata + pipeline integrity. */
+function DiagnosticsDrawer({
+  isOpen, onClose, data, deployIndex, regime,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  data: DeploymentUpdateResponse
+  deployIndex: number
+  regime: RegimeType
+}) {
+  if (!isOpen) return null
+  const regimeCls =
+    regime === 'Risk-On'      ? 'text-teal-400' :
+    regime === 'Transitional' ? 'text-amber-400' : 'text-zinc-400'
+
+  return (
+    <>
+      <div className="fixed inset-0 z-30 bg-black/40" onClick={onClose} />
+      <div className="fixed right-0 top-0 h-full w-72 z-40 bg-[#0d1117] border-l border-surface-elevated overflow-y-auto shadow-2xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-surface-elevated">
+          <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">Snapshot Debug</h3>
+          <button onClick={onClose} className="text-text-secondary hover:text-text-primary transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-5 text-xs">
+          <section className="space-y-2">
+            <h4 className="font-semibold text-text-secondary uppercase tracking-wide">Snapshot Metadata</h4>
+            <dl className="space-y-1.5">
+              {([
+                ['Snapshot ID', data.snapshot_id.slice(0, 13) + '…'],
+                ['Model',       data.model_version],
+                ['Ruleset',     data.ruleset_version],
+                ['Cache Age',   `${data.cache_age_hours.toFixed(1)}h`],
+              ] as [string, string][]).map(([lbl, val]) => (
+                <div key={lbl} className="flex justify-between gap-4">
+                  <dt className="text-text-secondary">{lbl}</dt>
+                  <dd className="font-mono text-text-primary">{val}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+          <section className="space-y-2">
+            <h4 className="font-semibold text-text-secondary uppercase tracking-wide">Pipeline Integrity</h4>
+            <dl className="space-y-1.5">
+              <div className="flex justify-between"><dt className="text-text-secondary">Universe</dt><dd className="font-mono text-text-primary">{data.universe_size}</dd></div>
+              <div className="flex justify-between"><dt className="text-text-secondary">Confirmed</dt><dd className="font-mono text-teal-400">{data.confirmed_count}</dd></div>
+              <div className="flex justify-between"><dt className="text-text-secondary">Eligible</dt><dd className="font-mono text-emerald-400">{data.eligible_count}</dd></div>
+              <div className="flex justify-between"><dt className="text-text-secondary">MDI</dt><dd className="font-mono text-text-primary">{deployIndex}</dd></div>
+              <div className="flex justify-between"><dt className="text-text-secondary">Regime</dt><dd className={`font-mono ${regimeCls}`}>{regime}</dd></div>
+            </dl>
+          </section>
+          <section className="space-y-2">
+            <h4 className="font-semibold text-text-secondary uppercase tracking-wide">Data Coverage</h4>
+            <p className="text-text-secondary">{data.sector_coverage_label}</p>
+          </section>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ── Upgrade card for locked tiers ─────────────────────────────────────────────
 
 function LockedCard() {
@@ -1334,14 +1761,15 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
   const adminResult = useAdminDeploymentUpdate(adminMode)
   const { data, isLoading, error } = adminMode ? adminResult : userResult
 
-  // Show locked card for non-entitled users once entitlements are resolved
-  if (!adminMode && entitlements && !hasAccess) {
-    return <LockedCard />
-  }
+  // ── Persistent accordion + tab state ─────────────────────────────────────────
+  const [overviewOpen, setOverviewOpen] = useLocalStorage('deploy_overview', true)
+  const [namesOpen,    setNamesOpen]    = useLocalStorage('deploy_names',    true)
+  const [diagOpen,     setDiagOpen]     = useLocalStorage('deploy_diag',     false)
+  const [diagTab,      setDiagTab]      = useLocalStorage('deploy_diag_tab', 'why-not')
+  const [drawerOpen,   setDrawerOpen]   = React.useState(false)
 
-  if ((!adminMode && !entitlements) || isLoading) {
-    return <LoadingSkeleton />
-  }
+  if (!adminMode && entitlements && !hasAccess) return <LockedCard />
+  if ((!adminMode && !entitlements) || isLoading)  return <LoadingSkeleton />
 
   if (error) {
     return (
@@ -1356,12 +1784,12 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
 
   if (!data) return <LoadingSkeleton />
 
-  // ── Compute derived presentation values ──────────────────────────────────────
-  const avgBreadthPct  = getAvgBreadthPct(data.sector_breadth)
-  const deployIndex    = getDeployabilityIndex(data.snapshot, avgBreadthPct)
-  const regime         = getRegime(deployIndex)
+  // ── Derived values ────────────────────────────────────────────────────────────
+  const avgBreadthPct   = getAvgBreadthPct(data.sector_breadth)
+  const deployIndex     = getDeployabilityIndex(data.snapshot, avgBreadthPct)
+  const regime          = getRegime(deployIndex)
   const exposureCeiling = getRegimeExposureCeiling(regime)
-  const gateOpen       = data.snapshot.pct_universe_confirmed > 0
+  const gateOpen        = data.snapshot.pct_universe_confirmed > 0
 
   const cacheLabel = data.cache_age_hours < 0.1
     ? 'Generated just now'
@@ -1369,89 +1797,129 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
 
   const ttlLabel = (() => {
     try {
-      const expires = new Date(data.ttl_expires_at)
+      const expires    = new Date(data.ttl_expires_at)
       const hoursUntil = (expires.getTime() - Date.now()) / 3_600_000
       return hoursUntil > 0 ? `Refreshes in ${hoursUntil.toFixed(1)}h` : 'Refresh pending'
-    } catch {
-      return null
-    }
+    } catch { return null }
   })()
 
+  const tc = data.eligibility_diagnostics.tier_counts
+  const t1 = tc[1] ?? 0
+  const t2 = tc[2] ?? 0
+  const t3 = tc[3] ?? 0
+
   return (
-    <Card className="bg-surface border-surface-elevated">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <CardTitle className="text-base font-semibold text-text-primary">
-              Capital Control Panel
-              {adminMode && (
-                <span className="ml-2 text-xs font-normal text-text-secondary border border-surface-elevated rounded px-1.5 py-0.5">
-                  Platform-Wide
-                </span>
-              )}
-            </CardTitle>
-            <p className="text-xs text-text-secondary mt-0.5">
-              {adminMode ? 'All users · Structural Deployment Update' : 'Structural Deployment Update'}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-text-secondary">{cacheLabel}</span>
-            {ttlLabel && (
-              <span className="text-xs text-text-secondary opacity-60">{ttlLabel}</span>
+    <div className="relative">
+      {/* ── Sticky summary strip ─────────────────────────────────────────────── */}
+      <StickyCapitalHeader
+        gate={gateOpen}
+        index={deployIndex}
+        regime={regime}
+        diag={data.eligibility_diagnostics}
+        cacheLabel={cacheLabel}
+        ttlLabel={ttlLabel}
+        adminMode={adminMode}
+        onDrawerOpen={() => setDrawerOpen(true)}
+      />
+
+      {/* ── Main card with 3 accordion sections ──────────────────────────────── */}
+      <Card className="bg-surface border-surface-elevated rounded-t-none border-t-0">
+        <CardHeader className="pb-2 pt-4">
+          <CardTitle className="text-base font-semibold text-text-primary">
+            Capital Control Panel
+            {adminMode && (
+              <span className="ml-2 text-xs font-normal text-text-secondary border border-surface-elevated rounded px-1.5 py-0.5">
+                Platform-Wide
+              </span>
             )}
-          </div>
-        </div>
-      </CardHeader>
+          </CardTitle>
+          <p className="text-xs text-text-secondary">
+            {adminMode ? 'All users · Structural Deployment Update' : 'Structural Deployment Update'}
+          </p>
+        </CardHeader>
 
-      <CardContent className="space-y-8">
-        {/* Section 1 — Capital Regime Status (Gate + Index + Meter + Funnel + Metrics) */}
-        <CapitalRegimeStatus
-          snapshot={data.snapshot}
-          index={deployIndex}
+        <CardContent className="p-0 divide-y divide-surface-elevated">
+
+          {/* ── Section A: Overview ─────────────────────────────────────────── */}
+          <AccordionSection
+            title="Overview"
+            badge={<PostureBadge posture={data.snapshot.capital_posture} />}
+            isOpen={overviewOpen}
+            onToggle={() => setOverviewOpen(!overviewOpen)}
+          >
+            <CapitalRegimeStatus
+              snapshot={data.snapshot}
+              index={deployIndex}
+              regime={regime}
+              gateOpen={gateOpen}
+              diag={data.eligibility_diagnostics}
+            />
+            <div className="border-t border-surface-elevated/60 pt-5">
+              <RegimeExposureGuidance
+                regime={regime}
+                ceiling={exposureCeiling}
+                tier_counts={data.eligibility_diagnostics.tier_counts}
+              />
+            </div>
+            <div className="border-t border-surface-elevated/60 pt-5">
+              <AllocationEngineStatus gateOpen={gateOpen} />
+            </div>
+          </AccordionSection>
+
+          {/* ── Section B: Eligible Names ────────────────────────────────────── */}
+          <AccordionSection
+            title="Eligible Names"
+            badge={
+              <div className="flex items-center gap-2 font-mono text-xs">
+                <span className={t1 > 0 ? 'text-emerald-400' : 'text-zinc-600'}>T1:{t1}</span>
+                <span className={t2 > 0 ? 'text-amber-400'  : 'text-zinc-600'}>T2:{t2}</span>
+                <span className={t3 > 0 ? 'text-zinc-400'   : 'text-zinc-700'}>T3:{t3}</span>
+              </div>
+            }
+            isOpen={namesOpen}
+            onToggle={() => setNamesOpen(!namesOpen)}
+          >
+            <TieredNamesSection
+              tickers={data.deployable_tickers}
+              nearMisses={data.eligibility_diagnostics.near_misses}
+              noDeployableMessage={data.no_deployable_message}
+            />
+          </AccordionSection>
+
+          {/* ── Section C: Diagnostics ───────────────────────────────────────── */}
+          <AccordionSection
+            title="Diagnostics"
+            isOpen={diagOpen}
+            onToggle={() => setDiagOpen(!diagOpen)}
+          >
+            {diagOpen && (
+              <DiagnosticsTabContent
+                diag={data.eligibility_diagnostics}
+                sectorRows={data.sector_breadth}
+                sectorLeadership={data.sector_leadership ?? []}
+                rotationSignalLeaders={data.rotation_signal_leaders ?? []}
+                hasSectorHistory={data.has_sector_history ?? false}
+                coverageLabel={data.sector_coverage_label}
+                adminMode={adminMode}
+                activeTab={diagTab}
+                onTabChange={setDiagTab}
+              />
+            )}
+          </AccordionSection>
+
+        </CardContent>
+      </Card>
+
+      {/* ── Admin debug drawer ────────────────────────────────────────────────── */}
+      {adminMode && (
+        <DiagnosticsDrawer
+          isOpen={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          data={data}
+          deployIndex={deployIndex}
           regime={regime}
-          gateOpen={gateOpen}
-          diag={data.eligibility_diagnostics}
         />
-
-        <div className="border-t border-surface-elevated" />
-
-        {/* Section 2 — Confirmed Deployable Names */}
-        <DeployableTickersGrid
-          tickers={data.deployable_tickers}
-          noDeployableMessage={data.no_deployable_message}
-        />
-
-        <div className="border-t border-surface-elevated" />
-
-        {/* Section 2b — Eligibility Diagnostics (funnel breakdown + near misses) */}
-        <EligibilityDiagnosticsSection diag={data.eligibility_diagnostics} />
-
-        <div className="border-t border-surface-elevated" />
-
-        {/* Section 3 — Sector Breadth Overview */}
-        <SectorBreadthTable
-          rows={data.sector_breadth}
-          leadership={data.sector_leadership ?? []}
-          rotationSignalLeaders={data.rotation_signal_leaders ?? []}
-          hasSectorHistory={data.has_sector_history ?? false}
-          coverageLabel={data.sector_coverage_label}
-          adminMode={adminMode}
-        />
-
-        <div className="border-t border-surface-elevated" />
-
-        {/* Section 4 — Capital Deployment Guidance (regime-based) */}
-        <RegimeExposureGuidance
-          regime={regime}
-          ceiling={exposureCeiling}
-          tier_counts={data.eligibility_diagnostics.tier_counts}
-        />
-
-        <div className="border-t border-surface-elevated" />
-
-        {/* Section 5 — Allocation Engine Status */}
-        <AllocationEngineStatus gateOpen={gateOpen} />
-      </CardContent>
-    </Card>
+      )}
+    </div>
   )
 }
