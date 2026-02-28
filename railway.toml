@@ -2,7 +2,7 @@
 builder = "nixpacks"
 # Generate the Prisma client binary at build time (no DB connection needed).
 # Database migrations are applied at start time via start.sh.
-buildCommand = "prisma generate --schema=db/schema.prisma"
+buildCommand = "python -m prisma generate --schema=db/schema.prisma"
 
 [deploy]
 # start.sh: sets LD_LIBRARY_PATH (WeasyPrint) then execs uvicorn directly.

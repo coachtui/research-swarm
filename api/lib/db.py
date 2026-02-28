@@ -6,13 +6,12 @@ for interacting with the Neon Postgres database.
 """
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 from contextlib import asynccontextmanager
 import json
 import logging
 
-if TYPE_CHECKING:
-    from prisma import Prisma
+from prisma import Prisma  # top-level import — avoids sync import inside async background task
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +23,6 @@ async def connect_db() -> None:
     Connect the global Prisma singleton.  Called ONCE at FastAPI startup via lifespan.
     Safe to call in non-lifespan contexts (CLI, tests) — idempotent if already connected.
     """
-    from prisma import Prisma
     global _db_client
     if _db_client is not None and _db_client.is_connected():
         return
