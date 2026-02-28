@@ -1259,6 +1259,47 @@ def _count_eligible_with_params(
     return total
 
 
+def _count_tier2_with_params(
+    confirmed_rows: List[Any],
+    all_vol_adj_scores: List[float],
+    *,
+    delta_mode: str = "positive",
+    ev_min: float = 60.0,
+    stop_max: float = 25.0,
+) -> int:
+    """
+    Count confirmed tickers that fail exactly 1 eligibility gate under the given params.
+    Regime stability is always hard-required — a regime failure counts as one failing rule.
+    """
+    total = 0
+    for r in confirmed_rows:
+        if delta_mode == "positive":
+            delta_pass = r.allocationDelta30d is not None and r.allocationDelta30d > 0
+        elif delta_mode == "nonneg":
+            delta_pass = r.allocationDelta30d is not None and r.allocationDelta30d >= 0
+        else:
+            delta_pass = True
+
+        vol_pct = (
+            _percentile_mid_rank(r.volAdjEvScore, all_vol_adj_scores) or 0.0
+            if r.volAdjEvScore is not None and all_vol_adj_scores
+            else 0.0
+        )
+        ev_pass = vol_pct >= ev_min
+        stop_pass = r.stopProbability <= stop_max
+        regime_pass = r.regimeStable
+
+        n_failing = sum(1 for p in [delta_pass, ev_pass, stop_pass, regime_pass] if not p)
+        if n_failing == 1:
+            total += 1
+    return total
+
+
+# ── In-memory calibration notes (non-persistent; cleared on restart) ───────────
+_calibration_notes: List[dict] = []
+_MAX_CALIBRATION_NOTES = 50
+
+
 def _run_stress_simulation(
     cached_rows: List[Any],
     all_vol_adj_scores: List[float],
@@ -1959,6 +2000,52 @@ class OpportunityDistributionResponse(BaseModel):
     warnings: List[DataIntegrityWarning]
 
 
+# ── Calibration models ────────────────────────────────────────────────────────
+
+
+class ThresholdImpliedValues(BaseModel):
+    """Actual distribution values at a given percentile gate."""
+    percentile_gate: float
+    risk_adj_edge_pct: Optional[float]   # RA edge value at the Pth percentile of the RA-edge dist
+    edge_pct: Optional[float]            # raw edge value at the Pth percentile of the edge dist
+    stop_prob: Optional[float]           # stop_prob value at the Pth percentile of the stop dist
+
+
+class CalibrationSensitivityRow(BaseModel):
+    percentile_gate: float
+    is_current: bool          # True when this row matches the live EV gate (60.0)
+    tier1_eligible: int
+    tier2_eligible: int
+
+
+class TargetHitRateRow(BaseModel):
+    label: str                # e.g. "Tier 1: 1–3 names"
+    tier: int
+    min_count: int
+    max_count: int
+    suggested_gate: Optional[float]   # percentile gate that yields count in [min, max]; None = unachievable
+
+
+class CalibrationNote(BaseModel):
+    id: str
+    text: str
+    saved_at: str
+
+
+class CalibrationNoteSaveRequest(BaseModel):
+    text: str
+
+
+class ThresholdCalibrationResponse(BaseModel):
+    snapshot_id: str
+    generated_at: str
+    universe_size: int
+    confirmed_count: int
+    implied_values: ThresholdImpliedValues
+    sensitivity_table: List[CalibrationSensitivityRow]
+    target_hit_rates: List[TargetHitRateRow]
+
+
 # ── Opportunity Distribution cache ────────────────────────────────────────────
 
 _dist_cache: Dict[str, Tuple[str, OpportunityDistributionResponse]] = {}
@@ -2251,3 +2338,234 @@ async def get_opportunity_distribution(
     except Exception as exc:
         logger.exception("Opportunity distribution failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to build opportunity distribution.")
+
+
+# ── Threshold Calibration endpoint (admin-only) ────────────────────────────────
+
+_TARGET_HIT_RATE_SPECS = [
+    # (label, tier, min_count, max_count)
+    ("Tier 1: 1–3 names",  1, 1,  3),
+    ("Tier 1: 4–7 names",  1, 4,  7),
+    ("Tier 2: 5–12 names", 2, 5,  12),
+    ("Tier 2: 13–20 names", 2, 13, 20),
+]
+
+_LIVE_EV_GATE = 60.0   # current production threshold — must match _RULE_META
+
+
+def _find_gate_for_target(
+    confirmed_rows: List[Any],
+    all_vol_adj_scores: List[float],
+    tier: int,
+    min_count: int,
+    max_count: int,
+) -> Optional[float]:
+    """
+    Binary-ish search: scan EV gates from 30→85 in steps of 1.
+    Return the first gate where count falls in [min_count, max_count].
+    Lower gates → more permissive → higher counts, so we scan ascending
+    to find the tightest gate that still hits the target band.
+    """
+    best_gate: Optional[float] = None
+    for gate_int in range(30, 86):
+        gate = float(gate_int)
+        if tier == 1:
+            count = _count_eligible_with_params(
+                confirmed_rows, all_vol_adj_scores, ev_min=gate
+            )
+        else:
+            count = _count_tier2_with_params(
+                confirmed_rows, all_vol_adj_scores, ev_min=gate
+            )
+        if min_count <= count <= max_count:
+            best_gate = gate  # keep scanning; last hit = tightest gate in range
+    return best_gate
+
+
+@router.get("/deployment/calibration/admin", response_model=ThresholdCalibrationResponse)
+async def get_threshold_calibration(
+    percentile_gate: float = 60.0,
+    _admin: User = Depends(require_admin),
+):
+    """
+    Threshold Calibration — Admin Only.
+
+    Given a percentile_gate (default = 60), returns:
+      • implied_values: the actual distribution values at that percentile
+        (risk_adj_edge_pct, edge_pct, stop_prob)
+      • sensitivity_table: T1 + T2 eligible counts at p55, p60, p65, p70
+        (all other rules held fixed; delta_mode=positive, stop_max=25)
+      • target_hit_rates: which percentile gate yields common target ranges
+        (e.g. "Tier 1: 1–3 names")
+
+    READ-ONLY — no DB writes. Uses same snapshot cache as the distribution endpoint.
+    """
+    if not (40.0 <= percentile_gate <= 85.0):
+        raise HTTPException(status_code=422, detail="percentile_gate must be between 40 and 85")
+
+    db = await get_db()
+    try:
+        now_utc = datetime.now(timezone.utc)
+        current_bucket = _snapshot_bucket(now_utc)
+        # ── Load rows (trigger build if cache is cold) ─────────────────────────
+        rows = await db.deploymentmetricscache.find_many(
+            where={
+                "userId": _ADMIN_SENTINEL,
+                "snapshotBucket": current_bucket,
+                "modelVersion": MODEL_VERSION,
+            },
+            order={"ticker": "asc"},
+        )
+        if not rows:
+            await _build_deployment_update(_ADMIN_SENTINEL, db, admin_mode=True)
+            rows = await db.deploymentmetricscache.find_many(
+                where={
+                    "userId": _ADMIN_SENTINEL,
+                    "snapshotBucket": current_bucket,
+                    "modelVersion": MODEL_VERSION,
+                },
+                order={"ticker": "asc"},
+            )
+
+        if not rows:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "no_universe_data",
+                    "message": "No universe data available. Run at least one analysis first.",
+                },
+            )
+
+        snapshot_id = rows[0].snapshotId
+        universe_size = len(rows)
+        confirmed_rows = [r for r in rows if r.confirmationScore >= 4]
+        confirmed_count = len(confirmed_rows)
+        all_vol_adj_scores = [r.volAdjEvScore for r in rows if r.volAdjEvScore is not None]
+
+        # ── Build distribution arrays ──────────────────────────────────────────
+        edge_pct_vals: List[float] = []
+        stop_prob_vals: List[float] = []
+        risk_adj_vals: List[float] = []
+
+        for r in rows:
+            stop_prob_vals.append(r.stopProbability)
+            if r.evRatio is not None:
+                ep = (r.evRatio - 1.0) * 100.0
+                stop_frac = max(0.0, min(1.0, r.stopProbability / 100.0))
+                edge_pct_vals.append(ep)
+                risk_adj_vals.append(ep * (1.0 - stop_frac))
+
+        # ── Implied values at the requested percentile gate ────────────────────
+        implied = ThresholdImpliedValues(
+            percentile_gate=percentile_gate,
+            risk_adj_edge_pct=_pct_value(risk_adj_vals, percentile_gate),
+            edge_pct=_pct_value(edge_pct_vals, percentile_gate),
+            stop_prob=_pct_value(stop_prob_vals, percentile_gate),
+        )
+
+        # ── Sensitivity table: p55 / p60 / p65 / p70 ─────────────────────────
+        sensitivity: List[CalibrationSensitivityRow] = []
+        for gate in [55.0, 60.0, 65.0, 70.0]:
+            t1 = _count_eligible_with_params(
+                confirmed_rows, all_vol_adj_scores, ev_min=gate
+            )
+            t2 = _count_tier2_with_params(
+                confirmed_rows, all_vol_adj_scores, ev_min=gate
+            )
+            sensitivity.append(CalibrationSensitivityRow(
+                percentile_gate=gate,
+                is_current=gate == _LIVE_EV_GATE,
+                tier1_eligible=t1,
+                tier2_eligible=t2,
+            ))
+
+        # ── Target hit rate guidance ───────────────────────────────────────────
+        target_rows: List[TargetHitRateRow] = []
+        for label, tier, min_c, max_c in _TARGET_HIT_RATE_SPECS:
+            suggested = _find_gate_for_target(
+                confirmed_rows, all_vol_adj_scores, tier, min_c, max_c
+            )
+            target_rows.append(TargetHitRateRow(
+                label=label,
+                tier=tier,
+                min_count=min_c,
+                max_count=max_c,
+                suggested_gate=suggested,
+            ))
+
+        logger.info(
+            "Calibration built — universe=%d, confirmed=%d, gate=%.0f, implied_ra=%.2f",
+            universe_size,
+            confirmed_count,
+            percentile_gate,
+            implied.risk_adj_edge_pct or 0.0,
+        )
+        return ThresholdCalibrationResponse(
+            snapshot_id=snapshot_id,
+            generated_at=now_utc.isoformat(),
+            universe_size=universe_size,
+            confirmed_count=confirmed_count,
+            implied_values=implied,
+            sensitivity_table=sensitivity,
+            target_hit_rates=target_rows,
+        )
+
+    except HTTPException:
+        raise
+    except _TableNotFoundError as exc:
+        logger.error("deployment_metrics_cache missing for calibration: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "deployment_cache_not_migrated",
+                "message": "Run: prisma migrate deploy --schema=db/schema.prisma",
+            },
+        )
+    except Exception as exc:
+        logger.exception("Calibration failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to build threshold calibration.")
+
+
+# ── Calibration notes (admin-only, non-persistent) ────────────────────────────
+
+
+class _NoteListResponse(BaseModel):
+    notes: List[CalibrationNote]
+
+
+@router.post("/deployment/calibration/notes/admin", response_model=CalibrationNote)
+async def save_calibration_note(
+    body: CalibrationNoteSaveRequest,
+    _admin: User = Depends(require_admin),
+):
+    """
+    Save an operator calibration note (in-memory; cleared on restart).
+    Max 50 notes stored — oldest evicted when limit is reached.
+    """
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Note text must not be empty.")
+    if len(text) > 500:
+        raise HTTPException(status_code=422, detail="Note text must be ≤ 500 characters.")
+
+    import uuid as _uuid
+    note = CalibrationNote(
+        id=str(_uuid.uuid4())[:8],
+        text=text,
+        saved_at=datetime.now(timezone.utc).isoformat(),
+    )
+    _calibration_notes.append(note.model_dump())
+    if len(_calibration_notes) > _MAX_CALIBRATION_NOTES:
+        _calibration_notes.pop(0)
+    logger.info("Calibration note saved (id=%s)", note.id)
+    return note
+
+
+@router.get("/deployment/calibration/notes/admin", response_model=_NoteListResponse)
+async def get_calibration_notes(
+    _admin: User = Depends(require_admin),
+):
+    """Return all stored calibration notes (most recent first)."""
+    return _NoteListResponse(
+        notes=[CalibrationNote(**n) for n in reversed(_calibration_notes)]
+    )

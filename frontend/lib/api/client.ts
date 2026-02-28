@@ -24,6 +24,9 @@ import type {
   EligibilityStressTestResponse,
   EligibilityRollingSimResponse,
   OpportunityDistributionResponse,
+  ThresholdCalibrationResponse,
+  CalibrationNote,
+  CalibrationNoteListResponse,
 } from '@/types/api'
 
 class ApiClient {
@@ -378,6 +381,21 @@ class ApiClient {
 
   async getOpportunityDistribution(): Promise<OpportunityDistributionResponse> {
     return this.request('/api/deployment/opportunity-distribution/admin')
+  }
+
+  async getCalibration(percentileGate = 60): Promise<ThresholdCalibrationResponse> {
+    return this.request(`/api/deployment/calibration/admin?percentile_gate=${percentileGate}`)
+  }
+
+  async saveCalibrationNote(text: string): Promise<CalibrationNote> {
+    return this.request('/api/deployment/calibration/notes/admin', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    })
+  }
+
+  async getCalibrationNotes(): Promise<CalibrationNoteListResponse> {
+    return this.request('/api/deployment/calibration/notes/admin')
   }
 }
 

@@ -1218,3 +1218,52 @@ export interface OpportunityDistributionResponse {
   summary: DistributionSummaryStats
   warnings: DataIntegrityWarning[]
 }
+
+// ── Threshold Calibration ──────────────────────────────────────────────────────
+
+export interface ThresholdImpliedValues {
+  percentile_gate: number
+  /** P-th percentile of the risk-adjusted edge distribution */
+  risk_adj_edge_pct: number | null
+  /** P-th percentile of the raw edge distribution */
+  edge_pct: number | null
+  /** P-th percentile of the stop-probability distribution */
+  stop_prob: number | null
+}
+
+export interface CalibrationSensitivityRow {
+  percentile_gate: number
+  /** True when this row matches the live production EV gate (60.0) */
+  is_current: boolean
+  tier1_eligible: number
+  tier2_eligible: number
+}
+
+export interface TargetHitRateRow {
+  label: string
+  tier: number
+  min_count: number
+  max_count: number
+  /** Percentile gate that yields a count in [min_count, max_count]; null = unachievable */
+  suggested_gate: number | null
+}
+
+export interface CalibrationNote {
+  id: string
+  text: string
+  saved_at: string
+}
+
+export interface ThresholdCalibrationResponse {
+  snapshot_id: string
+  generated_at: string
+  universe_size: number
+  confirmed_count: number
+  implied_values: ThresholdImpliedValues
+  sensitivity_table: CalibrationSensitivityRow[]
+  target_hit_rates: TargetHitRateRow[]
+}
+
+export interface CalibrationNoteListResponse {
+  notes: CalibrationNote[]
+}

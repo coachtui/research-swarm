@@ -14,6 +14,7 @@ import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDe
 import { EligibilityStressTestPanel } from '@/components/deployment/EligibilityStressTestPanel'
 import { EligibilityRollingSimPanel } from '@/components/deployment/EligibilityRollingSimPanel'
 import { OpportunityDistributionPanel } from '@/components/deployment/OpportunityDistributionPanel'
+import { ThresholdCalibrationPanel } from '@/components/deployment/ThresholdCalibrationPanel'
 import { Shield, AlertCircle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { apiClient } from '@/lib/api/client'
@@ -120,6 +121,7 @@ function AdminContent() {
             <EligibilityStressTestPanel />
             <EligibilityRollingSimPanel />
             <OpportunityDistributionPanel />
+            <ThresholdCalibrationPanel />
           </TabsContent>
         </Tabs>
       </main>
