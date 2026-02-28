@@ -1,35 +1,11 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-# ── Log DB target (host + database name only — no credentials) ────────────────
-python3 - <<'PYEOF'
-import os, urllib.parse
-url = os.getenv("DATABASE_URL", "")
-try:
-    p = urllib.parse.urlparse(url)
-    db_name = p.path.lstrip("/") or "(unknown)"
-    print(f"[startup] DB target: {p.hostname}/{db_name}")
-except Exception:
-    print("[startup] DB target: (could not parse DATABASE_URL)")
-PYEOF
+echo "[startup] Starting Research Swarm API..."
+echo "[startup] PORT=${PORT:-<missing>}"
 
-# ── Apply pending database migrations ─────────────────────────────────────────
-# Use `python -m prisma` (prisma-client-py v5.x) — NOT bare `prisma` (PATH may
-# not include the script entry-point in Railway's nixpacks runtime) and NOT
-# `npx prisma` (fetches Node.js CLI v7+ with incompatible schema format).
-#
-# timeout 45: Neon cold-start can hang the connection for >60s, blocking uvicorn
-# from ever starting. We give migrations 45s; if they don't complete we warn and
-# continue — all current migrations are already applied in prod, so this is a
-# safety check only. The deployment route has a 503 guard for missing tables.
-echo "[startup] Applying database migrations..."
-timeout 45 python -m prisma migrate deploy --schema=db/schema.prisma \
-  && echo "[startup] Migrations applied." \
-  || echo "[startup] WARNING: migration step timed out or failed — starting server anyway"
-
-# NOTE: prisma generate runs in buildCommand (railway.toml) at image-build time.
-# Do NOT run it here — downloading the engine binary at startup delays uvicorn
-# past Railway's 30s healthcheck window.
+# Fail fast if Railway didn't inject PORT
+: "${PORT:?PORT is not set}"
 
 # ── WeasyPrint runtime: ensure apt-installed shared libs are visible ──────────
 # libgobject, libpango, libcairo etc. live in /usr/lib/x86_64-linux-gnu when
@@ -37,6 +13,20 @@ timeout 45 python -m prisma migrate deploy --schema=db/schema.prisma \
 export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/lib:/usr/local/lib:${LD_LIBRARY_PATH:-}"
 ldconfig /usr/lib/x86_64-linux-gnu /usr/lib /usr/local/lib 2>/dev/null || true
 
+# ── Database migrations ────────────────────────────────────────────────────────
+# Migrations are NOT run here to avoid blocking the healthcheck window.
+# Run new migrations manually before deploying:
+#   railway run python -m prisma migrate deploy --schema=db/schema.prisma
+# Or via Railway's pre-deploy command (set in the Railway dashboard).
+# prisma generate runs at BUILD time (buildCommand in railway.toml).
+
 # ── Start server ──────────────────────────────────────────────────────────────
+# Use explicit venv path — do not rely on PATH in Railway's nixpacks runtime.
+# --proxy-headers: trust X-Forwarded-* headers from Railway's reverse proxy.
+# --workers 2: one worker handles health/short requests, one handles analyses.
 echo "[startup] Starting uvicorn..."
-exec uvicorn api.index:app --host 0.0.0.0 --port "$PORT" --workers 2
+exec /opt/venv/bin/uvicorn api.index:app \
+    --host 0.0.0.0 \
+    --port "$PORT" \
+    --workers 2 \
+    --proxy-headers
