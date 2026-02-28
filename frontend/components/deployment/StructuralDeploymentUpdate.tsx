@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow, EligibilityDiagnostics } from '@/types/api'
+import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow, SectorLeadershipEntry, EligibilityDiagnostics } from '@/types/api'
 import { useDeploymentUpdate } from '@/lib/hooks/useDeploymentUpdate'
 import { useAdminDeploymentUpdate } from '@/lib/hooks/useAdminDeploymentUpdate'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
@@ -9,6 +9,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Lock, TrendingUp, TrendingDown, Minus, ShieldCheck, ShieldOff, Activity } from 'lucide-react'
 import Link from 'next/link'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip,
+  Cell, ResponsiveContainer,
+} from 'recharts'
 
 // ── Derived regime types ───────────────────────────────────────────────────────
 
@@ -414,9 +418,110 @@ function Td({ children, align = 'left', className = '' }: {
 
 // ── Section 3: Sector Breadth Overview ────────────────────────────────────────
 
-function SectorBreadthTable({ rows }: { rows: SectorBreadthRow[] }) {
+/** Row background tint based on edge strength vs stop risk. */
+function getSectorRowClass(r: SectorBreadthRow): string {
+  const strongEdge  = r.avg_edge_pct > 10
+  const weakEdge    = r.avg_edge_pct < 0
+  const lowStop     = r.median_stop_pct < 25
+  const highStop    = r.median_stop_pct > 40
+  if (strongEdge && lowStop)   return 'bg-emerald-500/5 hover:bg-emerald-500/10'
+  if (weakEdge   || highStop)  return 'bg-red-500/5 hover:bg-red-500/10'
+  if (strongEdge || lowStop)   return 'bg-amber-500/5 hover:bg-amber-500/10'
+  return 'hover:bg-surface-elevated/30'
+}
+
+/** Bar chart — % confirmed by sector, colored by heatmap. */
+function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
+  if (rows.length === 0) return null
+  const sorted = [...rows].sort((a, b) => b.pct_confirmed - a.pct_confirmed)
+
+  function barColor(r: SectorBreadthRow): string {
+    if (r.avg_edge_pct > 10 && r.median_stop_pct < 25) return '#10b981'  // emerald
+    if (r.avg_edge_pct < 0  || r.median_stop_pct > 40) return '#ef4444'  // red
+    if (r.avg_edge_pct > 10 || r.median_stop_pct < 25) return '#f59e0b'  // amber
+    return '#6b7280'                                                        // zinc
+  }
+
   return (
-    <div className="space-y-3">
+    <div className="h-44">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={sorted} margin={{ top: 4, right: 4, bottom: 36, left: 0 }} barSize={18}>
+          <XAxis
+            dataKey="sector"
+            tick={{ fontSize: 9, fill: '#9ca3af' }}
+            angle={-30}
+            textAnchor="end"
+            interval={0}
+          />
+          <YAxis
+            domain={[0, 100]}
+            tick={{ fontSize: 9, fill: '#9ca3af' }}
+            unit="%"
+            width={32}
+          />
+          <RechartsTooltip
+            contentStyle={{ background: '#1c1c1e', border: '1px solid #3f3f46', borderRadius: 6, fontSize: 11 }}
+            formatter={(v: number) => [`${v.toFixed(1)}%`, '% Confirmed']}
+          />
+          <Bar dataKey="pct_confirmed" radius={[2, 2, 0, 0]}>
+            {sorted.map((r) => (
+              <Cell key={r.sector} fill={barColor(r)} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+/** Auto-generated sector leadership summary. */
+function SectorLeadershipBlock({
+  entries,
+  coverageLabel,
+}: {
+  entries: SectorLeadershipEntry[]
+  coverageLabel?: string
+}) {
+  if (entries.length === 0) return null
+
+  return (
+    <div className="rounded-lg border border-surface-elevated bg-surface p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
+          Sector Leadership
+        </h4>
+        {coverageLabel && (
+          <span className="text-xs text-text-secondary opacity-70">{coverageLabel}</span>
+        )}
+      </div>
+      <ol className="space-y-1">
+        {entries.map((e) => (
+          <li key={e.sector} className="flex items-baseline gap-2 text-xs">
+            <span className="font-mono text-text-secondary w-4 shrink-0">{e.rank}.</span>
+            <span className="font-medium text-text-primary">{e.sector}</span>
+            <span className="text-text-secondary">
+              ({e.pct_confirmed.toFixed(0)}% confirmed
+              {e.confirmed > 0 ? `, ${e.confirmed} names` : ''}
+              {e.tier2 > 0 ? ` · T2: ${e.tier2}` : ''})
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+function SectorBreadthTable({
+  rows,
+  leadership,
+  coverageLabel,
+}: {
+  rows: SectorBreadthRow[]
+  leadership: SectorLeadershipEntry[]
+  coverageLabel?: string
+}) {
+  return (
+    <div className="space-y-4">
       <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider">
         Sector Breadth Overview
       </h3>
@@ -424,33 +529,77 @@ function SectorBreadthTable({ rows }: { rows: SectorBreadthRow[] }) {
       {rows.length === 0 ? (
         <p className="text-xs text-text-secondary">No sector data available.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-surface-elevated">
-                <Th>Sector</Th>
-                <Th align="right">Confirmed</Th>
-                <Th align="right">Total Tracked</Th>
-                <Th align="right">% Confirmed</Th>
-                <Th>Trend</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.sector} className="border-b border-surface-elevated/50 hover:bg-surface-elevated/30 transition-colors">
-                  <td className="py-2 pr-4 text-text-secondary">{r.sector}</td>
-                  <Td align="right">{r.confirmed}</Td>
-                  <Td align="right">{r.total}</Td>
-                  <Td align="right">{r.pct_confirmed.toFixed(1)}%</Td>
-                  <td className="py-2 pr-4 text-text-secondary">
-                    <TrendIcon trend={r.trend} />
-                    {r.trend}
-                  </td>
+        <>
+          {/* Part 6 — Leadership summary */}
+          <SectorLeadershipBlock entries={leadership} coverageLabel={coverageLabel} />
+
+          {/* Part 4A — Breadth bar chart */}
+          <SectorBreadthChart rows={rows} />
+
+          {/* Part 2+3+4B — Enhanced table sorted by rotation score */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-surface-elevated">
+                  <Th>Sector</Th>
+                  <Th align="right">Confirmed</Th>
+                  <Th align="right">Total</Th>
+                  <Th align="right">% Conf.</Th>
+                  <Th align="right">Tier 2</Th>
+                  <Th align="right">Avg Edge</Th>
+                  <Th align="right">Med. Stop</Th>
+                  <Th align="right">Rot. Score</Th>
+                  <Th>Trend</Th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr
+                    key={r.sector}
+                    className={`border-b border-surface-elevated/50 transition-colors ${getSectorRowClass(r)}`}
+                  >
+                    <td className="py-2 pr-4 text-text-primary font-medium">{r.sector}</td>
+                    <Td align="right">{r.confirmed}</Td>
+                    <Td align="right">{r.total}</Td>
+                    <Td align="right">{r.pct_confirmed.toFixed(1)}%</Td>
+                    <Td align="right">
+                      <span className={r.tier2 > 0 ? 'text-amber-400' : 'text-text-secondary'}>
+                        {r.tier2}
+                      </span>
+                    </Td>
+                    <Td align="right">
+                      <span className={
+                        r.avg_edge_pct > 10 ? 'text-emerald-400' :
+                        r.avg_edge_pct < 0  ? 'text-red-400' :
+                        'text-text-secondary'
+                      }>
+                        {r.avg_edge_pct > 0 ? '+' : ''}{r.avg_edge_pct.toFixed(1)}%
+                      </span>
+                    </Td>
+                    <Td align="right">
+                      <span className={
+                        r.median_stop_pct > 40 ? 'text-red-400' :
+                        r.median_stop_pct < 25 ? 'text-emerald-400' :
+                        'text-text-secondary'
+                      }>
+                        {r.median_stop_pct.toFixed(1)}%
+                      </span>
+                    </Td>
+                    <Td align="right">
+                      <span className="font-mono text-text-secondary">
+                        {r.rotation_score.toFixed(3)}
+                      </span>
+                    </Td>
+                    <td className="py-2 pr-4 text-text-secondary">
+                      <TrendIcon trend={r.trend} />
+                      {r.trend}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   )
@@ -958,7 +1107,11 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
         <div className="border-t border-surface-elevated" />
 
         {/* Section 3 — Sector Breadth Overview */}
-        <SectorBreadthTable rows={data.sector_breadth} />
+        <SectorBreadthTable
+          rows={data.sector_breadth}
+          leadership={data.sector_leadership ?? []}
+          coverageLabel={data.sector_coverage_label}
+        />
 
         <div className="border-t border-surface-elevated" />
 

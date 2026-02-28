@@ -70,6 +70,51 @@ _CONF_THRESHOLDS: Dict[str, float] = {
 # Noise regimes that indicate deteriorating regime stability
 _UNSTABLE_REGIMES = frozenset({"Noise Dominated", "High Noise"})
 
+# ── Sector name normalization ─────────────────────────────────────────────────
+# Maps inconsistent / abbreviated sector strings to canonical labels.
+_SECTOR_ALIASES: Dict[str, str] = {
+    "tech": "Technology",
+    "information technology": "Technology",
+    "financials": "Financial Services",
+    "financial": "Financial Services",
+    "finance": "Financial Services",
+    "financial services": "Financial Services",
+    "health care": "Healthcare",
+    "health_care": "Healthcare",
+    "consumer cyclical": "Consumer Cyclical",
+    "consumer discretionary": "Consumer Cyclical",
+    "consumer staples": "Consumer Defensive",
+    "real estate": "Real Estate",
+    "realestate": "Real Estate",
+    "communication services": "Communication Services",
+    "communications": "Communication Services",
+    "telecom": "Communication Services",
+    "telecommunication services": "Communication Services",
+    "materials": "Basic Materials",
+    "basic materials": "Basic Materials",
+    "industrial": "Industrials",
+    "energy": "Energy",
+    "utilities": "Utilities",
+}
+
+
+def _normalize_sector(raw: Optional[str]) -> str:
+    """Map raw / inconsistent sector strings to canonical labels."""
+    if not raw or raw.strip().lower() in ("", "unknown", "n/a"):
+        return "Unknown"
+    lower = raw.strip().lower()
+    return _SECTOR_ALIASES.get(lower, raw.strip())
+
+
+def _median(vals: List[float]) -> float:
+    """Median of a float list. Returns 0.0 on empty input."""
+    if not vals:
+        return 0.0
+    s = sorted(vals)
+    n = len(s)
+    mid = n // 2
+    return s[mid] if n % 2 == 1 else (s[mid - 1] + s[mid]) / 2.0
+
 
 # ── Response models ────────────────────────────────────────────────────────────
 
@@ -89,7 +134,21 @@ class SectorBreadthRow(BaseModel):
     confirmed: int
     total: int
     pct_confirmed: float
+    tier2: int = 0                  # confirmed tickers failing exactly 1 allocation rule
+    avg_edge_pct: float = 0.0       # mean (evRatio − 1) × 100 across all sector tickers
+    median_stop_pct: float = 0.0    # median stop probability
+    rotation_score: float = 0.0     # composite 0–1 leadership score
     trend: str  # "rising" | "stable" | "falling"
+
+
+class SectorLeadershipEntry(BaseModel):
+    rank: int
+    sector: str
+    pct_confirmed: float
+    confirmed: int
+    tier2: int
+    rotation_score: float
+    basis: str  # "rotation_score" | "pct_confirmed" | "tier2"
 
 
 class MarketDeployabilitySnapshot(BaseModel):
@@ -147,6 +206,7 @@ class DeploymentUpdateResponse(BaseModel):
     deployable_tickers: List[DeployableTickerItem]
     sector_breadth: List[SectorBreadthRow]
     sector_coverage_label: str   # e.g. "Sector coverage: 87% (66/76)"
+    sector_leadership: List[SectorLeadershipEntry]  # top 3 sectors by rotation score
     no_deployable_message: Optional[str]
     eligibility_diagnostics: EligibilityDiagnostics
 
@@ -350,27 +410,58 @@ def _percentile_mid_rank(
     return round(100.0 * (n_lt + 0.5 * n_eq) / n, 1)
 
 
-def _sector_trend(
+def _sector_trend_pct(
     sector_name: str,
     ticker_to_sector: Dict[str, str],
-    curr_scores: Dict[str, int],
     prior_scores: Dict[str, int],
+    curr_confirmed: int,
+    curr_total: int,
 ) -> str:
     """
-    Compare avg confirmation score for a sector between current and prior snapshot.
-    Only compares tickers present in both snapshots.
+    Compare pct_confirmed for a sector between current and prior snapshot.
+    Uses the current ticker→sector mapping to identify which prior tickers belong
+    to this sector.
+
+    Expanding:   curr_pct − prior_pct >  5 percentage points
+    Contracting: curr_pct − prior_pct < −5 percentage points
     """
     sector_tickers = {t for t, s in ticker_to_sector.items() if s == sector_name}
     common = sector_tickers & set(prior_scores.keys())
     if not common:
         return "stable"
-    avg_curr = sum(curr_scores[t] for t in common if t in curr_scores) / len(common)
-    avg_prior = sum(prior_scores[t] for t in common) / len(common)
-    if avg_curr > avg_prior + 0.1:
+    prior_confirmed = sum(1 for t in common if prior_scores[t] >= 4)
+    prior_pct = prior_confirmed / len(common) * 100.0
+    curr_pct = curr_confirmed / curr_total * 100.0 if curr_total > 0 else 0.0
+    delta = curr_pct - prior_pct
+    if delta > 5.0:
         return "rising"
-    if avg_curr < avg_prior - 0.1:
+    if delta < -5.0:
         return "falling"
     return "stable"
+
+
+def _build_sector_leadership(rows: List[SectorBreadthRow]) -> List[SectorLeadershipEntry]:
+    """
+    Auto-generate top-3 sector leaders from sector_breadth (already sorted by
+    rotation_score desc).  Sectors with fewer than 2 tracked tickers or labelled
+    "Unknown" are excluded — too small a sample for actionable guidance.
+    """
+    leaders: List[SectorLeadershipEntry] = []
+    for row in rows:
+        if len(leaders) >= 3:
+            break
+        if row.total < 2 or row.sector == "Unknown":
+            continue
+        leaders.append(SectorLeadershipEntry(
+            rank=len(leaders) + 1,
+            sector=row.sector,
+            pct_confirmed=row.pct_confirmed,
+            confirmed=row.confirmed,
+            tier2=row.tier2,
+            rotation_score=row.rotation_score,
+            basis="rotation_score",
+        ))
+    return leaders
 
 
 # ── Eligibility diagnostics helpers ───────────────────────────────────────────
@@ -866,35 +957,84 @@ async def _build_deployment_update(
         r.volAdjEvScore for r in cached_rows if r.volAdjEvScore is not None
     ]
 
-    # Sector stats + ticker→sector mapping
-    sector_stats: Dict[str, Dict[str, int]] = {}
+    # ── 5a. Pre-compute per-ticker vol-adj percentile (needed for tier2 counting) ──
+    _vol_pct_map: Dict[str, Optional[float]] = {}
+    for r in cached_rows:
+        if r.volAdjEvScore is not None and all_vol_adj_scores:
+            _vol_pct_map[r.ticker] = _percentile_mid_rank(r.volAdjEvScore, all_vol_adj_scores)
+        else:
+            _vol_pct_map[r.ticker] = None
+
+    # ── 5b. Sector stats + ticker→sector mapping ──────────────────────────────
+    sector_stats: Dict[str, Any] = {}
     ticker_to_sector: Dict[str, str] = {}
     curr_scores: Dict[str, int] = {}
 
     for r in cached_rows:
-        sec = r.sector or "Unknown"
+        sec = _normalize_sector(r.sector)
         ticker_to_sector[r.ticker] = sec
         curr_scores[r.ticker] = r.confirmationScore
         if sec not in sector_stats:
-            sector_stats[sec] = {"confirmed": 0, "total": 0}
-        sector_stats[sec]["total"] += 1
+            sector_stats[sec] = {"confirmed": 0, "total": 0, "tier2": 0, "edges": [], "stops": []}
+        sd = sector_stats[sec]
+        sd["total"] += 1
+        sd["stops"].append(r.stopProbability)
+        if r.evRatio is not None:
+            sd["edges"].append(round((r.evRatio - 1.0) * 100.0, 2))
         if r.confirmationScore >= 4:
-            sector_stats[sec]["confirmed"] += 1
+            sd["confirmed"] += 1
+            # Count tier2: confirmed but fails exactly 1 allocation rule
+            if r.allocationDelta30d is not None:
+                vol_pct = _vol_pct_map.get(r.ticker)
+                vol_pct_ok = vol_pct is None or vol_pct >= 60.0
+                n_failing = sum([
+                    int(r.allocationDelta30d <= 0),
+                    int(not vol_pct_ok),
+                    int(r.stopProbability > 25.0),
+                    int(not r.regimeStable),
+                ])
+                if n_failing == 1:
+                    sd["tier2"] += 1
 
-    # Sector breadth rows
+    # ── 5c. Compute avg_edge / median_stop per sector ────────────────────────
+    for sd in sector_stats.values():
+        sd["avg_edge"] = sum(sd["edges"]) / len(sd["edges"]) if sd["edges"] else 0.0
+        sd["med_stop"] = _median(sd["stops"]) if sd["stops"] else 50.0
+
+    # ── 5d. Rotation score — normalize edge + stop to [0,1] across sectors ───
+    all_edges  = [sd["avg_edge"] for sd in sector_stats.values()]
+    all_mstops = [sd["med_stop"] for sd in sector_stats.values()]
+    edge_min, edge_max = min(all_edges,  default=0.0), max(all_edges,  default=0.0)
+    stop_min, stop_max = min(all_mstops, default=0.0), max(all_mstops, default=100.0)
+
+    def _norm(v: float, lo: float, hi: float) -> float:
+        return (v - lo) / (hi - lo) if hi > lo else 0.5
+
+    for sd in sector_stats.values():
+        pct_01    = sd["confirmed"] / sd["total"] if sd["total"] > 0 else 0.0
+        edge_n    = _norm(sd["avg_edge"], edge_min, edge_max)
+        stop_n    = _norm(sd["med_stop"], stop_min, stop_max)
+        sd["rotation_score"] = round((pct_01 * 0.4) + (edge_n * 0.4) - (stop_n * 0.2), 4)
+
+    # ── 5e. Build sector breadth rows, sorted by rotation_score desc ──────────
     sector_breadth: List[SectorBreadthRow] = []
-    for sec, counts in sorted(sector_stats.items()):
-        total = counts["total"]
-        confirmed = counts["confirmed"]
-        pct = round(confirmed / total * 100.0, 1) if total > 0 else 0.0
-        trend = _sector_trend(sec, ticker_to_sector, curr_scores, prior_scores)
+    for sec, sd in sector_stats.items():
+        total     = sd["total"]
+        confirmed = sd["confirmed"]
+        pct       = round(confirmed / total * 100.0, 1) if total > 0 else 0.0
+        trend     = _sector_trend_pct(sec, ticker_to_sector, prior_scores, confirmed, total)
         sector_breadth.append(SectorBreadthRow(
             sector=sec,
             confirmed=confirmed,
             total=total,
             pct_confirmed=pct,
+            tier2=sd["tier2"],
+            avg_edge_pct=round(sd["avg_edge"], 2),
+            median_stop_pct=round(sd["med_stop"], 1),
+            rotation_score=sd["rotation_score"],
             trend=trend,
         ))
+    sector_breadth.sort(key=lambda r: r.rotation_score, reverse=True)
 
     # Apply inclusion criteria
     deployable_tickers: List[DeployableTickerItem] = []
@@ -1005,6 +1145,8 @@ async def _build_deployment_update(
     if not deployable_tickers:
         no_deployable_message = "No capital structurally deployable this cycle."
 
+    sector_leadership = _build_sector_leadership(sector_breadth)
+
     return DeploymentUpdateResponse(
         snapshot_id=snapshot_id,
         generated_at=now_utc.isoformat(),
@@ -1028,6 +1170,7 @@ async def _build_deployment_update(
         deployable_tickers=deployable_tickers,
         sector_breadth=sector_breadth,
         sector_coverage_label=sector_coverage_label,
+        sector_leadership=sector_leadership,
         no_deployable_message=no_deployable_message,
         eligibility_diagnostics=eligibility_diagnostics,
     )
@@ -1063,6 +1206,7 @@ def _empty_response(
         deployable_tickers=[],
         sector_breadth=[],
         sector_coverage_label="Sector coverage: 0% (0/0)",
+        sector_leadership=[],
         no_deployable_message="No capital structurally deployable this cycle.",
         eligibility_diagnostics=EligibilityDiagnostics(
             evaluated_count=0,

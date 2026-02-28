@@ -1020,7 +1020,25 @@ export interface SectorBreadthRow {
   confirmed: number
   total: number
   pct_confirmed: number
+  /** Near-miss count: confirmed tickers failing exactly 1 allocation rule */
+  tier2: number
+  /** Mean (evRatio − 1) × 100 across all sector tickers; 0 when no EV data */
+  avg_edge_pct: number
+  /** Median stop probability across all sector tickers */
+  median_stop_pct: number
+  /** Composite leadership score 0–1 (higher = stronger rotation leadership) */
+  rotation_score: number
   trend: 'rising' | 'stable' | 'falling'
+}
+
+export interface SectorLeadershipEntry {
+  rank: number
+  sector: string
+  pct_confirmed: number
+  confirmed: number
+  tier2: number
+  rotation_score: number
+  basis: string
 }
 
 export interface MarketDeployabilitySnapshot {
@@ -1093,6 +1111,10 @@ export interface DeploymentUpdateResponse {
   snapshot: MarketDeployabilitySnapshot
   deployable_tickers: DeployableTickerItem[]
   sector_breadth: SectorBreadthRow[]
+  /** e.g. "Sector coverage: 87% (66/76)" */
+  sector_coverage_label: string
+  /** Top 3 sector leaders by rotation score */
+  sector_leadership: SectorLeadershipEntry[]
   /** Set when deployable_tickers is empty */
   no_deployable_message: string | null
   eligibility_diagnostics: EligibilityDiagnostics
