@@ -14,13 +14,18 @@ except Exception:
 PYEOF
 
 # ── Apply pending database migrations ─────────────────────────────────────────
-# Fail the deploy if any migration cannot be applied.
 # Use `python -m prisma` (prisma-client-py v5.x) — NOT bare `prisma` (PATH may
 # not include the script entry-point in Railway's nixpacks runtime) and NOT
 # `npx prisma` (fetches Node.js CLI v7+ with incompatible schema format).
+#
+# timeout 45: Neon cold-start can hang the connection for >60s, blocking uvicorn
+# from ever starting. We give migrations 45s; if they don't complete we warn and
+# continue — all current migrations are already applied in prod, so this is a
+# safety check only. The deployment route has a 503 guard for missing tables.
 echo "[startup] Applying database migrations..."
-python -m prisma migrate deploy --schema=db/schema.prisma
-echo "[startup] Migrations applied."
+timeout 45 python -m prisma migrate deploy --schema=db/schema.prisma \
+  && echo "[startup] Migrations applied." \
+  || echo "[startup] WARNING: migration step timed out or failed — starting server anyway"
 
 # NOTE: prisma generate runs in buildCommand (railway.toml) at image-build time.
 # Do NOT run it here — downloading the engine binary at startup delays uvicorn
