@@ -214,8 +214,11 @@ function computeUniversePercentiles(
   payoffSkew: number,
 ): UniversePercentiles {
   // Reference distributions (calibrated heuristics from institutional setup universe):
-  // EV: typical range −5% to +15%
-  const evPercentile = Math.round(Math.max(0, Math.min(100, ((ev + 5) / 20) * 100)))
+  // EV: typical range −5% to +15%.
+  // Clamp input to calibration bounds first so out-of-range EV values produce
+  // 0 or 100 (at the boundary) rather than nonsense percentiles.
+  const evClamped = Math.max(-5, Math.min(15, ev))
+  const evPercentile = Math.round(((evClamped + 5) / 20) * 100)
 
   // Risk Efficiency: −0.50 to +0.80
   const riskEfficiencyPercentile = Math.round(

@@ -501,7 +501,7 @@ function OutcomeDistributionPanel({ dist, variant }: {
             </span>
           </div>
           <div>
-            <span className="text-text-tertiary/60 block text-[9px] uppercase tracking-wide">EV Pctile</span>
+            <span className="text-text-tertiary/60 block text-[9px] uppercase tracking-wide">EV Pctile (Calib.)</span>
             <span className="text-[10px] font-medium text-text-secondary">
               {dist.universePercentiles.evPercentile}th
             </span>
@@ -705,7 +705,7 @@ function OutcomeDistributionPanel({ dist, variant }: {
             </p>
             <div className="grid grid-cols-4 gap-2 text-xs">
               <div>
-                <span className="text-[10px] text-text-tertiary block">EV Rank</span>
+                <span className="text-[10px] text-text-tertiary block">EV Rank (Calibrated)</span>
                 <span className="font-medium text-text-secondary">
                   {dist.universePercentiles.evPercentile}th pctile
                 </span>
@@ -731,6 +731,7 @@ function OutcomeDistributionPanel({ dist, variant }: {
             </div>
             <p className="text-[9px] text-text-tertiary/50 italic leading-relaxed">
               Ranked vs. calibrated reference distribution — not a live cross-sectional universe.
+              EV Rank calibrated on typical EV range: −5% to +15%.
               Higher = more favorable relative to typical institutional setup parameters.
               Stop Risk rank: higher = lower relative stop risk.
             </p>

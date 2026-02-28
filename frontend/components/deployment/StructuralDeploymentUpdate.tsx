@@ -357,7 +357,7 @@ function DeployableTickersGrid({ tickers, noDeployableMessage }: {
                 <Th align="right">Alloc Current</Th>
                 <Th align="right">Alloc Delta</Th>
                 <Th align="right">Conf. Score</Th>
-                <Th align="right">Vol-Adj EV %ile</Th>
+                <Th align="right">Upside Rank</Th>
                 <Th align="right">Stop Prob</Th>
                 <Th align="right">Sector Breadth</Th>
               </tr>
@@ -377,7 +377,9 @@ function DeployableTickersGrid({ tickers, noDeployableMessage }: {
                       : '—'}
                   </Td>
                   <Td align="right">{t.confirmation_score}/5</Td>
-                  <Td align="right">{t.vol_adj_ev_percentile.toFixed(0)}th</Td>
+                  <Td align="right">
+                    {t.vol_adj_ev_percentile != null ? `${t.vol_adj_ev_percentile.toFixed(0)}th` : '—'}
+                  </Td>
                   <Td align="right">{t.stop_probability.toFixed(1)}%</Td>
                   <Td align="right">{t.sector_breadth_pct.toFixed(0)}%</Td>
                 </tr>
@@ -503,7 +505,7 @@ function RegimeExposureGuidance({
       ? 'Preserve capital until structural conditions improve.'
       : regime === 'Transitional'
       ? 'Deploy selectively in highest-conviction names only.'
-      : 'Active deployment permitted according to EV and stability ranking.'
+      : 'Active deployment permitted according to upside rank and stability.'
 
   return (
     <div className="space-y-3">
@@ -538,7 +540,7 @@ function RegimeExposureGuidance({
               ? `Risk-Off regime: structural conditions do not support broad capital deployment. Maximum portfolio exposure capped at ${ceiling}%. Preserve capital until structural confirmation rates improve.`
               : regime === 'Transitional'
               ? `Transitional regime: conditions are mixed. Deploy selectively in highest-conviction names only. Maximum portfolio exposure capped at ${ceiling}%.`
-              : `Risk-On regime: structural conditions support active capital deployment. Maximum portfolio exposure extended to ${ceiling}%. Deploy according to tier EV and stability ranking.`
+              : `Risk-On regime: structural conditions support active capital deployment. Maximum portfolio exposure extended to ${ceiling}%. Deploy according to upside rank and stability.`
             }
           </p>
         </div>
@@ -595,7 +597,7 @@ function PipelineFunnel({ diag }: { diag: EligibilityDiagnostics }) {
 const ELIGIBILITY_RULES = [
   { label: 'Structural Gate', requirement: 'Confirmation score ≥ 4 of 5 moat components' },
   { label: 'Conviction Delta', requirement: 'Allocation delta > 0% vs prior 30-day run' },
-  { label: 'EV Rank', requirement: 'Vol-Adj EV ≥ 60th percentile (universe-wide)' },
+  { label: 'Upside Rank', requirement: 'Risk-Adj Upside ≥ 60th percentile (universe-wide)' },
   { label: 'Stop Probability', requirement: '≤ 25.0%' },
   { label: 'Regime Stability', requirement: 'Not Noise-Dominated or High-Noise' },
 ] as const
@@ -668,7 +670,7 @@ function FailureReasonBreakdown({ diag }: { diag: EligibilityDiagnostics }) {
 // Requirement D: top 10 tickers closest to eligibility with gap details
 
 const RULE_LABELS: Record<string, string> = {
-  vol_adj_ev_percentile:  'EV Rank',
+  vol_adj_ev_percentile:  'Upside Rank',
   stop_probability:       'Stop Prob',
   allocation_delta_positive: 'Delta',
   regime_stable:          'Regime',
@@ -678,7 +680,7 @@ function formatGap(rule: string, metrics: Record<string, number>): string {
   switch (rule) {
     case 'vol_adj_ev_percentile': {
       const actual = metrics['vol_adj_ev_percentile']
-      return actual !== undefined ? `${actual.toFixed(0)}th vs ≥60th` : '—'
+      return actual != null ? `${actual.toFixed(0)}th vs ≥60th` : '—'
     }
     case 'stop_probability': {
       const actual = metrics['stop_probability']
@@ -777,7 +779,7 @@ function NearMissTable({ diag }: { diag: EligibilityDiagnostics }) {
 
 const ELIGIBILITY_CONTEXT_NOTE =
   'Structural confirmation indicates market regime support. ' +
-  'Allocation eligibility requires favorable EV + stability at current prices. ' +
+  'Allocation eligibility requires favorable risk-adjusted upside rank + stability at current prices. ' +
   'A Risk-On regime can still produce zero eligible targets when valuations are extended.'
 
 function EligibilityDiagnosticsSection({ diag }: { diag: EligibilityDiagnostics }) {

@@ -1007,8 +1007,8 @@ export interface DeployableTickerItem {
   allocation_delta_30d: number | null
   /** 0–5: count of moat breakdown components above confirmation threshold */
   confirmation_score: number
-  /** 0–100 rank-based percentile within tracked universe */
-  vol_adj_ev_percentile: number
+  /** 0–100 mid-rank percentile within tracked universe; null when universe < 5 (ranking disabled) */
+  vol_adj_ev_percentile: number | null
   /** 0–100 effective stop probability */
   stop_probability: number
   /** Percentage of same-sector tickers that are structurally confirmed */

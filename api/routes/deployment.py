@@ -10,7 +10,7 @@ Universe: user's watchlist tickers + any ticker analyzed in the last 30 days.
 Inclusion criteria (all must pass):
   1. confirmation_score >= 4  (4-of-5 moat components above threshold)
   2. allocation_delta_30d > 0  (positive conviction shift vs prior run)
-  3. vol_adj_ev_percentile >= 60  (cross-universe rank)
+  3. vol_adj_ev_percentile >= 60  (cross-universe mid-rank percentile; skipped when n < 5)
   4. stop_probability <= 25.0 %
   5. regime_stable == True  (not Noise Dominated or High Noise)
 
@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -53,7 +54,7 @@ except ImportError:  # pragma: no cover
 
 router = APIRouter()
 
-MODEL_VERSION = "1.1.0"
+MODEL_VERSION = "1.2.0"
 RULESET_VERSION = "1.0.0"
 _CACHE_TTL_HOURS = 24
 
@@ -78,7 +79,7 @@ class DeployableTickerItem(BaseModel):
     allocation_current: float
     allocation_delta_30d: Optional[float]
     confirmation_score: int         # 0–5
-    vol_adj_ev_percentile: float    # 0–100 rank within universe
+    vol_adj_ev_percentile: Optional[float]  # 0–100; None when universe < 5 (ranking disabled)
     stop_probability: float         # 0–100
     sector_breadth_pct: float       # % of same-sector tickers that are confirmed
 
@@ -281,10 +282,15 @@ def _extract_metrics(
     noise_regime = noise_filter.get("noise_regime", "")
     regime_stable = noise_regime not in _UNSTABLE_REGIMES
 
-    # Vol-adjusted EV score (used for cross-universe percentile ranking)
+    # Risk-adjusted upside score for cross-universe percentile ranking.
+    # edge = prob-weighted upside net of price (signed return space, e.g. 0.15 = 15% upside).
+    # stop_frac dampens the score proportionally to stop-hit risk — but stop is also gated
+    # separately (Rule 3), so this weighting is an additional quality signal, not a gate.
     vol_adj_ev_score: Optional[float] = None
     if ev_ratio is not None:
-        vol_adj_ev_score = round(ev_ratio * (1.0 - stop_probability / 100.0), 4)
+        edge = ev_ratio - 1.0  # convert price multiplier → return-space edge
+        stop_frac = max(0.0, min(1.0, stop_probability / 100.0))
+        vol_adj_ev_score = round(edge * (1.0 - stop_frac), 4)
 
     return {
         "sector": sector,
@@ -297,12 +303,51 @@ def _extract_metrics(
     }
 
 
-def _percentile(value: float, all_values: List[float]) -> float:
-    """Return 0–100 rank-based percentile of value within all_values."""
-    if not all_values:
-        return 50.0
-    rank = sum(1 for v in all_values if v <= value)
-    return round(rank / len(all_values) * 100.0, 1)
+def _percentile_mid_rank(
+    value: float,
+    all_values: List[float],
+    *,
+    min_universe: int = 5,
+    admin_debug: bool = False,
+) -> Optional[float]:
+    """
+    Tie-aware mid-rank percentile of value within all_values.
+
+    Formula: percentile = 100 × (n_lt + 0.5 × n_eq) / n
+    where n_lt = count(v < value), n_eq = count(v == value).
+
+    Returns None when fewer than min_universe valid (finite, non-None) values
+    are present — caller should disable percentile gating and surface a warning.
+    """
+    valid = [v for v in all_values if v is not None and math.isfinite(v)]
+    n = len(valid)
+
+    if admin_debug:
+        if valid:
+            sv = sorted(valid)
+            mid = n // 2
+            median = sv[mid] if n % 2 == 1 else (sv[mid - 1] + sv[mid]) / 2.0
+            logger.debug(
+                "Percentile rank universe: n_evaluated=%d, n_valid=%d, "
+                "min=%.4f, median=%.4f, max=%.4f",
+                len(all_values), n, sv[0], median, sv[-1],
+            )
+        else:
+            logger.debug(
+                "Percentile rank universe: n_evaluated=%d, n_valid=0", len(all_values)
+            )
+
+    if n < min_universe:
+        logger.info(
+            "Universe too small for percentile ranking (n_valid=%d < min=%d); "
+            "disabling percentile gate for this snapshot.",
+            n, min_universe,
+        )
+        return None
+
+    n_lt = sum(1 for v in valid if v < value)
+    n_eq = sum(1 for v in valid if v == value)
+    return round(100.0 * (n_lt + 0.5 * n_eq) / n, 1)
 
 
 def _sector_trend(
@@ -338,7 +383,7 @@ _RULE_META: Dict[str, Tuple[str, str]] = {
         "> 0% vs prior run",
     ),
     "vol_adj_ev_percentile": (
-        "Vol-Adj EV Percentile",
+        "Risk-Adjusted Upside Rank",
         "≥ 60th percentile across universe",
     ),
     "stop_probability": (
@@ -352,14 +397,37 @@ _RULE_META: Dict[str, Tuple[str, str]] = {
 }
 
 
-def _suggest_action(failing: List[str]) -> str:
-    """Map top failure reason to an explanatory suggested-focus label."""
+def _suggest_action(
+    failing: List[str],
+    ev_ratio: Optional[float] = None,
+    stop_probability: float = 0.0,
+) -> str:
+    """
+    Map failure context to an explanatory suggested-focus label.
+
+    When vol_adj_ev_percentile fails, decompose whether the binding constraint
+    is low upside (edge), elevated stop risk, or both — so the message is
+    actionable rather than always showing "Needs cheaper entry."
+
+    Priority: regime → vol_adj_ev (nuanced) → stop_probability → conviction delta.
+    """
+    if "regime_stable" in failing:
+        return "Signal noise-dominated"
+
+    if "vol_adj_ev_percentile" in failing:
+        edge = (ev_ratio - 1.0) if ev_ratio is not None else 0.0
+        # edge_low: less than 5% prob-weighted upside (insufficient price dislocation)
+        edge_low = edge < 0.05
+        # stop_elevated: stop is dragging down the score (even if passing Rule 3 gate)
+        stop_elevated = stop_probability >= 15.0
+        if edge_low and stop_elevated:
+            return "Entry + risk need improvement"
+        if stop_elevated and not edge_low:
+            return "Stop risk elevated"
+        return "Needs cheaper entry / more upside"
+
     if "stop_probability" in failing:
         return "Stop risk elevated"
-    if "vol_adj_ev_percentile" in failing:
-        return "Needs cheaper entry"
-    if "regime_stable" in failing:
-        return "Needs higher stability"
     if "allocation_delta_positive" in failing:
         return "Conviction declining"
     return "Monitor"
@@ -395,10 +463,10 @@ def _build_eligibility_diagnostics(
         if r.confirmationScore < 4:
             continue  # Not structurally confirmed — skip
 
-        vol_adj_pct = (
-            _percentile(r.volAdjEvScore, all_vol_adj_scores)
+        vol_adj_pct: Optional[float] = (
+            _percentile_mid_rank(r.volAdjEvScore, all_vol_adj_scores)
             if r.volAdjEvScore is not None and all_vol_adj_scores
-            else 0.0
+            else None
         )
 
         failing: List[str] = []
@@ -415,8 +483,8 @@ def _build_eligibility_diagnostics(
             threshold_vals["allocation_delta_30d"] = 0.0
             gap_score += min(1.0, max(0.0, (-val) / 10.0 + 0.5))
 
-        # Rule 2: vol_adj_ev_percentile
-        if vol_adj_pct < 60.0:
+        # Rule 2: vol_adj_ev_percentile — skipped when universe < 5 (vol_adj_pct is None)
+        if vol_adj_pct is not None and vol_adj_pct < 60.0:
             failing.append("vol_adj_ev_percentile")
             failure_counts["vol_adj_ev_percentile"] += 1
             metric_vals["vol_adj_ev_percentile"] = round(vol_adj_pct, 1)
@@ -447,7 +515,7 @@ def _build_eligibility_diagnostics(
                 "failing": failing,
                 "metric_vals": metric_vals,
                 "threshold_vals": threshold_vals,
-                "suggested_action": _suggest_action(failing),
+                "suggested_action": _suggest_action(failing, r.evRatio, r.stopProbability),
                 "sort_key": (len(failing), gap_score),
                 "tier": tier,
             })
@@ -692,15 +760,29 @@ async def _build_deployment_update(
         for m in raw_metrics.values():
             if m["allocationDelta30d"] is None:
                 continue
-            vol_pct = _percentile(m["volAdjEvScore"], all_vol_scores) if m["volAdjEvScore"] is not None else 0.0
+            vol_pct = (
+                _percentile_mid_rank(m["volAdjEvScore"], all_vol_scores)
+                if m["volAdjEvScore"] is not None
+                else None
+            )
+            # None percentile means universe too small to rank — skip that gate
+            vol_pct_ok = vol_pct is None or vol_pct >= 60.0
             if (
                 m["confirmationScore"] >= 4
                 and m["allocationDelta30d"] > 0
-                and vol_pct >= 60.0
+                and vol_pct_ok
                 and m["stopProbability"] <= 25.0
                 and m["regimeStable"]
             ):
                 eligible_count += 1
+
+        # Admin debug: universe integrity — duplicate tickers should always be 0
+        dup_count = len(ticker_to_result) - len(set(ticker_to_result.keys()))
+        n_valid_ev = sum(1 for m in raw_metrics.values() if m["volAdjEvScore"] is not None)
+        logger.debug(
+            "Deployment universe integrity: n_tickers=%d, n_valid_ev_scores=%d, duplicates=%d",
+            len(raw_metrics), n_valid_ev, dup_count,
+        )
 
         # f) Upsert all ticker rows
         for ticker, m in raw_metrics.items():
@@ -820,16 +902,18 @@ async def _build_deployment_update(
         if r.allocationDelta30d is None:
             continue
 
-        vol_adj_pct = (
-            _percentile(r.volAdjEvScore, all_vol_adj_scores)
+        vol_adj_pct: Optional[float] = (
+            _percentile_mid_rank(r.volAdjEvScore, all_vol_adj_scores)
             if r.volAdjEvScore is not None and all_vol_adj_scores
-            else 0.0
+            else None
         )
+        # None = universe too small to rank; skip that gate
+        vol_pct_ok = vol_adj_pct is None or vol_adj_pct >= 60.0
 
         if not (
             r.confirmationScore >= 4
             and r.allocationDelta30d > 0
-            and vol_adj_pct >= 60.0
+            and vol_pct_ok
             and r.stopProbability <= 25.0
             and r.regimeStable
         ):
