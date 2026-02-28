@@ -10,6 +10,7 @@ import { AdminUserTable } from '@/components/admin/AdminUserTable'
 import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
 import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
+import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
 import { Shield, AlertCircle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { apiClient } from '@/lib/api/client'
@@ -79,12 +80,13 @@ function AdminContent() {
       {/* Content */}
       <main className="container mx-auto px-4 py-8">
         <Tabs defaultValue="metrics" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-[640px]">
+          <TabsList className="grid w-full grid-cols-6 lg:w-[768px]">
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
             <TabsTrigger value="revenue">Revenue</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="analyses">Analyses</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
+            <TabsTrigger value="deployment">Deployment</TabsTrigger>
           </TabsList>
 
           <TabsContent value="metrics">
@@ -108,6 +110,10 @@ function AdminContent() {
 
           <TabsContent value="watchlist">
             <WatchlistView />
+          </TabsContent>
+
+          <TabsContent value="deployment">
+            <StructuralDeploymentUpdate />
           </TabsContent>
         </Tabs>
       </main>
