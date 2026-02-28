@@ -1059,6 +1059,8 @@ export interface NearMissTicker {
   threshold_values: Record<string, number>
   /** Explanatory focus label, e.g. "Stop risk elevated" */
   suggested_action: string
+  /** 2 = fails exactly 1 rule, 3 = fails exactly 2 rules, 0 = fails 3+ */
+  tier: number
 }
 
 export interface EligibilityDiagnostics {
@@ -1072,6 +1074,8 @@ export interface EligibilityDiagnostics {
   failure_reasons: EligibilityFailureItem[]
   /** Top 10 near-miss tickers sorted by fewest failing rules then smallest gap */
   near_misses: NearMissTicker[]
+  /** Tier counts across all confirmed tickers: {1: eligible, 2: fails 1 rule, 3: fails 2 rules} */
+  tier_counts: Record<number, number>
 }
 
 export interface DeploymentUpdateResponse {
@@ -1127,4 +1131,37 @@ export interface EligibilityStressTestResponse {
   dominant_binding_constraint: string
   avg_distance_to_threshold: AvgDistanceToThreshold
   generated_at: string
+}
+
+// ── Rolling simulation types ──────────────────────────────────────────────────
+
+export interface WeeklySimPoint {
+  /** ISO date "YYYY-MM-DD" — Monday of the ISO week */
+  week: string
+  deployability_index: number   // 0–100
+  structural_confirmed: number
+  tier1_count: number           // strict: all 5 eligibility rules
+  tier2_count: number           // moderate: Scenario-D relaxation
+  universe_size: number
+}
+
+export interface RollingSimSummaryStats {
+  /** % of data-weeks where tier1_count >= 1 */
+  pct_weeks_tier1_gte1: number
+  /** % of data-weeks where tier1_count == 0 */
+  pct_weeks_tier1_zero: number
+  median_tier1: number
+  median_tier2: number
+  total_weeks: number
+  weeks_with_data: number
+}
+
+export interface EligibilityRollingSimResponse {
+  weeks: WeeklySimPoint[]
+  summary_stats: RollingSimSummaryStats
+  tier1_label: string
+  tier2_label: string
+  generated_at: string
+  data_start: string | null
+  data_end: string | null
 }

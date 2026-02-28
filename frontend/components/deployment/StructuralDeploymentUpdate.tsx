@@ -459,13 +459,11 @@ function SectorBreadthTable({ rows }: { rows: SectorBreadthRow[] }) {
 function RegimeExposureGuidance({
   regime,
   ceiling,
-  eligible_count,
-  universe_size,
+  tier_counts,
 }: {
   regime: RegimeType
   ceiling: number
-  eligible_count: number
-  universe_size: number
+  tier_counts: Record<number, number>
 }) {
   const regimeColor =
     regime === 'Risk-Off'    ? 'text-zinc-400' :
@@ -477,18 +475,28 @@ function RegimeExposureGuidance({
     regime === 'Transitional'? 'border-amber-600/40' :
     'border-teal-600/40'
 
-  const ratioDisplay = universe_size === 0
-    ? <p className="text-xs text-text-secondary italic">No tickers in tracked universe.</p>
-    : (
-      <div className="space-y-0.5">
-        <p className={`font-mono font-semibold text-base ${eligible_count > 0 ? 'text-emerald-400' : 'text-zinc-500'}`}>
-          {eligible_count} / {universe_size}
-        </p>
-        <p className="text-xs text-text-secondary">
-          eligible / evaluated
-        </p>
+  const t1 = tier_counts[1] ?? 0
+  const t2 = tier_counts[2] ?? 0
+  const t3 = tier_counts[3] ?? 0
+
+  const tierDisplay = (
+    <div className="space-y-1">
+      <div className="flex items-center gap-3 font-mono text-sm">
+        <span className={`font-semibold ${t1 > 0 ? 'text-emerald-400' : 'text-zinc-500'}`}>
+          T1: {t1}
+        </span>
+        <span className="text-zinc-600">·</span>
+        <span className={`font-semibold ${t2 > 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
+          T2: {t2}
+        </span>
+        <span className="text-zinc-600">·</span>
+        <span className={`font-semibold ${t3 > 0 ? 'text-zinc-400' : 'text-zinc-600'}`}>
+          T3: {t3}
+        </span>
       </div>
-    )
+      <p className="text-xs text-text-secondary">eligible / near-miss / watch</p>
+    </div>
+  )
 
   const regimeNote =
     regime === 'Risk-Off'
@@ -519,8 +527,8 @@ function RegimeExposureGuidance({
           </div>
 
           <div>
-            <p className="text-xs text-text-secondary mb-1">Allocation Eligible</p>
-            {ratioDisplay}
+            <p className="text-xs text-text-secondary mb-1">Allocation Tiers</p>
+            {tierDisplay}
           </div>
         </div>
 
@@ -688,18 +696,41 @@ function formatGap(rule: string, metrics: Record<string, number>): string {
   }
 }
 
+function TierBadge({ tier }: { tier: number }) {
+  if (tier === 2) {
+    return (
+      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold font-mono bg-amber-500/15 text-amber-400 border border-amber-500/30">
+        T2
+      </span>
+    )
+  }
+  if (tier === 3) {
+    return (
+      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold font-mono bg-zinc-500/15 text-zinc-400 border border-zinc-500/30">
+        T3
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-semibold font-mono bg-zinc-800/50 text-zinc-600 border border-zinc-700/30">
+      T{tier}
+    </span>
+  )
+}
+
 function NearMissTable({ diag }: { diag: EligibilityDiagnostics }) {
   if (diag.near_misses.length === 0) return null
 
   return (
     <div className="space-y-2">
       <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-        Top Near Misses — Closest to Eligibility
+        Top Near Misses — Tier 2 First
       </h4>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-surface-elevated">
+              <Th>Tier</Th>
               <Th>Ticker</Th>
               <Th>Failing Rule(s)</Th>
               <Th>Metric vs Threshold</Th>
@@ -715,6 +746,9 @@ function NearMissTable({ diag }: { diag: EligibilityDiagnostics }) {
                   key={nm.ticker}
                   className="border-b border-surface-elevated/50 hover:bg-surface-elevated/30 transition-colors"
                 >
+                  <td className="py-2 pr-3 whitespace-nowrap">
+                    <TierBadge tier={nm.tier} />
+                  </td>
                   <td className="py-2 pr-4 font-mono font-semibold text-text-primary">{nm.ticker}</td>
                   <td className="py-2 pr-4 text-text-secondary whitespace-nowrap">
                     {RULE_LABELS[primaryRule] ?? primaryRule}
@@ -930,8 +964,7 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
         <RegimeExposureGuidance
           regime={regime}
           ceiling={exposureCeiling}
-          eligible_count={data.eligible_count}
-          universe_size={data.universe_size}
+          tier_counts={data.eligibility_diagnostics.tier_counts}
         />
 
         <div className="border-t border-surface-elevated" />

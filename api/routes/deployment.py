@@ -117,6 +117,8 @@ class NearMissTicker(BaseModel):
     metric_values: Dict[str, float]
     threshold_values: Dict[str, float]
     suggested_action: str
+    # 2 = fails exactly 1 allocation rule, 3 = fails exactly 2, 0 = fails 3+
+    tier: int
 
 
 class EligibilityDiagnostics(BaseModel):
@@ -126,6 +128,8 @@ class EligibilityDiagnostics(BaseModel):
     eligible_count: int
     failure_reasons: List[EligibilityFailureItem]   # ranked by count desc
     near_misses: List[NearMissTicker]               # up to 10, closest first
+    # Tier 1 = passes all rules; 2 = fails 1; 3 = fails 2 (counts across all confirmed)
+    tier_counts: Dict[int, int]
 
 
 class DeploymentUpdateResponse(BaseModel):
@@ -436,6 +440,8 @@ def _build_eligibility_diagnostics(
             gap_score += 1.0  # binary: fully failing
 
         if failing:
+            nfail = len(failing)
+            tier = 2 if nfail == 1 else 3 if nfail == 2 else 0
             near_miss_candidates.append({
                 "ticker": r.ticker,
                 "failing": failing,
@@ -443,10 +449,17 @@ def _build_eligibility_diagnostics(
                 "threshold_vals": threshold_vals,
                 "suggested_action": _suggest_action(failing),
                 "sort_key": (len(failing), gap_score),
+                "tier": tier,
             })
 
-    # Sort: fewest failures first, then smallest gap to threshold
+    # Sort: fewest failures first (Tier 2 before Tier 3), then smallest gap to threshold
     near_miss_candidates.sort(key=lambda x: x["sort_key"])
+
+    # Tier counts: Tier 1 = eligible (all rules pass); 2 = fails 1; 3 = fails 2
+    tier_counts: Dict[int, int] = {1: eligible_count, 2: 0, 3: 0}
+    for c in near_miss_candidates:
+        if c["tier"] in (2, 3):
+            tier_counts[c["tier"]] += 1
 
     failure_reasons = [
         EligibilityFailureItem(
@@ -466,6 +479,7 @@ def _build_eligibility_diagnostics(
             metric_values=c["metric_vals"],
             threshold_values=c["threshold_vals"],
             suggested_action=c["suggested_action"],
+            tier=c["tier"],
         )
         for c in near_miss_candidates[:10]
     ]
@@ -476,6 +490,7 @@ def _build_eligibility_diagnostics(
         eligible_count=eligible_count,
         failure_reasons=failure_reasons,
         near_misses=near_misses,
+        tier_counts=tier_counts,
     )
 
 
@@ -971,6 +986,7 @@ def _empty_response(
             eligible_count=0,
             failure_reasons=[],
             near_misses=[],
+            tier_counts={1: 0, 2: 0, 3: 0},
         ),
     )
 
@@ -1428,3 +1444,374 @@ async def get_admin_eligibility_stress_test(
     except Exception as exc:
         logger.exception("Stress test failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to run eligibility stress test.")
+
+
+# ── Rolling simulation models ──────────────────────────────────────────────────
+
+class WeeklySimPoint(BaseModel):
+    week: str                   # ISO date "YYYY-MM-DD" (Monday of the week)
+    deployability_index: float  # 0–100
+    structural_confirmed: int   # tickers with confirmation_score >= 4
+    tier1_count: int            # strict: conf≥4, delta>0, EV≥60th, stop≤25, stable
+    tier2_count: int            # moderate: conf≥4, delta≥0, EV≥55th, stop≤30, stable
+    universe_size: int          # tickers with any data this week
+
+
+class RollingSimSummaryStats(BaseModel):
+    pct_weeks_tier1_gte1: float    # % of data-weeks where tier1_count >= 1
+    pct_weeks_tier1_zero: float    # % of data-weeks where tier1_count == 0
+    median_tier1: float
+    median_tier2: float
+    total_weeks: int               # total weeks in the 12-month window
+    weeks_with_data: int           # weeks that have at least 1 ticker
+
+
+class EligibilityRollingSimResponse(BaseModel):
+    weeks: List[WeeklySimPoint]
+    summary_stats: RollingSimSummaryStats
+    tier1_label: str
+    tier2_label: str
+    generated_at: str
+    data_start: Optional[str]      # earliest week date with universe data
+    data_end: Optional[str]        # latest week date with universe data
+
+
+# ── Rolling simulation constants & cache ──────────────────────────────────────
+
+_ROLLING_SIM_LABEL_T1 = "Strict (conf ≥ 4, delta > 0, EV ≥ 60th, stop ≤ 25%, stable)"
+_ROLLING_SIM_LABEL_T2 = "Moderate (conf ≥ 4, delta ≥ 0, EV ≥ 55th, stop ≤ 30%, stable)"
+
+_rolling_sim_cache: Dict[str, Tuple[str, EligibilityRollingSimResponse]] = {}
+
+
+# ── Rolling simulation helper ──────────────────────────────────────────────────
+
+def _empty_rolling_sim(now_utc: datetime) -> EligibilityRollingSimResponse:
+    """Return an empty rolling sim response (no historical data)."""
+    today = now_utc.date()
+    this_monday = today - timedelta(days=today.weekday())
+    weeks = [
+        WeeklySimPoint(
+            week=(this_monday - timedelta(weeks=w)).isoformat(),
+            deployability_index=0.0,
+            structural_confirmed=0,
+            tier1_count=0,
+            tier2_count=0,
+            universe_size=0,
+        )
+        for w in range(51, -1, -1)
+    ]
+    return EligibilityRollingSimResponse(
+        weeks=weeks,
+        summary_stats=RollingSimSummaryStats(
+            pct_weeks_tier1_gte1=0.0,
+            pct_weeks_tier1_zero=100.0,
+            median_tier1=0.0,
+            median_tier2=0.0,
+            total_weeks=52,
+            weeks_with_data=0,
+        ),
+        tier1_label=_ROLLING_SIM_LABEL_T1,
+        tier2_label=_ROLLING_SIM_LABEL_T2,
+        generated_at=now_utc.isoformat(),
+        data_start=None,
+        data_end=None,
+    )
+
+
+async def _run_rolling_simulation(db) -> EligibilityRollingSimResponse:
+    """
+    Rolling 12-month weekly eligibility simulation.
+
+    Uses historical StockResult.fullOutput — no recalculation, no LLM calls.
+    Computes Tier 1 (strict) and Tier 2 (moderate) eligibility counts per ISO week.
+
+    Tier 1 = conf≥4, delta>0, EV≥60th pct, stop≤25%, regime stable
+    Tier 2 = conf≥4, delta≥0, EV≥55th pct, stop≤30%, regime stable
+    """
+    import statistics as _statistics
+
+    now_utc = datetime.now(timezone.utc)
+
+    # ── 1. Fetch all completed results from last ~14 months ───────────────────
+    # Extra 2-month buffer so prior-run delta lookups can reach back 30 days
+    # from the oldest week in our 12-month window.
+    cutoff = now_utc - timedelta(days=430)
+    all_results = await db.stockresult.find_many(
+        where={"status": "completed", "createdAt": {"gte": cutoff}},
+        order={"createdAt": "asc"},
+    )
+    if not all_results:
+        return _empty_rolling_sim(now_utc)
+
+    # ── 2. Pre-compute enriched output + base metrics per run_id ─────────────
+    # Cache to avoid redundant DI enrichment when the same result appears in
+    # multiple weeks (e.g. a ticker analysed once stays the "latest" for many
+    # consecutive weeks).
+    enriched_cache: Dict[str, Dict[str, Any]] = {}
+    base_metrics_cache: Dict[str, Dict[str, Any]] = {}
+
+    for r in all_results:
+        fo = _parse_full_output(r.fullOutput)
+        if not fo:
+            continue
+        moat_score = float(r.moatScore or 5.0)
+        fo = _enrich(fo, moat_score)
+        enriched_cache[r.runId] = fo
+        base_metrics_cache[r.runId] = _extract_metrics(r.ticker, fo, moat_score)
+
+    # ── 3. Group by ticker: sorted list of (ts, run_id) ──────────────────────
+    ticker_history: Dict[str, List[Tuple[datetime, str]]] = {}
+    for r in all_results:
+        if r.runId not in enriched_cache:
+            continue  # fullOutput was unparseable
+        ts = r.createdAt
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        ticker_history.setdefault(r.ticker, []).append((ts, r.runId))
+    # Already in ascending order because we queried ORDER BY createdAt ASC
+
+    def _latest_run_id_before(
+        history: List[Tuple[datetime, str]], cutoff_dt: datetime
+    ) -> Optional[str]:
+        """Return run_id of the latest entry with ts ≤ cutoff_dt, or None."""
+        result = None
+        for ts, run_id in history:
+            if ts <= cutoff_dt:
+                result = run_id
+            else:
+                break
+        return result
+
+    def _get_conviction_pct(run_id: str) -> Optional[float]:
+        fo = enriched_cache.get(run_id)
+        if fo is None:
+            return None
+        return (
+            (fo.get("decision_intelligence") or {})
+            .get("conviction_position", {})
+            .get("recommended_pct")
+        )
+
+    # ── 4. Build ISO week windows (52 weeks, Monday to Sunday) ───────────────
+    today = now_utc.date()
+    this_monday = today - timedelta(days=today.weekday())
+    week_mondays = [
+        this_monday - timedelta(weeks=w)
+        for w in range(51, -1, -1)
+    ]  # oldest first → newest last
+
+    result_points: List[WeeklySimPoint] = []
+
+    for week_monday in week_mondays:
+        # Inclusive window: [week_monday 00:00Z, week_monday+6 23:59:59Z]
+        week_end = datetime(
+            week_monday.year, week_monday.month, week_monday.day,
+            23, 59, 59, tzinfo=timezone.utc,
+        ) + timedelta(days=6)
+        prior_cutoff = week_end - timedelta(days=30)
+
+        # Per-ticker: snapshot of latest result as of this week's end
+        weekly_metrics: List[Dict[str, Any]] = []
+        for ticker, history in ticker_history.items():
+            curr_run_id = _latest_run_id_before(history, week_end)
+            if curr_run_id is None:
+                continue
+
+            m = dict(base_metrics_cache[curr_run_id])  # copy
+
+            # Allocation delta: prior run ≤ (week_end - 30d)
+            prior_run_id = _latest_run_id_before(history, prior_cutoff)
+            allocation_delta: Optional[float] = None
+            if prior_run_id and prior_run_id != curr_run_id:
+                prior_pct = _get_conviction_pct(prior_run_id)
+                if prior_pct is not None:
+                    allocation_delta = round(m["allocationCurrent"] - float(prior_pct), 2)
+
+            m["allocationDelta30d"] = allocation_delta
+            weekly_metrics.append(m)
+
+        universe_size = len(weekly_metrics)
+        if universe_size == 0:
+            result_points.append(WeeklySimPoint(
+                week=week_monday.isoformat(),
+                deployability_index=0.0,
+                structural_confirmed=0,
+                tier1_count=0,
+                tier2_count=0,
+                universe_size=0,
+            ))
+            continue
+
+        # Cross-universe vol-adj EV scores for percentile ranking this week
+        all_vol_scores = [
+            m["volAdjEvScore"]
+            for m in weekly_metrics
+            if m.get("volAdjEvScore") is not None
+        ]
+
+        structural_confirmed = sum(
+            1 for m in weekly_metrics if m["confirmationScore"] >= 4
+        )
+        tier1_count = 0
+        tier2_count = 0
+
+        for m in weekly_metrics:
+            if m["confirmationScore"] < 4:
+                continue
+            if not m.get("regimeStable", False):
+                continue
+
+            vol_pct = (
+                _percentile(m["volAdjEvScore"], all_vol_scores)
+                if m.get("volAdjEvScore") is not None and all_vol_scores
+                else 0.0
+            )
+            delta = m.get("allocationDelta30d")
+            stop = m.get("stopProbability", 100.0)
+
+            # Tier 1 — strict baseline
+            if (
+                delta is not None and delta > 0
+                and vol_pct >= 60.0
+                and stop <= 25.0
+            ):
+                tier1_count += 1
+
+            # Tier 2 — moderate (Scenario D equivalent)
+            if (
+                delta is not None and delta >= 0
+                and vol_pct >= 55.0
+                and stop <= 30.0
+            ):
+                tier2_count += 1
+
+        # Deployability index (same formula as _compute_deployability_index)
+        pct_confirmed_di = structural_confirmed / universe_size * 100.0
+        regime_stable_cnt = sum(1 for m in weekly_metrics if m.get("regimeStable", False))
+        regime_stable_pct_di = regime_stable_cnt / universe_size * 100.0
+        avg_stop_di = sum(m.get("stopProbability", 50.0) for m in weekly_metrics) / universe_size
+
+        sector_di: Dict[str, Dict[str, int]] = {}
+        for m in weekly_metrics:
+            sec = m.get("sector") or "Unknown"
+            if sec not in sector_di:
+                sector_di[sec] = {"confirmed": 0, "total": 0}
+            sector_di[sec]["total"] += 1
+            if m["confirmationScore"] >= 4:
+                sector_di[sec]["confirmed"] += 1
+        breadth_pcts = [
+            s["confirmed"] / s["total"] * 100.0
+            for s in sector_di.values() if s["total"] > 0
+        ]
+        avg_breadth_di = sum(breadth_pcts) / len(breadth_pcts) if breadth_pcts else 0.0
+
+        di_score = round(
+            pct_confirmed_di * 0.35
+            + regime_stable_pct_di * 0.30
+            + (100.0 - avg_stop_di) * 0.20
+            + avg_breadth_di * 0.15,
+            1,
+        )
+
+        result_points.append(WeeklySimPoint(
+            week=week_monday.isoformat(),
+            deployability_index=di_score,
+            structural_confirmed=structural_confirmed,
+            tier1_count=tier1_count,
+            tier2_count=tier2_count,
+            universe_size=universe_size,
+        ))
+
+    # ── 5. Summary statistics ─────────────────────────────────────────────────
+    data_weeks = [p for p in result_points if p.universe_size > 0]
+    total_weeks = len(result_points)
+    weeks_with_data = len(data_weeks)
+
+    if data_weeks:
+        t1_vals = [p.tier1_count for p in data_weeks]
+        t2_vals = [p.tier2_count for p in data_weeks]
+        pct_t1_gte1 = round(sum(1 for v in t1_vals if v >= 1) / weeks_with_data * 100.0, 1)
+        pct_t1_zero = round(sum(1 for v in t1_vals if v == 0) / weeks_with_data * 100.0, 1)
+        median_t1 = float(_statistics.median(t1_vals))
+        median_t2 = float(_statistics.median(t2_vals))
+        data_start = data_weeks[0].week
+        data_end = data_weeks[-1].week
+    else:
+        pct_t1_gte1 = 0.0
+        pct_t1_zero = 100.0
+        median_t1 = 0.0
+        median_t2 = 0.0
+        data_start = None
+        data_end = None
+
+    logger.info(
+        "Rolling sim complete — %d weeks, %d with data, "
+        "pct_t1_gte1=%.1f%%, median_t1=%.1f, median_t2=%.1f",
+        total_weeks, weeks_with_data, pct_t1_gte1, median_t1, median_t2,
+    )
+
+    return EligibilityRollingSimResponse(
+        weeks=result_points,
+        summary_stats=RollingSimSummaryStats(
+            pct_weeks_tier1_gte1=pct_t1_gte1,
+            pct_weeks_tier1_zero=pct_t1_zero,
+            median_tier1=median_t1,
+            median_tier2=median_t2,
+            total_weeks=total_weeks,
+            weeks_with_data=weeks_with_data,
+        ),
+        tier1_label=_ROLLING_SIM_LABEL_T1,
+        tier2_label=_ROLLING_SIM_LABEL_T2,
+        generated_at=now_utc.isoformat(),
+        data_start=data_start,
+        data_end=data_end,
+    )
+
+
+# ── Rolling simulation route (admin-only) ─────────────────────────────────────
+
+@router.get("/deployment/eligibility-rolling-sim/admin", response_model=EligibilityRollingSimResponse)
+async def get_admin_eligibility_rolling_sim(
+    admin: User = Depends(require_admin),
+):
+    """
+    Rolling 12-month weekly eligibility tier simulation — Admin Only.
+
+    Reads historical StockResult.fullOutput snapshots. No new analyses, no LLM calls.
+    Returns a WeeklySimPoint for every ISO week in the trailing 52-week window with:
+      - deployability_index  (same 4-component formula as the live dashboard)
+      - structural_confirmed (tickers with confirmation_score >= 4)
+      - tier1_count          (strict baseline: all 5 eligibility rules)
+      - tier2_count          (moderate: Scenario-D equivalent relaxation)
+
+    Results are cached in-process per snapshot bucket (24h) to avoid re-scanning
+    the full 14-month StockResult history on every request.
+    """
+    db = await get_db()
+    try:
+        now_utc = datetime.now(timezone.utc)
+        current_bucket = _snapshot_bucket(now_utc)
+        bucket_str = current_bucket.isoformat()
+
+        cached = _rolling_sim_cache.get(_ADMIN_SENTINEL)
+        if cached and cached[0] == bucket_str:
+            logger.debug("Rolling sim cache hit for bucket %s", bucket_str)
+            return cached[1]
+
+        result = await _run_rolling_simulation(db)
+        _rolling_sim_cache[_ADMIN_SENTINEL] = (bucket_str, result)
+        return result
+
+    except _TableNotFoundError as exc:
+        logger.error("deployment/rolling-sim: table missing — %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "deployment_cache_not_migrated",
+                "message": "Run: prisma migrate deploy --schema=db/schema.prisma",
+            },
+        )
+    except Exception as exc:
+        logger.exception("Rolling sim failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to run rolling eligibility simulation.")

@@ -22,6 +22,7 @@ import type {
   EntitlementsResponse,
   DeploymentUpdateResponse,
   EligibilityStressTestResponse,
+  EligibilityRollingSimResponse,
 } from '@/types/api'
 
 class ApiClient {
@@ -368,6 +369,10 @@ class ApiClient {
 
   async getEligibilityStressTest(): Promise<EligibilityStressTestResponse> {
     return this.request('/api/deployment/eligibility-stress-test/admin')
+  }
+
+  async getEligibilityRollingSim(): Promise<EligibilityRollingSimResponse> {
+    return this.request('/api/deployment/eligibility-rolling-sim/admin')
   }
 }
 
