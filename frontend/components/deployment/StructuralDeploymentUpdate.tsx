@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow } from '@/types/api'
+import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow, EligibilityDiagnostics } from '@/types/api'
 import { useDeploymentUpdate } from '@/lib/hooks/useDeploymentUpdate'
 import { useAdminDeploymentUpdate } from '@/lib/hooks/useAdminDeploymentUpdate'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
@@ -219,11 +219,13 @@ function CapitalRegimeStatus({
   index,
   regime,
   gateOpen,
+  diag,
 }: {
   snapshot: MarketDeployabilitySnapshot
   index: number
   regime: RegimeType
   gateOpen: boolean
+  diag: EligibilityDiagnostics
 }) {
   const deltaStr = snapshot.avg_allocation_delta != null
     ? (snapshot.avg_allocation_delta >= 0
@@ -256,6 +258,9 @@ function CapitalRegimeStatus({
 
       {/* Regime spectrum meter */}
       <RegimeSpectrumMeter index={index} regime={regime} />
+
+      {/* Pipeline funnel — evaluated → confirmed → eligible */}
+      <PipelineFunnel diag={diag} />
 
       {/* Context metrics (secondary) */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -473,14 +478,14 @@ function RegimeExposureGuidance({
     'border-teal-600/40'
 
   const ratioDisplay = universe_size === 0
-    ? <p className="text-xs text-text-secondary italic">No eligible tickers in tracked universe.</p>
+    ? <p className="text-xs text-text-secondary italic">No tickers in tracked universe.</p>
     : (
       <div className="space-y-0.5">
-        <p className="font-mono font-semibold text-text-primary text-base">
-          {eligible_count} Confirmed
+        <p className={`font-mono font-semibold text-base ${eligible_count > 0 ? 'text-emerald-400' : 'text-zinc-500'}`}>
+          {eligible_count} / {universe_size}
         </p>
         <p className="text-xs text-text-secondary">
-          {universe_size} Evaluated
+          eligible / evaluated
         </p>
       </div>
     )
@@ -514,7 +519,7 @@ function RegimeExposureGuidance({
           </div>
 
           <div>
-            <p className="text-xs text-text-secondary mb-1">Deployability Ratio</p>
+            <p className="text-xs text-text-secondary mb-1">Allocation Eligible</p>
             {ratioDisplay}
           </div>
         </div>
@@ -530,6 +535,241 @@ function RegimeExposureGuidance({
           </p>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Pipeline Funnel ────────────────────────────────────────────────────────────
+// Requirement A: explicit evaluated → structural confirmed → allocation eligible counts
+
+function PipelineFunnel({ diag }: { diag: EligibilityDiagnostics }) {
+  const steps = [
+    {
+      label: 'Evaluated Universe',
+      count: diag.evaluated_count,
+      color: 'text-text-primary',
+    },
+    {
+      label: 'Structural Confirmed',
+      count: diag.confirmed_count,
+      color: 'text-teal-400',
+    },
+    {
+      label: 'Allocation Eligible',
+      count: diag.eligible_count,
+      color: diag.eligible_count > 0 ? 'text-emerald-400' : 'text-zinc-500',
+    },
+  ]
+
+  return (
+    <div className="rounded-lg border border-surface-elevated bg-surface/50 px-4 py-3">
+      <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-2.5">
+        Eligibility Pipeline
+      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {steps.map((step, i) => (
+          <React.Fragment key={step.label}>
+            {i > 0 && <span className="text-zinc-600 text-sm select-none">›</span>}
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-base font-mono font-bold ${step.color}`}>{step.count}</span>
+              <span className="text-xs text-text-secondary">{step.label}</span>
+            </div>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Eligibility Rule List ──────────────────────────────────────────────────────
+// Requirement B: human-readable rule list with exact thresholds
+
+const ELIGIBILITY_RULES = [
+  { label: 'Structural Gate', requirement: 'Confirmation score ≥ 4 of 5 moat components' },
+  { label: 'Conviction Delta', requirement: 'Allocation delta > 0% vs prior 30-day run' },
+  { label: 'EV Rank', requirement: 'Vol-Adj EV ≥ 60th percentile (universe-wide)' },
+  { label: 'Stop Probability', requirement: '≤ 25.0%' },
+  { label: 'Regime Stability', requirement: 'Not Noise-Dominated or High-Noise' },
+] as const
+
+function EligibilityRuleList() {
+  return (
+    <div className="space-y-2">
+      <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        Allocation Eligibility Requires (all must pass)
+      </h4>
+      <div className="rounded-lg border border-surface-elevated bg-surface divide-y divide-surface-elevated/70">
+        {ELIGIBILITY_RULES.map((rule) => (
+          <div key={rule.label} className="flex items-start gap-3 px-3 py-2">
+            <span className="text-teal-400 text-xs mt-0.5 shrink-0">✓</span>
+            <div>
+              <span className="text-xs font-medium text-text-primary">{rule.label}:</span>
+              {' '}
+              <span className="text-xs text-text-secondary">{rule.requirement}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Failure Reason Breakdown ───────────────────────────────────────────────────
+// Requirement C: why structurally confirmed tickers are not allocation-eligible
+
+function FailureReasonBreakdown({ diag }: { diag: EligibilityDiagnostics }) {
+  if (diag.confirmed_count === 0 || diag.failure_reasons.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        Why Not Eligible? — out of {diag.confirmed_count} structurally confirmed
+      </h4>
+      <div className="space-y-1.5">
+        {diag.failure_reasons.map((reason) => {
+          const barPct = diag.confirmed_count > 0
+            ? Math.round((reason.count / diag.confirmed_count) * 100)
+            : 0
+          return (
+            <div key={reason.rule} className="rounded-md border border-surface-elevated bg-surface px-3 py-2.5">
+              <div className="flex items-center justify-between mb-1.5">
+                <div>
+                  <span className="text-xs font-medium text-text-primary">{reason.label}</span>
+                  <span className="text-xs text-text-secondary ml-1.5">({reason.threshold_desc})</span>
+                </div>
+                <span className="text-sm font-mono font-bold text-amber-400 ml-3 shrink-0">
+                  {reason.count}
+                </span>
+              </div>
+              {/* Progress bar */}
+              <div className="h-1 rounded-full bg-surface-elevated overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-amber-500/50 transition-all duration-500"
+                  style={{ width: `${barPct}%` }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Near Miss Table ────────────────────────────────────────────────────────────
+// Requirement D: top 10 tickers closest to eligibility with gap details
+
+const RULE_LABELS: Record<string, string> = {
+  vol_adj_ev_percentile:  'EV Rank',
+  stop_probability:       'Stop Prob',
+  allocation_delta_positive: 'Delta',
+  regime_stable:          'Regime',
+}
+
+function formatGap(rule: string, metrics: Record<string, number>): string {
+  switch (rule) {
+    case 'vol_adj_ev_percentile': {
+      const actual = metrics['vol_adj_ev_percentile']
+      return actual !== undefined ? `${actual.toFixed(0)}th vs ≥60th` : '—'
+    }
+    case 'stop_probability': {
+      const actual = metrics['stop_probability']
+      return actual !== undefined ? `${actual.toFixed(1)}% vs ≤25.0%` : '—'
+    }
+    case 'allocation_delta_positive': {
+      const actual = metrics['allocation_delta_30d']
+      if (actual === undefined) return 'No prior data'
+      return actual <= 0 ? `${actual.toFixed(2)}% (needs > 0%)` : '—'
+    }
+    case 'regime_stable':
+      return 'Noise-Dominated'
+    default:
+      return '—'
+  }
+}
+
+function NearMissTable({ diag }: { diag: EligibilityDiagnostics }) {
+  if (diag.near_misses.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        Top Near Misses — Closest to Eligibility
+      </h4>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-surface-elevated">
+              <Th>Ticker</Th>
+              <Th>Failing Rule(s)</Th>
+              <Th>Metric vs Threshold</Th>
+              <Th>Suggested Focus</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {diag.near_misses.map((nm) => {
+              const primaryRule = nm.failing_rules[0]
+              const extraCount  = nm.failing_rules.length - 1
+              return (
+                <tr
+                  key={nm.ticker}
+                  className="border-b border-surface-elevated/50 hover:bg-surface-elevated/30 transition-colors"
+                >
+                  <td className="py-2 pr-4 font-mono font-semibold text-text-primary">{nm.ticker}</td>
+                  <td className="py-2 pr-4 text-text-secondary whitespace-nowrap">
+                    {RULE_LABELS[primaryRule] ?? primaryRule}
+                    {extraCount > 0 && (
+                      <span className="ml-1 text-zinc-500">+{extraCount}</span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4 text-text-secondary font-mono whitespace-nowrap">
+                    {formatGap(primaryRule, nm.metric_values)}
+                  </td>
+                  <td className="py-2 pr-4 text-text-secondary italic whitespace-nowrap">
+                    {nm.suggested_action}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Eligibility Diagnostics Section ───────────────────────────────────────────
+// Combines rule list + failure breakdown + near misses into one collated section.
+
+const ELIGIBILITY_CONTEXT_NOTE =
+  'Structural confirmation indicates market regime support. ' +
+  'Allocation eligibility requires favorable EV + stability at current prices. ' +
+  'A Risk-On regime can still produce zero eligible targets when valuations are extended.'
+
+function EligibilityDiagnosticsSection({ diag }: { diag: EligibilityDiagnostics }) {
+  const hasGap = diag.confirmed_count > 0 && diag.eligible_count < diag.confirmed_count
+
+  return (
+    <div className="space-y-5">
+      <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider">
+        Eligibility Diagnostics
+      </h3>
+
+      {/* Context note */}
+      <div className="rounded-md border border-zinc-700/40 bg-zinc-900/30 px-4 py-3">
+        <p className="text-xs text-text-secondary leading-relaxed italic">
+          {ELIGIBILITY_CONTEXT_NOTE}
+        </p>
+      </div>
+
+      {/* B: Rule list */}
+      <EligibilityRuleList />
+
+      {/* C: Failure reason breakdown — only when there are confirmed-but-not-eligible names */}
+      {hasGap && <FailureReasonBreakdown diag={diag} />}
+
+      {/* D: Near miss table */}
+      {diag.near_misses.length > 0 && <NearMissTable diag={diag} />}
     </div>
   )
 }
@@ -657,12 +897,13 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
       </CardHeader>
 
       <CardContent className="space-y-8">
-        {/* Section 1 — Capital Regime Status (Gate + Index + Meter + Metrics) */}
+        {/* Section 1 — Capital Regime Status (Gate + Index + Meter + Funnel + Metrics) */}
         <CapitalRegimeStatus
           snapshot={data.snapshot}
           index={deployIndex}
           regime={regime}
           gateOpen={gateOpen}
+          diag={data.eligibility_diagnostics}
         />
 
         <div className="border-t border-surface-elevated" />
@@ -672,6 +913,11 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
           tickers={data.deployable_tickers}
           noDeployableMessage={data.no_deployable_message}
         />
+
+        <div className="border-t border-surface-elevated" />
+
+        {/* Section 2b — Eligibility Diagnostics (funnel breakdown + near misses) */}
+        <EligibilityDiagnosticsSection diag={data.eligibility_diagnostics} />
 
         <div className="border-t border-surface-elevated" />
 

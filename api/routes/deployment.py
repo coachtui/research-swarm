@@ -102,6 +102,32 @@ class MarketDeployabilitySnapshot(BaseModel):
     exposure_ceiling: float  # suggested max portfolio exposure %
 
 
+class EligibilityFailureItem(BaseModel):
+    """One eligibility rule and how many structurally confirmed tickers fail it."""
+    rule: str
+    label: str
+    count: int
+    threshold_desc: str
+
+
+class NearMissTicker(BaseModel):
+    """A structurally confirmed ticker that just misses allocation eligibility."""
+    ticker: str
+    failing_rules: List[str]
+    metric_values: Dict[str, float]
+    threshold_values: Dict[str, float]
+    suggested_action: str
+
+
+class EligibilityDiagnostics(BaseModel):
+    """Pipeline funnel + failure breakdown for the diagnostics panel."""
+    evaluated_count: int
+    confirmed_count: int
+    eligible_count: int
+    failure_reasons: List[EligibilityFailureItem]   # ranked by count desc
+    near_misses: List[NearMissTicker]               # up to 10, closest first
+
+
 class DeploymentUpdateResponse(BaseModel):
     snapshot_id: str
     generated_at: str
@@ -110,11 +136,13 @@ class DeploymentUpdateResponse(BaseModel):
     model_version: str
     ruleset_version: str
     universe_size: int
+    confirmed_count: int
     eligible_count: int
     snapshot: MarketDeployabilitySnapshot
     deployable_tickers: List[DeployableTickerItem]
     sector_breadth: List[SectorBreadthRow]
     no_deployable_message: Optional[str]
+    eligibility_diagnostics: EligibilityDiagnostics
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -287,6 +315,161 @@ def _sector_trend(
     if avg_curr < avg_prior - 0.1:
         return "falling"
     return "stable"
+
+
+# ── Eligibility diagnostics helpers ───────────────────────────────────────────
+
+# Human-readable metadata for each allocation eligibility rule.
+# Keys match the `failing_rules` strings used in NearMissTicker / failure_reasons.
+_RULE_META: Dict[str, Tuple[str, str]] = {
+    "allocation_delta_positive": (
+        "Positive Conviction Delta (30d)",
+        "> 0% vs prior run",
+    ),
+    "vol_adj_ev_percentile": (
+        "Vol-Adj EV Percentile",
+        "≥ 60th percentile across universe",
+    ),
+    "stop_probability": (
+        "Stop Probability",
+        "≤ 25.0%",
+    ),
+    "regime_stable": (
+        "Regime Stability",
+        "Not Noise-Dominated or High-Noise",
+    ),
+}
+
+
+def _suggest_action(failing: List[str]) -> str:
+    """Map top failure reason to an explanatory suggested-focus label."""
+    if "stop_probability" in failing:
+        return "Stop risk elevated"
+    if "vol_adj_ev_percentile" in failing:
+        return "Needs cheaper entry"
+    if "regime_stable" in failing:
+        return "Needs higher stability"
+    if "allocation_delta_positive" in failing:
+        return "Conviction declining"
+    return "Monitor"
+
+
+def _build_eligibility_diagnostics(
+    cached_rows: List[Any],
+    all_vol_adj_scores: List[float],
+    confirmed_count: int,
+    eligible_count: int,
+) -> EligibilityDiagnostics:
+    """
+    For each structurally confirmed ticker (score >= 4), evaluate all
+    allocation eligibility predicates and record failures.
+
+    Returns:
+        EligibilityDiagnostics with pipeline funnel counts, ranked failure
+        reasons, and the top-10 near-miss tickers sorted by fewest failing
+        rules then smallest gap to the threshold.
+
+    Notes:
+        - Tickers with confirmation_score < 4 are excluded (not structurally
+          confirmed) — they never enter the eligibility pipeline.
+        - Tickers that pass all rules are already counted in eligible_count;
+          they are not included in near_misses.
+        - gap_score is a normalised float used for sorting only; not exposed
+          in the API response.
+    """
+    failure_counts: Dict[str, int] = {rule: 0 for rule in _RULE_META}
+    near_miss_candidates: List[Dict[str, Any]] = []
+
+    for r in cached_rows:
+        if r.confirmationScore < 4:
+            continue  # Not structurally confirmed — skip
+
+        vol_adj_pct = (
+            _percentile(r.volAdjEvScore, all_vol_adj_scores)
+            if r.volAdjEvScore is not None and all_vol_adj_scores
+            else 0.0
+        )
+
+        failing: List[str] = []
+        metric_vals: Dict[str, float] = {}
+        threshold_vals: Dict[str, float] = {}
+        gap_score = 0.0  # normalised distance from eligibility (for sorting)
+
+        # Rule 1: allocation_delta_positive
+        if r.allocationDelta30d is None or r.allocationDelta30d <= 0:
+            failing.append("allocation_delta_positive")
+            failure_counts["allocation_delta_positive"] += 1
+            val = float(r.allocationDelta30d or 0.0)
+            metric_vals["allocation_delta_30d"] = round(val, 2)
+            threshold_vals["allocation_delta_30d"] = 0.0
+            gap_score += min(1.0, max(0.0, (-val) / 10.0 + 0.5))
+
+        # Rule 2: vol_adj_ev_percentile
+        if vol_adj_pct < 60.0:
+            failing.append("vol_adj_ev_percentile")
+            failure_counts["vol_adj_ev_percentile"] += 1
+            metric_vals["vol_adj_ev_percentile"] = round(vol_adj_pct, 1)
+            threshold_vals["vol_adj_ev_percentile"] = 60.0
+            gap_score += (60.0 - vol_adj_pct) / 60.0
+
+        # Rule 3: stop_probability
+        if r.stopProbability > 25.0:
+            failing.append("stop_probability")
+            failure_counts["stop_probability"] += 1
+            metric_vals["stop_probability"] = round(r.stopProbability, 1)
+            threshold_vals["stop_probability"] = 25.0
+            gap_score += min(1.0, (r.stopProbability - 25.0) / 75.0)
+
+        # Rule 4: regime_stable
+        if not r.regimeStable:
+            failing.append("regime_stable")
+            failure_counts["regime_stable"] += 1
+            metric_vals["regime_stable"] = 0.0
+            threshold_vals["regime_stable"] = 1.0
+            gap_score += 1.0  # binary: fully failing
+
+        if failing:
+            near_miss_candidates.append({
+                "ticker": r.ticker,
+                "failing": failing,
+                "metric_vals": metric_vals,
+                "threshold_vals": threshold_vals,
+                "suggested_action": _suggest_action(failing),
+                "sort_key": (len(failing), gap_score),
+            })
+
+    # Sort: fewest failures first, then smallest gap to threshold
+    near_miss_candidates.sort(key=lambda x: x["sort_key"])
+
+    failure_reasons = [
+        EligibilityFailureItem(
+            rule=rule,
+            label=_RULE_META[rule][0],
+            count=cnt,
+            threshold_desc=_RULE_META[rule][1],
+        )
+        for rule, cnt in sorted(failure_counts.items(), key=lambda kv: -kv[1])
+        if cnt > 0
+    ]
+
+    near_misses = [
+        NearMissTicker(
+            ticker=c["ticker"],
+            failing_rules=c["failing"],
+            metric_values=c["metric_vals"],
+            threshold_values=c["threshold_vals"],
+            suggested_action=c["suggested_action"],
+        )
+        for c in near_miss_candidates[:10]
+    ]
+
+    return EligibilityDiagnostics(
+        evaluated_count=len(cached_rows),
+        confirmed_count=confirmed_count,
+        eligible_count=eligible_count,
+        failure_reasons=failure_reasons,
+        near_misses=near_misses,
+    )
 
 
 # ── Core service function ──────────────────────────────────────────────────────
@@ -658,6 +841,25 @@ async def _build_deployment_update(
     # Use denormalized snapshot metadata from cached rows when available
     eligible_count = len(deployable_tickers)
 
+    # Build eligibility diagnostics (funnel counts + failure reasons + near misses)
+    eligibility_diagnostics = _build_eligibility_diagnostics(
+        cached_rows,
+        all_vol_adj_scores,
+        confirmed_count,
+        eligible_count,
+    )
+
+    # Diagnostic logging — always useful for verifying filter isn't too strict
+    logger.info(
+        "Deployment diagnostics — scope=%s, evaluated=%d, confirmed=%d, eligible=%d, "
+        "top_failures=%s",
+        user_id,
+        universe_size,
+        confirmed_count,
+        eligible_count,
+        [(f.label, f.count) for f in eligibility_diagnostics.failure_reasons[:3]],
+    )
+
     # Determine ttl_expires_at: prefer stored value, fall back to computed
     ttl_stored = getattr(cached_rows[0], "ttlExpiresAt", None)
     if ttl_stored is not None:
@@ -677,6 +879,7 @@ async def _build_deployment_update(
         model_version=MODEL_VERSION,
         ruleset_version=RULESET_VERSION,
         universe_size=universe_size,
+        confirmed_count=confirmed_count,
         eligible_count=eligible_count,
         snapshot=MarketDeployabilitySnapshot(
             universe_size=universe_size,
@@ -691,6 +894,7 @@ async def _build_deployment_update(
         deployable_tickers=deployable_tickers,
         sector_breadth=sector_breadth,
         no_deployable_message=no_deployable_message,
+        eligibility_diagnostics=eligibility_diagnostics,
     )
 
 
@@ -709,6 +913,7 @@ def _empty_response(
         model_version=MODEL_VERSION,
         ruleset_version=RULESET_VERSION,
         universe_size=0,
+        confirmed_count=0,
         eligible_count=0,
         snapshot=MarketDeployabilitySnapshot(
             universe_size=0,
@@ -723,6 +928,13 @@ def _empty_response(
         deployable_tickers=[],
         sector_breadth=[],
         no_deployable_message="No capital structurally deployable this cycle.",
+        eligibility_diagnostics=EligibilityDiagnostics(
+            evaluated_count=0,
+            confirmed_count=0,
+            eligible_count=0,
+            failure_reasons=[],
+            near_misses=[],
+        ),
     )
 
 

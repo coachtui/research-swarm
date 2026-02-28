@@ -1038,6 +1038,42 @@ export interface MarketDeployabilitySnapshot {
   exposure_ceiling: number
 }
 
+export interface EligibilityFailureItem {
+  /** Machine name matching NearMissTicker.failing_rules entries */
+  rule: string
+  /** Human-readable rule name */
+  label: string
+  /** How many structurally confirmed tickers fail this rule */
+  count: number
+  /** Threshold description, e.g. "≥ 60th percentile" */
+  threshold_desc: string
+}
+
+export interface NearMissTicker {
+  ticker: string
+  /** Rules this ticker fails (subset of the 4 allocation eligibility rules) */
+  failing_rules: string[]
+  /** Actual metric values; keys match failing_rules semantics */
+  metric_values: Record<string, number>
+  /** Required threshold values; same keys as metric_values */
+  threshold_values: Record<string, number>
+  /** Explanatory focus label, e.g. "Stop risk elevated" */
+  suggested_action: string
+}
+
+export interface EligibilityDiagnostics {
+  /** Total tickers in tracked universe */
+  evaluated_count: number
+  /** Tickers with confirmation_score >= 4 */
+  confirmed_count: number
+  /** Tickers passing ALL 5 allocation eligibility criteria */
+  eligible_count: number
+  /** Failure reasons ranked by count descending */
+  failure_reasons: EligibilityFailureItem[]
+  /** Top 10 near-miss tickers sorted by fewest failing rules then smallest gap */
+  near_misses: NearMissTicker[]
+}
+
 export interface DeploymentUpdateResponse {
   snapshot_id: string
   generated_at: string
@@ -1046,6 +1082,8 @@ export interface DeploymentUpdateResponse {
   model_version: string
   ruleset_version: string
   universe_size: number
+  /** Tickers with confirmation_score >= 4 (structural gate) */
+  confirmed_count: number
   /** Count of tickers passing all 5 inclusion criteria */
   eligible_count: number
   snapshot: MarketDeployabilitySnapshot
@@ -1053,4 +1091,5 @@ export interface DeploymentUpdateResponse {
   sector_breadth: SectorBreadthRow[]
   /** Set when deployable_tickers is empty */
   no_deployable_message: string | null
+  eligibility_diagnostics: EligibilityDiagnostics
 }
