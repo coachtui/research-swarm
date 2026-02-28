@@ -15,9 +15,12 @@ echo "[start.sh] PWD=$(pwd) PORT=${PORT:-unset}"
 echo "[start.sh] python=${PYTHON_BIN:-NOT_FOUND}"
 echo "[start.sh] uvicorn=$(${PYTHON_BIN} -m uvicorn --version 2>/dev/null || echo NOT_FOUND)"
 
-# WeasyPrint shared libs (needed when PDF routes are first invoked).
-# Use parameter expansion without trailing colon: only append if non-empty.
-export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/lib:/usr/local/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+# NOTE: LD_LIBRARY_PATH is intentionally NOT set here.
+# Setting it to standard system lib paths (/usr/lib/x86_64-linux-gnu etc.) triggers a
+# glibc/vDSO dlopen bug: "error while loading shared libraries: __vdso_time: invalid mode
+# for dlopen(): Invalid argument" — Python crashes before uvicorn binds the port.
+# WeasyPrint's apt-installed shared libs are found via ldconfig (registered in nixpacks.toml).
+# api/index.py has a ctypes.util.find_library filesystem-fallback patch for remaining cases.
 
 echo "[start.sh] starting uvicorn on 0.0.0.0:${PORT:-8000}"
 exec "${PYTHON_BIN}" -m uvicorn api.index:app \
