@@ -23,6 +23,7 @@ import type {
   DeploymentUpdateResponse,
   EligibilityStressTestResponse,
   EligibilityRollingSimResponse,
+  OpportunityDistributionResponse,
 } from '@/types/api'
 
 class ApiClient {
@@ -373,6 +374,10 @@ class ApiClient {
 
   async getEligibilityRollingSim(): Promise<EligibilityRollingSimResponse> {
     return this.request('/api/deployment/eligibility-rolling-sim/admin')
+  }
+
+  async getOpportunityDistribution(): Promise<OpportunityDistributionResponse> {
+    return this.request('/api/deployment/opportunity-distribution/admin')
   }
 }
 

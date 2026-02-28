@@ -1165,3 +1165,56 @@ export interface EligibilityRollingSimResponse {
   data_start: string | null
   data_end: string | null
 }
+
+// ── Opportunity Distribution ───────────────────────────────────────────────────
+
+export interface PercentileCutlines {
+  p50: number | null
+  p60: number | null
+  p75: number | null
+  p90: number | null
+}
+
+export interface DistributionTicker {
+  ticker: string
+  /** 1 = eligible, 2 = fails 1 rule */
+  tier: number
+  edge_pct: number | null
+  stop_prob_pct: number
+  risk_adj_edge_pct: number | null
+  risk_adj_edge_percentile: number | null
+}
+
+export interface DistributionSummaryStats {
+  n_evaluated: number
+  n_valid_ranked: number
+  min_risk_adj_edge: number | null
+  max_risk_adj_edge: number | null
+  mean_risk_adj_edge: number | null
+  median_risk_adj_edge: number | null
+  pct_positive_edge: number
+  pct_positive_risk_adj: number
+}
+
+export interface DataIntegrityWarning {
+  code: string
+  message: string
+}
+
+export interface OpportunityDistributionResponse {
+  snapshot_id: string
+  generated_at: string
+  /** Index-aligned arrays — one entry per universe ticker */
+  tickers: string[]
+  edge_pct: (number | null)[]
+  stop_prob_pct: number[]
+  risk_adj_edge_pct: (number | null)[]
+  risk_adj_edge_percentile: (number | null)[]
+  edge_pct_cutlines: PercentileCutlines
+  stop_prob_cutlines: PercentileCutlines
+  risk_adj_edge_cutlines: PercentileCutlines
+  /** Tier 1 (eligible) + Tier 2 (near-miss) confirmed tickers */
+  tier_tickers: DistributionTicker[]
+  summary: DistributionSummaryStats
+  warnings: DataIntegrityWarning[]
+}

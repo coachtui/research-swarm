@@ -1899,3 +1899,355 @@ async def get_admin_eligibility_rolling_sim(
     except Exception as exc:
         logger.exception("Rolling sim failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to run rolling eligibility simulation.")
+
+
+# ── Opportunity Distribution models ───────────────────────────────────────────
+
+
+class PercentileCutlines(BaseModel):
+    """p50 / p60 / p75 / p90 values for a distribution array."""
+    p50: Optional[float]
+    p60: Optional[float]
+    p75: Optional[float]
+    p90: Optional[float]
+
+
+class DistributionTicker(BaseModel):
+    """Per-ticker metrics for the tier table."""
+    ticker: str
+    tier: int                            # 1 = eligible, 2 = fails 1 rule, 3 = fails 2
+    edge_pct: Optional[float]            # (ev_ratio - 1) * 100
+    stop_prob_pct: float                 # 0–100
+    risk_adj_edge_pct: Optional[float]   # edge_pct * (1 - stop_prob_pct/100)
+    risk_adj_edge_percentile: Optional[float]  # tie-aware mid-rank 0–100
+
+
+class DistributionSummaryStats(BaseModel):
+    n_evaluated: int                 # universe size
+    n_valid_ranked: int              # tickers with finite risk_adj_edge_pct
+    min_risk_adj_edge: Optional[float]
+    max_risk_adj_edge: Optional[float]
+    mean_risk_adj_edge: Optional[float]
+    median_risk_adj_edge: Optional[float]
+    pct_positive_edge: float         # % of universe with edge_pct > 0
+    pct_positive_risk_adj: float     # % of universe with risk_adj_edge_pct > 0
+
+
+class DataIntegrityWarning(BaseModel):
+    code: str
+    message: str
+
+
+class OpportunityDistributionResponse(BaseModel):
+    snapshot_id: str
+    generated_at: str
+    # Index-aligned arrays — one entry per universe ticker
+    tickers: List[str]
+    edge_pct: List[Optional[float]]
+    stop_prob_pct: List[float]
+    risk_adj_edge_pct: List[Optional[float]]
+    risk_adj_edge_percentile: List[Optional[float]]
+    # Percentile cutlines for each distribution
+    edge_pct_cutlines: PercentileCutlines
+    stop_prob_cutlines: PercentileCutlines
+    risk_adj_edge_cutlines: PercentileCutlines
+    # Tier table: Tier 1 (eligible) + Tier 2 (near-miss) from confirmed universe
+    tier_tickers: List[DistributionTicker]
+    # Summary stats
+    summary: DistributionSummaryStats
+    # Data quality warnings
+    warnings: List[DataIntegrityWarning]
+
+
+# ── Opportunity Distribution cache ────────────────────────────────────────────
+
+_dist_cache: Dict[str, Tuple[str, OpportunityDistributionResponse]] = {}
+
+
+# ── Opportunity Distribution helpers ──────────────────────────────────────────
+
+def _pct_value(values: List[float], p: float) -> Optional[float]:
+    """
+    Linear-interpolation percentile of *values* at percentage p (0–100 scale).
+    Returns None if the list is empty.
+    """
+    valid = sorted([v for v in values if math.isfinite(v)])
+    n = len(valid)
+    if n == 0:
+        return None
+    if n == 1:
+        return round(valid[0], 2)
+    rank = (p / 100.0) * (n - 1)
+    lo = int(rank)
+    hi = min(lo + 1, n - 1)
+    return round(valid[lo] + (rank - lo) * (valid[hi] - valid[lo]), 2)
+
+
+def _cutlines(values: List[float]) -> PercentileCutlines:
+    return PercentileCutlines(
+        p50=_pct_value(values, 50),
+        p60=_pct_value(values, 60),
+        p75=_pct_value(values, 75),
+        p90=_pct_value(values, 90),
+    )
+
+
+# ── Opportunity Distribution route (admin-only) ────────────────────────────────
+
+@router.get("/deployment/opportunity-distribution/admin", response_model=OpportunityDistributionResponse)
+async def get_opportunity_distribution(
+    admin: User = Depends(require_admin),
+):
+    """
+    Opportunity Distribution — Admin Only.
+
+    Returns raw distribution arrays for all universe tickers:
+      edge_pct[]             = (ev_ratio - 1) × 100
+      stop_prob_pct[]        = stop_probability  (0–100 units)
+      risk_adj_edge_pct[]    = edge_pct × (1 - stop_prob_pct/100)
+      risk_adj_edge_percentile[] = tie-aware mid-rank percentile
+
+    Also returns:
+      - Percentile cutlines (p50/p60/p75/p90) for each distribution
+      - Tier table: Tier 1 (eligible) + Tier 2 (confirmed, fails 1 rule)
+      - Summary stats: N, min/max/mean/median risk_adj_edge, % positive
+      - Data integrity warnings (low coverage, unit mismatch, duplicates)
+
+    Reads from the current admin snapshot cache (same source as stress-test).
+    Results are in-process cached per snapshot bucket (24h).
+    """
+    db = await get_db()
+    try:
+        now_utc = datetime.now(timezone.utc)
+        current_bucket = _snapshot_bucket(now_utc)
+        bucket_str = current_bucket.isoformat()
+
+        # ── In-process cache ──────────────────────────────────────────────────
+        cached_entry = _dist_cache.get(_ADMIN_SENTINEL)
+        if cached_entry and cached_entry[0] == bucket_str:
+            logger.debug("Opportunity distribution cache hit for bucket %s", bucket_str)
+            return cached_entry[1]
+
+        # ── Load current admin snapshot rows ──────────────────────────────────
+        rows = await db.deploymentmetricscache.find_many(
+            where={
+                "userId": _ADMIN_SENTINEL,
+                "snapshotBucket": current_bucket,
+                "modelVersion": MODEL_VERSION,
+            },
+            order={"ticker": "asc"},
+        )
+        if not rows:
+            await _build_deployment_update(_ADMIN_SENTINEL, db, admin_mode=True)
+            rows = await db.deploymentmetricscache.find_many(
+                where={
+                    "userId": _ADMIN_SENTINEL,
+                    "snapshotBucket": current_bucket,
+                    "modelVersion": MODEL_VERSION,
+                },
+                order={"ticker": "asc"},
+            )
+
+        if not rows:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "no_universe_data",
+                    "message": "No universe data available. Run at least one analysis first.",
+                },
+            )
+
+        # ── Snapshot id (first row shares it across the universe) ─────────────
+        snapshot_id = rows[0].snapshotId
+
+        # ── Compute per-ticker arrays ─────────────────────────────────────────
+        all_vol_adj = [r.volAdjEvScore for r in rows if r.volAdjEvScore is not None]
+
+        tickers_out: List[str] = []
+        edge_pct_out: List[Optional[float]] = []
+        stop_prob_out: List[float] = []
+        risk_adj_out: List[Optional[float]] = []
+
+        for r in rows:
+            tickers_out.append(r.ticker)
+            stop_prob_out.append(round(r.stopProbability, 2))
+
+            if r.evRatio is not None:
+                ep = round((r.evRatio - 1.0) * 100.0, 2)
+                edge_pct_out.append(ep)
+                stop_frac = max(0.0, min(1.0, r.stopProbability / 100.0))
+                risk_adj_out.append(round(ep * (1.0 - stop_frac), 2))
+            else:
+                edge_pct_out.append(None)
+                risk_adj_out.append(None)
+
+        # Risk-adj percentile for each ticker (same tie-aware formula as eligibility)
+        valid_risk_adj = [v for v in risk_adj_out if v is not None]
+        risk_adj_pct_out: List[Optional[float]] = [
+            _percentile_mid_rank(v, valid_risk_adj) if v is not None else None
+            for v in risk_adj_out
+        ]
+
+        # ── Percentile cutlines ───────────────────────────────────────────────
+        valid_edge = [v for v in edge_pct_out if v is not None]
+        edge_cutlines = _cutlines(valid_edge)
+        stop_cutlines = _cutlines(stop_prob_out)
+        risk_adj_cutlines = _cutlines(valid_risk_adj)
+
+        # ── Summary stats ─────────────────────────────────────────────────────
+        n_evaluated = len(rows)
+        n_valid_ranked = len(valid_risk_adj)
+
+        mean_ra: Optional[float] = None
+        median_ra: Optional[float] = None
+        min_ra: Optional[float] = None
+        max_ra: Optional[float] = None
+        if valid_risk_adj:
+            mean_ra = round(sum(valid_risk_adj) / len(valid_risk_adj), 2)
+            median_ra = risk_adj_cutlines.p50
+            min_ra = round(min(valid_risk_adj), 2)
+            max_ra = round(max(valid_risk_adj), 2)
+
+        pct_pos_edge = round(
+            sum(1 for v in edge_pct_out if v is not None and v > 0) / n_evaluated * 100.0, 1
+        ) if n_evaluated > 0 else 0.0
+        pct_pos_risk_adj = round(
+            sum(1 for v in risk_adj_out if v is not None and v > 0) / n_evaluated * 100.0, 1
+        ) if n_evaluated > 0 else 0.0
+
+        summary = DistributionSummaryStats(
+            n_evaluated=n_evaluated,
+            n_valid_ranked=n_valid_ranked,
+            min_risk_adj_edge=min_ra,
+            max_risk_adj_edge=max_ra,
+            mean_risk_adj_edge=mean_ra,
+            median_risk_adj_edge=median_ra,
+            pct_positive_edge=pct_pos_edge,
+            pct_positive_risk_adj=pct_pos_risk_adj,
+        )
+
+        # ── Tier table ────────────────────────────────────────────────────────
+        # Map ticker → (risk_adj_pct, edge_pct, risk_adj_edge) for quick lookup
+        ticker_idx = {r.ticker: i for i, r in enumerate(rows)}
+        eligible_tickers = set()
+
+        # Find eligible (Tier 1) tickers from existing diagnostics data
+        confirmed_rows = [r for r in rows if r.confirmationScore >= 4]
+        all_vol_adj_scores = [r.volAdjEvScore for r in rows if r.volAdjEvScore is not None]
+
+        tier_table: List[DistributionTicker] = []
+        for r in confirmed_rows:
+            idx = ticker_idx[r.ticker]
+            ep = edge_pct_out[idx]
+            rap = risk_adj_out[idx]
+            ra_pct = risk_adj_pct_out[idx]
+
+            # Re-evaluate eligibility to determine tier
+            vol_pct = (
+                _percentile_mid_rank(r.volAdjEvScore, all_vol_adj_scores)
+                if r.volAdjEvScore is not None and all_vol_adj_scores
+                else None
+            )
+            failing: List[str] = []
+            if r.allocationDelta30d is None or r.allocationDelta30d <= 0:
+                failing.append("delta")
+            if vol_pct is not None and vol_pct < 60.0:
+                failing.append("ev_pct")
+            if r.stopProbability > 25.0:
+                failing.append("stop")
+            if not r.regimeStable:
+                failing.append("regime")
+
+            nfail = len(failing)
+            if nfail == 0:
+                tier = 1
+                eligible_tickers.add(r.ticker)
+            elif nfail == 1:
+                tier = 2
+            else:
+                continue  # Only Tier 1 + Tier 2 in the table
+
+            tier_table.append(DistributionTicker(
+                ticker=r.ticker,
+                tier=tier,
+                edge_pct=ep,
+                stop_prob_pct=round(r.stopProbability, 2),
+                risk_adj_edge_pct=rap,
+                risk_adj_edge_percentile=ra_pct,
+            ))
+
+        # Sort: Tier 1 first, then by risk_adj_edge_percentile descending
+        tier_table.sort(
+            key=lambda x: (x.tier, -(x.risk_adj_edge_percentile or 0.0))
+        )
+
+        # ── Data integrity warnings ───────────────────────────────────────────
+        warnings: List[DataIntegrityWarning] = []
+
+        if n_evaluated > 0 and n_valid_ranked < n_evaluated * 0.5:
+            warnings.append(DataIntegrityWarning(
+                code="LOW_RANK_COVERAGE",
+                message=f"Low rank coverage: only {n_valid_ranked}/{n_evaluated} have valid scores",
+            ))
+
+        # Stop probability unit mismatch: >20% values between 0 and 1 (not 0–100)
+        frac_in_0_1 = sum(1 for v in stop_prob_out if 0.0 < v < 1.0) / max(len(stop_prob_out), 1)
+        if frac_in_0_1 > 0.20:
+            warnings.append(DataIntegrityWarning(
+                code="STOP_PROB_UNIT_MISMATCH",
+                message="Stop probability unit mismatch suspected: >20% values between 0 and 1",
+            ))
+
+        # Duplicate tickers
+        seen = set()
+        dups = set()
+        for t in tickers_out:
+            if t in seen:
+                dups.add(t)
+            seen.add(t)
+        if dups:
+            warnings.append(DataIntegrityWarning(
+                code="DUPLICATE_TICKERS",
+                message=f"Duplicate tickers in universe: {', '.join(sorted(dups))}",
+            ))
+
+        result = OpportunityDistributionResponse(
+            snapshot_id=snapshot_id,
+            generated_at=now_utc.isoformat(),
+            tickers=tickers_out,
+            edge_pct=edge_pct_out,
+            stop_prob_pct=stop_prob_out,
+            risk_adj_edge_pct=risk_adj_out,
+            risk_adj_edge_percentile=risk_adj_pct_out,
+            edge_pct_cutlines=edge_cutlines,
+            stop_prob_cutlines=stop_cutlines,
+            risk_adj_edge_cutlines=risk_adj_cutlines,
+            tier_tickers=tier_table,
+            summary=summary,
+            warnings=warnings,
+        )
+
+        _dist_cache[_ADMIN_SENTINEL] = (bucket_str, result)
+        logger.info(
+            "Opportunity distribution built — universe=%d, valid=%d, tier1=%d, tier2=%d",
+            n_evaluated,
+            n_valid_ranked,
+            sum(1 for t in tier_table if t.tier == 1),
+            sum(1 for t in tier_table if t.tier == 2),
+        )
+        return result
+
+    except HTTPException:
+        raise
+    except _TableNotFoundError as exc:
+        logger.error("deployment_metrics_cache missing for dist: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "deployment_cache_not_migrated",
+                "message": "Run: prisma migrate deploy --schema=db/schema.prisma",
+            },
+        )
+    except Exception as exc:
+        logger.exception("Opportunity distribution failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to build opportunity distribution.")
