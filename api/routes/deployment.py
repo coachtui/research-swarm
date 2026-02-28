@@ -134,11 +134,15 @@ class SectorBreadthRow(BaseModel):
     confirmed: int
     total: int
     pct_confirmed: float
-    tier2: int = 0                  # confirmed tickers failing exactly 1 allocation rule
-    avg_edge_pct: float = 0.0       # mean (evRatio − 1) × 100 across all sector tickers
-    median_stop_pct: float = 0.0    # median stop probability
-    rotation_score: float = 0.0     # composite 0–1 leadership score
-    trend: str  # "rising" | "stable" | "falling"
+    tier2: int = 0                   # confirmed tickers failing exactly 1 allocation rule
+    avg_edge_pct: float = 0.0        # mean (evRatio − 1) × 100 across all sector tickers
+    median_stop_pct: float = 0.0     # median stop probability
+    rotation_score: float = 0.0      # composite 0–1 leadership score (60% opp + 40% structural)
+    structural_score: float = 0.0    # pct_confirmed normalized to 0–1
+    opportunity_score: float = 0.0   # edge + dispersion quality score 0–1
+    positive_edge_ratio: float = 0.0 # fraction of tickers with positive edge
+    trend: str = "stable"            # structural trend: "rising" | "stable" | "falling"
+    opportunity_trend: str = "stable"  # edge trend vs prior snapshot
 
 
 class SectorLeadershipEntry(BaseModel):
@@ -148,6 +152,8 @@ class SectorLeadershipEntry(BaseModel):
     confirmed: int
     tier2: int
     rotation_score: float
+    opportunity_score: float = 0.0
+    structural_score: float = 0.0
     basis: str  # "rotation_score" | "pct_confirmed" | "tier2"
 
 
@@ -440,6 +446,31 @@ def _sector_trend_pct(
     return "stable"
 
 
+def _sector_edge_trend_pct(
+    sector_name: str,
+    ticker_to_sector: Dict[str, str],
+    prior_edges: Dict[str, float],
+    curr_avg_edge: float,
+) -> str:
+    """
+    Compare avg risk-adj edge for a sector between current and prior snapshot.
+
+    Expanding:   curr − prior >  2 percentage points
+    Contracting: curr − prior < −2 percentage points
+    """
+    sector_tickers = {t for t, s in ticker_to_sector.items() if s == sector_name}
+    common = sector_tickers & set(prior_edges.keys())
+    if not common:
+        return "stable"
+    prior_avg = sum(prior_edges[t] for t in common) / len(common)
+    delta = curr_avg_edge - prior_avg
+    if delta > 2.0:
+        return "rising"
+    if delta < -2.0:
+        return "falling"
+    return "stable"
+
+
 def _build_sector_leadership(rows: List[SectorBreadthRow]) -> List[SectorLeadershipEntry]:
     """
     Auto-generate top-3 sector leaders from sector_breadth (already sorted by
@@ -459,6 +490,8 @@ def _build_sector_leadership(rows: List[SectorBreadthRow]) -> List[SectorLeaders
             confirmed=row.confirmed,
             tier2=row.tier2,
             rotation_score=row.rotation_score,
+            opportunity_score=row.opportunity_score,
+            structural_score=row.structural_score,
             basis="rotation_score",
         ))
     return leaders
@@ -703,8 +736,12 @@ async def _build_deployment_update(
         prior_bucket = prior_all[0].snapshotBucket
         prior_rows = [r for r in prior_all if r.snapshotBucket == prior_bucket]
 
-    prior_scores: Dict[str, int] = {r.ticker: r.confirmationScore for r in prior_rows}
-    prior_stops: Dict[str, float] = {r.ticker: r.stopProbability for r in prior_rows}
+    prior_scores: Dict[str, int]   = {r.ticker: r.confirmationScore for r in prior_rows}
+    prior_stops:  Dict[str, float] = {r.ticker: r.stopProbability   for r in prior_rows}
+    prior_edges:  Dict[str, float] = {
+        r.ticker: round((r.evRatio - 1.0) * 100.0, 2)
+        for r in prior_rows if r.evRatio is not None
+    }
 
     # ── 3. Refresh cache if stale / empty ────────────────────────────────────
     snapshot_id: str
@@ -975,12 +1012,15 @@ async def _build_deployment_update(
         ticker_to_sector[r.ticker] = sec
         curr_scores[r.ticker] = r.confirmationScore
         if sec not in sector_stats:
-            sector_stats[sec] = {"confirmed": 0, "total": 0, "tier2": 0, "edges": [], "stops": []}
+            sector_stats[sec] = {"confirmed": 0, "total": 0, "tier2": 0, "edges": [], "stops": [], "positive_edge_count": 0}
         sd = sector_stats[sec]
         sd["total"] += 1
         sd["stops"].append(r.stopProbability)
         if r.evRatio is not None:
-            sd["edges"].append(round((r.evRatio - 1.0) * 100.0, 2))
+            edge_val = round((r.evRatio - 1.0) * 100.0, 2)
+            sd["edges"].append(edge_val)
+            if edge_val > 0:
+                sd["positive_edge_count"] += 1
         if r.confirmationScore >= 4:
             sd["confirmed"] += 1
             # Count tier2: confirmed but fails exactly 1 allocation rule
@@ -1001,20 +1041,44 @@ async def _build_deployment_update(
         sd["avg_edge"] = sum(sd["edges"]) / len(sd["edges"]) if sd["edges"] else 0.0
         sd["med_stop"] = _median(sd["stops"]) if sd["stops"] else 50.0
 
-    # ── 5d. Rotation score — normalize edge + stop to [0,1] across sectors ───
+    # ── 5d. Two-layer scoring: structural + opportunity → composite rotation ──
+    #
+    # Structural score  = pct_confirmed (0–1)
+    # Opportunity score = 0.50 * normalized_edge (cross-sector, clamped ≥0)
+    #                   + 0.30 * positive_edge_ratio
+    #                   - 0.20 * (median_stop / 100)
+    #   clamped to [0, 1]
+    # Rotation score    = 0.60 * opportunity + 0.40 * structural
+    #
+    # Design intent: sectors with no edge cannot lead rotation even if 100%
+    # structurally confirmed.
+
     all_edges  = [sd["avg_edge"] for sd in sector_stats.values()]
-    all_mstops = [sd["med_stop"] for sd in sector_stats.values()]
-    edge_min, edge_max = min(all_edges,  default=0.0), max(all_edges,  default=0.0)
-    stop_min, stop_max = min(all_mstops, default=0.0), max(all_mstops, default=100.0)
+    edge_min, edge_max = min(all_edges, default=0.0), max(all_edges, default=0.0)
 
     def _norm(v: float, lo: float, hi: float) -> float:
         return (v - lo) / (hi - lo) if hi > lo else 0.5
 
     for sd in sector_stats.values():
-        pct_01    = sd["confirmed"] / sd["total"] if sd["total"] > 0 else 0.0
-        edge_n    = _norm(sd["avg_edge"], edge_min, edge_max)
-        stop_n    = _norm(sd["med_stop"], stop_min, stop_max)
-        sd["rotation_score"] = round((pct_01 * 0.4) + (edge_n * 0.4) - (stop_n * 0.2), 4)
+        total = sd["total"]
+        pct_01 = sd["confirmed"] / total if total > 0 else 0.0
+        structural_score = pct_01
+
+        normalized_edge     = max(0.0, _norm(sd["avg_edge"], edge_min, edge_max))
+        normalized_stop     = sd["med_stop"] / 100.0
+        positive_edge_ratio = sd["positive_edge_count"] / total if total > 0 else 0.0
+
+        opportunity_score = (
+            0.50 * normalized_edge
+            + 0.30 * positive_edge_ratio
+            - 0.20 * normalized_stop
+        )
+        opportunity_score = max(0.0, min(1.0, opportunity_score))
+
+        sd["structural_score"]    = round(structural_score,    4)
+        sd["opportunity_score"]   = round(opportunity_score,   4)
+        sd["positive_edge_ratio"] = round(positive_edge_ratio, 4)
+        sd["rotation_score"]      = round(0.60 * opportunity_score + 0.40 * structural_score, 4)
 
     # ── 5e. Build sector breadth rows, sorted by rotation_score desc ──────────
     sector_breadth: List[SectorBreadthRow] = []
@@ -1022,7 +1086,8 @@ async def _build_deployment_update(
         total     = sd["total"]
         confirmed = sd["confirmed"]
         pct       = round(confirmed / total * 100.0, 1) if total > 0 else 0.0
-        trend     = _sector_trend_pct(sec, ticker_to_sector, prior_scores, confirmed, total)
+        struct_trend = _sector_trend_pct(sec, ticker_to_sector, prior_scores, confirmed, total)
+        opp_trend    = _sector_edge_trend_pct(sec, ticker_to_sector, prior_edges, sd["avg_edge"])
         sector_breadth.append(SectorBreadthRow(
             sector=sec,
             confirmed=confirmed,
@@ -1032,7 +1097,11 @@ async def _build_deployment_update(
             avg_edge_pct=round(sd["avg_edge"], 2),
             median_stop_pct=round(sd["med_stop"], 1),
             rotation_score=sd["rotation_score"],
-            trend=trend,
+            structural_score=sd["structural_score"],
+            opportunity_score=sd["opportunity_score"],
+            positive_edge_ratio=sd["positive_edge_ratio"],
+            trend=struct_trend,
+            opportunity_trend=opp_trend,
         ))
     sector_breadth.sort(key=lambda r: r.rotation_score, reverse=True)
 

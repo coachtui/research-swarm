@@ -418,29 +418,10 @@ function Td({ children, align = 'left', className = '' }: {
 
 // ── Section 3: Sector Breadth Overview ────────────────────────────────────────
 
-/** Row background tint based on edge strength vs stop risk. */
-function getSectorRowClass(r: SectorBreadthRow): string {
-  const strongEdge  = r.avg_edge_pct > 10
-  const weakEdge    = r.avg_edge_pct < 0
-  const lowStop     = r.median_stop_pct < 25
-  const highStop    = r.median_stop_pct > 40
-  if (strongEdge && lowStop)   return 'bg-emerald-500/5 hover:bg-emerald-500/10'
-  if (weakEdge   || highStop)  return 'bg-red-500/5 hover:bg-red-500/10'
-  if (strongEdge || lowStop)   return 'bg-amber-500/5 hover:bg-amber-500/10'
-  return 'hover:bg-surface-elevated/30'
-}
-
-/** Bar chart — % confirmed by sector, colored by heatmap. */
+/** Bar chart — % confirmed by sector (neutral zinc bars). */
 function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
   if (rows.length === 0) return null
   const sorted = [...rows].sort((a, b) => b.pct_confirmed - a.pct_confirmed)
-
-  function barColor(r: SectorBreadthRow): string {
-    if (r.avg_edge_pct > 10 && r.median_stop_pct < 25) return '#10b981'  // emerald
-    if (r.avg_edge_pct < 0  || r.median_stop_pct > 40) return '#ef4444'  // red
-    if (r.avg_edge_pct > 10 || r.median_stop_pct < 25) return '#f59e0b'  // amber
-    return '#6b7280'                                                        // zinc
-  }
 
   return (
     <div className="h-44">
@@ -465,7 +446,10 @@ function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
           />
           <Bar dataKey="pct_confirmed" radius={[2, 2, 0, 0]}>
             {sorted.map((r) => (
-              <Cell key={r.sector} fill={barColor(r)} />
+              <Cell
+                key={r.sector}
+                fill={r.pct_confirmed > 60 ? '#2dd4bf' : r.pct_confirmed < 20 ? '#52525b' : '#6b7280'}
+              />
             ))}
           </Bar>
         </BarChart>
@@ -474,7 +458,7 @@ function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
   )
 }
 
-/** Auto-generated sector leadership summary. */
+/** Compact rotation leaderboard — top 3 sectors by composite rotation score. */
 function SectorLeadershipBlock({
   entries,
   coverageLabel,
@@ -488,25 +472,184 @@ function SectorLeadershipBlock({
     <div className="rounded-lg border border-surface-elevated bg-surface p-3 space-y-2">
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
-          Sector Leadership
+          Sector Leadership — Deployable Rotation
         </h4>
         {coverageLabel && (
           <span className="text-xs text-text-secondary opacity-70">{coverageLabel}</span>
         )}
       </div>
-      <ol className="space-y-1">
-        {entries.map((e) => (
-          <li key={e.sector} className="flex items-baseline gap-2 text-xs">
-            <span className="font-mono text-text-secondary w-4 shrink-0">{e.rank}.</span>
-            <span className="font-medium text-text-primary">{e.sector}</span>
-            <span className="text-text-secondary">
-              ({e.pct_confirmed.toFixed(0)}% confirmed
-              {e.confirmed > 0 ? `, ${e.confirmed} names` : ''}
-              {e.tier2 > 0 ? ` · T2: ${e.tier2}` : ''})
-            </span>
-          </li>
-        ))}
-      </ol>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-surface-elevated/50">
+            <Th>Rank</Th>
+            <Th>Sector</Th>
+            <Th align="right">Rotation Score</Th>
+            <Th align="right">Opp.</Th>
+            <Th align="right">Structural</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e) => (
+            <tr key={e.sector} className="border-b border-surface-elevated/30 hover:bg-surface-elevated/20 transition-colors">
+              <td className="py-1.5 pr-3 font-mono text-text-secondary w-6">{e.rank}.</td>
+              <td className="py-1.5 pr-4 font-medium text-text-primary">{e.sector}</td>
+              <Td align="right">
+                <span className="font-mono font-semibold text-teal-400">
+                  {e.rotation_score.toFixed(3)}
+                </span>
+              </Td>
+              <Td align="right">
+                <span className="font-mono text-text-secondary">
+                  {(e.opportunity_score ?? 0).toFixed(3)}
+                </span>
+              </Td>
+              <Td align="right">
+                <span className="font-mono text-text-secondary">
+                  {(e.structural_score ?? 0).toFixed(3)}
+                </span>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Section 1 of sector panel — structural confirmation breadth. */
+function SectorStructuralTable({ rows }: { rows: SectorBreadthRow[] }) {
+  return (
+    <div className="space-y-2">
+      <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+        Sector Structural Breadth
+      </h4>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-surface-elevated">
+              <Th>Sector</Th>
+              <Th align="right">Confirmed</Th>
+              <Th align="right">Total</Th>
+              <Th align="right">% Confirmed</Th>
+              <Th align="right">Structural Rank</Th>
+              <Th>Structural Trend</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...rows].sort((a, b) => b.structural_score - a.structural_score).map((r) => {
+              const highConf = r.pct_confirmed > 60
+              const lowConf  = r.pct_confirmed < 20
+              return (
+                <tr
+                  key={r.sector}
+                  className={`border-b border-surface-elevated/50 transition-colors hover:bg-surface-elevated/20 ${
+                    highConf ? 'bg-teal-500/5' : lowConf ? 'bg-zinc-500/5' : ''
+                  }`}
+                >
+                  <td className="py-2 pr-4 text-text-primary font-medium">{r.sector}</td>
+                  <Td align="right">{r.confirmed}</Td>
+                  <Td align="right">{r.total}</Td>
+                  <Td align="right">
+                    <span className={
+                      highConf ? 'text-teal-400' :
+                      lowConf  ? 'text-zinc-500' :
+                      'text-text-secondary'
+                    }>
+                      {r.pct_confirmed.toFixed(1)}%
+                    </span>
+                  </Td>
+                  <Td align="right">
+                    <span className="font-mono text-text-secondary">
+                      {r.structural_score.toFixed(3)}
+                    </span>
+                  </Td>
+                  <td className="py-2 pr-4 text-text-secondary">
+                    <TrendIcon trend={r.trend} />
+                    <span className="ml-1">
+                      {r.trend === 'rising' ? 'expanding' : r.trend === 'falling' ? 'contracting' : 'stable'}
+                    </span>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/** Section 2 of sector panel — opportunity quality (edge + risk-adj dispersion). */
+function SectorOpportunityTable({ rows }: { rows: SectorBreadthRow[] }) {
+  return (
+    <div className="space-y-2">
+      <h4 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+        Sector Opportunity Quality
+      </h4>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-surface-elevated">
+              <Th>Sector</Th>
+              <Th align="right">Avg Risk-Adj Edge</Th>
+              <Th align="right">% Positive Edge</Th>
+              <Th align="right">Median Stop</Th>
+              <Th align="right">Tier 2</Th>
+              <Th align="right">Opp. Score</Th>
+              <Th>Opp. Trend</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...rows].sort((a, b) => b.opportunity_score - a.opportunity_score).map((r) => (
+              <tr
+                key={r.sector}
+                className="border-b border-surface-elevated/50 transition-colors hover:bg-surface-elevated/20"
+              >
+                <td className="py-2 pr-4 text-text-primary font-medium">{r.sector}</td>
+                <Td align="right">
+                  <span className={
+                    r.avg_edge_pct > 0 ? 'text-emerald-400' :
+                    r.avg_edge_pct < 0 ? 'text-red-400/70'  :
+                    'text-text-secondary'
+                  }>
+                    {r.avg_edge_pct > 0 ? '+' : ''}{r.avg_edge_pct.toFixed(1)}%
+                  </span>
+                </Td>
+                <Td align="right">
+                  <span className="text-text-secondary">
+                    {(r.positive_edge_ratio * 100).toFixed(0)}%
+                  </span>
+                </Td>
+                <Td align="right">
+                  <span className={
+                    r.median_stop_pct > 40 ? 'text-amber-400' :
+                    r.median_stop_pct < 25 ? 'text-emerald-400/80' :
+                    'text-text-secondary'
+                  }>
+                    {r.median_stop_pct.toFixed(1)}%
+                  </span>
+                </Td>
+                <Td align="right">
+                  <span className={r.tier2 > 0 ? 'text-amber-400' : 'text-text-secondary'}>
+                    {r.tier2}
+                  </span>
+                </Td>
+                <Td align="right">
+                  <span className="font-mono text-text-secondary">
+                    {r.opportunity_score.toFixed(3)}
+                  </span>
+                </Td>
+                <td className="py-2 pr-4 text-text-secondary">
+                  <TrendIcon trend={r.opportunity_trend} />
+                  <span className="ml-1">
+                    {r.opportunity_trend === 'rising' ? 'expanding' : r.opportunity_trend === 'falling' ? 'contracting' : 'stable'}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -515,13 +658,15 @@ function SectorBreadthTable({
   rows,
   leadership,
   coverageLabel,
+  adminMode,
 }: {
   rows: SectorBreadthRow[]
   leadership: SectorLeadershipEntry[]
   coverageLabel?: string
+  adminMode?: boolean
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider">
         Sector Breadth Overview
       </h3>
@@ -530,75 +675,24 @@ function SectorBreadthTable({
         <p className="text-xs text-text-secondary">No sector data available.</p>
       ) : (
         <>
-          {/* Part 6 — Leadership summary */}
+          {/* Section 3 — Composite rotation leaderboard (top 3) */}
           <SectorLeadershipBlock entries={leadership} coverageLabel={coverageLabel} />
 
-          {/* Part 4A — Breadth bar chart */}
+          {/* Structural breadth bar chart */}
           <SectorBreadthChart rows={rows} />
 
-          {/* Part 2+3+4B — Enhanced table sorted by rotation score */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-surface-elevated">
-                  <Th>Sector</Th>
-                  <Th align="right">Confirmed</Th>
-                  <Th align="right">Total</Th>
-                  <Th align="right">% Conf.</Th>
-                  <Th align="right">Tier 2</Th>
-                  <Th align="right">Avg Edge</Th>
-                  <Th align="right">Med. Stop</Th>
-                  <Th align="right">Rot. Score</Th>
-                  <Th>Trend</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr
-                    key={r.sector}
-                    className={`border-b border-surface-elevated/50 transition-colors ${getSectorRowClass(r)}`}
-                  >
-                    <td className="py-2 pr-4 text-text-primary font-medium">{r.sector}</td>
-                    <Td align="right">{r.confirmed}</Td>
-                    <Td align="right">{r.total}</Td>
-                    <Td align="right">{r.pct_confirmed.toFixed(1)}%</Td>
-                    <Td align="right">
-                      <span className={r.tier2 > 0 ? 'text-amber-400' : 'text-text-secondary'}>
-                        {r.tier2}
-                      </span>
-                    </Td>
-                    <Td align="right">
-                      <span className={
-                        r.avg_edge_pct > 10 ? 'text-emerald-400' :
-                        r.avg_edge_pct < 0  ? 'text-red-400' :
-                        'text-text-secondary'
-                      }>
-                        {r.avg_edge_pct > 0 ? '+' : ''}{r.avg_edge_pct.toFixed(1)}%
-                      </span>
-                    </Td>
-                    <Td align="right">
-                      <span className={
-                        r.median_stop_pct > 40 ? 'text-red-400' :
-                        r.median_stop_pct < 25 ? 'text-emerald-400' :
-                        'text-text-secondary'
-                      }>
-                        {r.median_stop_pct.toFixed(1)}%
-                      </span>
-                    </Td>
-                    <Td align="right">
-                      <span className="font-mono text-text-secondary">
-                        {r.rotation_score.toFixed(3)}
-                      </span>
-                    </Td>
-                    <td className="py-2 pr-4 text-text-secondary">
-                      <TrendIcon trend={r.trend} />
-                      {r.trend}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {/* Section 1 — Structural confirmation breadth */}
+          <SectorStructuralTable rows={rows} />
+
+          {/* Section 2 — Opportunity quality */}
+          <SectorOpportunityTable rows={rows} />
+
+          {/* Admin diagnostic footer */}
+          {adminMode && (
+            <p className="text-xs text-text-secondary/50 text-right">
+              Rotation score weights: 60% opportunity / 40% structural.
+            </p>
+          )}
         </>
       )}
     </div>
@@ -1111,6 +1205,7 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
           rows={data.sector_breadth}
           leadership={data.sector_leadership ?? []}
           coverageLabel={data.sector_coverage_label}
+          adminMode={adminMode}
         />
 
         <div className="border-t border-surface-elevated" />

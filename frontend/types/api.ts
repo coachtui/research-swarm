@@ -1026,9 +1026,18 @@ export interface SectorBreadthRow {
   avg_edge_pct: number
   /** Median stop probability across all sector tickers */
   median_stop_pct: number
-  /** Composite leadership score 0–1 (higher = stronger rotation leadership) */
+  /** Composite rotation leadership score 0–1 (60% opportunity + 40% structural) */
   rotation_score: number
+  /** Structural breadth score: pct_confirmed normalized 0–1 */
+  structural_score: number
+  /** Opportunity quality score 0–1 (edge strength + positive edge ratio − stop penalty) */
+  opportunity_score: number
+  /** Fraction of tickers in sector with positive risk-adj edge */
+  positive_edge_ratio: number
+  /** Structural trend: change in % confirmed vs prior snapshot */
   trend: 'rising' | 'stable' | 'falling'
+  /** Opportunity trend: change in avg edge vs prior snapshot */
+  opportunity_trend: 'rising' | 'stable' | 'falling'
 }
 
 export interface SectorLeadershipEntry {
@@ -1038,6 +1047,8 @@ export interface SectorLeadershipEntry {
   confirmed: number
   tier2: number
   rotation_score: number
+  opportunity_score: number
+  structural_score: number
   basis: string
 }
 
