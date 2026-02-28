@@ -136,6 +136,16 @@ model StockResult {
   // Chart URLs (stored in R2)
   chartUrls  Json? @map("chart_urls")  // { moat: "url", supply_chain: "url" }
 
+  // Sector/industry classification (snapshot at report generation time, sourced from TickerMeta)
+  sector        String?   @map("sector")
+  industry      String?   @map("industry")
+  subIndustry   String?   @map("sub_industry")
+  exchange      String?   @map("exchange")
+  country       String?   @map("country")
+  currency      String?   @map("currency")
+  metaSource    String?   @map("meta_source")    // e.g. "yfinance"
+  metaUpdatedAt DateTime? @map("meta_updated_at")
+
   // Metrics
   tokensUsed            Int?   @default(0) @map("tokens_used")
   costUsd               Float? @default(0) @map("cost_usd")
@@ -157,6 +167,7 @@ model StockResult {
   @@index([ticker])
   @@index([moatScore(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])
+  @@index([sector])
   @@map("stock_results")
 }
 
@@ -479,6 +490,26 @@ model DeploymentMetricsCache {
   @@index([userId, universeHash, modelVersion, snapshotBucket])
   @@index([userId, generatedAt])
   @@map("deployment_metrics_cache")
+}
+
+// Ticker sector/industry metadata cache.
+// Sourced from yfinance on first report generation; refreshed if > 30 days old.
+// Indexed by uppercase ticker. Reports snapshot sector at generation time.
+model TickerMeta {
+  ticker      String   @id                  // Uppercase ticker symbol (e.g. "AAPL")
+  sector      String?                       // e.g. "Technology"
+  industry    String?                       // e.g. "Semiconductors"
+  subIndustry String?  @map("sub_industry") // Optional finer classification
+  exchange    String?                       // e.g. "NMS"
+  country     String?                       // e.g. "United States"
+  currency    String?                       // e.g. "USD"
+  source      String   @default("yfinance") // Data provider
+  raw         Json?                         // Small subset of raw provider response
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([updatedAt])
+  @@map("ticker_meta")
 }
 
 // Usage records — idempotency guard preventing double-counting on retry/refresh.

@@ -592,6 +592,29 @@ async def save_analysis_result(
                 }
             )
 
+            # Fetch sector/industry metadata and persist onto the StockResult.
+            # Non-blocking: failure is logged and silently ignored so report
+            # generation is never blocked by a provider outage.
+            if result.get('status') == 'completed':
+                try:
+                    from api.services.ticker_meta_service import get_ticker_meta
+                    meta = await get_ticker_meta(ticker)
+                    if meta:
+                        await db.stockresult.update(
+                            where={"id": stock_result.id},
+                            data={
+                                "sector": meta.get("sector"),
+                                "industry": meta.get("industry"),
+                                "metaSource": meta.get("source"),
+                                "metaUpdatedAt": meta.get("updated_at"),
+                            },
+                        )
+                        logger.info("TickerMeta: saved sector=%s industry=%s for %s",
+                                    meta.get("sector"), meta.get("industry"), ticker)
+                except Exception as meta_err:
+                    logger.warning("TickerMeta: fetch/save failed for %s (non-critical): %s",
+                                   ticker, meta_err)
+
             # Log costs
             if result.get('cost_usd', 0) > 0:
                 await db.costlog.create(

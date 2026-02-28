@@ -141,6 +141,7 @@ class DeploymentUpdateResponse(BaseModel):
     snapshot: MarketDeployabilitySnapshot
     deployable_tickers: List[DeployableTickerItem]
     sector_breadth: List[SectorBreadthRow]
+    sector_coverage_label: str   # e.g. "Sector coverage: 87% (66/76)"
     no_deployable_message: Optional[str]
     eligibility_diagnostics: EligibilityDiagnostics
 
@@ -219,10 +220,15 @@ def _extract_metrics(
     ticker: str,
     full_output: Dict[str, Any],
     moat_score: float,
+    override_sector: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Extract all deployment-relevant per-ticker metrics from an enriched full_output.
     Returns a dict with Prisma camelCase field names.
+
+    override_sector: when non-empty, used verbatim instead of fullOutput extraction.
+    Pass StockResult.sector (or TickerMeta.sector) to get accurate sector grouping
+    after the backfill job has run.
     """
     fund = full_output.get("fundamentalist_output") or {}
     valuation_metrics = fund.get("valuation_metrics") or {}
@@ -237,8 +243,9 @@ def _extract_metrics(
     di = full_output.get("decision_intelligence") or {}
     conviction = di.get("conviction_position") or {}
 
-    # Sector
-    sector = (
+    # Sector: prefer explicit override (StockResult.sector / TickerMeta.sector)
+    # over fullOutput derivation, which is often absent or "Unknown".
+    sector = override_sector or (
         peer.get("sector")
         or valuation_metrics.get("sector")
         or "Unknown"
@@ -602,6 +609,18 @@ async def _build_deployment_update(
             for pr in prior_result_rows:
                 prior_results_by_run[pr.runId] = pr
 
+        # c-extra) Batch-fetch TickerMeta for sector overrides.
+        # Priority: StockResult.sector → TickerMeta.sector → fullOutput extraction.
+        universe_ticker_list = list(ticker_to_result.keys())
+        try:
+            meta_rows = await db.tickermeta.find_many(
+                where={"ticker": {"in": universe_ticker_list}},
+            )
+            ticker_to_meta: Dict[str, Any] = {m.ticker: m for m in meta_rows}
+        except Exception as meta_exc:
+            logger.warning("Deployment: TickerMeta batch fetch failed: %s", meta_exc)
+            ticker_to_meta = {}
+
         # d) Enrich, extract metrics, compute allocation delta
         raw_metrics: Dict[str, Dict[str, Any]] = {}
         for ticker, result in ticker_to_result.items():
@@ -610,7 +629,14 @@ async def _build_deployment_update(
                 continue
             moat_score = float(result.moatScore or 5.0)
             fo = _enrich(fo, moat_score)
-            metrics = _extract_metrics(ticker, fo, moat_score)
+
+            # Resolve sector override: StockResult.sector wins, then TickerMeta
+            tm = ticker_to_meta.get(ticker)
+            override_sector = (
+                getattr(result, "sector", None)
+                or (tm.sector if tm and tm.sector else None)
+            ) or None
+            metrics = _extract_metrics(ticker, fo, moat_score, override_sector=override_sector)
 
             allocation_delta: Optional[float] = None
             prior_run_id = prior_run_id_map.get(ticker)
@@ -841,6 +867,14 @@ async def _build_deployment_update(
     # Use denormalized snapshot metadata from cached rows when available
     eligible_count = len(deployable_tickers)
 
+    # Sector coverage — how many tracked tickers have a known sector (not "Unknown")
+    tickers_with_sector = sum(
+        1 for r in cached_rows
+        if r.sector and r.sector.strip().lower() not in ("", "unknown")
+    )
+    sector_coverage_pct = round(tickers_with_sector / universe_size * 100.0, 1) if universe_size > 0 else 0.0
+    sector_coverage_label = f"Sector coverage: {sector_coverage_pct}% ({tickers_with_sector}/{universe_size})"
+
     # Build eligibility diagnostics (funnel counts + failure reasons + near misses)
     eligibility_diagnostics = _build_eligibility_diagnostics(
         cached_rows,
@@ -852,11 +886,12 @@ async def _build_deployment_update(
     # Diagnostic logging — always useful for verifying filter isn't too strict
     logger.info(
         "Deployment diagnostics — scope=%s, evaluated=%d, confirmed=%d, eligible=%d, "
-        "top_failures=%s",
+        "sector_coverage=%s, top_failures=%s",
         user_id,
         universe_size,
         confirmed_count,
         eligible_count,
+        sector_coverage_label,
         [(f.label, f.count) for f in eligibility_diagnostics.failure_reasons[:3]],
     )
 
@@ -893,6 +928,7 @@ async def _build_deployment_update(
         ),
         deployable_tickers=deployable_tickers,
         sector_breadth=sector_breadth,
+        sector_coverage_label=sector_coverage_label,
         no_deployable_message=no_deployable_message,
         eligibility_diagnostics=eligibility_diagnostics,
     )
@@ -927,6 +963,7 @@ def _empty_response(
         ),
         deployable_tickers=[],
         sector_breadth=[],
+        sector_coverage_label="Sector coverage: 0% (0/0)",
         no_deployable_message="No capital structurally deployable this cycle.",
         eligibility_diagnostics=EligibilityDiagnostics(
             evaluated_count=0,

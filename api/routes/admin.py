@@ -505,6 +505,103 @@ async def approve_public_example(
     }
 
 
+@router.post("/admin/reports/backfill-sector")
+async def backfill_sector_meta(admin: User = Depends(require_admin)):
+    """
+    Backfill sector/industry metadata for completed reports that are missing it
+    or have stale metadata (> 90 days old).
+
+    Algorithm:
+      1. Find all completed StockResult rows where sector IS NULL,
+         metaUpdatedAt IS NULL, or metaUpdatedAt < 90 days ago.
+      2. Collect distinct tickers.
+      3. For each ticker call get_ticker_meta() (uses TickerMeta 30-day cache).
+      4. Update ALL matching StockResult rows for that ticker.
+      5. Invalidate stale DeploymentMetricsCache rows so sectors recompute
+         on the next deployment request.
+
+    Idempotent: safe to rerun.  Returns summary of tickers processed,
+    reports updated, and any per-ticker failures.
+    """
+    from collections import defaultdict
+    from api.services.ticker_meta_service import get_ticker_meta
+
+    db = await get_db()
+    now = datetime.now(timezone.utc)
+    cutoff_90d = now - timedelta(days=90)
+
+    # ── 1. Find stale / missing results ──────────────────────────────────────
+    stale_results = await db.stockresult.find_many(
+        where={
+            "status": "completed",
+            "OR": [
+                {"sector": None},
+                {"metaUpdatedAt": None},
+                {"metaUpdatedAt": {"lt": cutoff_90d}},
+            ],
+        },
+        order={"ticker": "asc"},
+    )
+
+    # Group result IDs by ticker
+    ticker_result_ids: dict = defaultdict(list)
+    for r in stale_results:
+        ticker_result_ids[r.ticker].append(r.id)
+
+    tickers_needing_update = list(ticker_result_ids.keys())
+
+    tickers_processed = 0
+    reports_updated = 0
+    failures: List[dict] = []
+
+    # ── 2. Per-ticker meta fetch + update ─────────────────────────────────────
+    for ticker in tickers_needing_update:
+        try:
+            meta = await get_ticker_meta(ticker)
+            if not meta:
+                failures.append({"ticker": ticker, "reason": "provider returned no data"})
+                tickers_processed += 1
+                continue
+
+            result_ids = ticker_result_ids[ticker]
+            updated = await db.stockresult.update_many(
+                where={"id": {"in": result_ids}},
+                data={
+                    "sector": meta.get("sector"),
+                    "industry": meta.get("industry"),
+                    "metaSource": meta.get("source"),
+                    "metaUpdatedAt": meta.get("updated_at"),
+                },
+            )
+            reports_updated += updated.count
+            tickers_processed += 1
+
+        except Exception as exc:
+            failures.append({"ticker": ticker, "reason": str(exc)})
+            tickers_processed += 1
+
+    # ── 3. Invalidate deployment cache rows for updated tickers ───────────────
+    # Forces sector to recompute from StockResult.sector on next request.
+    deployment_cache_cleared = 0
+    if tickers_needing_update:
+        try:
+            cleared = await db.deploymentmetricscache.delete_many(
+                where={"ticker": {"in": tickers_needing_update}},
+            )
+            deployment_cache_cleared = cleared.count
+        except Exception as exc:
+            # Non-critical — deployment cache will self-heal on next bucket
+            pass
+
+    return {
+        "total_tickers": len(tickers_needing_update),
+        "tickers_processed": tickers_processed,
+        "reports_updated": reports_updated,
+        "deployment_cache_cleared": deployment_cache_cleared,
+        "failures": failures,
+    }
+
+
 @router.delete("/admin/example-report/{ticker}")
 async def clear_public_example(
     ticker: str,
