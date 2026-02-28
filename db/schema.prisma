@@ -492,6 +492,35 @@ model DeploymentMetricsCache {
   @@map("deployment_metrics_cache")
 }
 
+// Per-sector aggregate snapshot persisted each time the deployment panel is served.
+// Enables Δ Opp / Δ Structural / Δ Tier2 trend comparison between snapshots.
+model SectorSnapshotHistory {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  snapshotId     String   @map("snapshot_id")
+  snapshotBucket DateTime @map("snapshot_bucket")
+  sector         String
+
+  totalTracked      Int     @map("total_tracked")
+  confirmedCount    Int     @map("confirmed_count")
+  confirmedPct      Float   @map("confirmed_pct")
+  structuralScore   Float   @map("structural_score")
+  oppScore          Float   @map("opp_score")
+  rotationScore     Float   @map("rotation_score")
+  tier2Count        Int     @map("tier2_count")
+  avgRiskAdjEdge    Float   @map("avg_risk_adj_edge_pct")
+  positiveEdgeRatio Float   @map("positive_edge_ratio")
+  medianStopPct     Float   @map("median_stop_pct")
+  coveragePct       Float   @map("coverage_pct")
+  universeSize      Int     @map("universe_size")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, snapshotBucket, sector])
+  @@index([userId, snapshotBucket])
+  @@map("sector_snapshot_history")
+}
+
 // Ticker sector/industry metadata cache.
 // Sourced from yfinance on first report generation; refreshed if > 30 days old.
 // Indexed by uppercase ticker. Reports snapshot sector at generation time.

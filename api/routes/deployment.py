@@ -143,6 +143,12 @@ class SectorBreadthRow(BaseModel):
     positive_edge_ratio: float = 0.0 # fraction of tickers with positive edge
     trend: str = "stable"            # structural trend: "rising" | "stable" | "falling"
     opportunity_trend: str = "stable"  # edge trend vs prior snapshot
+    # Δ vs prior sector snapshot (None when no prior snapshot exists)
+    delta_opp: Optional[float] = None
+    delta_structural: Optional[float] = None
+    delta_tier2: Optional[int] = None
+    rotation_signal: Optional[float] = None   # delta_opp − delta_structural
+    is_new_sector: bool = False  # True when sector appears for first time in this universe
 
 
 class SectorLeadershipEntry(BaseModel):
@@ -155,6 +161,19 @@ class SectorLeadershipEntry(BaseModel):
     opportunity_score: float = 0.0
     structural_score: float = 0.0
     basis: str  # "rotation_score" | "pct_confirmed" | "tier2"
+    # Δ fields (propagated from SectorBreadthRow)
+    delta_opp: Optional[float] = None
+    delta_structural: Optional[float] = None
+    delta_tier2: Optional[int] = None
+    rotation_signal: Optional[float] = None
+
+
+class RotationSignalLeader(BaseModel):
+    sector: str
+    rotation_signal: float
+    delta_opp: float
+    delta_structural: float
+    direction: str  # "early_rotation" | "overextended"
 
 
 class MarketDeployabilitySnapshot(BaseModel):
@@ -213,6 +232,8 @@ class DeploymentUpdateResponse(BaseModel):
     sector_breadth: List[SectorBreadthRow]
     sector_coverage_label: str   # e.g. "Sector coverage: 87% (66/76)"
     sector_leadership: List[SectorLeadershipEntry]  # top 3 sectors by rotation score
+    rotation_signal_leaders: List[RotationSignalLeader] = []
+    has_sector_history: bool = False  # True when prior snapshot exists for delta display
     no_deployable_message: Optional[str]
     eligibility_diagnostics: EligibilityDiagnostics
 
@@ -493,8 +514,58 @@ def _build_sector_leadership(rows: List[SectorBreadthRow]) -> List[SectorLeaders
             opportunity_score=row.opportunity_score,
             structural_score=row.structural_score,
             basis="rotation_score",
+            delta_opp=row.delta_opp,
+            delta_structural=row.delta_structural,
+            delta_tier2=row.delta_tier2,
+            rotation_signal=row.rotation_signal,
         ))
     return leaders
+
+
+def _build_rotation_signal_leaders(rows: List[SectorBreadthRow]) -> List[RotationSignalLeader]:
+    """
+    Identify sectors with the most meaningful rotation signal (ΔOpp − ΔStructural).
+
+    Positive signal → opportunity improving faster than structural confirmation (early rotation).
+    Negative signal → confirmation improving while opportunity deteriorates (overextended).
+
+    Returns top-3 positive + top-3 negative, skipping sectors without delta data.
+    """
+    eligible = [
+        r for r in rows
+        if r.rotation_signal is not None
+        and r.delta_opp is not None
+        and r.delta_structural is not None
+        and r.total >= 2
+        and r.sector != "Unknown"
+    ]
+    if not eligible:
+        return []
+
+    sorted_asc = sorted(eligible, key=lambda r: r.rotation_signal)
+
+    result: List[RotationSignalLeader] = []
+    positives = [r for r in sorted_asc if r.rotation_signal > 0][-3:][::-1]
+    for r in positives:
+        result.append(RotationSignalLeader(
+            sector=r.sector,
+            rotation_signal=r.rotation_signal,
+            delta_opp=r.delta_opp,
+            delta_structural=r.delta_structural,
+            direction="early_rotation",
+        ))
+
+    negatives = [r for r in sorted_asc if r.rotation_signal < 0][:3]
+    for r in negatives:
+        result.append(RotationSignalLeader(
+            sector=r.sector,
+            rotation_signal=r.rotation_signal,
+            delta_opp=r.delta_opp,
+            delta_structural=r.delta_structural,
+            direction="overextended",
+        ))
+
+    return result
 
 
 # ── Eligibility diagnostics helpers ───────────────────────────────────────────
@@ -742,6 +813,28 @@ async def _build_deployment_update(
         r.ticker: round((r.evRatio - 1.0) * 100.0, 2)
         for r in prior_rows if r.evRatio is not None
     }
+
+    # ── 2b. Load prior sector snapshot history ────────────────────────────────
+    # Maps sector → most-recent SectorSnapshotHistory row prior to today's bucket.
+    prior_sector_snaps: Dict[str, Any] = {}
+    try:
+        prior_sec_all = await db.sectorsnapshothistory.find_many(
+            where={
+                "userId": user_id,
+                "snapshotBucket": {"lt": current_bucket},
+            },
+            order={"snapshotBucket": "desc"},
+            take=100,
+        )
+        if prior_sec_all:
+            latest_sec_bucket = prior_sec_all[0].snapshotBucket
+            for row in prior_sec_all:
+                if row.snapshotBucket == latest_sec_bucket:
+                    prior_sector_snaps[row.sector] = row
+    except _TableNotFoundError:
+        pass  # migration not yet applied — deltas will be None
+    except Exception as _e:
+        logger.warning("Could not load prior sector snapshots: %s", _e)
 
     # ── 3. Refresh cache if stale / empty ────────────────────────────────────
     snapshot_id: str
@@ -1080,7 +1173,7 @@ async def _build_deployment_update(
         sd["positive_edge_ratio"] = round(positive_edge_ratio, 4)
         sd["rotation_score"]      = round(0.60 * opportunity_score + 0.40 * structural_score, 4)
 
-    # ── 5e. Build sector breadth rows, sorted by rotation_score desc ──────────
+    # ── 5e. Build sector breadth rows + compute Δ vs prior sector snapshot ─────
     sector_breadth: List[SectorBreadthRow] = []
     for sec, sd in sector_stats.items():
         total     = sd["total"]
@@ -1088,6 +1181,24 @@ async def _build_deployment_update(
         pct       = round(confirmed / total * 100.0, 1) if total > 0 else 0.0
         struct_trend = _sector_trend_pct(sec, ticker_to_sector, prior_scores, confirmed, total)
         opp_trend    = _sector_edge_trend_pct(sec, ticker_to_sector, prior_edges, sd["avg_edge"])
+
+        # Δ fields — None when no prior snapshot or sector is new to the universe
+        prior_sec = prior_sector_snaps.get(sec) if prior_sector_snaps else None
+        if prior_sec is not None:
+            delta_opp        = round(sd["opportunity_score"] - prior_sec.oppScore,        4)
+            delta_structural = round(sd["structural_score"]  - prior_sec.structuralScore, 4)
+            delta_tier2      = sd["tier2"] - prior_sec.tier2Count
+            rotation_signal  = round(delta_opp - delta_structural, 4)
+            is_new_sector    = False
+        elif prior_sector_snaps:
+            # Prior snapshot exists but this sector wasn't tracked — new emergence
+            delta_opp = delta_structural = delta_tier2 = rotation_signal = None
+            is_new_sector = True
+        else:
+            # No prior snapshot at all (first run ever for this user)
+            delta_opp = delta_structural = delta_tier2 = rotation_signal = None
+            is_new_sector = False
+
         sector_breadth.append(SectorBreadthRow(
             sector=sec,
             confirmed=confirmed,
@@ -1102,8 +1213,70 @@ async def _build_deployment_update(
             positive_edge_ratio=sd["positive_edge_ratio"],
             trend=struct_trend,
             opportunity_trend=opp_trend,
+            delta_opp=delta_opp,
+            delta_structural=delta_structural,
+            delta_tier2=delta_tier2,
+            rotation_signal=rotation_signal,
+            is_new_sector=is_new_sector,
         ))
     sector_breadth.sort(key=lambda r: r.rotation_score, reverse=True)
+
+    # ── 5f. Persist sector snapshot history (idempotent upsert, once per bucket) ─
+    # Used on the NEXT request to compute Δ Opp / Δ Structural / Δ Tier2.
+    # Sector coverage pct needed here — compute once from cached_rows.
+    _tickers_with_sector = sum(
+        1 for r in cached_rows
+        if r.sector and r.sector.strip().lower() not in ("", "unknown")
+    )
+    _coverage_pct = round(_tickers_with_sector / universe_size * 100.0, 1) if universe_size > 0 else 0.0
+    try:
+        for _row in sector_breadth:
+            await db.sectorsnapshothistory.upsert(
+                where={"userId_snapshotBucket_sector": {
+                    "userId": user_id,
+                    "snapshotBucket": current_bucket,
+                    "sector": _row.sector,
+                }},
+                data={
+                    "create": {
+                        "userId": user_id,
+                        "snapshotId": snapshot_id,
+                        "snapshotBucket": current_bucket,
+                        "sector": _row.sector,
+                        "totalTracked": _row.total,
+                        "confirmedCount": _row.confirmed,
+                        "confirmedPct": _row.pct_confirmed,
+                        "structuralScore": _row.structural_score,
+                        "oppScore": _row.opportunity_score,
+                        "rotationScore": _row.rotation_score,
+                        "tier2Count": _row.tier2,
+                        "avgRiskAdjEdge": _row.avg_edge_pct,
+                        "positiveEdgeRatio": _row.positive_edge_ratio,
+                        "medianStopPct": _row.median_stop_pct,
+                        "coveragePct": _coverage_pct,
+                        "universeSize": universe_size,
+                    },
+                    "update": {
+                        "snapshotId": snapshot_id,
+                        "totalTracked": _row.total,
+                        "confirmedCount": _row.confirmed,
+                        "confirmedPct": _row.pct_confirmed,
+                        "structuralScore": _row.structural_score,
+                        "oppScore": _row.opportunity_score,
+                        "rotationScore": _row.rotation_score,
+                        "tier2Count": _row.tier2,
+                        "avgRiskAdjEdge": _row.avg_edge_pct,
+                        "positiveEdgeRatio": _row.positive_edge_ratio,
+                        "medianStopPct": _row.median_stop_pct,
+                        "coveragePct": _coverage_pct,
+                        "universeSize": universe_size,
+                    },
+                },
+            )
+    except _TableNotFoundError:
+        pass  # migration not yet applied
+    except Exception as _save_err:
+        logger.warning("Failed to save sector snapshot history: %s", _save_err)
 
     # Apply inclusion criteria
     deployable_tickers: List[DeployableTickerItem] = []
@@ -1214,7 +1387,9 @@ async def _build_deployment_update(
     if not deployable_tickers:
         no_deployable_message = "No capital structurally deployable this cycle."
 
-    sector_leadership = _build_sector_leadership(sector_breadth)
+    sector_leadership       = _build_sector_leadership(sector_breadth)
+    rotation_signal_leaders = _build_rotation_signal_leaders(sector_breadth)
+    has_sector_history      = bool(prior_sector_snaps)
 
     return DeploymentUpdateResponse(
         snapshot_id=snapshot_id,
@@ -1240,6 +1415,8 @@ async def _build_deployment_update(
         sector_breadth=sector_breadth,
         sector_coverage_label=sector_coverage_label,
         sector_leadership=sector_leadership,
+        rotation_signal_leaders=rotation_signal_leaders,
+        has_sector_history=has_sector_history,
         no_deployable_message=no_deployable_message,
         eligibility_diagnostics=eligibility_diagnostics,
     )

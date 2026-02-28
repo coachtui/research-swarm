@@ -1038,6 +1038,16 @@ export interface SectorBreadthRow {
   trend: 'rising' | 'stable' | 'falling'
   /** Opportunity trend: change in avg edge vs prior snapshot */
   opportunity_trend: 'rising' | 'stable' | 'falling'
+  /** Δ opportunity_score vs prior sector snapshot; null = no prior data */
+  delta_opp: number | null
+  /** Δ structural_score vs prior sector snapshot; null = no prior data */
+  delta_structural: number | null
+  /** Δ tier2 count vs prior sector snapshot; null = no prior data */
+  delta_tier2: number | null
+  /** ΔOpp − ΔStructural; positive = early rotation, negative = overextended */
+  rotation_signal: number | null
+  /** True when this sector has no prior snapshot entry (newly tracked) */
+  is_new_sector: boolean
 }
 
 export interface SectorLeadershipEntry {
@@ -1050,6 +1060,19 @@ export interface SectorLeadershipEntry {
   opportunity_score: number
   structural_score: number
   basis: string
+  delta_opp: number | null
+  delta_structural: number | null
+  delta_tier2: number | null
+  rotation_signal: number | null
+}
+
+export interface RotationSignalLeader {
+  sector: string
+  rotation_signal: number
+  delta_opp: number
+  delta_structural: number
+  /** "early_rotation" = opp improving faster than confirmation; "overextended" = inverse */
+  direction: 'early_rotation' | 'overextended'
 }
 
 export interface MarketDeployabilitySnapshot {
@@ -1126,6 +1149,10 @@ export interface DeploymentUpdateResponse {
   sector_coverage_label: string
   /** Top 3 sector leaders by rotation score */
   sector_leadership: SectorLeadershipEntry[]
+  /** Top-3 early rotation + top-3 overextended sectors by ΔOpp − ΔStructural */
+  rotation_signal_leaders: RotationSignalLeader[]
+  /** True when a prior sector snapshot exists; delta fields are populated */
+  has_sector_history: boolean
   /** Set when deployable_tickers is empty */
   no_deployable_message: string | null
   eligibility_diagnostics: EligibilityDiagnostics

@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow, SectorLeadershipEntry, EligibilityDiagnostics } from '@/types/api'
+import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow, SectorLeadershipEntry, RotationSignalLeader, EligibilityDiagnostics } from '@/types/api'
 import { useDeploymentUpdate } from '@/lib/hooks/useDeploymentUpdate'
 import { useAdminDeploymentUpdate } from '@/lib/hooks/useAdminDeploymentUpdate'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
@@ -546,13 +546,63 @@ function SectorBreadthChart({ rows }: { rows: SectorBreadthRow[] }) {
   )
 }
 
+// ── Delta helpers ──────────────────────────────────────────────────────────────
+
+/** Render a Δ score (0–1 scale → displayed as %) with arrow and color. */
+function DeltaScore({ v }: { v: number | null }) {
+  if (v === null || v === undefined) return <span className="text-zinc-600">—</span>
+  const pct = v * 100
+  if (Math.abs(pct) < 0.05) return <span className="text-zinc-500 font-mono">—</span>
+  const up = v > 0
+  return (
+    <span className={`font-mono text-xs ${up ? 'text-teal-400' : 'text-red-400/80'}`}>
+      {up ? '↑' : '↓'} {up ? '+' : ''}{pct.toFixed(1)}%
+    </span>
+  )
+}
+
+/** Render a Δ tier2 count with arrow and color. */
+function DeltaCount({ v }: { v: number | null }) {
+  if (v === null || v === undefined) return <span className="text-zinc-600">—</span>
+  if (v === 0) return <span className="text-zinc-500 font-mono">—</span>
+  return (
+    <span className={`font-mono text-xs ${v > 0 ? 'text-teal-400' : 'text-red-400/80'}`}>
+      {v > 0 ? '↑ +' : '↓ '}{v}
+    </span>
+  )
+}
+
+/** Derive structural trend from Δ when available; fall back to legacy field. */
+function derivedStructuralTrend(r: SectorBreadthRow): 'rising' | 'stable' | 'falling' {
+  if (r.delta_structural !== null && r.delta_structural !== undefined) {
+    if (r.delta_structural >= 0.01) return 'rising'
+    if (r.delta_structural <= -0.01) return 'falling'
+    return 'stable'
+  }
+  return r.trend
+}
+
+/** Derive opportunity trend from Δ when available; fall back to legacy field. */
+function derivedOppTrend(r: SectorBreadthRow): 'rising' | 'stable' | 'falling' {
+  if (r.delta_opp !== null && r.delta_opp !== undefined) {
+    if (r.delta_opp >= 0.01) return 'rising'
+    if (r.delta_opp <= -0.01) return 'falling'
+    return 'stable'
+  }
+  return r.opportunity_trend
+}
+
+// ── Sector Leadership Block ────────────────────────────────────────────────────
+
 /** Compact rotation leaderboard — top 3 sectors by composite rotation score. */
 function SectorLeadershipBlock({
   entries,
   coverageLabel,
+  hasDelta,
 }: {
   entries: SectorLeadershipEntry[]
   coverageLabel?: string
+  hasDelta: boolean
 }) {
   if (entries.length === 0) return null
 
@@ -571,9 +621,12 @@ function SectorLeadershipBlock({
           <tr className="border-b border-surface-elevated/50">
             <Th>Rank</Th>
             <Th>Sector</Th>
-            <Th align="right">Rotation Score</Th>
+            <Th align="right">Rot. Score</Th>
             <Th align="right">Opp.</Th>
             <Th align="right">Structural</Th>
+            {hasDelta && <Th align="right">Δ Opp</Th>}
+            {hasDelta && <Th align="right">Δ Struct</Th>}
+            {hasDelta && <Th align="right">Δ T2</Th>}
           </tr>
         </thead>
         <tbody>
@@ -596,10 +649,90 @@ function SectorLeadershipBlock({
                   {(e.structural_score ?? 0).toFixed(3)}
                 </span>
               </Td>
+              {hasDelta && <Td align="right"><DeltaScore v={e.delta_opp ?? null} /></Td>}
+              {hasDelta && <Td align="right"><DeltaScore v={e.delta_structural ?? null} /></Td>}
+              {hasDelta && <Td align="right"><DeltaCount v={e.delta_tier2 ?? null} /></Td>}
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ── Rotation Signal Panel ──────────────────────────────────────────────────────
+
+/** Mini panel: sectors with the most meaningful ΔOpp − ΔStructural divergence. */
+function RotationSignalPanel({ leaders }: { leaders: RotationSignalLeader[] }) {
+  if (leaders.length === 0) return null
+
+  const early    = leaders.filter((l) => l.direction === 'early_rotation')
+  const extended = leaders.filter((l) => l.direction === 'overextended')
+
+  function SignalRow({ l }: { l: RotationSignalLeader }) {
+    const sig = l.rotation_signal
+    const up  = sig > 0
+    return (
+      <tr className="border-b border-surface-elevated/30 hover:bg-surface-elevated/20 transition-colors">
+        <td className="py-1.5 pr-4 font-medium text-text-primary text-xs">{l.sector}</td>
+        <Td align="right"><DeltaScore v={l.delta_opp} /></Td>
+        <Td align="right"><DeltaScore v={l.delta_structural} /></Td>
+        <Td align="right">
+          <span className={`font-mono font-semibold text-xs ${up ? 'text-teal-400' : 'text-red-400/80'}`}>
+            {up ? '+' : ''}{(sig * 100).toFixed(1)}%
+          </span>
+        </Td>
+      </tr>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-surface-elevated bg-surface p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
+          Rotation Signal — Sector Rotation in Motion
+        </h4>
+        <span className="text-xs text-text-secondary opacity-60">ΔOpp − ΔStructural</span>
+      </div>
+
+      {early.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs text-teal-400/70 font-medium">Early Rotation ↑</p>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-surface-elevated/50">
+                <Th>Sector</Th>
+                <Th align="right">Δ Opp</Th>
+                <Th align="right">Δ Structural</Th>
+                <Th align="right">Signal</Th>
+              </tr>
+            </thead>
+            <tbody>{early.map((l) => <SignalRow key={l.sector} l={l} />)}</tbody>
+          </table>
+        </div>
+      )}
+
+      {extended.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs text-red-400/60 font-medium">Overextended ↓</p>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-surface-elevated/50">
+                <Th>Sector</Th>
+                <Th align="right">Δ Opp</Th>
+                <Th align="right">Δ Structural</Th>
+                <Th align="right">Signal</Th>
+              </tr>
+            </thead>
+            <tbody>{extended.map((l) => <SignalRow key={l.sector} l={l} />)}</tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="text-xs text-text-secondary/40 leading-relaxed">
+        Positive signal = opportunity improving faster than structural confirmation (early rotation).
+        Negative = confirmation rising while opportunity deteriorates (overextended).
+      </p>
     </div>
   )
 }
@@ -652,10 +785,7 @@ function SectorStructuralTable({ rows }: { rows: SectorBreadthRow[] }) {
                     </span>
                   </Td>
                   <td className="py-2 pr-4 text-text-secondary">
-                    <TrendIcon trend={r.trend} />
-                    <span className="ml-1">
-                      {r.trend === 'rising' ? 'expanding' : r.trend === 'falling' ? 'contracting' : 'stable'}
-                    </span>
+                    {(() => { const t = derivedStructuralTrend(r); return (<><TrendIcon trend={t} /><span className="ml-1">{t === 'rising' ? 'expanding' : t === 'falling' ? 'contracting' : 'stable'}</span></>) })()}
                   </td>
                 </tr>
               )
@@ -728,10 +858,7 @@ function SectorOpportunityTable({ rows }: { rows: SectorBreadthRow[] }) {
                   </span>
                 </Td>
                 <td className="py-2 pr-4 text-text-secondary">
-                  <TrendIcon trend={r.opportunity_trend} />
-                  <span className="ml-1">
-                    {r.opportunity_trend === 'rising' ? 'expanding' : r.opportunity_trend === 'falling' ? 'contracting' : 'stable'}
-                  </span>
+                  {(() => { const t = derivedOppTrend(r); return (<><TrendIcon trend={t} /><span className="ml-1">{t === 'rising' ? 'expanding' : t === 'falling' ? 'contracting' : 'stable'}</span></>) })()}
                 </td>
               </tr>
             ))}
@@ -745,11 +872,15 @@ function SectorOpportunityTable({ rows }: { rows: SectorBreadthRow[] }) {
 function SectorBreadthTable({
   rows,
   leadership,
+  rotationSignalLeaders,
+  hasSectorHistory,
   coverageLabel,
   adminMode,
 }: {
   rows: SectorBreadthRow[]
   leadership: SectorLeadershipEntry[]
+  rotationSignalLeaders: RotationSignalLeader[]
+  hasSectorHistory: boolean
   coverageLabel?: string
   adminMode?: boolean
 }) {
@@ -764,7 +895,11 @@ function SectorBreadthTable({
       ) : (
         <>
           {/* Section 3 — Composite rotation leaderboard (top 3) */}
-          <SectorLeadershipBlock entries={leadership} coverageLabel={coverageLabel} />
+          <SectorLeadershipBlock
+            entries={leadership}
+            coverageLabel={coverageLabel}
+            hasDelta={hasSectorHistory}
+          />
 
           {/* Structural breadth bar chart */}
           <SectorBreadthChart rows={rows} />
@@ -774,6 +909,11 @@ function SectorBreadthTable({
 
           {/* Section 2 — Opportunity quality */}
           <SectorOpportunityTable rows={rows} />
+
+          {/* Rotation Signal Panel — only when prior snapshot history exists */}
+          {hasSectorHistory && (
+            <RotationSignalPanel leaders={rotationSignalLeaders} />
+          )}
 
           {/* Admin diagnostic footer */}
           {adminMode && (
@@ -1292,6 +1432,8 @@ export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: 
         <SectorBreadthTable
           rows={data.sector_breadth}
           leadership={data.sector_leadership ?? []}
+          rotationSignalLeaders={data.rotation_signal_leaders ?? []}
+          hasSectorHistory={data.has_sector_history ?? false}
           coverageLabel={data.sector_coverage_label}
           adminMode={adminMode}
         />
