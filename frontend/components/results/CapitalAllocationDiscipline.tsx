@@ -31,6 +31,7 @@ interface CapitalAllocationDisciplineProps {
   structuralBias: StructuralBias
   tacticalStance: TacticalStance
   positionType: 'Core' | 'Satellite'
+  defaultOpen?: boolean
 }
 
 // ── Sub-accordion component ───────────────────────────────────────────────────
@@ -121,8 +122,9 @@ export function CapitalAllocationDiscipline({
   structuralBias,
   tacticalStance,
   positionType,
+  defaultOpen = false,
 }: CapitalAllocationDisciplineProps) {
-  const [containerOpen, setContainerOpen] = useState(false)
+  const [containerOpen, setContainerOpen] = useState(defaultOpen)
 
   const multiplier = getExecutionMultiplier(conviction.conviction_level)
   const baselineModelWeight =
