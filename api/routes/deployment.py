@@ -36,7 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from api.dependencies import get_current_user
+from api.dependencies import get_current_user, require_admin
 from api.lib.db import get_db
 from api.lib.entitlements import FEAT_DEPLOYMENT_STRUCTURAL, has_feature
 from api.models.auth import User
@@ -291,7 +291,18 @@ def _sector_trend(
 
 # ── Core service function ──────────────────────────────────────────────────────
 
-async def _build_deployment_update(user_id: str, db) -> DeploymentUpdateResponse:
+async def _build_deployment_update(
+    user_id: str,
+    db,
+    *,
+    admin_mode: bool = False,
+) -> DeploymentUpdateResponse:
+    """
+    Build (or serve from cache) the structural deployment update.
+
+    user_id   — the cache key; pass "__admin_global__" for platform-wide admin view.
+    admin_mode — when True, universe queries span ALL users (no userId filter).
+    """
     now_utc = datetime.now(timezone.utc)
     current_bucket = _snapshot_bucket(now_utc)
     ttl_expires = current_bucket + timedelta(hours=_CACHE_TTL_HOURS)
@@ -334,11 +345,15 @@ async def _build_deployment_update(user_id: str, db) -> DeploymentUpdateResponse
     # ── 3. Refresh cache if stale / empty ────────────────────────────────────
     snapshot_id: str
     if not cache_is_fresh:
-        logger.info("Deployment cache miss for user %s bucket %s — recomputing.", user_id, current_bucket.date())
+        scope_label = "all users" if admin_mode else f"user {user_id}"
+        logger.info("Deployment cache miss for %s bucket %s — recomputing.", scope_label, current_bucket.date())
         snapshot_id = str(uuid.uuid4())
 
         # a) Watchlist tickers with latest run ID
-        watchlist_rows = await db.watchlist.find_many(where={"userId": user_id})
+        if admin_mode:
+            watchlist_rows = await db.watchlist.find_many()
+        else:
+            watchlist_rows = await db.watchlist.find_many(where={"userId": user_id})
         watchlist_map: Dict[str, str] = {
             w.ticker: w.latestAnalysisRunId
             for w in watchlist_rows
@@ -347,14 +362,20 @@ async def _build_deployment_update(user_id: str, db) -> DeploymentUpdateResponse
 
         # b) Recent 30-day completed StockResults
         cutoff = now_utc - timedelta(days=30)
-        recent_results = await db.stockresult.find_many(
-            where={
-                "userId": user_id,
-                "status": "completed",
-                "createdAt": {"gte": cutoff},
-            },
-            order={"createdAt": "desc"},
-        )
+        if admin_mode:
+            recent_results = await db.stockresult.find_many(
+                where={"status": "completed", "createdAt": {"gte": cutoff}},
+                order={"createdAt": "desc"},
+            )
+        else:
+            recent_results = await db.stockresult.find_many(
+                where={
+                    "userId": user_id,
+                    "status": "completed",
+                    "createdAt": {"gte": cutoff},
+                },
+                order={"createdAt": "desc"},
+            )
 
         # Deduplicate: latest per ticker, watchlist takes precedence
         ticker_to_result: Dict[str, Any] = {}
@@ -376,7 +397,7 @@ async def _build_deployment_update(user_id: str, db) -> DeploymentUpdateResponse
                     ticker_to_result[r.ticker] = r
 
         if not ticker_to_result:
-            logger.info("No completed results for user %s universe.", user_id)
+            logger.info("No completed results for %s universe.", scope_label)
             return _empty_response(snapshot_id, now_utc, ttl_expires, cache_age_hours)
 
         # c) Batch-fetch prior run data for allocation_delta_30d
@@ -757,3 +778,45 @@ async def get_structural_deployment_update(
     except Exception as exc:
         logger.exception("Deployment update failed for user %s: %s", user.id, exc)
         raise HTTPException(status_code=500, detail="Failed to build deployment update.")
+
+
+# ── Admin route (platform-wide, all users) ────────────────────────────────────
+
+_ADMIN_SENTINEL = "__admin_global__"
+
+
+@router.get("/deployment/structural-update/admin", response_model=DeploymentUpdateResponse)
+async def get_admin_structural_deployment_update(
+    admin: User = Depends(require_admin),
+):
+    """
+    Platform-wide structural capital deployability snapshot.
+
+    Admin-only. Aggregates across ALL users' watchlists and analyses —
+    no per-user filter. Results are cached under the sentinel userId
+    "__admin_global__" with the same 24-hour snapshot bucket TTL.
+    """
+    db = await get_db()
+    try:
+        return await _build_deployment_update(_ADMIN_SENTINEL, db, admin_mode=True)
+    except _TableNotFoundError as exc:
+        logger.error(
+            "deployment_metrics_cache table missing — run: "
+            "prisma migrate deploy --schema=db/schema.prisma  (%s)",
+            exc,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "deployment_cache_not_migrated",
+                "message": (
+                    "Deployment cache table not migrated yet. "
+                    "Run: prisma migrate deploy --schema=db/schema.prisma"
+                ),
+                "model_version": MODEL_VERSION,
+                "ruleset_version": RULESET_VERSION,
+            },
+        )
+    except Exception as exc:
+        logger.exception("Admin deployment update failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to build admin deployment update.")

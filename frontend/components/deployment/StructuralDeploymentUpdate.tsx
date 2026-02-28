@@ -3,6 +3,7 @@
 import React from 'react'
 import type { DeploymentUpdateResponse, MarketDeployabilitySnapshot, DeployableTickerItem, SectorBreadthRow } from '@/types/api'
 import { useDeploymentUpdate } from '@/lib/hooks/useDeploymentUpdate'
+import { useAdminDeploymentUpdate } from '@/lib/hooks/useAdminDeploymentUpdate'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -578,17 +579,20 @@ function LoadingSkeleton() {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export function StructuralDeploymentUpdate() {
+export function StructuralDeploymentUpdate({ adminMode = false }: { adminMode?: boolean }) {
   const { data: entitlements } = useEntitlements()
-  const hasAccess = entitlements?.features['feature.deployment.structural_update'] ?? false
-  const { data, isLoading, error } = useDeploymentUpdate(hasAccess)
+  const hasAccess = adminMode || (entitlements?.features['feature.deployment.structural_update'] ?? false)
+
+  const userResult  = useDeploymentUpdate(!adminMode && hasAccess)
+  const adminResult = useAdminDeploymentUpdate(adminMode)
+  const { data, isLoading, error } = adminMode ? adminResult : userResult
 
   // Show locked card for non-entitled users once entitlements are resolved
-  if (entitlements && !hasAccess) {
+  if (!adminMode && entitlements && !hasAccess) {
     return <LockedCard />
   }
 
-  if (!entitlements || isLoading) {
+  if ((!adminMode && !entitlements) || isLoading) {
     return <LoadingSkeleton />
   }
 
@@ -633,8 +637,15 @@ export function StructuralDeploymentUpdate() {
           <div>
             <CardTitle className="text-base font-semibold text-text-primary">
               Capital Control Panel
+              {adminMode && (
+                <span className="ml-2 text-xs font-normal text-text-secondary border border-surface-elevated rounded px-1.5 py-0.5">
+                  Platform-Wide
+                </span>
+              )}
             </CardTitle>
-            <p className="text-xs text-text-secondary mt-0.5">Structural Deployment Update</p>
+            <p className="text-xs text-text-secondary mt-0.5">
+              {adminMode ? 'All users · Structural Deployment Update' : 'Structural Deployment Update'}
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-text-secondary">{cacheLabel}</span>

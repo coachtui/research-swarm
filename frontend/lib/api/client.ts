@@ -360,6 +360,10 @@ class ApiClient {
   async getDeploymentUpdate(): Promise<DeploymentUpdateResponse> {
     return this.request('/api/deployment/structural-update')
   }
+
+  async getAdminDeploymentUpdate(): Promise<DeploymentUpdateResponse> {
+    return this.request('/api/deployment/structural-update/admin')
+  }
 }
 
 // Export singleton instance

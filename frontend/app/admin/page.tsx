@@ -113,7 +113,7 @@ function AdminContent() {
           </TabsContent>
 
           <TabsContent value="deployment">
-            <StructuralDeploymentUpdate />
+            <StructuralDeploymentUpdate adminMode />
           </TabsContent>
         </Tabs>
       </main>
