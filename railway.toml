@@ -5,13 +5,10 @@ builder = "nixpacks"
 buildCommand = "prisma generate --schema=db/schema.prisma"
 
 [deploy]
-# start.sh runs in order:
-#   1. Log DB target (host + db name — no credentials)
-#   2. prisma migrate deploy  ← fails fast if migrations cannot apply
-#   3. uvicorn (2 workers: one handles health/short requests, one handles analyses)
-# prisma generate runs at BUILD time (buildCommand) — not here.
-# healthcheckTimeout=60 because prisma migrate deploy + Neon cold connect takes ~15-20s,
-# leaving insufficient time for uvicorn within a 30s window.
+# start.sh: sets LD_LIBRARY_PATH (WeasyPrint) then execs uvicorn directly.
+# Migrations are NOT run at startup — apply manually before deploying:
+#   railway run python -m prisma migrate deploy --schema=db/schema.prisma
+# prisma generate runs at BUILD time (buildCommand) — not at startup.
 startCommand = "bash start.sh"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
