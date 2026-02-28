@@ -15,11 +15,11 @@ PYEOF
 
 # ── Apply pending database migrations ─────────────────────────────────────────
 # Fail the deploy if any migration cannot be applied.
-# `prisma` here is the Python-bundled CLI (prisma-client-py v5.x).
-# For local dev use `python -m prisma migrate deploy` — do NOT use `npx prisma`
-# which fetches the Node.js CLI v7+ which has an incompatible schema format.
+# Use `python -m prisma` (prisma-client-py v5.x) — NOT bare `prisma` (PATH may
+# not include the script entry-point in Railway's nixpacks runtime) and NOT
+# `npx prisma` (fetches Node.js CLI v7+ with incompatible schema format).
 echo "[startup] Applying database migrations..."
-prisma migrate deploy --schema=db/schema.prisma
+python -m prisma migrate deploy --schema=db/schema.prisma
 echo "[startup] Migrations applied."
 
 # NOTE: prisma generate runs in buildCommand (railway.toml) at image-build time.
