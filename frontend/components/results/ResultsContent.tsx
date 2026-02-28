@@ -20,6 +20,10 @@ import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
 import { HistoricalAnalogPanel } from '@/components/results/HistoricalAnalogPanel'
 import { InstitutionalRiskDashboard } from '@/components/results/InstitutionalRiskDashboard'
 import { ProbabilisticEngineDashboard } from '@/components/results/ProbabilisticEngineDashboard'
+import { CapitalSignalPanel } from '@/components/results/CapitalSignalPanel'
+import { AsymmetryPanel } from '@/components/results/AsymmetryPanel'
+import { CapitalDeploymentPanel } from '@/components/results/CapitalDeploymentPanel'
+import { CompressedRiskPanel } from '@/components/results/CompressedRiskPanel'
 import { TierGate } from '@/components/common/TierGate'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -41,49 +45,56 @@ import { WatchForSummary } from '@/components/results/WatchForSummary'
 import { DeltaSummaryBox } from '@/components/results/DeltaSummaryBox'
 import type { RunResponse } from '@/types/api'
 
-// ── Section divider ───────────────────────────────────────────────────────────
+// ── Collapsible section wrapper ────────────────────────────────────────────────
+// Generic accordion used throughout the allocator-first layout.
 
-function SectionDivider({
-  label,
+function CollapsibleSection({
+  title,
   sublabel,
-  variant = 'primary',
+  defaultOpen = false,
+  badge,
+  children,
 }: {
-  label: string
+  title: string
   sublabel?: string
-  variant?: 'primary' | 'muted' | 'neutral'
+  defaultOpen?: boolean
+  badge?: string
+  children: React.ReactNode
 }) {
-  const borderColor =
-    variant === 'primary' ? 'border-l-primary' :
-    variant === 'muted'   ? 'border-l-border' :
-    'border-l-border-subtle'
-
-  const labelColor =
-    variant === 'primary' ? 'text-text-secondary' :
-    variant === 'muted'   ? 'text-text-tertiary' :
-    'text-text-tertiary'
-
-  const lineColor =
-    variant === 'muted' ? 'border-border/40' : 'border-border/70'
-
+  const [open, setOpen] = useState(defaultOpen)
   return (
-    <div className={`flex items-center gap-3 border-l-[3px] ${borderColor} pl-3`}>
-      <div className="flex-1">
-        <div className="flex items-center gap-3">
-          <span className={`text-[11px] font-bold uppercase tracking-[0.14em] ${labelColor}`}>
-            {label}
-          </span>
+    <div className="rounded-xl border border-border/60 bg-surface/30 overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-surface-elevated/30 transition-colors"
+      >
+        <div>
+          <p className="text-sm font-semibold text-text-primary">{title}</p>
           {sublabel && (
-            <span className="text-[10px] text-text-tertiary italic">{sublabel}</span>
+            <p className="text-[10px] text-text-tertiary mt-0.5">{sublabel}</p>
           )}
-          <div className={`flex-1 border-t ${lineColor}`} />
         </div>
-      </div>
+        <div className="flex items-center gap-2">
+          {badge && (
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-tertiary border border-border rounded px-1.5 py-0.5">
+              {badge}
+            </span>
+          )}
+          {open
+            ? <ChevronUp className="h-4 w-4 text-text-tertiary flex-shrink-0" />
+            : <ChevronDown className="h-4 w-4 text-text-tertiary flex-shrink-0" />}
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-border/40 px-4 pb-4 pt-3 space-y-4">
+          {children}
+        </div>
+      )}
     </div>
   )
 }
 
-// ── Advanced Diagnostics accordion wrapper ────────────────────────────────────
-// Trader-only collapsible container around Probabilistic Diagnostics + Portfolio Diagnostics
+// ── Advanced Diagnostics wrapper (Trader-only) ─────────────────────────────────
 
 function AdvancedDiagnosticsContainer({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false)
@@ -105,8 +116,7 @@ function AdvancedDiagnosticsContainer({ children }: { children: React.ReactNode 
           </span>
           {open
             ? <ChevronUp className="h-4 w-4 text-text-tertiary flex-shrink-0" />
-            : <ChevronDown className="h-4 w-4 text-text-tertiary flex-shrink-0" />
-          }
+            : <ChevronDown className="h-4 w-4 text-text-tertiary flex-shrink-0" />}
         </div>
       </button>
       {open && (
@@ -135,11 +145,9 @@ export function ResultsContent({
   const { data: entitlements } = useEntitlements()
   const [isReadingMode, setReadingMode] = useState(false)
 
-  // In preview mode expose full investor-tier content so visitors see the complete report
   const userTier = isPreview ? 'investor' : (currentUser?.tier ?? null)
   const isAdmin = isPreview ? false : (currentUser?.is_admin ?? false)
 
-  // Feature flag checks for tier gating
   const canSeeCapitalDiscipline = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
   const canSeeAdvancedDiagnostics = isAdmin || (entitlements?.features['feature.report.engine_diagnostics'] ?? false)
 
@@ -257,7 +265,6 @@ export function ResultsContent({
   const whatsNewItems = extractWhatsNew(full_output)
   const watchCalendarEvents = extractWatchCalendar(full_output)
 
-  // Derive dimensions for CapitalAllocationDiscipline
   const hasDivergence = signal_breakdown?.has_divergence ?? false
   const divergenceSeverity = decision_intelligence?.fund_tech_divergence?.severity ?? null
   const structuralBias = deriveStructuralBias(decision_intelligence?.rating)
@@ -275,7 +282,7 @@ export function ResultsContent({
   return (
     <OnboardingPanel>
     <div className="container mx-auto px-4 py-8">
-      <div className="max-w-6xl mx-auto space-y-6">
+      <div className="max-w-6xl mx-auto space-y-4">
 
         {/* ══ IDENTITY BAR ══════════════════════════════════════════════ */}
         <div className="flex items-center justify-between">
@@ -339,27 +346,116 @@ export function ResultsContent({
         </div>
 
         {/* ══ LONGITUDINAL DELTA ════════════════════════════════════════ */}
-        <div className={`transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
-          {full_output?.previous_analysis_delta && (
+        {full_output?.previous_analysis_delta && (
+          <div className={`transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
             <DeltaSummaryBox
               delta={full_output.previous_analysis_delta}
               ticker={result.ticker}
             />
-          )}
-        </div>
+          </div>
+        )}
 
         {/* ══════════════════════════════════════════════════════════════
-            LAYER 1 — SNAPSHOT (always visible)
-            Decision Header: dual-dimension + deployment + allocation + narrative + key zones
+            PHASE 1 — CAPITAL SIGNAL PANEL
+            Terminal-style executive summary. Always visible on load.
             ══════════════════════════════════════════════════════════════ */}
-        <div className="space-y-4">
-          <SectionDivider
-            label="Capital Allocation Snapshot"
-            sublabel="Decision framework · Deployment posture · Sizing"
-            variant="primary"
+        {decision_intelligence && (
+          <CapitalSignalPanel
+            rating={decision_intelligence.rating}
+            ticker={result.ticker}
+            currentPrice={decision_intelligence.current_price}
+            fairValueCalibration={full_output.fair_value_calibration}
+            priceTargets={full_output.price_targets ?? undefined}
+            expectedReturnAnnualized={
+              decision_intelligence.recommended_strategy?.exit?.expected_return_annualized ?? undefined
+            }
+            signalBreakdown={signal_breakdown}
+            conviction={decision_intelligence.conviction_position}
           />
+        )}
 
-          {decision_intelligence?.decision_framework && decision_intelligence?.conviction_position && (
+        {/* ══════════════════════════════════════════════════════════════
+            PHASE 2 — ASYMMETRY & SCENARIO PANEL
+            Number-first. Bar as visual confirmation. Always visible.
+            ══════════════════════════════════════════════════════════════ */}
+        {decision_intelligence?.current_price && full_output?.price_targets && (
+          <AsymmetryPanel
+            priceTargets={full_output.price_targets}
+            currentPrice={decision_intelligence.current_price}
+            ticker={result.ticker}
+            signalBreakdown={signal_breakdown}
+          />
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════
+            PHASE 3 — CAPITAL DEPLOYMENT PANEL
+            Portfolio blotter. Large allocation numerics. Always visible.
+            ══════════════════════════════════════════════════════════════ */}
+        {decision_intelligence?.conviction_position && (
+          <CapitalDeploymentPanel
+            conviction={decision_intelligence.conviction_position}
+            signalBreakdown={signal_breakdown}
+            ticker={result.ticker}
+            rating={decision_intelligence.rating}
+          />
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════
+            PHASE 4 — RISK PANEL (collapsed)
+            PM memo. Bullet-only. Collapsed by default.
+            ══════════════════════════════════════════════════════════════ */}
+        {((risk_factors?.length ?? 0) > 0 || (downgrade_triggers?.length ?? 0) > 0) && (
+          <CollapsibleSection
+            title="Risk Assessment"
+            sublabel="Key drivers · Sensitivity triggers · Kill-thesis conditions"
+            defaultOpen={false}
+          >
+            <CompressedRiskPanel
+              riskFactors={risk_factors || []}
+              downgradeTriggers={downgrade_triggers}
+            />
+          </CollapsibleSection>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════
+            PHASE 5 — VALUATION COMPONENTS (collapsed)
+            Model inputs. Collapsed by default — decision-support only.
+            ══════════════════════════════════════════════════════════════ */}
+        {(full_output?.fair_value_calibration || full_output?.price_targets) && (
+          <CollapsibleSection
+            title="Valuation Components (Model Inputs)"
+            sublabel="FV regime · P/E · EV/EBITDA · DCF · Scenario construct"
+            defaultOpen={false}
+          >
+            {full_output?.fair_value_calibration && (
+              <FairValueRegimeCheck
+                calibration={full_output.fair_value_calibration}
+                currentPrice={decision_intelligence?.current_price}
+                financialHealthScore={moat_breakdown?.financial_health}
+                idealEntryZone={decision_intelligence?.recommended_strategy?.entry?.ideal_zone}
+              />
+            )}
+            {decision_intelligence?.current_price && full_output?.price_targets && (
+              <PriceTargetsCard
+                priceTargets={full_output.price_targets}
+                currentPrice={decision_intelligence.current_price}
+                ticker={result.ticker}
+                signalBreakdown={signal_breakdown}
+              />
+            )}
+          </CollapsibleSection>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════
+            DECISION FRAMEWORK (collapsed)
+            Full decision header with entry/exit zones, guidance tabs.
+            ══════════════════════════════════════════════════════════════ */}
+        {decision_intelligence?.decision_framework && decision_intelligence?.conviction_position && (
+          <CollapsibleSection
+            title="Decision Framework"
+            sublabel="Entry zones · Exit targets · New buyer & holder guidance"
+            defaultOpen={false}
+          >
             <DecisionHeader
               framework={decision_intelligence.decision_framework}
               ticker={result.ticker}
@@ -373,12 +469,12 @@ export function ResultsContent({
               enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
               conviction={decision_intelligence.conviction_position}
             />
-          )}
-        </div>
+          </CollapsibleSection>
+        )}
 
         {/* ══════════════════════════════════════════════════════════════
-            LAYER 2 — CAPITAL ALLOCATION DISCIPLINE (Investor+, collapsed)
-            Position Sizing Context · Regime Conditions · Risk Controls · Capital Resolver
+            CAPITAL ALLOCATION DISCIPLINE (Investor+, own accordion)
+            Sizing context · Regime conditions · Risk controls
             ══════════════════════════════════════════════════════════════ */}
         {canSeeCapitalDiscipline && decision_intelligence?.conviction_position && (
           <CapitalAllocationDiscipline
@@ -392,42 +488,55 @@ export function ResultsContent({
           />
         )}
 
-        {/* ══ Supporting Signal Analysis ══════════════════════════════ */}
-        <div className={`space-y-6 transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+        {/* ══════════════════════════════════════════════════════════════
+            SIGNAL ANALYSIS (collapsed)
+            Smart money · Score breakdown · Divergence · Institutional
+            ══════════════════════════════════════════════════════════════ */}
+        <div className={`transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+          <CollapsibleSection
+            title="Signal Analysis"
+            sublabel="Smart money · Score breakdown · Divergence · Institutional risk"
+            defaultOpen={false}
+          >
+            <div className="space-y-4">
+              {signal_breakdown && (
+                <SmartMoneyAlert signalBreakdown={signal_breakdown} />
+              )}
 
-          {signal_breakdown && (
-            <SmartMoneyAlert signalBreakdown={signal_breakdown} />
-          )}
+              {(upgrade_triggers || downgrade_triggers) && (
+                <WatchForSummary
+                  upgradeTriggers={upgrade_triggers}
+                  downgradeTriggers={downgrade_triggers}
+                />
+              )}
 
-          {(upgrade_triggers || downgrade_triggers) && (
-            <WatchForSummary
-              upgradeTriggers={upgrade_triggers}
-              downgradeTriggers={downgrade_triggers}
-            />
-          )}
+              {moat_breakdown && moat_score !== null && (
+                <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
+              )}
 
-          {moat_breakdown && moat_score !== null && (
-            <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
-          )}
+              {signal_breakdown && (
+                <SignalDivergenceSection
+                  breakdown={signal_breakdown}
+                  recentNews={[]}
+                  nextEarningsDate={undefined}
+                />
+              )}
 
-          {signal_breakdown && (
-            <SignalDivergenceSection
-              breakdown={signal_breakdown}
-              recentNews={[]}
-              nextEarningsDate={undefined}
-            />
-          )}
+              <TierGate feature="institutional_risk" userTier={userTier} isAdmin={isAdmin}>
+                {signal_breakdown && (
+                  <InstitutionalRiskDashboard breakdown={signal_breakdown} />
+                )}
+              </TierGate>
+            </div>
+          </CollapsibleSection>
+        </div>
 
-          <TierGate feature="institutional_risk" userTier={userTier} isAdmin={isAdmin}>
-            {signal_breakdown && (
-              <InstitutionalRiskDashboard breakdown={signal_breakdown} />
-            )}
-          </TierGate>
-
-          {/* ════════════════════════════════════════════════════════════
-              LAYER 3 — ADVANCED DIAGNOSTICS (Trader only, collapsed)
-              Probabilistic Diagnostics · Portfolio Diagnostics
-              ════════════════════════════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════════════════════
+            PROBABILISTIC DIAGNOSTICS
+            Trader: inside Advanced Diagnostics accordion.
+            Investor/Starter: standalone (self-gates internally).
+            ══════════════════════════════════════════════════════════════ */}
+        <div className={`transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
           {canSeeAdvancedDiagnostics ? (
             <AdvancedDiagnosticsContainer>
               {signal_breakdown && (
@@ -445,9 +554,6 @@ export function ResultsContent({
               </TierGate>
             </AdvancedDiagnosticsContainer>
           ) : (
-            /* Investor and Starter: still show ProbabilisticEngineDashboard (self-gates internally).
-               Starter sees fallback banner; Investor sees ev/confidence/stop/noise tabs.
-               Only Trader sees the Advanced Diagnostics wrapper. */
             signal_breakdown && (
               <ProbabilisticEngineDashboard
                 breakdown={signal_breakdown}
@@ -457,45 +563,37 @@ export function ResultsContent({
               />
             )
           )}
-
-          <KeyTakeaways strengths={strengths} concerns={concerns} />
-
-          <RecentDevelopments
-            recentItems={whatsNewItems}
-            upcomingEvents={watchCalendarEvents}
-          />
         </div>
 
-        {/* ══ LONG-TERM STRUCTURAL FRAMEWORK ════════════════════════════ */}
-        <div className={`space-y-5 pt-2 transition-opacity duration-200 ${isReadingMode ? 'opacity-30 pointer-events-none' : 'opacity-[0.93]'}`}>
-          <SectionDivider
-            label="Long-Term Structural Framework"
-            sublabel="12–36 Month Reference — Non-Actionable Near-Term"
-            variant="muted"
-          />
+        {/* ══════════════════════════════════════════════════════════════
+            INTELLIGENCE CONTEXT (collapsed)
+            Key takeaways · Recent developments — merged into one section
+            ══════════════════════════════════════════════════════════════ */}
+        {(strengths.length > 0 || concerns.length > 0 || whatsNewItems.length > 0) && (
+          <CollapsibleSection
+            title="Intelligence Context"
+            sublabel="Key takeaways · Recent developments · Upcoming catalysts"
+            defaultOpen={false}
+          >
+            <div className="space-y-4">
+              <KeyTakeaways strengths={strengths} concerns={concerns} />
+              <RecentDevelopments
+                recentItems={whatsNewItems}
+                upcomingEvents={watchCalendarEvents}
+              />
+            </div>
+          </CollapsibleSection>
+        )}
 
-          {decision_intelligence?.current_price && full_output?.price_targets && (
-            <PriceTargetsCard
-              priceTargets={full_output.price_targets}
-              currentPrice={decision_intelligence.current_price}
-              ticker={result.ticker}
-              signalBreakdown={signal_breakdown}
-            />
-          )}
-
-          {full_output?.fair_value_calibration && (
-            <FairValueRegimeCheck
-              calibration={full_output.fair_value_calibration}
-              currentPrice={decision_intelligence?.current_price}
-              financialHealthScore={moat_breakdown?.financial_health}
-              idealEntryZone={decision_intelligence?.recommended_strategy?.entry?.ideal_zone}
-            />
-          )}
-        </div>
-
-        {/* ══ ANALYST VERDICT ═══════════════════════════════════════════ */}
-        <div className="space-y-5 pt-2">
-          <SectionDivider label="Analyst Verdict" variant="neutral" />
+        {/* ══════════════════════════════════════════════════════════════
+            ANALYST THESIS (collapsed)
+            Investment thesis · Valuation signal · Upgrade/downgrade triggers
+            ══════════════════════════════════════════════════════════════ */}
+        <CollapsibleSection
+          title="Analyst Thesis"
+          sublabel="Investment thesis · Valuation context · Entry strategy"
+          defaultOpen={false}
+        >
           <TierGate feature="analyst_verdict" userTier={userTier} isAdmin={isAdmin}>
             {full_output?.investment_thesis && (
               <AnalystVerdict
@@ -510,9 +608,11 @@ export function ResultsContent({
               />
             )}
           </TierGate>
-        </div>
+        </CollapsibleSection>
 
-        {/* ══ EXECUTION ════════════════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════════════════════
+            EXECUTION LAYER (Trader)
+            ══════════════════════════════════════════════════════════════ */}
         <div className={`space-y-6 transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
           <TierGate feature="execution_layer" userTier={userTier} isAdmin={isAdmin}>
             {decision_intelligence && moat_breakdown && (
@@ -543,12 +643,12 @@ export function ResultsContent({
               <p className="text-xs text-text-tertiary text-center">
                 <strong>Disclaimer:</strong> This analysis is for informational purposes only and
                 should not be considered financial advice. Past performance is not indicative of
-                future results. Please consult with a qualified financial advisor before making
-                investment decisions.
+                future results. Consult a qualified financial advisor before making investment decisions.
               </p>
             </CardContent>
           </Card>
         </div>
+
       </div>
     </div>
 
