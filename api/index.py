@@ -55,6 +55,7 @@ if sys.platform == "linux":
 
     _cu.find_library = _weasyprint_find_library
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -81,8 +82,14 @@ _startup_logger = logging.getLogger("api.startup")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Connect Prisma once on startup; disconnect cleanly on shutdown."""
-    # Log DB target: host + database name only — never print the full URL or credentials.
+    """Start DB connection in the background so /api/health can respond immediately.
+
+    Neon serverless cold-starts can take 30-60s.  Awaiting connect_db() in the
+    lifespan startup blocks ALL HTTP traffic (ASGI spec) — including /api/health —
+    until the connection completes, causing Railway healthcheck failures.
+
+    Routes use get_db() which lazy-connects if the background task hasn't finished.
+    """
     try:
         from urllib.parse import urlparse
         _p = urlparse(os.getenv("DATABASE_URL", ""))
@@ -91,7 +98,8 @@ async def lifespan(app: FastAPI):
     except Exception:
         _startup_logger.info("DB target: (could not parse DATABASE_URL)")
 
-    await connect_db()
+    # Fire-and-forget: connect in background, don't block startup.
+    asyncio.create_task(connect_db())
     yield
     await disconnect_db()
 
