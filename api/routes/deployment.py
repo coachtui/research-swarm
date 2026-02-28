@@ -1238,9 +1238,9 @@ def _count_eligible_with_params(
                 continue
         # else "any" → skip delta check
 
-        # EV percentile
+        # EV percentile (stress-test: 0.0 default keeps gate strict when unrankable)
         vol_pct = (
-            _percentile(r.volAdjEvScore, all_vol_adj_scores)
+            _percentile_mid_rank(r.volAdjEvScore, all_vol_adj_scores) or 0.0
             if r.volAdjEvScore is not None and all_vol_adj_scores
             else 0.0
         )
@@ -1347,7 +1347,7 @@ def _run_stress_simulation(
 
     for r in confirmed_rows:
         vol_pct = (
-            _percentile(r.volAdjEvScore, all_vol_adj_scores)
+            _percentile_mid_rank(r.volAdjEvScore, all_vol_adj_scores) or 0.0
             if r.volAdjEvScore is not None and all_vol_adj_scores
             else 0.0
         )
@@ -1747,7 +1747,7 @@ async def _run_rolling_simulation(db) -> EligibilityRollingSimResponse:
                 continue
 
             vol_pct = (
-                _percentile(m["volAdjEvScore"], all_vol_scores)
+                _percentile_mid_rank(m["volAdjEvScore"], all_vol_scores) or 0.0
                 if m.get("volAdjEvScore") is not None and all_vol_scores
                 else 0.0
             )
