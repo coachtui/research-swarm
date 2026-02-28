@@ -11,6 +11,7 @@ import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
 import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
+import { EligibilityStressTestPanel } from '@/components/deployment/EligibilityStressTestPanel'
 import { Shield, AlertCircle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { apiClient } from '@/lib/api/client'
@@ -114,6 +115,7 @@ function AdminContent() {
 
           <TabsContent value="deployment">
             <StructuralDeploymentUpdate adminMode />
+            <EligibilityStressTestPanel />
           </TabsContent>
         </Tabs>
       </main>

@@ -1093,3 +1093,38 @@ export interface DeploymentUpdateResponse {
   no_deployable_message: string | null
   eligibility_diagnostics: EligibilityDiagnostics
 }
+
+// ── Eligibility Stress-Test Simulation ────────────────────────────────────────
+
+export interface StressBaselineResult {
+  eligible: number
+  /** % of structurally confirmed tickers that pass all rules */
+  pass_rate_structural: number
+}
+
+export interface StressScenarioResult {
+  name: string
+  eligible: number
+  pass_rate_structural: number
+  change_vs_baseline: number
+}
+
+export interface AvgDistanceToThreshold {
+  /** Avg allocationDelta30d for tickers failing delta rule (negative = below 0) */
+  delta: number | null
+  /** Avg (vol_adj_ev_percentile - 60) for tickers below 60th pct (negative = below) */
+  ev_percentile: number | null
+  /** Avg (stopProbability - 25) for tickers above 25% stop (positive = elevated) */
+  stop: number | null
+}
+
+export interface EligibilityStressTestResponse {
+  evaluated_universe: number
+  structural_confirmed: number
+  baseline: StressBaselineResult
+  scenarios: StressScenarioResult[]
+  /** Which single rule eliminates the most confirmed tickers */
+  dominant_binding_constraint: string
+  avg_distance_to_threshold: AvgDistanceToThreshold
+  generated_at: string
+}

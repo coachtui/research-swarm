@@ -992,6 +992,265 @@ async def get_structural_deployment_update(
         raise HTTPException(status_code=500, detail="Failed to build deployment update.")
 
 
+# ── Stress test models ────────────────────────────────────────────────────────
+
+
+class StressBaselineResult(BaseModel):
+    eligible: int
+    pass_rate_structural: float  # % of confirmed tickers that pass all rules
+
+
+class StressScenarioResult(BaseModel):
+    name: str
+    eligible: int
+    pass_rate_structural: float
+    change_vs_baseline: int
+
+
+class AvgDistanceToThreshold(BaseModel):
+    """
+    Average shortfall from each threshold, measured only across *failing* confirmed tickers.
+
+    delta:         avg (allocationDelta30d) for tickers failing the delta rule.
+                   Negative means below zero (conviction declining).
+    ev_percentile: avg (vol_adj_ev_percentile - 60) for tickers below 60th pct.
+                   Negative means below threshold.
+    stop:          avg (stopProbability - 25) for tickers above 25% stop.
+                   Positive means above threshold (elevated risk).
+    """
+    delta: Optional[float]
+    ev_percentile: Optional[float]
+    stop: Optional[float]
+
+
+class EligibilityStressTestResponse(BaseModel):
+    evaluated_universe: int
+    structural_confirmed: int
+    baseline: StressBaselineResult
+    scenarios: List[StressScenarioResult]
+    dominant_binding_constraint: str
+    avg_distance_to_threshold: AvgDistanceToThreshold
+    generated_at: str
+
+
+# ── Stress test session cache (process-lifetime; keyed by user_id) ─────────────
+# Value: (snapshot_bucket_str, result) — replaced when bucket changes.
+_stress_test_cache: Dict[str, Tuple[str, EligibilityStressTestResponse]] = {}
+
+
+# ── Stress test helpers ────────────────────────────────────────────────────────
+
+def _compute_deployability_index(rows: List[Any]) -> float:
+    """
+    Replicates the frontend getDeployabilityIndex formula:
+      DI = pct_confirmed*0.35 + regime_stable_pct*0.30
+           + (100 - avg_stop)*0.20 + avg_breadth_pct*0.15
+    Returns 0–100.
+    """
+    n = len(rows)
+    if n == 0:
+        return 0.0
+    pct_confirmed = sum(1 for r in rows if r.confirmationScore >= 4) / n * 100.0
+    regime_stable_pct = sum(1 for r in rows if r.regimeStable) / n * 100.0
+    avg_stop = sum(r.stopProbability for r in rows) / n
+
+    sector_stats: Dict[str, Dict[str, int]] = {}
+    for r in rows:
+        sec = r.sector or "Unknown"
+        if sec not in sector_stats:
+            sector_stats[sec] = {"confirmed": 0, "total": 0}
+        sector_stats[sec]["total"] += 1
+        if r.confirmationScore >= 4:
+            sector_stats[sec]["confirmed"] += 1
+
+    breadth_pcts = [
+        s["confirmed"] / s["total"] * 100.0
+        for s in sector_stats.values() if s["total"] > 0
+    ]
+    avg_breadth = sum(breadth_pcts) / len(breadth_pcts) if breadth_pcts else 0.0
+
+    return round(
+        pct_confirmed * 0.35
+        + regime_stable_pct * 0.30
+        + (100.0 - avg_stop) * 0.20
+        + avg_breadth * 0.15,
+        1,
+    )
+
+
+def _count_eligible_with_params(
+    confirmed_rows: List[Any],
+    all_vol_adj_scores: List[float],
+    *,
+    delta_mode: str = "positive",   # "positive" (>0) | "nonneg" (>=0) | "any"
+    ev_min: float = 60.0,
+    stop_max: float = 25.0,
+) -> int:
+    """
+    Count confirmed tickers that pass all eligibility gates under the given params.
+    Regime stability is never relaxed — it stays as a hard gate.
+    """
+    total = 0
+    for r in confirmed_rows:
+        # Delta check
+        if delta_mode == "positive":
+            if r.allocationDelta30d is None or r.allocationDelta30d <= 0:
+                continue
+        elif delta_mode == "nonneg":
+            if r.allocationDelta30d is None or r.allocationDelta30d < 0:
+                continue
+        # else "any" → skip delta check
+
+        # EV percentile
+        vol_pct = (
+            _percentile(r.volAdjEvScore, all_vol_adj_scores)
+            if r.volAdjEvScore is not None and all_vol_adj_scores
+            else 0.0
+        )
+        if vol_pct < ev_min:
+            continue
+
+        # Stop probability
+        if r.stopProbability > stop_max:
+            continue
+
+        # Regime stability — always required
+        if not r.regimeStable:
+            continue
+
+        total += 1
+    return total
+
+
+def _run_stress_simulation(
+    cached_rows: List[Any],
+    all_vol_adj_scores: List[float],
+) -> EligibilityStressTestResponse:
+    """
+    Pure simulation — reads existing cached metrics, no DB writes.
+
+    Only structurally confirmed tickers (confirmationScore >= 4) enter
+    the eligibility pipeline; others are excluded from scenario counts.
+    """
+    now_utc = datetime.now(timezone.utc)
+    universe_size = len(cached_rows)
+    confirmed_rows = [r for r in cached_rows if r.confirmationScore >= 4]
+    confirmed_count = len(confirmed_rows)
+
+    def pct(n: int) -> float:
+        return round(n / confirmed_count * 100.0, 1) if confirmed_count > 0 else 0.0
+
+    # ── Baseline ──────────────────────────────────────────────────────────────
+    baseline_n = _count_eligible_with_params(
+        confirmed_rows, all_vol_adj_scores,
+        delta_mode="positive", ev_min=60.0, stop_max=25.0,
+    )
+    baseline = StressBaselineResult(
+        eligible=baseline_n,
+        pass_rate_structural=pct(baseline_n),
+    )
+
+    # ── Scenarios ─────────────────────────────────────────────────────────────
+    scenarios: List[StressScenarioResult] = []
+
+    def scenario(name: str, n: int) -> StressScenarioResult:
+        return StressScenarioResult(
+            name=name,
+            eligible=n,
+            pass_rate_structural=pct(n),
+            change_vs_baseline=n - baseline_n,
+        )
+
+    # A — Relax Conviction Acceleration
+    sc_a1 = _count_eligible_with_params(confirmed_rows, all_vol_adj_scores, delta_mode="nonneg")
+    scenarios.append(scenario("Delta ≥ 0 (non-negative)", sc_a1))
+
+    sc_a2 = _count_eligible_with_params(confirmed_rows, all_vol_adj_scores, delta_mode="any")
+    scenarios.append(scenario("Remove Delta Filter", sc_a2))
+
+    # B — Relax EV threshold
+    for ev_min in [55.0, 50.0, 45.0]:
+        n = _count_eligible_with_params(confirmed_rows, all_vol_adj_scores, ev_min=ev_min)
+        scenarios.append(scenario(f"EV ≥ {int(ev_min)}th percentile", n))
+
+    # C — Relax Stop probability
+    for stop_max in [30.0, 35.0]:
+        n = _count_eligible_with_params(confirmed_rows, all_vol_adj_scores, stop_max=stop_max)
+        scenarios.append(scenario(f"Stop ≤ {int(stop_max)}%", n))
+
+    # D — Combined moderate relaxation
+    sc_d = _count_eligible_with_params(
+        confirmed_rows, all_vol_adj_scores,
+        delta_mode="nonneg", ev_min=55.0, stop_max=30.0,
+    )
+    scenarios.append(scenario("Combined: Delta ≥ 0, EV ≥ 55, Stop ≤ 30%", sc_d))
+
+    # E — Regime-conditional thresholds
+    di = _compute_deployability_index(cached_rows)
+    if di >= 60.0:
+        sc_e = _count_eligible_with_params(
+            confirmed_rows, all_vol_adj_scores, ev_min=55.0, stop_max=30.0,
+        )
+        sc_e_name = f"Regime-Conditional (DI={di:.0f}, Risk-On: EV ≥ 55, Stop ≤ 30%)"
+    else:
+        sc_e = baseline_n
+        sc_e_name = f"Regime-Conditional (DI={di:.0f}, Risk-Off: strict baseline)"
+    scenarios.append(scenario(sc_e_name, sc_e))
+
+    # ── Dominant binding constraint ────────────────────────────────────────────
+    # Count each rule's failures independently (not mutually exclusive)
+    delta_fail = 0
+    ev_fail = 0
+    stop_fail = 0
+    regime_fail = 0
+
+    delta_shortfalls: List[float] = []
+    ev_gaps: List[float] = []
+    stop_excesses: List[float] = []
+
+    for r in confirmed_rows:
+        vol_pct = (
+            _percentile(r.volAdjEvScore, all_vol_adj_scores)
+            if r.volAdjEvScore is not None and all_vol_adj_scores
+            else 0.0
+        )
+        if r.allocationDelta30d is None or r.allocationDelta30d <= 0:
+            delta_fail += 1
+            delta_shortfalls.append(float(r.allocationDelta30d or 0.0))
+        if vol_pct < 60.0:
+            ev_fail += 1
+            ev_gaps.append(vol_pct - 60.0)
+        if r.stopProbability > 25.0:
+            stop_fail += 1
+            stop_excesses.append(r.stopProbability - 25.0)
+        if not r.regimeStable:
+            regime_fail += 1
+
+    rule_failures: Dict[str, int] = {
+        "Delta": delta_fail,
+        "EV Percentile": ev_fail,
+        "Stop Probability": stop_fail,
+        "Regime Stability": regime_fail,
+    }
+    dominant = max(rule_failures, key=lambda k: rule_failures[k])
+
+    avg_dist = AvgDistanceToThreshold(
+        delta=round(sum(delta_shortfalls) / len(delta_shortfalls), 2) if delta_shortfalls else None,
+        ev_percentile=round(sum(ev_gaps) / len(ev_gaps), 1) if ev_gaps else None,
+        stop=round(sum(stop_excesses) / len(stop_excesses), 1) if stop_excesses else None,
+    )
+
+    return EligibilityStressTestResponse(
+        evaluated_universe=universe_size,
+        structural_confirmed=confirmed_count,
+        baseline=baseline,
+        scenarios=scenarios,
+        dominant_binding_constraint=dominant,
+        avg_distance_to_threshold=avg_dist,
+        generated_at=now_utc.isoformat(),
+    )
+
+
 # ── Admin route (platform-wide, all users) ────────────────────────────────────
 
 _ADMIN_SENTINEL = "__admin_global__"
@@ -1032,3 +1291,103 @@ async def get_admin_structural_deployment_update(
     except Exception as exc:
         logger.exception("Admin deployment update failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to build admin deployment update.")
+
+
+# ── Eligibility stress-test route (admin-only) ────────────────────────────────
+
+@router.get("/deployment/eligibility-stress-test/admin", response_model=EligibilityStressTestResponse)
+async def get_admin_eligibility_stress_test(
+    admin: User = Depends(require_admin),
+):
+    """
+    Allocation Eligibility Stress-Test Simulation — Admin Only.
+
+    Reads from the current admin snapshot cache (no DB writes, no new analyses).
+    Simulates how eligible count changes under independently-relaxed threshold
+    variants.  Results are cached in-process per snapshot bucket (24h TTL
+    matching the underlying deployment cache).
+
+    Scenarios:
+      A — Relax Conviction Delta (>0 → ≥0; then remove entirely)
+      B — Relax EV Percentile  (60 → 55 / 50 / 45)
+      C — Relax Stop Probability (25 → 30 / 35%)
+      D — Combined moderate relaxation (delta≥0, EV≥55, stop≤30%)
+      E — Regime-conditional (DI≥60 → relaxed; else strict baseline)
+
+    Returns:
+      Baseline + 9 scenario results, dominant binding constraint,
+      avg shortfall per rule for failing confirmed tickers.
+    """
+    db = await get_db()
+    try:
+        now_utc = datetime.now(timezone.utc)
+        current_bucket = _snapshot_bucket(now_utc)
+        bucket_str = current_bucket.isoformat()
+
+        # ── In-process cache ──────────────────────────────────────────────────
+        cached_entry = _stress_test_cache.get(_ADMIN_SENTINEL)
+        if cached_entry and cached_entry[0] == bucket_str:
+            logger.debug("Stress test cache hit for admin bucket %s", bucket_str)
+            return cached_entry[1]
+
+        # ── Load current admin snapshot rows ──────────────────────────────────
+        rows = await db.deploymentmetricscache.find_many(
+            where={
+                "userId": _ADMIN_SENTINEL,
+                "snapshotBucket": current_bucket,
+                "modelVersion": MODEL_VERSION,
+            },
+            order={"ticker": "asc"},
+        )
+        if not rows:
+            # No cache yet — trigger a full build first, then retry once
+            logger.info(
+                "Stress test: admin snapshot empty for bucket %s — triggering build.",
+                bucket_str,
+            )
+            await _build_deployment_update(_ADMIN_SENTINEL, db, admin_mode=True)
+            rows = await db.deploymentmetricscache.find_many(
+                where={
+                    "userId": _ADMIN_SENTINEL,
+                    "snapshotBucket": current_bucket,
+                    "modelVersion": MODEL_VERSION,
+                },
+                order={"ticker": "asc"},
+            )
+
+        if not rows:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "no_universe_data",
+                    "message": "No universe data available. Run at least one analysis first.",
+                },
+            )
+
+        all_vol_adj = [r.volAdjEvScore for r in rows if r.volAdjEvScore is not None]
+        result = _run_stress_simulation(rows, all_vol_adj)
+
+        _stress_test_cache[_ADMIN_SENTINEL] = (bucket_str, result)
+        logger.info(
+            "Stress test complete — universe=%d, confirmed=%d, baseline=%d, dominant=%s",
+            result.evaluated_universe,
+            result.structural_confirmed,
+            result.baseline.eligible,
+            result.dominant_binding_constraint,
+        )
+        return result
+
+    except HTTPException:
+        raise
+    except _TableNotFoundError as exc:
+        logger.error("deployment_metrics_cache missing for stress test: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "deployment_cache_not_migrated",
+                "message": "Run: prisma migrate deploy --schema=db/schema.prisma",
+            },
+        )
+    except Exception as exc:
+        logger.exception("Stress test failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to run eligibility stress test.")

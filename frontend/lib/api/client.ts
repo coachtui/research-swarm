@@ -21,6 +21,7 @@ import type {
   UserInfo,
   EntitlementsResponse,
   DeploymentUpdateResponse,
+  EligibilityStressTestResponse,
 } from '@/types/api'
 
 class ApiClient {
@@ -363,6 +364,10 @@ class ApiClient {
 
   async getAdminDeploymentUpdate(): Promise<DeploymentUpdateResponse> {
     return this.request('/api/deployment/structural-update/admin')
+  }
+
+  async getEligibilityStressTest(): Promise<EligibilityStressTestResponse> {
+    return this.request('/api/deployment/eligibility-stress-test/admin')
   }
 }
 
