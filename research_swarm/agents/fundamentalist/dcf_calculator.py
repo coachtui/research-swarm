@@ -123,6 +123,11 @@ class DCFCalculator:
             )
 
             result = PriceTargetScenarios(
+                # Intrinsic value band: bear=low, base=mid, bull=high for DCF standalone
+                # (blended_valuation will override these with the cross-method blend)
+                fair_value_low=round(bear_value, 2),
+                fair_value_mid=round(base_value, 2),
+                fair_value_high=round(bull_value, 2),
                 base_target=round(base_value, 2),
                 base_assumptions=base_assumptions,
                 base_probability=0.50,
