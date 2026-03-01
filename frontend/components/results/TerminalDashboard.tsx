@@ -34,7 +34,7 @@ interface TerminalDashboardProps {
   rating: string | null
   ticker: string
   currentPrice: number
-  conviction: ConvictionPosition
+  conviction: ConvictionPosition | null
   fairValueCalibration?: FairValueCalibration | null
   priceTargets?: PriceTargets | null
   signalBreakdown?: SignalBreakdown | null
@@ -103,9 +103,10 @@ function positionTypeLabel(convictionLevel: string): string {
 }
 
 function executionConstrainedPct(
-  conviction: ConvictionPosition,
+  conviction: ConvictionPosition | null,
   signalBreakdown?: SignalBreakdown | null,
 ): number {
+  if (!conviction) return 0
   const scalingMult = signalBreakdown?.portfolio_action?.conviction_scaling_multiplier
   if (scalingMult !== undefined && scalingMult !== null) {
     return Math.min(conviction.recommended_pct * scalingMult, conviction.max_pct)
@@ -202,8 +203,10 @@ export function TerminalDashboard({
 
   const bias = deriveStructuralBias(rating)
   const ratingColor = ratingTextColor(rating)
-  const tier = convictionTier(conviction.conviction_level, conviction.recommended_pct, effectiveEvPct)
-  const tierColor = convictionTierColor(tier)
+  const tier = conviction
+    ? convictionTier(conviction.conviction_level, conviction.recommended_pct, effectiveEvPct)
+    : null
+  const tierColor = tier ? convictionTierColor(tier) : 'text-text-tertiary'
   const irr = expectedReturnAnnualized ?? null
 
   // ── Row 2 calculations ─────────────────────────────────────────────────────
@@ -263,11 +266,12 @@ export function TerminalDashboard({
 
   // ── Row 3 calculations ─────────────────────────────────────────────────────
   const execPct = executionConstrainedPct(conviction, signalBreakdown)
-  const posType = positionTypeLabel(conviction.conviction_level)
-  const bindingType =
-    execPct < conviction.recommended_pct * 0.95
-      ? (execPct >= conviction.max_pct * 0.95 ? 'Cap-Bound' : 'Execution-Bound')
-      : 'Within Guardrails'
+  const posType = conviction ? positionTypeLabel(conviction.conviction_level) : null
+  const bindingType = conviction
+    ? (execPct < conviction.recommended_pct * 0.95
+        ? (execPct >= conviction.max_pct * 0.95 ? 'Cap-Bound' : 'Execution-Bound')
+        : 'Within Guardrails')
+    : null
   const noiseDefer = signalBreakdown?.noise_filter?.defer_sizing
   const noiseRegime = signalBreakdown?.noise_filter?.noise_regime
   const scalingLabel = signalBreakdown?.portfolio_action?.conviction_scaling_label ?? null
@@ -293,9 +297,11 @@ export function TerminalDashboard({
           <span className={`text-[11px] font-bold tracking-widest uppercase mt-1 ${ratingColor}`}>
             {bias || rating || '—'}
           </span>
-          <span className={`text-[10px] font-semibold ${tierColor}`}>
-            {tier} Conviction
-          </span>
+          {tier && (
+            <span className={`text-[10px] font-semibold ${tierColor}`}>
+              {tier} Conviction
+            </span>
+          )}
         </div>
 
         {/* Center — EV is the alpha signal; asymmetry narrates the edge */}
@@ -488,12 +494,12 @@ export function TerminalDashboard({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════
-          ROW 3 — CAPITAL DEPLOYMENT
+          ROW 3 — CAPITAL DEPLOYMENT (only when conviction data is available)
           Allocation % = second-tier dominant (text-4xl, EV is text-5xl).
           Right: 2×2 secondary grid (text-lg, supporting only).
           No fill backgrounds.
           ═══════════════════════════════════════════════════════════════════ */}
-      <div className="border-t border-border/30">
+      {conviction && <div className="border-t border-border/30">
         {/* Header strip */}
         <div className="px-5 py-2 border-b border-border/25 flex items-center justify-between">
           <p className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">
@@ -638,6 +644,7 @@ export function TerminalDashboard({
           )}
         </div>
       </div>
+      </div>}
     </div>
   )
 }

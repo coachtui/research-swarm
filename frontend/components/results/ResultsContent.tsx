@@ -289,7 +289,7 @@ export function ResultsContent({
             Always visible. Replaces CapitalSignalPanel + AsymmetryPanel
             + CapitalDeploymentPanel.
             ══════════════════════════════════════════════════════════════ */}
-        {decision_intelligence?.conviction_position && (
+        {decision_intelligence && (
           <TerminalDashboard
             rating={decision_intelligence.rating}
             ticker={result.ticker}
