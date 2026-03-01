@@ -2,13 +2,14 @@
 
 // DVRG Executive Compression — 3-Layer Decision Architecture.
 //
-// Layer 1 (EXECUTIVE PANEL): 3 dominant signals — Edge · Risk · Capital
-// Layer 2 (WHY THIS EDGE):   Collapsed — scenario construct + metrics with
-//                             micro-explanations
+// Layer 1 (EXECUTIVE PANEL): Edge (hero) · Risk (contextual) · Capital (action)
+// Layer 2 (WHY THIS EDGE):   Collapsed — scenario construct + metrics
 // Layer 3 (DIAGNOSTICS):     Collapsed — engine internals for advanced users
 //
+// Visual hierarchy: EDGE dominates (text-5xl). RISK is analytical, not alarm.
+// Direction label moved out of header into secondary "Status" line below thesis.
+// Red reserved for catastrophic risk only (downside >15% OR stopProb >35%).
 // Presentation-layer refactor only. Zero logic changes.
-// Same props signature as prior TerminalDashboard.
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
@@ -47,7 +48,7 @@ type EdgeTier = 'Avoid' | 'Weak Edge' | 'Moderate Edge' | 'Strong Edge' | 'Dislo
 type RiskTier = 'Contained' | 'Moderate' | 'Elevated' | 'High'
 type DirectionLabel = 'Avoid' | 'Watch' | 'Accumulate' | 'Overweight' | 'Conviction'
 
-// ── Tier classifiers ───────────────────────────────────────────────────────────
+// ── Tier classifiers (unchanged logic) ────────────────────────────────────────
 
 function classifyEdge(evPct: number | null): EdgeTier {
   if (evPct === null) return 'Weak Edge'
@@ -87,7 +88,7 @@ function generateThesisCompression(
   if (edge === 'Avoid') {
     return risk === 'High'
       ? 'Negative expected value combined with high downside risk; avoid new exposure.'
-      : 'Model shows negative expected value; no statistical basis for new capital deployment.'
+      : 'Negative expected value — no statistical basis for new capital deployment.'
   }
   if (edge === 'Dislocation' && risk === 'Contained') {
     return 'Rare statistical dislocation with contained downside; elevated conviction warrants overweight consideration.'
@@ -102,16 +103,16 @@ function generateThesisCompression(
     return 'Strong edge offset by moderate risk; asymmetry justifies tactical overweight with active monitoring.'
   }
   if (edge === 'Strong Edge') {
-    return 'Statistically strong setup; elevated risk warrants scaled entry rather than full deployment.'
+    return 'Statistically strong setup; elevated structural volatility warrants scaled entry rather than full deployment.'
   }
   if (edge === 'Moderate Edge' && risk === 'Contained') {
-    return `Positive statistical setup with contained downside; appropriate as ${positionType.toLowerCase()} exposure.`
+    return `Moderate expected value with contained downside; appropriate as ${positionType.toLowerCase()} exposure.`
   }
   if (edge === 'Moderate Edge' && risk === 'Moderate') {
-    return 'Statistically positive setup with moderate downside; appropriate as small tactical exposure.'
+    return 'Moderate expected value with elevated structural volatility. Appropriate as small tactical exposure.'
   }
   if (edge === 'Moderate Edge') {
-    return 'Marginal edge relative to risk profile; defer full sizing pending regime confirmation.'
+    return 'Moderate expected value; marginal edge relative to risk profile — defer full sizing pending regime confirmation.'
   }
   if (risk === 'High') {
     return 'Weak statistical edge with high downside risk; risk/reward does not justify new capital.'
@@ -129,30 +130,43 @@ function capitalEfficiency(evPct: number | null, bearRet: number | null): number
 
 function edgeTierStyle(tier: EdgeTier): { text: string; border: string; bg: string } {
   switch (tier) {
-    case 'Dislocation':  return { text: 'text-primary',       border: 'border-t-primary/40',   bg: 'bg-primary/5'  }
-    case 'Strong Edge':  return { text: 'text-success',       border: 'border-t-success/40',   bg: 'bg-success/5'  }
-    case 'Moderate Edge':return { text: 'text-success',       border: 'border-t-success/25',   bg: 'bg-success/3'  }
-    case 'Weak Edge':    return { text: 'text-warning',       border: 'border-t-warning/35',   bg: 'bg-warning/5'  }
-    case 'Avoid':        return { text: 'text-error',         border: 'border-t-error/35',     bg: 'bg-error/5'    }
+    case 'Dislocation':  return { text: 'text-primary',  border: 'border-t-primary/40',  bg: 'bg-primary/5'  }
+    case 'Strong Edge':  return { text: 'text-success',  border: 'border-t-success/40',  bg: 'bg-success/5'  }
+    case 'Moderate Edge':return { text: 'text-success',  border: 'border-t-success/25',  bg: 'bg-success/3'  }
+    case 'Weak Edge':    return { text: 'text-warning',  border: 'border-t-warning/35',  bg: 'bg-warning/5'  }
+    case 'Avoid':        return { text: 'text-error',    border: 'border-t-error/35',    bg: 'bg-error/5'    }
   }
 }
 
+// Risk: no bg unless catastrophic (High). Red reserved for >15% downside or >35% stop prob.
 function riskTierStyle(tier: RiskTier): { text: string; border: string; bg: string } {
   switch (tier) {
-    case 'Contained': return { text: 'text-success',      border: 'border-t-success/40',  bg: 'bg-success/5'     }
-    case 'Moderate':  return { text: 'text-warning',      border: 'border-t-warning/35',  bg: 'bg-warning/5'     }
-    case 'Elevated':  return { text: 'text-orange-400',   border: 'border-t-orange-400/35', bg: 'bg-orange-400/5'}
-    case 'High':      return { text: 'text-error',        border: 'border-t-error/35',    bg: 'bg-error/5'       }
+    case 'Contained': return { text: 'text-text-secondary',  border: 'border-t-border/30',   bg: ''            }
+    case 'Moderate':  return { text: 'text-warning/70',      border: 'border-t-warning/20',  bg: ''            }
+    case 'Elevated':  return { text: 'text-warning',         border: 'border-t-warning/30',  bg: ''            }
+    case 'High':      return { text: 'text-error',           border: 'border-t-error/35',    bg: 'bg-error/5'  }
   }
 }
 
-function directionStyle(label: DirectionLabel): string {
+// Direction — text color only (used for status line, not a header badge).
+function directionTextColor(label: DirectionLabel): string {
   switch (label) {
-    case 'Conviction': return 'text-primary border-primary/35'
-    case 'Overweight': return 'text-success border-success/35'
-    case 'Accumulate': return 'text-success/80 border-success/25'
-    case 'Watch':      return 'text-warning border-warning/30'
-    case 'Avoid':      return 'text-error border-error/30'
+    case 'Conviction': return 'text-primary'
+    case 'Overweight': return 'text-success'
+    case 'Accumulate': return 'text-success/80'
+    case 'Watch':      return 'text-warning'
+    case 'Avoid':      return 'text-error'
+  }
+}
+
+// Deterministic one-liner that explains WHY the direction label was assigned.
+function directionExplanation(label: DirectionLabel): string {
+  switch (label) {
+    case 'Conviction': return 'Rare dislocation event — elevated conviction'
+    case 'Overweight': return 'Strong statistical edge confirmed — favorable asymmetry'
+    case 'Accumulate': return 'Positive setup — conditions support gradual deployment'
+    case 'Watch':      return 'Edge below overweight threshold — monitor for improvement'
+    case 'Avoid':      return 'Negative expected value — no statistical basis for new capital'
   }
 }
 
@@ -265,7 +279,7 @@ export function TerminalDashboard({
   expectedReturnAnnualized,
 }: TerminalDashboardProps) {
 
-  // ── Calculations (identical logic to prior version) ─────────────────────────
+  // ── Calculations (unchanged logic) ───────────────────────────────────────
 
   let evPct: number | null = null
   if (priceTargets && currentPrice > 0) {
@@ -322,15 +336,15 @@ export function TerminalDashboard({
   const direction = deriveDirectionLabel(edgeTier, riskTier)
   const edgeSty   = edgeTierStyle(edgeTier)
   const riskSty   = riskTierStyle(riskTier)
-  const dirSty    = directionStyle(direction)
+  const dirColor  = directionTextColor(direction)
   const effScore  = capitalEfficiency(effectiveEvPct, bearRet)
 
   // ── Capital instruction ───────────────────────────────────────────────────
 
-  const execPct   = executionConstrainedPct(conviction, signalBreakdown)
-  const posType   = conviction ? positionTypeLabel(conviction.conviction_level) : null
-  const bindType  = conviction
-    ? execPct >= (conviction.max_pct * 0.95)
+  const execPct  = executionConstrainedPct(conviction, signalBreakdown)
+  const posType  = conviction ? positionTypeLabel(conviction.conviction_level) : null
+  const bindType = conviction
+    ? execPct >= conviction.max_pct * 0.95
       ? 'Cap-Bound'
       : execPct < conviction.recommended_pct * 0.95
         ? 'Exec-Bound'
@@ -367,93 +381,127 @@ export function TerminalDashboard({
     },
   ] : []
 
-  const noiseDefer  = signalBreakdown?.noise_filter?.defer_sizing
-  const noiseRegime = signalBreakdown?.noise_filter?.noise_regime
+  const noiseDefer   = signalBreakdown?.noise_filter?.defer_sizing
+  const noiseRegime  = signalBreakdown?.noise_filter?.noise_regime
   const scalingLabel = signalBreakdown?.portfolio_action?.conviction_scaling_label ?? null
 
   return (
     <div className="rounded-xl border border-border/40 overflow-hidden">
 
       {/* ═══════════════════════════════════════════════════════════════════
-          HEADER — Ticker + Direction Label
+          HEADER — Ticker + Confidence (direction label moved to status line)
           ═══════════════════════════════════════════════════════════════════ */}
       <div className="px-5 py-3 flex items-center justify-between border-b border-border/30">
         <span className="text-2xl font-bold font-mono text-text-primary leading-none tracking-tight">
           {ticker}
         </span>
-        <div className="flex items-center gap-3">
-          <span className={`text-[11px] font-bold tracking-widest uppercase border rounded px-2 py-0.5 ${dirSty}`}>
-            {direction}
+        {rawConfidence !== null && (
+          <span className={`text-[10px] font-semibold tabular-nums ${
+            rawConfidence >= 65 ? 'text-text-tertiary/55' :
+            rawConfidence >= 40 ? 'text-warning/60'       : 'text-error/60'
+          }`}>
+            {rawConfidence}% confidence
           </span>
-          {rawConfidence !== null && (
-            <span className={`text-[10px] font-semibold tabular-nums ${
-              rawConfidence >= 65 ? 'text-success/70' :
-              rawConfidence >= 40 ? 'text-warning/70' : 'text-error/70'
-            }`}>
-              {rawConfidence}% confidence
-            </span>
-          )}
-        </div>
+        )}
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════
           LAYER 1 — EXECUTIVE DECISION PANEL
-          EDGE · RISK · CAPITAL — only 3 dominant signals
+          EDGE (hero) · RISK PROFILE (analytical) · RECOMMENDED ALLOCATION
+          Visual hierarchy: EDGE text-5xl > CAPITAL text-3xl > RISK text-xl
           ═══════════════════════════════════════════════════════════════════ */}
       <div className="flex flex-col sm:flex-row divide-y sm:divide-y-0 sm:divide-x divide-border/30">
 
-        {/* ── EDGE ─────────────────────────────────────────────────────── */}
+        {/* ── EDGE — Primary, visual hero ─────────────────────────────── */}
         <div className={`flex-1 px-5 py-5 flex flex-col gap-1 border-t-2 ${edgeSty.border} ${edgeSty.bg}`}>
-          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">Edge</span>
-          <span className={`text-xl font-bold leading-none ${edgeSty.text}`}>{edgeTier}</span>
-          <span className={`text-3xl font-bold font-mono leading-none ${edgeSty.text}`}>
+          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">
+            Edge
+          </span>
+          <span className={`text-xl font-bold leading-none ${edgeSty.text}`}>
+            {edgeTier}
+          </span>
+          <span className={`text-5xl font-bold font-mono leading-none ${edgeSty.text}`}>
             {fmt(effectiveEvPct)}
           </span>
-          {upsideSkewRatio !== null && (
-            <span className="text-[10px] text-text-tertiary/50 font-medium mt-0.5">
-              Skew {upsideSkewRatio.toFixed(1)}×
-            </span>
-          )}
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {upsideSkewRatio !== null && (
+              <span className="text-[10px] text-text-tertiary/50 font-medium">
+                Skew {upsideSkewRatio.toFixed(1)}×
+              </span>
+            )}
+            {effScore !== null && upsideSkewRatio !== null && (
+              <span className="text-text-tertiary/25 text-[10px]">·</span>
+            )}
+            {effScore !== null && (
+              <span className={`text-[10px] font-medium ${efficiencyColor(effScore)} opacity-70`}>
+                Eff {effScore.toFixed(2)} · {efficiencyLabel(effScore)}
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* ── RISK ─────────────────────────────────────────────────────── */}
-        <div className={`flex-1 px-5 py-5 flex flex-col gap-1 border-t-2 ${riskSty.border} ${riskSty.bg}`}>
-          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">Risk</span>
-          <span className={`text-xl font-bold leading-none ${riskSty.text}`}>{riskTier}</span>
-          <span className={`text-3xl font-bold font-mono leading-none ${riskSty.text}`}>
-            {bearRet !== null ? fmt(bearRet, true) : '—'}
+        {/* ── RISK PROFILE — Analytical, not alarm ────────────────────── */}
+        {/* No background unless riskTier === High (catastrophic only)    */}
+        <div className={`flex-1 px-5 py-5 flex flex-col gap-1.5 border-t-2 ${riskSty.border} ${riskSty.bg}`}>
+          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">
+            Risk Profile
           </span>
-          {stopProb !== null && (
-            <span className="text-[10px] text-text-tertiary/50 font-medium mt-0.5">
-              {stopProb.toFixed(0)}% stop probability
-            </span>
-          )}
+          <span className={`text-xl font-bold leading-none ${riskSty.text}`}>
+            {riskTier}
+          </span>
+          <div className="flex flex-col gap-0.5 mt-0.5">
+            {priceTargets && (
+              <span className="text-[10px] text-text-tertiary/60">
+                Base Case:{' '}
+                <span className={`font-semibold font-mono ${signColor(baseRet)}`}>
+                  {fmt(baseRet, true)}
+                </span>
+              </span>
+            )}
+            {bearPct > 0 && (
+              <span className="text-[10px] text-text-tertiary/60">
+                Bear Probability:{' '}
+                <span className="font-semibold">{bearPct}%</span>
+              </span>
+            )}
+            {stopProb !== null && (
+              <span className="text-[10px] text-text-tertiary/55">
+                Stop Prob:{' '}
+                <span className={`font-semibold ${
+                  stopProb > 30 ? 'text-error' : stopProb > 15 ? 'text-warning/80' : 'text-text-secondary'
+                }`}>
+                  {stopProb.toFixed(0)}%
+                </span>
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* ── CAPITAL ──────────────────────────────────────────────────── */}
-        <div className="flex-1 px-5 py-5 flex flex-col gap-1 border-t-2 border-t-primary/25 bg-primary/3">
-          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">Capital</span>
+        {/* ── RECOMMENDED ALLOCATION — Actionable ─────────────────────── */}
+        <div className="flex-1 px-5 py-5 flex flex-col gap-1.5 border-t-2 border-t-primary/25 bg-primary/3">
+          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">
+            Recommended Allocation
+          </span>
           {conviction ? (
             <>
               <span className="text-3xl font-bold font-mono leading-none text-primary">
                 {conviction.recommended_pct.toFixed(1)}%
               </span>
-              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                {posType && (
-                  <span className="text-[10px] font-semibold text-text-secondary">{posType}</span>
-                )}
-                {posType && bindType && (
-                  <span className="text-text-tertiary/30 text-[10px]">·</span>
-                )}
-                {bindType && (
-                  <span className={`text-[10px] font-semibold ${
+              {posType && (
+                <span className="text-[10px] text-text-tertiary/60">
+                  Position Type · <span className="font-semibold text-text-secondary">{posType}</span>
+                </span>
+              )}
+              {bindType && (
+                <span className="text-[10px] text-text-tertiary/60">
+                  Constraint · <span className={`font-semibold ${
                     bindType === 'Within Guardrails' ? 'text-success/70' :
-                    bindType === 'Cap-Bound'         ? 'text-warning/70' : 'text-text-tertiary/60'
+                    bindType === 'Cap-Bound'         ? 'text-warning/70' : 'text-text-secondary'
                   }`}>
                     {bindType}
                   </span>
-                )}
-              </div>
+                </span>
+              )}
               {conviction.dollar_per_100k != null && (
                 <span className="text-[10px] text-text-tertiary/40 font-mono mt-0.5">
                   ${conviction.dollar_per_100k.toLocaleString()} per $100k
@@ -467,32 +515,33 @@ export function TerminalDashboard({
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════
-          THESIS COMPRESSION + EFFICIENCY SCORE
+          DECISION ANCHOR — Thesis + Status line
+          Status line replaces the header badge for direction label.
+          Explanation prevents label from feeling contradictory.
           ═══════════════════════════════════════════════════════════════════ */}
-      <div className="border-t border-border/25 px-5 py-3.5 flex items-start justify-between gap-4">
-        <p className="text-[11px] text-text-secondary leading-relaxed italic flex-1">
+      <div className="border-t border-border/25 px-5 py-3.5 space-y-2">
+        <p className="text-[11px] text-text-secondary leading-relaxed italic">
           {thesis}
         </p>
-        {effScore !== null && (
-          <div className="text-right flex-shrink-0 min-w-[80px]">
-            <p className="text-[8px] uppercase tracking-wider text-text-tertiary/40 mb-0.5">Efficiency</p>
-            <p className={`text-base font-bold font-mono leading-none ${efficiencyColor(effScore)}`}>
-              {effScore.toFixed(2)}
-            </p>
-            <p className={`text-[8px] ${efficiencyColor(effScore)} opacity-80`}>
-              {efficiencyLabel(effScore)}
-            </p>
-          </div>
-        )}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Status</span>
+          <span className={`text-[10px] font-bold uppercase tracking-wide ${dirColor}`}>
+            {direction}
+          </span>
+          <span className="text-text-tertiary/25 text-[10px]">·</span>
+          <span className="text-[10px] text-text-tertiary/50">
+            {directionExplanation(direction)}
+          </span>
+        </div>
       </div>
 
-      {/* Supporting reference row — muted, not primary */}
-      {(currentPrice > 0 || fvMid || impliedUpside !== null || pwTarget > 0 || irr !== null) && (
+      {/* Supporting reference row — muted, not competing */}
+      {(currentPrice > 0 || fvMid || pwTarget > 0 || irr !== null) && (
         <div className="border-t border-border/20 px-5 py-2 flex items-center gap-4 flex-wrap">
           {currentPrice > 0 && (
             <div>
               <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Price</p>
-              <p className="text-xs font-semibold font-mono text-text-tertiary/60">
+              <p className="text-xs font-semibold font-mono text-text-tertiary/55">
                 ${currentPrice.toFixed(2)}
               </p>
             </div>
@@ -502,10 +551,10 @@ export function TerminalDashboard({
               <div className="w-px h-4 bg-border/20" />
               <div>
                 <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Fair Value</p>
-                <p className="text-xs font-semibold font-mono text-text-tertiary/60">
+                <p className="text-xs font-semibold font-mono text-text-tertiary/55">
                   ${fvMid.toFixed(0)}
                   {impliedUpside !== null && (
-                    <span className={`ml-1.5 ${signColor(impliedUpside)} opacity-70`}>
+                    <span className={`ml-1.5 ${signColor(impliedUpside)} opacity-65`}>
                       {fmt(impliedUpside, true)}
                     </span>
                   )}
@@ -518,10 +567,10 @@ export function TerminalDashboard({
               <div className="w-px h-4 bg-border/20" />
               <div>
                 <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">PW Target</p>
-                <p className={`text-xs font-semibold font-mono ${signColor(pwRet)} opacity-60`}>
+                <p className={`text-xs font-semibold font-mono ${signColor(pwRet)} opacity-55`}>
                   ${pwTarget.toFixed(0)} · {fmt(pwRet, true)}
                   {stabilityMod < 1 && (
-                    <span className="ml-1 text-warning/70">eff {fmt(pwRet * stabilityMod, true)}</span>
+                    <span className="ml-1 text-warning/65">eff {fmt(pwRet * stabilityMod, true)}</span>
                   )}
                 </p>
               </div>
@@ -532,7 +581,7 @@ export function TerminalDashboard({
               <div className="w-px h-4 bg-border/20" />
               <div>
                 <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Ann. IRR</p>
-                <p className={`text-xs font-semibold font-mono ${signColor(irr)} opacity-60`}>
+                <p className={`text-xs font-semibold font-mono ${signColor(irr)} opacity-55`}>
                   {fmt(irr)}
                 </p>
               </div>
@@ -543,7 +592,7 @@ export function TerminalDashboard({
 
       {/* ═══════════════════════════════════════════════════════════════════
           LAYER 2 — WHY THIS EDGE (collapsed)
-          Scenario construct · Skew · Confidence · Downside
+          Scenario construct · Skew · Confidence · Stop Prob
           ═══════════════════════════════════════════════════════════════════ */}
       <Accordion
         label="Why This Edge"
