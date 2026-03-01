@@ -540,12 +540,13 @@ export function TerminalDashboard({
           <p className="text-sm text-text-secondary leading-relaxed">
             {thesis}
           </p>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className={`text-[9px] font-bold uppercase tracking-wide ${dirColor}`}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[9px] uppercase tracking-widest text-text-tertiary/55 font-medium">Status</span>
+            <span className={`text-xs font-bold uppercase tracking-wider ${dirColor}`}>
               {direction}
             </span>
-            <span className="text-text-tertiary/25 text-[9px]">·</span>
-            <span className="text-[9px] text-text-tertiary/45">
+            <span className="text-text-tertiary/40 text-xs">·</span>
+            <span className="text-xs text-text-secondary/75">
               {directionExplanation(direction)}
             </span>
           </div>
