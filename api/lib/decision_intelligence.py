@@ -523,6 +523,30 @@ def enrich_with_decision_intelligence(
             policy_cap=policy_cap,
         )
 
+        # --- Initiation decision (deterministic INITIATE / WATCHLIST / WAIT) ---
+        from api.lib.initiation_model import calculate_initiation_decision
+
+        # Use the fundamentalist price_targets (has fair_value_* and valuation_metadata)
+        # rather than the fallback dict — returns None gracefully if data is absent.
+        fund_price_targets = fund_output.get("price_targets")
+        initiation_decision = calculate_initiation_decision(
+            current_price=current_price,
+            conviction_position=conviction_position_dict,
+            price_targets=fund_price_targets,
+            signal_breakdown=signal_breakdown,
+        )
+
+        # Compute 3-stage tranche scaling plan (uses initiation_decision)
+        from api.lib.tranche_framework import compute_tranche_plan
+        tranche_plan = compute_tranche_plan(
+            full_output=full_output,
+            current_price=current_price,
+            conviction_position=conviction_position_dict,
+            rating=rating,
+            signal_breakdown=signal_breakdown,
+            initiation_decision=initiation_decision,
+        )
+
         # Merge into full_output
         full_output["decision_intelligence"] = {
             "decision_framework": di_result.get("decision_framework"),
@@ -535,6 +559,8 @@ def enrich_with_decision_intelligence(
             "recommended_strategy": recommended_strategy,
             "report_qa_flags": di_result.get("report_qa_flags", []),
             "capital_deployment_rationale": capital_deployment_rationale,
+            "initiation_decision": initiation_decision,
+            "tranche_plan": tranche_plan,
         }
 
     except Exception as e:

@@ -7,38 +7,26 @@ import { useAnalysis } from '@/lib/hooks/useAnalysis'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { SignalDivergenceSection } from '@/components/results/SignalDivergenceSection'
-import { DecisionHeader } from '@/components/results/DecisionHeader'
-import { CapitalAllocationDiscipline } from '@/components/results/CapitalAllocationDiscipline'
-import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
-import { KeyTakeaways } from '@/components/results/KeyTakeaways'
+import { CapitalDeploymentSummary } from '@/components/results/CapitalDeploymentSummary'
+import { TrancheDeploymentPath } from '@/components/results/TrancheDeploymentPath'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
-import { RecentDevelopments } from '@/components/results/RecentDevelopments'
-import { ExecutionLayer } from '@/components/results/ExecutionLayer'
-import { AnalystVerdict } from '@/components/results/AnalystVerdict'
 import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
-import { HistoricalAnalogPanel } from '@/components/results/HistoricalAnalogPanel'
-import { InstitutionalRiskDashboard } from '@/components/results/InstitutionalRiskDashboard'
-import { ProbabilisticEngineDashboard } from '@/components/results/ProbabilisticEngineDashboard'
+import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
 import { CompressedRiskPanel } from '@/components/results/CompressedRiskPanel'
-import { TerminalDashboard } from '@/components/results/TerminalDashboard'
+import { WatchForSummary } from '@/components/results/WatchForSummary'
+import { ProbabilisticEngineDashboard } from '@/components/results/ProbabilisticEngineDashboard'
+import { HistoricalAnalogPanel } from '@/components/results/HistoricalAnalogPanel'
+import { SmartMoneyAlert } from '@/components/results/SmartMoneyAlert'
+import { AnalystVerdict } from '@/components/results/AnalystVerdict'
+import { InstitutionalRiskDashboard } from '@/components/results/InstitutionalRiskDashboard'
+import { ExecutionLayer } from '@/components/results/ExecutionLayer'
+import { ReportCommandBar } from '@/components/results/ReportCommandBar'
+import { DeltaSummaryBox } from '@/components/results/DeltaSummaryBox'
 import type { ReportMode } from '@/components/results/ModeToggle'
 import { TierGate } from '@/components/common/TierGate'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import {
-  deriveStructuralBias,
-  deriveTacticalStance,
-} from '@/lib/utils/decisionDimensions'
-import { derivePositionType } from '@/lib/narratives/sizingNarrative'
-import { simplifyKeyInsights } from '@/lib/analysis/simplifyKeyInsights'
-import { extractWhatsNew } from '@/lib/analysis/extractWhatsNew'
-import { extractWatchCalendar } from '@/lib/analysis/extractWatchCalendar'
-import { ReportCommandBar } from '@/components/results/ReportCommandBar'
 import { OnboardingPanel } from '@/components/knowledge/OnboardingPanel'
-import { SmartMoneyAlert } from '@/components/results/SmartMoneyAlert'
-import { WatchForSummary } from '@/components/results/WatchForSummary'
-import { DeltaSummaryBox } from '@/components/results/DeltaSummaryBox'
 import type { RunResponse } from '@/types/api'
 
 // ── Collapsible section wrapper ────────────────────────────────────────────────
@@ -89,6 +77,48 @@ function CollapsibleSection({
   )
 }
 
+// ── Tactical signal score card (Section 6) ────────────────────────────────────
+
+function SignalCard({
+  label,
+  score,
+  interpretation,
+  hasData,
+}: {
+  label: string
+  score: number
+  interpretation: string
+  hasData?: boolean
+}) {
+  const na = hasData === false
+  const color = na
+    ? 'text-text-tertiary'
+    : score >= 7 ? 'text-success' : score >= 4 ? 'text-warning' : 'text-error'
+  const barColor = score >= 7 ? 'bg-success' : score >= 4 ? 'bg-warning' : 'bg-error'
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-surface-elevated p-3.5 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{label}</p>
+        <span className={`text-sm font-bold font-mono tabular-nums ${color}`}>
+          {na ? 'N/A' : score.toFixed(1)}
+        </span>
+      </div>
+      {!na && (
+        <div className="h-1.5 bg-surface rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full ${barColor}`}
+            style={{ width: `${Math.min((score / 10) * 100, 100)}%` }}
+          />
+        </div>
+      )}
+      {interpretation && (
+        <p className="text-[11px] text-text-tertiary leading-snug line-clamp-2">{interpretation}</p>
+      )}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ResultsContent({
@@ -108,20 +138,10 @@ export function ResultsContent({
   const [reportMode, setReportMode] = useState<ReportMode>('investor')
 
   const userTier = isPreview ? 'investor' : (currentUser?.tier ?? null)
-  const isAdmin = isPreview ? false : (currentUser?.is_admin ?? false)
+  const isAdmin  = isPreview ? false : (currentUser?.is_admin ?? false)
 
-  const canSeeCapitalDiscipline = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
-  const canSeeAdvancedDiagnostics = isAdmin || (entitlements?.features['feature.report.engine_diagnostics'] ?? false)
-
-  // Mode-aware section visibility
-  // Investor: Terminal + Capital Discipline + Risk Profile only
-  // Advisor: all sections
-  // Allocator: Terminal + Capital Discipline (expanded) + Risk Profile
-  const showModelInputs = reportMode === 'advisor'
-  const showThesisDrivers = reportMode === 'advisor'
-  const showAnalystThesis = reportMode === 'advisor'
-  const capitalDisciplineOpen = reportMode === 'allocator'
-  const riskProfileOpen = reportMode === 'investor'
+  const canSeeSignalMetrics     = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
+  const canSeeEngineDiagnostics = isAdmin || (entitlements?.features['feature.report.engine_diagnostics'] ?? false)
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -131,6 +151,8 @@ export function ResultsContent({
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
   }, [])
+
+  // ── Error / loading states ──────────────────────────────────────────────────
 
   if (error) {
     return (
@@ -222,10 +244,11 @@ export function ResultsContent({
     )
   }
 
+  // ── Data extraction ─────────────────────────────────────────────────────────
+
   const { moat_score, full_output } = result
   const {
     moat_breakdown,
-    key_insights,
     risk_factors,
     signal_breakdown,
     upgrade_triggers,
@@ -233,32 +256,10 @@ export function ResultsContent({
     decision_intelligence,
   } = full_output
 
-  const { strengths, concerns } = simplifyKeyInsights(key_insights || [], risk_factors || [])
-  const whatsNewItems = extractWhatsNew(full_output)
-  const watchCalendarEvents = extractWatchCalendar(full_output)
-
-  const hasDivergence = signal_breakdown?.has_divergence ?? false
-  const divergenceSeverity = decision_intelligence?.fund_tech_divergence?.severity ?? null
-  const structuralBias = deriveStructuralBias(decision_intelligence?.rating)
-  const tacticalStance = deriveTacticalStance(
-    decision_intelligence?.decision_framework?.new_buyers?.action ?? null,
-    decision_intelligence?.rating,
-    hasDivergence,
-    (divergenceSeverity ?? null) as 'HIGH' | 'MODERATE' | null,
-    false,
-  )
-  const positionType = decision_intelligence?.conviction_position
-    ? derivePositionType(structuralBias, decision_intelligence.conviction_position.conviction_level)
-    : 'Satellite'
-
-  const hasRiskContent =
-    (risk_factors?.length ?? 0) > 0 ||
-    (downgrade_triggers?.length ?? 0) > 0 ||
-    !!signal_breakdown
-
   return (
     <OnboardingPanel>
-      {/* ══ STICKY COMMAND BAR ══════════════════════════════════════════ */}
+
+      {/* ══ STICKY COMMAND BAR ══════════════════════════════════════════════ */}
       <ReportCommandBar
         ticker={result.ticker}
         price={decision_intelligence?.current_price ?? null}
@@ -271,72 +272,104 @@ export function ResultsContent({
         onToggleReadingMode={() => setReadingMode(r => !r)}
       />
 
-    <div className="container mx-auto px-4 pt-4 pb-8">
-      <div className="max-w-6xl mx-auto space-y-4">
+      <div className="container mx-auto px-4 pt-4 pb-8">
+        <div className="max-w-6xl mx-auto space-y-3">
 
-        {/* ══ LONGITUDINAL DELTA ════════════════════════════════════════ */}
-        {full_output?.previous_analysis_delta && (
-          <div className={`transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+          {/* ── Longitudinal delta ────────────────────────────────────────── */}
+          {full_output?.previous_analysis_delta && (
             <DeltaSummaryBox
               delta={full_output.previous_analysis_delta}
               ticker={result.ticker}
             />
-          </div>
-        )}
+          )}
 
-        {/* ══════════════════════════════════════════════════════════════
-            TERMINAL DASHBOARD — Unified top section (Rows 1–3)
-            Always visible. Replaces CapitalSignalPanel + AsymmetryPanel
-            + CapitalDeploymentPanel.
-            ══════════════════════════════════════════════════════════════ */}
-        {decision_intelligence && (
-          <TerminalDashboard
-            rating={decision_intelligence.rating}
-            ticker={result.ticker}
-            currentPrice={decision_intelligence.current_price ?? 0}
-            conviction={decision_intelligence.conviction_position}
-            fairValueCalibration={full_output.fair_value_calibration}
-            priceTargets={full_output.price_targets ?? null}
-            signalBreakdown={signal_breakdown}
-            expectedReturnAnnualized={
-              decision_intelligence.recommended_strategy?.exit?.expected_return_annualized ?? undefined
-            }
-          />
-        )}
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION 1 — CAPITAL DEPLOYMENT SUMMARY
+              Always expanded. Answers: initiate? at what price? at what size?
+              what breaks the thesis?
+              ══════════════════════════════════════════════════════════════════ */}
+          {decision_intelligence?.conviction_position && (
+            <CapitalDeploymentSummary
+              rating={decision_intelligence.rating}
+              conviction={decision_intelligence.conviction_position}
+              strategy={decision_intelligence.recommended_strategy}
+              upgradeTriggers={upgrade_triggers}
+              downgradeTriggers={downgrade_triggers}
+              ticker={result.ticker}
+            />
+          )}
 
-        {/* ══════════════════════════════════════════════════════════════
-            CAPITAL ALLOCATION DISCIPLINE (Investor+)
-            Investor: collapsed. Allocator: expanded by default.
-            ══════════════════════════════════════════════════════════════ */}
-        {canSeeCapitalDiscipline && decision_intelligence?.conviction_position && (
-          <CapitalAllocationDiscipline
-            key={`discipline-${reportMode}`}
-            conviction={decision_intelligence.conviction_position}
-            signalBreakdown={signal_breakdown}
-            ticker={result.ticker}
-            rating={decision_intelligence.rating}
-            structuralBias={structuralBias}
-            tacticalStance={tacticalStance}
-            positionType={positionType}
-            defaultOpen={capitalDisciplineOpen}
-          />
-        )}
+          {/* ══════════════════════════════════════════════════════════════════
+              TRANCHE DEPLOYMENT PATH (Investor+)
+              3-stage capital deployment timing framework — display only.
+              ══════════════════════════════════════════════════════════════════ */}
+          {canSeeSignalMetrics && decision_intelligence?.tranche_plan && (
+            <TrancheDeploymentPath tranchePlan={decision_intelligence.tranche_plan} />
+          )}
 
-        {/* ══════════════════════════════════════════════════════════════
-            RISK PROFILE (always visible)
-            Merges: Risk Assessment + Probabilistic Diagnostics + Historical
-            Investor: open by default. Advisor/Allocator: collapsed.
-            ══════════════════════════════════════════════════════════════ */}
-        {hasRiskContent && (
-          <div className={`transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION 2 — STRUCTURAL QUALITY
+              Moat · Earnings durability · Financial health · Quality score
+              ══════════════════════════════════════════════════════════════════ */}
+          {moat_breakdown && moat_score !== null && (
             <CollapsibleSection
-              key={`risk-${reportMode}`}
-              title="Risk Profile"
-              sublabel="Risk drivers · Stop probability · Probabilistic diagnostics"
-              defaultOpen={riskProfileOpen}
+              title="Structural Quality"
+              sublabel="Moat · Earnings durability · Financial health · Quality score"
+            >
+              <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION 3 — MISPRICING ENGINE
+              Intrinsic anchor · Divergence · Valuation regime · Consensus gap
+              ══════════════════════════════════════════════════════════════════ */}
+          {full_output?.fair_value_calibration && (
+            <CollapsibleSection
+              title="Mispricing Engine"
+              sublabel="Intrinsic anchor · Divergence · Valuation regime · Consensus gap"
+            >
+              <FairValueRegimeCheck
+                calibration={full_output.fair_value_calibration}
+                currentPrice={decision_intelligence?.current_price}
+                financialHealthScore={moat_breakdown?.financial_health}
+                idealEntryZone={decision_intelligence?.recommended_strategy?.entry?.ideal_zone}
+              />
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION 4 — SCENARIO & EV
+              Bear · Base · Bull · Probability-weighted expected value
+              ══════════════════════════════════════════════════════════════════ */}
+          {decision_intelligence?.current_price && full_output?.price_targets && (
+            <CollapsibleSection
+              title="Scenario & EV"
+              sublabel="Bear · Base · Bull · Probability-weighted expected value · Downside %"
+            >
+              <PriceTargetsCard
+                priceTargets={full_output.price_targets}
+                currentPrice={decision_intelligence.current_price}
+                ticker={result.ticker}
+                signalBreakdown={signal_breakdown}
+              />
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION 5 — RISK FACTORS
+              Key risks · Thesis invalidation · Stop probability
+              No valuation content.
+              ══════════════════════════════════════════════════════════════════ */}
+          {((risk_factors?.length ?? 0) > 0 ||
+            (downgrade_triggers?.length ?? 0) > 0 ||
+            !!signal_breakdown) && (
+            <CollapsibleSection
+              title="Risk Factors"
+              sublabel="Key risks · Thesis invalidation · Stop probability"
             >
               <div className="space-y-4">
-                {/* Risk drivers + downgrade triggers */}
+                {/* Compressed risk bullets + kill-thesis conditions */}
                 {((risk_factors?.length ?? 0) > 0 || (downgrade_triggers?.length ?? 0) > 0) && (
                   <CompressedRiskPanel
                     riskFactors={risk_factors || []}
@@ -344,8 +377,16 @@ export function ResultsContent({
                   />
                 )}
 
-                {/* Probabilistic Diagnostics */}
-                {signal_breakdown && (
+                {/* Full trigger watchlist */}
+                {(upgrade_triggers || downgrade_triggers) && (
+                  <WatchForSummary
+                    upgradeTriggers={upgrade_triggers}
+                    downgradeTriggers={downgrade_triggers}
+                  />
+                )}
+
+                {/* Probabilistic diagnostics (Investor+) */}
+                {canSeeSignalMetrics && signal_breakdown && (
                   <ProbabilisticEngineDashboard
                     breakdown={signal_breakdown}
                     delta={full_output?.previous_analysis_delta ?? null}
@@ -354,146 +395,86 @@ export function ResultsContent({
                   />
                 )}
 
-                {/* Historical Analogs (Trader) */}
-                {canSeeAdvancedDiagnostics && (
+                {/* Historical analogs (Trader) */}
+                {canSeeEngineDiagnostics && signal_breakdown && (
                   <TierGate feature="historical_patterns" userTier={userTier} isAdmin={isAdmin}>
-                    {signal_breakdown && (
-                      <HistoricalAnalogPanel breakdown={signal_breakdown} />
-                    )}
+                    <HistoricalAnalogPanel breakdown={signal_breakdown} />
                   </TierGate>
                 )}
               </div>
             </CollapsibleSection>
-          </div>
-        )}
+          )}
 
-        {/* ══════════════════════════════════════════════════════════════
-            MODEL INPUTS (Advisor mode only)
-            Merges: Valuation Components + Decision Framework
-            ══════════════════════════════════════════════════════════════ */}
-        {showModelInputs && (full_output?.fair_value_calibration || full_output?.price_targets || decision_intelligence?.decision_framework) && (
-          <CollapsibleSection
-            key={`inputs-${reportMode}`}
-            title="Model Inputs"
-            sublabel="FV regime · Scenario construct · Entry zones · Exit targets"
-            defaultOpen={true}
-          >
-            {full_output?.fair_value_calibration && (
-              <FairValueRegimeCheck
-                calibration={full_output.fair_value_calibration}
-                currentPrice={decision_intelligence?.current_price}
-                financialHealthScore={moat_breakdown?.financial_health}
-                idealEntryZone={decision_intelligence?.recommended_strategy?.entry?.ideal_zone}
-              />
-            )}
-            {decision_intelligence?.current_price && full_output?.price_targets && (
-              <PriceTargetsCard
-                priceTargets={full_output.price_targets}
-                currentPrice={decision_intelligence.current_price}
-                ticker={result.ticker}
-                signalBreakdown={signal_breakdown}
-              />
-            )}
-            {decision_intelligence?.decision_framework && decision_intelligence?.conviction_position && (
-              <DecisionHeader
-                framework={decision_intelligence.decision_framework}
-                ticker={result.ticker}
-                rating={decision_intelligence.rating}
-                riskLevel={decision_intelligence.risk_level}
-                currentPrice={decision_intelligence.current_price}
-                strategy={decision_intelligence.recommended_strategy}
-                signalBreakdown={signal_breakdown}
-                fundTechDivergence={decision_intelligence.fund_tech_divergence}
-                convictionLevel={decision_intelligence.conviction_position.conviction_level}
-                enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
-                conviction={decision_intelligence.conviction_position}
-              />
-            )}
-          </CollapsibleSection>
-        )}
-
-        {/* ══════════════════════════════════════════════════════════════
-            THESIS DRIVERS (Advisor mode only)
-            Merges: Signal Analysis + Intelligence Context
-            ══════════════════════════════════════════════════════════════ */}
-        {showThesisDrivers && (
-          <div className={`transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION 6 — TACTICAL OVERLAYS
+              Analyst · Sentiment · Insider · Dark pool
+              ══════════════════════════════════════════════════════════════════ */}
+          {signal_breakdown && (
             <CollapsibleSection
-              key={`thesis-${reportMode}`}
-              title="Thesis Drivers"
-              sublabel="Smart money · Score breakdown · Key takeaways · Catalysts"
-              defaultOpen={false}
+              title="Tactical Overlays"
+              sublabel="Analyst · Sentiment · Insider · Dark pool"
             >
               <div className="space-y-4">
-                {signal_breakdown && (
-                  <SmartMoneyAlert signalBreakdown={signal_breakdown} />
-                )}
-                {(upgrade_triggers || downgrade_triggers) && (
-                  <WatchForSummary
-                    upgradeTriggers={upgrade_triggers}
-                    downgradeTriggers={downgrade_triggers}
+                {/* 2×2 signal score grid */}
+                <div className="grid grid-cols-2 gap-3">
+                  <SignalCard
+                    label="Analyst"
+                    score={signal_breakdown.analyst_score}
+                    interpretation={signal_breakdown.analyst_interpretation}
+                    hasData={signal_breakdown.analyst_has_data}
                   />
-                )}
-                {moat_breakdown && moat_score !== null && (
-                  <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
-                )}
-                {signal_breakdown && (
-                  <SignalDivergenceSection
-                    breakdown={signal_breakdown}
-                    recentNews={[]}
-                    nextEarningsDate={undefined}
+                  <SignalCard
+                    label="Sentiment"
+                    score={signal_breakdown.news_score}
+                    interpretation={signal_breakdown.news_interpretation}
+                    hasData={signal_breakdown.news_has_data}
                   />
-                )}
-                <TierGate feature="institutional_risk" userTier={userTier} isAdmin={isAdmin}>
-                  {signal_breakdown && (
-                    <InstitutionalRiskDashboard breakdown={signal_breakdown} />
-                  )}
-                </TierGate>
-                {(strengths.length > 0 || concerns.length > 0 || whatsNewItems.length > 0) && (
-                  <>
-                    <KeyTakeaways strengths={strengths} concerns={concerns} />
-                    <RecentDevelopments
-                      recentItems={whatsNewItems}
-                      upcomingEvents={watchCalendarEvents}
+                  <SignalCard
+                    label="Insider"
+                    score={signal_breakdown.insider_score}
+                    interpretation={signal_breakdown.insider_interpretation}
+                    hasData={signal_breakdown.insider_has_data}
+                  />
+                  <SignalCard
+                    label="Dark Pool"
+                    score={signal_breakdown.dark_pool_score}
+                    interpretation={signal_breakdown.dark_pool_interpretation}
+                    hasData={signal_breakdown.dark_pool_has_data}
+                  />
+                </div>
+
+                {/* Smart money alert */}
+                <SmartMoneyAlert signalBreakdown={signal_breakdown} />
+
+                {/* Analyst verdict (Investor+) */}
+                {canSeeSignalMetrics && full_output?.investment_thesis && (
+                  <TierGate feature="analyst_verdict" userTier={userTier} isAdmin={isAdmin}>
+                    <AnalystVerdict
+                      thesis={full_output.investment_thesis}
+                      upgradeTriggers={upgrade_triggers}
+                      downgradeTriggers={downgrade_triggers}
+                      signalBreakdown={signal_breakdown}
+                      valuationScore={moat_breakdown?.valuation}
+                      calibration={full_output.fair_value_calibration}
+                      currentPrice={decision_intelligence?.current_price}
+                      financialHealthScore={moat_breakdown?.financial_health}
                     />
-                  </>
+                  </TierGate>
+                )}
+
+                {/* Institutional risk (Trader) */}
+                {canSeeEngineDiagnostics && (
+                  <TierGate feature="institutional_risk" userTier={userTier} isAdmin={isAdmin}>
+                    <InstitutionalRiskDashboard breakdown={signal_breakdown} />
+                  </TierGate>
                 )}
               </div>
             </CollapsibleSection>
-          </div>
-        )}
+          )}
 
-        {/* ══════════════════════════════════════════════════════════════
-            ANALYST THESIS (Advisor mode only)
-            ══════════════════════════════════════════════════════════════ */}
-        {showAnalystThesis && (
-          <CollapsibleSection
-            key={`analyst-${reportMode}`}
-            title="Analyst Thesis"
-            sublabel="Investment thesis · Valuation context · Entry strategy"
-            defaultOpen={false}
-          >
-            <TierGate feature="analyst_verdict" userTier={userTier} isAdmin={isAdmin}>
-              {full_output?.investment_thesis && (
-                <AnalystVerdict
-                  thesis={full_output.investment_thesis}
-                  upgradeTriggers={upgrade_triggers}
-                  downgradeTriggers={downgrade_triggers}
-                  signalBreakdown={signal_breakdown}
-                  valuationScore={moat_breakdown?.valuation}
-                  calibration={full_output.fair_value_calibration}
-                  currentPrice={decision_intelligence?.current_price}
-                  financialHealthScore={moat_breakdown?.financial_health}
-                />
-              )}
-            </TierGate>
-          </CollapsibleSection>
-        )}
-
-        {/* ══════════════════════════════════════════════════════════════
-            EXECUTION LAYER (Trader — always at bottom when entitled)
-            ══════════════════════════════════════════════════════════════ */}
-        <div className={`space-y-6 transition-opacity duration-200${isReadingMode ? ' opacity-30 pointer-events-none' : ''}`}>
+          {/* ══════════════════════════════════════════════════════════════════
+              EXECUTION LAYER (Trader — always at bottom when entitled)
+              ══════════════════════════════════════════════════════════════════ */}
           <TierGate feature="execution_layer" userTier={userTier} isAdmin={isAdmin}>
             {decision_intelligence && moat_breakdown && (
               <ExecutionLayer
@@ -512,6 +493,7 @@ export function ResultsContent({
             )}
           </TierGate>
 
+          {/* ── Footer ──────────────────────────────────────────────────────── */}
           <div className="flex justify-center pt-2">
             <Link href="/analyze">
               <Button variant="outline" size="lg">Analyze Another Stock</Button>
@@ -527,18 +509,18 @@ export function ResultsContent({
               </p>
             </CardContent>
           </Card>
+
         </div>
-
       </div>
-    </div>
 
-    {isReadingMode && (
-      <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 bg-gray-900 border border-border rounded-full text-xs shadow-xl select-none">
-        <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
-        <span className="font-medium text-text-primary">Reading Mode</span>
-        <span className="text-text-tertiary">· Press R or click EXIT to return</span>
-      </div>
-    )}
+      {isReadingMode && (
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 bg-gray-900 border border-border rounded-full text-xs shadow-xl select-none">
+          <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+          <span className="font-medium text-text-primary">Reading Mode</span>
+          <span className="text-text-tertiary">· Press R or click EXIT to return</span>
+        </div>
+      )}
+
     </OnboardingPanel>
   )
 }

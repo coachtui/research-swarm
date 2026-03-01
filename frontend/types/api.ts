@@ -488,6 +488,63 @@ export interface CapitalDeploymentRationale {
   disclaimers: string
 }
 
+// --- Initiation Decision Types ---
+
+/** Deterministic INITIATE / WATCHLIST / WAIT decision (DVRG Initiation Model). */
+export interface InitiationDecision {
+  /** Action verdict: INITIATE immediately, add to WATCHLIST, or WAIT. */
+  status: 'INITIATE' | 'WATCHLIST' | 'WAIT'
+  /** Composite score 0–100 (normalised from weighted factor sum). */
+  initiation_score: number
+  /** Recommended starter allocation as % of portfolio. Clamped [1%, 40% of max]. */
+  starter_allocation_percent: number
+  /** Ideal entry zone: [fair_value_low, fair_value_mid]. */
+  required_entry_zone: [number, number]
+  /** One-line PM-style rationale explaining the verdict. */
+  rationale_summary: string
+}
+
+// --- Tranche Plan Types ---
+
+export interface TrancheTriggerCondition {
+  label: string
+  detail: string
+  met: boolean
+}
+
+export interface TranchBreakCondition {
+  label: string
+  current: string
+  threshold: string
+  active: boolean
+}
+
+/** 3-stage capital deployment tranche scaling plan. */
+export interface TranchePlan {
+  stage: 1 | 2 | 3
+  initiation_status: 'INITIATE' | 'WATCHLIST' | 'WAIT'
+  initiation_score: number | null
+  max_position_pct: number
+  starter_position_pct: number
+  stage2_add_pct: number
+  stage3_add_pct: number
+  current_position_pct: number
+  ev_pct: number | null
+  effective_ev_pct: number | null
+  quality_score: number | null
+  bear_ret_pct: number | null
+  stage2_met: boolean
+  stage3_met: boolean
+  thesis_break_active: boolean
+  reduce_by_50_pct: boolean
+  next_add_trigger_conditions: TrancheTriggerCondition[]
+  next_add_size_pct: number
+  next_add_note: string
+  thesis_break_conditions: TranchBreakCondition[]
+  stage2_conditions: TrancheTriggerCondition[]
+  stage3_conditions: TrancheTriggerCondition[]
+}
+
 // --- Decision Intelligence Types ---
 
 export interface DecisionIntelligence {
@@ -503,6 +560,10 @@ export interface DecisionIntelligence {
   report_qa_flags?: string[]
   /** Pre-computed capital deployment rationale — available for PDF export */
   capital_deployment_rationale?: CapitalDeploymentRationale | null
+  /** Deterministic INITIATE / WATCHLIST / WAIT verdict from the Initiation Model */
+  initiation_decision?: InitiationDecision | null
+  /** 3-stage tranche scaling plan — deployment timing layer */
+  tranche_plan?: TranchePlan | null
 }
 
 export interface DecisionFramework {
