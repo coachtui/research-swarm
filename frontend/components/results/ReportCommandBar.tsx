@@ -39,11 +39,19 @@ export function ReportCommandBar({
       <div className="container mx-auto px-4 h-full">
         <div className="max-w-6xl mx-auto h-full flex items-center justify-between gap-4">
 
-          {/* Left — ticker · price · timestamp */}
+          {/* Left — ticker · company · price · timestamp */}
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-sm font-bold font-mono text-text-primary tracking-widest uppercase flex-shrink-0">
               {ticker}
             </span>
+            {companyName && (
+              <>
+                <span className="text-border/50 select-none flex-shrink-0">·</span>
+                <span className="text-sm text-text-secondary truncate hidden sm:block">
+                  {companyName}
+                </span>
+              </>
+            )}
             {price !== null && (
               <>
                 <span className="text-border/50 select-none flex-shrink-0">|</span>
