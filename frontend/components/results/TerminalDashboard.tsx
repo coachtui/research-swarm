@@ -363,7 +363,7 @@ function Accordion({
 
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/45">
+    <p className="text-[11px] uppercase tracking-[0.12em] font-semibold text-text-tertiary/65">
       {children}
     </p>
   )
@@ -537,16 +537,16 @@ export function TerminalDashboard({
         {/* A. Core Thesis */}
         <div className="space-y-2">
           <SectionLabel>Core Thesis</SectionLabel>
-          <p className="text-sm text-text-secondary leading-relaxed">
+          <p className="text-sm text-text-primary leading-relaxed">
             {thesis}
           </p>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[9px] uppercase tracking-widest text-text-tertiary/55 font-medium">Status</span>
+            <span className="text-[10px] uppercase tracking-widest text-text-tertiary/55 font-medium">Status</span>
             <span className={`text-xs font-bold uppercase tracking-wider ${dirColor}`}>
               {direction}
             </span>
             <span className="text-text-tertiary/40 text-xs">·</span>
-            <span className="text-xs text-text-secondary/75">
+            <span className="text-xs text-text-secondary">
               {directionExplanation(direction)}
             </span>
           </div>
@@ -556,7 +556,7 @@ export function TerminalDashboard({
         {variantView && (
           <div className="space-y-1">
             <SectionLabel>Variant View</SectionLabel>
-            <p className="text-[11px] text-text-tertiary/70 leading-relaxed">
+            <p className="text-xs text-text-secondary leading-relaxed">
               {variantView}
             </p>
           </div>
@@ -568,8 +568,8 @@ export function TerminalDashboard({
           <ul className="space-y-1.5 mt-1">
             {invalidationConditions.map((condition, i) => (
               <li key={i} className="flex items-start gap-2">
-                <span className="text-error/40 text-[10px] mt-0.5 flex-shrink-0">—</span>
-                <span className="text-[10px] text-text-tertiary/60 leading-snug">{condition}</span>
+                <span className="text-text-tertiary/50 text-xs mt-0.5 flex-shrink-0">—</span>
+                <span className="text-xs text-text-secondary leading-snug">{condition}</span>
               </li>
             ))}
           </ul>
