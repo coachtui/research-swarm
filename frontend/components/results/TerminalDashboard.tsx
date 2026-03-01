@@ -1,15 +1,18 @@
 'use client'
 
-// DVRG Executive Compression — 3-Layer Decision Architecture.
+// DVRG Research-First Architecture — Institutional Equity Research Format.
 //
-// Layer 1 (EXECUTIVE PANEL): Edge (hero) · Risk (contextual) · Capital (action)
-// Layer 2 (WHY THIS EDGE):   Collapsed — scenario construct + metrics
-// Layer 3 (DIAGNOSTICS):     Collapsed — engine internals for advanced users
+// Reading order: Thesis → Valuation Work → Risk → Capital → Conclusion
+// Allocation is the OUTCOME of research, not the headline.
 //
-// Visual hierarchy: EDGE dominates (text-5xl). RISK is analytical, not alarm.
-// Direction label moved out of header into secondary "Status" line below thesis.
-// Red reserved for catastrophic risk only (downside >15% OR stopProb >35%).
-// Presentation-layer refactor only. Zero logic changes.
+// Section 1: Investment Thesis        (always visible, no metrics)
+// Section 2: Valuation & Scenarios    (always visible)
+// Section 3: Risk Framework           (always visible)
+// Section 4: Capital Allocation       (always visible, subordinate)
+// Section 5: Executive Conclusion     (always visible)
+// Engine Diagnostics: collapsed accordion at bottom
+//
+// Presentation-layer refactor only. Zero calculation changes.
 
 import { useState } from 'react'
 import type { ReactNode } from 'react'
@@ -77,7 +80,7 @@ function deriveDirectionLabel(edge: EdgeTier, risk: RiskTier): DirectionLabel {
   return 'Conviction'
 }
 
-// Deterministic thesis sentence — lookup matrix from edge + risk + position type.
+// Deterministic thesis sentence — lookup matrix from edge + risk + position type (unchanged).
 function generateThesisCompression(
   edge: EdgeTier,
   risk: RiskTier,
@@ -120,35 +123,122 @@ function generateThesisCompression(
   return 'Weak statistical edge; monitor for setup improvement before deploying capital.'
 }
 
-// Capital Efficiency = PWE ÷ |bear downside| — risk-adjusted edge scalar.
+// Deterministic variant view — what the market may be underweighting or mispricing.
+function generateVariantView(
+  edge: EdgeTier,
+  evPct: number | null,
+  fvMid: number | null,
+  currentPrice: number,
+): string | null {
+  if (evPct === null) return null
+  const fvNote =
+    fvMid && currentPrice > 0
+      ? ` Intrinsic value anchor of $${fvMid.toFixed(0)} implies ${evPct > 0 ? 'fundamental undervaluation' : 'overvaluation'} versus current price.`
+      : ''
+  if (edge === 'Avoid') {
+    return 'Market consensus appears broadly aligned with fundamental deterioration. No identifiable mispricing creates actionable upside at current levels.'
+  }
+  if (edge === 'Dislocation') {
+    return `Statistical analysis identifies significant divergence between market pricing and probability-weighted intrinsic value.${fvNote} The market may be overweighting near-term execution risk or underweighting a structural re-rating catalyst embedded in the base case.`
+  }
+  if (edge === 'Strong Edge') {
+    const evStr = evPct > 0 ? `+${evPct.toFixed(1)}%` : `${evPct.toFixed(1)}%`
+    return `Expected value of ${evStr} signals the market may be underweighting the base case probability or discounting near-term catalysts prematurely.${fvNote}`
+  }
+  if (edge === 'Moderate Edge') {
+    return `Moderate expected value suggests partial pricing of fundamentals. The variant view is that execution on existing catalysts could close the remaining gap more rapidly than consensus assumes.${fvNote}`
+  }
+  return 'Limited statistical edge suggests market is broadly efficient in pricing this setup. Monitor for fundamental inflection that may reopen opportunity.'
+}
+
+// Deterministic invalidation conditions derived from scenario data.
+function generateInvalidationConditions(
+  bearTarget: number | null,
+  stopProb: number | null,
+  evPct: number | null,
+  currentPrice: number,
+): string[] {
+  const conditions: string[] = []
+  if (bearTarget && currentPrice > 0) {
+    conditions.push(
+      `Price erosion to $${bearTarget.toFixed(0)} or below signals bear case realization and materially destroys expected value`,
+    )
+  }
+  if (stopProb !== null) {
+    const threshold = stopProb > 20 ? Math.round(stopProb * 0.8) : 25
+    conditions.push(
+      `Stop probability rising above ${threshold}% would indicate deteriorating technical structure and adverse exit probability`,
+    )
+  }
+  conditions.push(
+    'Fundamental deterioration shifting base case inputs to bear scenario assumptions — negative earnings revision cycle or guidance withdrawal',
+  )
+  if (evPct !== null && evPct > 0) {
+    conditions.push(
+      'Macro regime shift compressing multiple expansion assumptions embedded in base and bull scenario pricing',
+    )
+  }
+  return conditions
+}
+
+// Deterministic executive conclusion — 2–3 sentence synthesis of the full report.
+function generateExecutiveConclusion(
+  edge: EdgeTier,
+  risk: RiskTier,
+  direction: DirectionLabel,
+  execPct: number,
+  posType: string | null,
+  stopProb: number | null,
+): string {
+  const quality =
+    edge === 'Dislocation'   ? 'exceptional' :
+    edge === 'Strong Edge'   ? 'high-quality' :
+    edge === 'Moderate Edge' ? 'moderate' : 'weak'
+  const riskDesc =
+    risk === 'Contained' ? 'well-contained downside' :
+    risk === 'Moderate'  ? 'manageable risk structure' :
+    risk === 'Elevated'  ? 'elevated structural risk requiring active monitoring' :
+    'high downside risk constraining deployment'
+  const capitalLine =
+    direction === 'Avoid' ? 'No new capital deployment warranted at current levels.' :
+    direction === 'Watch' ? 'Monitor for setup improvement before committing capital.' :
+    `${posType ?? 'Satellite'} allocation of ${execPct.toFixed(1)}% reflects policy-constrained deployment against this setup.`
+  const monitorLine =
+    stopProb !== null && stopProb > 20
+      ? 'Elevated stop probability warrants active position monitoring.'
+      : 'Monitor for fundamental inflection or technical confirmation supporting thesis reconfirmation.'
+  return `Expected value quality is ${quality} against ${riskDesc}. ${capitalLine} ${monitorLine}`
+}
+
+// Capital Efficiency = PWE ÷ |bear downside| — risk-adjusted edge scalar (unchanged).
 function capitalEfficiency(evPct: number | null, bearRet: number | null): number | null {
   if (evPct === null || bearRet === null || Math.abs(bearRet) < 0.01) return null
   return evPct / Math.abs(bearRet)
 }
 
-// ── Color maps ─────────────────────────────────────────────────────────────────
+// ── Color maps (unchanged) ─────────────────────────────────────────────────────
 
 function edgeTierStyle(tier: EdgeTier): { text: string; border: string; bg: string } {
   switch (tier) {
-    case 'Dislocation':  return { text: 'text-primary',  border: 'border-t-primary/40',  bg: 'bg-primary/5'  }
-    case 'Strong Edge':  return { text: 'text-success',  border: 'border-t-success/40',  bg: 'bg-success/5'  }
-    case 'Moderate Edge':return { text: 'text-success',  border: 'border-t-success/25',  bg: 'bg-success/3'  }
-    case 'Weak Edge':    return { text: 'text-warning',  border: 'border-t-warning/35',  bg: 'bg-warning/5'  }
-    case 'Avoid':        return { text: 'text-error',    border: 'border-t-error/35',    bg: 'bg-error/5'    }
+    case 'Dislocation':   return { text: 'text-primary',  border: 'border-t-primary/40',  bg: 'bg-primary/5'  }
+    case 'Strong Edge':   return { text: 'text-success',  border: 'border-t-success/40',  bg: 'bg-success/5'  }
+    case 'Moderate Edge': return { text: 'text-success',  border: 'border-t-success/25',  bg: 'bg-success/3'  }
+    case 'Weak Edge':     return { text: 'text-warning',  border: 'border-t-warning/35',  bg: 'bg-warning/5'  }
+    case 'Avoid':         return { text: 'text-error',    border: 'border-t-error/35',    bg: 'bg-error/5'    }
   }
 }
 
 // Risk: no bg unless catastrophic (High). Red reserved for >15% downside or >35% stop prob.
 function riskTierStyle(tier: RiskTier): { text: string; border: string; bg: string } {
   switch (tier) {
-    case 'Contained': return { text: 'text-text-secondary',  border: 'border-t-border/30',   bg: ''            }
-    case 'Moderate':  return { text: 'text-warning/70',      border: 'border-t-warning/20',  bg: ''            }
-    case 'Elevated':  return { text: 'text-warning',         border: 'border-t-warning/30',  bg: ''            }
-    case 'High':      return { text: 'text-error',           border: 'border-t-error/35',    bg: 'bg-error/5'  }
+    case 'Contained': return { text: 'text-text-secondary', border: 'border-t-border/30',  bg: ''           }
+    case 'Moderate':  return { text: 'text-warning/70',     border: 'border-t-warning/20', bg: ''           }
+    case 'Elevated':  return { text: 'text-warning',        border: 'border-t-warning/30', bg: ''           }
+    case 'High':      return { text: 'text-error',          border: 'border-t-error/35',   bg: 'bg-error/5' }
   }
 }
 
-// Direction — text color only (used for status line, not a header badge).
+// Direction — text color only.
 function directionTextColor(label: DirectionLabel): string {
   switch (label) {
     case 'Conviction': return 'text-primary'
@@ -159,7 +249,7 @@ function directionTextColor(label: DirectionLabel): string {
   }
 }
 
-// Deterministic one-liner that explains WHY the direction label was assigned.
+// Deterministic one-liner explaining why the direction was assigned (unchanged).
 function directionExplanation(label: DirectionLabel): string {
   switch (label) {
     case 'Conviction': return 'Rare dislocation event — elevated conviction'
@@ -183,7 +273,7 @@ function efficiencyColor(score: number): string {
   return 'text-error'
 }
 
-// ── Math helpers ───────────────────────────────────────────────────────────────
+// ── Math helpers (unchanged) ───────────────────────────────────────────────────
 
 function signColor(v: number | null) {
   if (v === null) return 'text-text-secondary'
@@ -227,14 +317,16 @@ function Accordion({
   label,
   sublabel,
   badge,
+  defaultOpen = false,
   children,
 }: {
   label: string
   sublabel?: string
   badge?: string
+  defaultOpen?: boolean
   children: ReactNode
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="border-t border-border/30">
       <button
@@ -264,6 +356,16 @@ function Accordion({
         </div>
       )}
     </div>
+  )
+}
+
+// ── Section label ──────────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/45">
+      {children}
+    </p>
   )
 }
 
@@ -351,11 +453,21 @@ export function TerminalDashboard({
         : 'Within Guardrails'
     : null
 
-  // ── Thesis compression ────────────────────────────────────────────────────
+  // ── Narrative generation ──────────────────────────────────────────────────
 
   const thesis = generateThesisCompression(edgeTier, riskTier, posType ?? 'Satellite', upsideSkewRatio)
+  const variantView = generateVariantView(edgeTier, effectiveEvPct, fvMid, currentPrice)
+  const invalidationConditions = generateInvalidationConditions(
+    priceTargets?.bear_target ?? null,
+    stopProb,
+    effectiveEvPct,
+    currentPrice,
+  )
+  const executiveConclusion = generateExecutiveConclusion(
+    edgeTier, riskTier, direction, execPct, posType, stopProb,
+  )
 
-  // ── Scenario rows ────────────────────────────────────────────────────────
+  // ── Scenario rows ─────────────────────────────────────────────────────────
 
   const scenarioRows = priceTargets ? [
     {
@@ -388,13 +500,23 @@ export function TerminalDashboard({
   return (
     <div className="rounded-xl border border-border/40 overflow-hidden">
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          HEADER — Ticker + Confidence (direction label moved to status line)
-          ═══════════════════════════════════════════════════════════════════ */}
-      <div className="px-5 py-3 flex items-center justify-between border-b border-border/30">
-        <span className="text-2xl font-bold font-mono text-text-primary leading-none tracking-tight">
-          {ticker}
-        </span>
+      {/* ════════════════════════════════════════════════════════════════════
+          HEADER — Ticker · Edge classification · Direction label
+          Allocation is NOT shown here. It appears only in Section 4.
+          ════════════════════════════════════════════════════════════════════ */}
+      <div className={`px-5 py-3.5 flex items-center justify-between border-b border-border/30 border-t-2 ${edgeSty.border} ${edgeSty.bg}`}>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="text-2xl font-bold font-mono text-text-primary leading-none tracking-tight">
+            {ticker}
+          </span>
+          <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-current/20 ${edgeSty.text}`}>
+            {edgeTier}
+          </span>
+          <span className="text-text-tertiary/25 text-[10px]">·</span>
+          <span className={`text-[10px] font-bold uppercase tracking-wide ${dirColor}`}>
+            {direction}
+          </span>
+        </div>
         {rawConfidence !== null && (
           <span className={`text-[10px] font-semibold tabular-nums ${
             rawConfidence >= 65 ? 'text-text-tertiary/55' :
@@ -405,204 +527,129 @@ export function TerminalDashboard({
         )}
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          LAYER 1 — EXECUTIVE DECISION PANEL
-          EDGE (hero) · RISK PROFILE (analytical) · RECOMMENDED ALLOCATION
-          Visual hierarchy: EDGE text-5xl > CAPITAL text-3xl > RISK text-xl
-          ═══════════════════════════════════════════════════════════════════ */}
-      <div className="flex flex-col sm:flex-row divide-y sm:divide-y-0 sm:divide-x divide-border/30">
+      {/* ════════════════════════════════════════════════════════════════════
+          SECTION 1 — INVESTMENT THESIS
+          Narrative first. No metrics in this section.
+          Core Thesis → Variant View → Invalidation Conditions
+          ════════════════════════════════════════════════════════════════════ */}
+      <div className="px-5 py-5 space-y-4 border-b border-border/25">
 
-        {/* ── EDGE — Primary, visual hero ─────────────────────────────── */}
-        <div className={`flex-1 px-5 py-5 flex flex-col gap-1 border-t-2 ${edgeSty.border} ${edgeSty.bg}`}>
-          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">
-            Edge
-          </span>
-          <span className={`text-xl font-bold leading-none ${edgeSty.text}`}>
-            {edgeTier}
-          </span>
-          <span className={`text-5xl font-bold font-mono leading-none ${edgeSty.text}`}>
-            {fmt(effectiveEvPct)}
-          </span>
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
-            {upsideSkewRatio !== null && (
-              <span className="text-[10px] text-text-tertiary/50 font-medium">
-                Skew {upsideSkewRatio.toFixed(1)}×
-              </span>
-            )}
-            {effScore !== null && upsideSkewRatio !== null && (
-              <span className="text-text-tertiary/25 text-[10px]">·</span>
-            )}
-            {effScore !== null && (
-              <span className={`text-[10px] font-medium ${efficiencyColor(effScore)} opacity-70`}>
-                Eff {effScore.toFixed(2)} · {efficiencyLabel(effScore)}
-              </span>
-            )}
+        {/* A. Core Thesis */}
+        <div className="space-y-2">
+          <SectionLabel>Core Thesis</SectionLabel>
+          <p className="text-sm text-text-secondary leading-relaxed">
+            {thesis}
+          </p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`text-[9px] font-bold uppercase tracking-wide ${dirColor}`}>
+              {direction}
+            </span>
+            <span className="text-text-tertiary/25 text-[9px]">·</span>
+            <span className="text-[9px] text-text-tertiary/45">
+              {directionExplanation(direction)}
+            </span>
           </div>
         </div>
 
-        {/* ── RISK PROFILE — Analytical, not alarm ────────────────────── */}
-        {/* No background unless riskTier === High (catastrophic only)    */}
-        <div className={`flex-1 px-5 py-5 flex flex-col gap-1.5 border-t-2 ${riskSty.border} ${riskSty.bg}`}>
-          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">
-            Risk Profile
-          </span>
-          <span className={`text-xl font-bold leading-none ${riskSty.text}`}>
-            {riskTier}
-          </span>
-          <div className="flex flex-col gap-0.5 mt-0.5">
-            {priceTargets && (
-              <span className="text-[10px] text-text-tertiary/60">
-                Base Case:{' '}
-                <span className={`font-semibold font-mono ${signColor(baseRet)}`}>
-                  {fmt(baseRet, true)}
-                </span>
-              </span>
-            )}
-            {bearPct > 0 && (
-              <span className="text-[10px] text-text-tertiary/60">
-                Bear Probability:{' '}
-                <span className="font-semibold">{bearPct}%</span>
-              </span>
-            )}
-            {stopProb !== null && (
-              <span className="text-[10px] text-text-tertiary/55">
-                Stop Prob:{' '}
-                <span className={`font-semibold ${
-                  stopProb > 30 ? 'text-error' : stopProb > 15 ? 'text-warning/80' : 'text-text-secondary'
-                }`}>
-                  {stopProb.toFixed(0)}%
-                </span>
-              </span>
-            )}
+        {/* B. Variant View */}
+        {variantView && (
+          <div className="space-y-1">
+            <SectionLabel>Variant View</SectionLabel>
+            <p className="text-[11px] text-text-tertiary/70 leading-relaxed">
+              {variantView}
+            </p>
           </div>
-        </div>
+        )}
 
-        {/* ── RECOMMENDED ALLOCATION — Actionable ─────────────────────── */}
-        <div className="flex-1 px-5 py-5 flex flex-col gap-1.5 border-t-2 border-t-primary/25 bg-primary/3">
-          <span className="text-[9px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/50">
-            Recommended Allocation
-          </span>
-          {conviction ? (
-            <>
-              <span className="text-3xl font-bold font-mono leading-none text-primary">
-                {conviction.recommended_pct.toFixed(1)}%
-              </span>
-              {posType && (
-                <span className="text-[10px] text-text-tertiary/60">
-                  Position Type · <span className="font-semibold text-text-secondary">{posType}</span>
-                </span>
-              )}
-              {bindType && (
-                <span className="text-[10px] text-text-tertiary/60">
-                  Constraint · <span className={`font-semibold ${
-                    bindType === 'Within Guardrails' ? 'text-success/70' :
-                    bindType === 'Cap-Bound'         ? 'text-warning/70' : 'text-text-secondary'
-                  }`}>
-                    {bindType}
-                  </span>
-                </span>
-              )}
-              {conviction.dollar_per_100k != null && (
-                <span className="text-[10px] text-text-tertiary/40 font-mono mt-0.5">
-                  ${conviction.dollar_per_100k.toLocaleString()} per $100k
-                </span>
-              )}
-            </>
-          ) : (
-            <span className="text-3xl font-bold font-mono leading-none text-text-tertiary/40">—</span>
-          )}
+        {/* C. Invalidation Conditions */}
+        <div className="space-y-1">
+          <SectionLabel>Invalidation Conditions</SectionLabel>
+          <ul className="space-y-1.5 mt-1">
+            {invalidationConditions.map((condition, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="text-error/40 text-[10px] mt-0.5 flex-shrink-0">—</span>
+                <span className="text-[10px] text-text-tertiary/60 leading-snug">{condition}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          DECISION ANCHOR — Thesis + Status line
-          Status line replaces the header badge for direction label.
-          Explanation prevents label from feeling contradictory.
-          ═══════════════════════════════════════════════════════════════════ */}
-      <div className="border-t border-border/25 px-5 py-3.5 space-y-2">
-        <p className="text-[11px] text-text-secondary leading-relaxed italic">
-          {thesis}
-        </p>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Status</span>
-          <span className={`text-[10px] font-bold uppercase tracking-wide ${dirColor}`}>
-            {direction}
-          </span>
-          <span className="text-text-tertiary/25 text-[10px]">·</span>
-          <span className="text-[10px] text-text-tertiary/50">
-            {directionExplanation(direction)}
-          </span>
-        </div>
-      </div>
+      {/* ════════════════════════════════════════════════════════════════════
+          SECTION 2 — VALUATION & SCENARIO FRAMEWORK
+          Intrinsic anchor → Scenario table → PWE formula
+          PWE % shown here, not in the header.
+          ════════════════════════════════════════════════════════════════════ */}
+      <div className="px-5 py-5 space-y-4 border-b border-border/25">
 
-      {/* Supporting reference row — muted, not competing */}
-      {(currentPrice > 0 || fvMid || pwTarget > 0 || irr !== null) && (
-        <div className="border-t border-border/20 px-5 py-2 flex items-center gap-4 flex-wrap">
-          {currentPrice > 0 && (
-            <div>
-              <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Price</p>
-              <p className="text-xs font-semibold font-mono text-text-tertiary/55">
-                ${currentPrice.toFixed(2)}
+        {/* Section header with PWE right-aligned */}
+        <div className="flex items-start justify-between gap-4">
+          <SectionLabel>Valuation &amp; Scenario Framework</SectionLabel>
+          {effectiveEvPct !== null && (
+            <div className="text-right flex-shrink-0">
+              <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">
+                Prob-Weighted Edge
+              </p>
+              <p className={`text-2xl font-bold font-mono leading-none ${edgeSty.text}`}>
+                {fmt(effectiveEvPct)}
               </p>
             </div>
           )}
-          {fvMid && (
-            <>
-              <div className="w-px h-4 bg-border/20" />
-              <div>
-                <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Fair Value</p>
-                <p className="text-xs font-semibold font-mono text-text-tertiary/55">
-                  ${fvMid.toFixed(0)}
-                  {impliedUpside !== null && (
-                    <span className={`ml-1.5 ${signColor(impliedUpside)} opacity-65`}>
-                      {fmt(impliedUpside, true)}
-                    </span>
-                  )}
-                </p>
-              </div>
-            </>
-          )}
-          {pwTarget > 0 && (
-            <>
-              <div className="w-px h-4 bg-border/20" />
-              <div>
-                <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">PW Target</p>
-                <p className={`text-xs font-semibold font-mono ${signColor(pwRet)} opacity-55`}>
-                  ${pwTarget.toFixed(0)} · {fmt(pwRet, true)}
-                  {stabilityMod < 1 && (
-                    <span className="ml-1 text-warning/65">eff {fmt(pwRet * stabilityMod, true)}</span>
-                  )}
-                </p>
-              </div>
-            </>
-          )}
-          {irr !== null && (
-            <>
-              <div className="w-px h-4 bg-border/20" />
-              <div>
-                <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Ann. IRR</p>
-                <p className={`text-xs font-semibold font-mono ${signColor(irr)} opacity-55`}>
-                  {fmt(irr)}
-                </p>
-              </div>
-            </>
-          )}
         </div>
-      )}
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          LAYER 2 — WHY THIS EDGE (collapsed)
-          Scenario construct · Skew · Confidence · Stop Prob
-          ═══════════════════════════════════════════════════════════════════ */}
-      <Accordion
-        label="Why This Edge"
-        sublabel="· Scenario construct · Skew · Confidence"
-      >
-        {/* Scenario table */}
+        {/* Intrinsic Value Anchor */}
+        {(currentPrice > 0 || fvMid || pwTarget > 0 || irr !== null) && (
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/40 mb-2">
+              Intrinsic Value Anchor
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {currentPrice > 0 && (
+                <div className="rounded border border-border/25 px-2.5 py-2">
+                  <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">Market Price</p>
+                  <p className="text-sm font-bold font-mono text-text-secondary">
+                    ${currentPrice.toFixed(2)}
+                  </p>
+                </div>
+              )}
+              {fvMid && (
+                <div className="rounded border border-border/25 px-2.5 py-2">
+                  <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">Blended Fair Value</p>
+                  <p className="text-sm font-bold font-mono text-text-secondary">
+                    ${fvMid.toFixed(0)}
+                    {impliedUpside !== null && (
+                      <span className={`ml-1.5 text-xs font-normal ${signColor(impliedUpside)} opacity-70`}>
+                        {fmt(impliedUpside, true)}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
+              {pwTarget > 0 && (
+                <div className="rounded border border-border/25 px-2.5 py-2">
+                  <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">PW Target</p>
+                  <p className={`text-sm font-bold font-mono ${signColor(pwRet)} opacity-80`}>
+                    ${pwTarget.toFixed(0)}
+                  </p>
+                </div>
+              )}
+              {irr !== null && (
+                <div className="rounded border border-border/25 px-2.5 py-2">
+                  <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">Ann. IRR</p>
+                  <p className={`text-sm font-bold font-mono ${signColor(irr)} opacity-80`}>
+                    {fmt(irr)}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Scenario construction table */}
         {scenarioRows.length > 0 && (
           <div>
-            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/45 mb-2.5">
-              Scenario Construct
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/40 mb-2">
+              Scenario Construction
             </p>
             <div className="space-y-2">
               {scenarioRows.map(row => (
@@ -632,77 +679,270 @@ export function TerminalDashboard({
           </div>
         )}
 
-        {/* Supporting metrics with micro-explanations */}
-        <div className="grid grid-cols-2 gap-2">
-          {upsideSkewRatio !== null && (
-            <div className="rounded border border-border/25 px-3 py-2.5">
-              <p className="text-[8px] uppercase tracking-wider text-text-tertiary/40 mb-0.5">Skew Ratio</p>
-              <p className={`text-lg font-bold font-mono leading-none ${
+        {/* PWE formula */}
+        {effectiveEvPct !== null && (
+          <div className="rounded border border-border/20 bg-surface/10 px-3.5 py-2.5">
+            <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-1.5">
+              PWE = Σ (Probability × Return)
+            </p>
+            <div className="flex items-baseline gap-3 flex-wrap">
+              <span className={`text-xl font-bold font-mono ${edgeSty.text}`}>
+                {fmt(effectiveEvPct)}
+              </span>
+              {stabilityMod < 1 && (
+                <span className="text-[9px] text-warning/60">
+                  Stability-adjusted from {fmt(evPct)}
+                </span>
+              )}
+              {effScore !== null && (
+                <span className={`text-[9px] font-medium ${efficiencyColor(effScore)} opacity-70`}>
+                  · Cap. Eff. {effScore.toFixed(2)} · {efficiencyLabel(effScore)}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════════════
+          SECTION 3 — RISK FRAMEWORK
+          Downside analysis → Asymmetry → Model stability & confidence
+          Red bg only if High (downside >15% OR stopProb >35%).
+          ════════════════════════════════════════════════════════════════════ */}
+      <div className={`px-5 py-5 space-y-4 border-b border-border/25${riskSty.bg ? ` ${riskSty.bg}` : ''}`}>
+
+        {/* Section header with risk tier right-aligned */}
+        <div className="flex items-center justify-between">
+          <SectionLabel>Risk Framework</SectionLabel>
+          <span className={`text-[10px] font-bold uppercase tracking-wider ${riskSty.text}`}>
+            {riskTier}
+          </span>
+        </div>
+
+        {/* A. Downside Case Analysis */}
+        {priceTargets && (
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/40 mb-2">
+              Downside Case Analysis
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {bearRet !== null && (
+                <div className="rounded border border-border/25 px-2.5 py-2">
+                  <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">Bear Downside</p>
+                  <p className={`text-sm font-bold font-mono ${
+                    riskTier === 'High' ? 'text-error' : 'text-text-secondary'
+                  }`}>
+                    {fmt(bearRet, true)}
+                  </p>
+                  <p className="text-[8px] text-text-tertiary/40 mt-0.5">
+                    {riskTier === 'High' || riskTier === 'Elevated' ? 'Structural risk' : 'Cyclical risk'}
+                  </p>
+                </div>
+              )}
+              {bearPct > 0 && (
+                <div className="rounded border border-border/25 px-2.5 py-2">
+                  <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">Bear Probability</p>
+                  <p className="text-sm font-bold font-mono text-text-secondary">{bearPct}%</p>
+                  <p className="text-[8px] text-text-tertiary/40 mt-0.5">Scenario weight</p>
+                </div>
+              )}
+              {stopProb !== null && (
+                <div className="rounded border border-border/25 px-2.5 py-2">
+                  <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">Stop Probability</p>
+                  <p className={`text-sm font-bold font-mono ${
+                    stopProb > 30 ? 'text-error' : stopProb > 15 ? 'text-warning' : 'text-text-secondary'
+                  }`}>
+                    {stopProb.toFixed(0)}%
+                  </p>
+                  <p className="text-[8px] text-text-tertiary/40 mt-0.5">Adverse exit prob.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* B. Asymmetry Profile */}
+        {upsideSkewRatio !== null && (
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/40 mb-1.5">
+              Asymmetry Profile
+            </p>
+            <div className="flex items-baseline gap-2.5">
+              <span className={`text-2xl font-bold font-mono ${
                 upsideSkewRatio >= 2 ? 'text-success' :
                 upsideSkewRatio >= 1 ? 'text-warning' : 'text-error'
               }`}>
                 {upsideSkewRatio.toFixed(1)}×
-              </p>
-              <p className="text-[9px] text-text-tertiary/50 mt-1 leading-snug">
-                {upsideSkewRatio >= 1
-                  ? `Upside outweighs downside by ${((upsideSkewRatio - 1) * 100).toFixed(0)}%`
-                  : 'Downside outweighs upside'}
-              </p>
+              </span>
+              <span className="text-[10px] text-text-tertiary/55">skew ratio</span>
             </div>
-          )}
+            <p className="text-[10px] text-text-tertiary/60 mt-1 leading-snug">
+              {upsideSkewRatio >= 1
+                ? `Upside outweighs downside by ${((upsideSkewRatio - 1) * 100).toFixed(0)}%. Risk-adjusted entry favors deployment.`
+                : 'Downside magnitude exceeds upside potential. Asymmetry does not favor new capital.'}
+            </p>
+          </div>
+        )}
 
-          {rawConfidence !== null && (
-            <div className="rounded border border-border/25 px-3 py-2.5">
-              <p className="text-[8px] uppercase tracking-wider text-text-tertiary/40 mb-0.5">Signal Confidence</p>
-              <p className={`text-lg font-bold font-mono leading-none ${
-                rawConfidence >= 65 ? 'text-success' :
-                rawConfidence >= 40 ? 'text-warning' : 'text-error'
+        {/* C. Model Stability & Confidence */}
+        {(rawConfidence !== null || stabilityMod < 1) && (
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/40 mb-1.5">
+              Model Stability &amp; Confidence
+            </p>
+            <div className="space-y-1">
+              {rawConfidence !== null && (
+                <p className="text-[10px] text-text-tertiary/60">
+                  Signal confidence:{' '}
+                  <span className={`font-semibold ${
+                    rawConfidence >= 65 ? 'text-success/70' :
+                    rawConfidence >= 40 ? 'text-warning/70' : 'text-error/70'
+                  }`}>
+                    {rawConfidence}%
+                  </span>
+                  <span className="text-text-tertiary/40"> effective integrity</span>
+                </p>
+              )}
+              {stabilityMod < 1 && (
+                <p className="text-[10px] text-warning/60">
+                  Stability modifier: {(stabilityMod * 100).toFixed(0)}% — model inputs show elevated sensitivity
+                </p>
+              )}
+              {rawConfidence !== null && (
+                <p className="text-[9px] text-text-tertiary/45 italic mt-0.5">
+                  {rawConfidence >= 65
+                    ? 'Valuation inputs exhibit stable convergence across signal sources.'
+                    : rawConfidence >= 40
+                    ? 'Moderate signal agreement — core setup intact but monitor for divergence.'
+                    : 'Low signal confidence — elevated sensitivity to input assumptions. Size conservatively.'}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════════════
+          SECTION 4 — CAPITAL ALLOCATION FRAMEWORK
+          Policy-derived → Execution adjustments → Final allocation.
+          Allocation is the conclusion of the research, not the starting point.
+          Only rendered when conviction data is available.
+          ════════════════════════════════════════════════════════════════════ */}
+      {conviction && (
+        <div className="px-5 py-5 space-y-4 border-b border-border/25">
+          <SectionLabel>Capital Allocation Framework</SectionLabel>
+
+          {/* Policy-Based Allocation */}
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/40 mb-1.5">
+              Policy-Based Allocation
+            </p>
+            <p className="text-[10px] text-text-tertiary/60 leading-relaxed">
+              Allocation derived from: expected value ({fmt(effectiveEvPct)}),
+              downside severity ({bearRet !== null ? fmt(bearRet, true) : '—'}),
+              and model confidence ({rawConfidence !== null ? `${rawConfidence}%` : '—'}).
+              {noiseDefer && (
+                <span className="text-warning/70">
+                  {' '}Noise regime deferral applied — full sizing withheld pending regime confirmation.
+                </span>
+              )}
+            </p>
+            {conviction.rationale && (
+              <p className="text-[10px] text-text-tertiary/55 italic mt-2 border-l-2 border-border/30 pl-2.5 leading-relaxed">
+                {conviction.rationale}
+              </p>
+            )}
+          </div>
+
+          {/* Execution Adjustments */}
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-text-tertiary/40 mb-1.5">
+              Execution Adjustments
+            </p>
+            <div className="grid grid-cols-3 gap-1.5 mb-2">
+              {[
+                { label: 'Recommended',     value: `${conviction.recommended_pct.toFixed(1)}%` },
+                { label: 'Exec-Constrained', value: `${execPct.toFixed(1)}%` },
+                { label: 'Policy Cap',       value: `${conviction.max_pct.toFixed(1)}%` },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded border border-border/25 px-2.5 py-2">
+                  <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">{label}</p>
+                  <p className="text-sm font-bold font-mono text-text-secondary">{value}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[9px] text-text-tertiary/40 leading-snug">
+              Final Weight = MIN(Execution Weight, Policy Cap).{' '}
+              Constraint driver:{' '}
+              <span className={`font-semibold ${
+                bindType === 'Within Guardrails' ? 'text-success/60' :
+                bindType === 'Cap-Bound'         ? 'text-warning/60' : 'text-text-secondary/60'
               }`}>
-                {rawConfidence}%
-              </p>
-              <p className="text-[9px] text-text-tertiary/50 mt-1 leading-snug">
-                Effective signal integrity
-              </p>
-            </div>
-          )}
+                {bindType}
+              </span>
+            </p>
+          </div>
 
-          {bearRet !== null && (
-            <div className="rounded border border-border/25 px-3 py-2.5">
-              <p className="text-[8px] uppercase tracking-wider text-text-tertiary/40 mb-0.5">Bear Downside</p>
-              <p className="text-lg font-bold font-mono leading-none text-error">
-                {fmt(bearRet, true)}
-              </p>
-              <p className="text-[9px] text-text-tertiary/50 mt-1 leading-snug">
-                Worst-case scenario return
-              </p>
+          {/* Final Recommended Allocation — clean, restrained presentation */}
+          <div className="rounded-lg border border-primary/20 bg-primary/3 px-4 py-3.5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[8px] uppercase tracking-[0.14em] font-semibold text-text-tertiary/45 mb-1">
+                  Final Position Size
+                </p>
+                <p className="text-3xl font-bold font-mono text-primary leading-none">
+                  {conviction.recommended_pct.toFixed(1)}%
+                </p>
+                {conviction.dollar_per_100k != null && (
+                  <p className="text-[9px] text-text-tertiary/40 font-mono mt-1.5">
+                    ${conviction.dollar_per_100k.toLocaleString()} per $100k
+                  </p>
+                )}
+              </div>
+              <div className="text-right space-y-2">
+                {posType && (
+                  <div>
+                    <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Classification</p>
+                    <p className="text-[11px] font-semibold text-text-secondary">{posType}</p>
+                  </div>
+                )}
+                {bindType && (
+                  <div>
+                    <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35">Constraint Driver</p>
+                    <p className={`text-[11px] font-semibold ${
+                      bindType === 'Within Guardrails' ? 'text-success/70' :
+                      bindType === 'Cap-Bound'         ? 'text-warning/70' : 'text-text-secondary'
+                    }`}>
+                      {bindType}
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-
-          {stopProb !== null && (
-            <div className="rounded border border-border/25 px-3 py-2.5">
-              <p className="text-[8px] uppercase tracking-wider text-text-tertiary/40 mb-0.5">Stop Probability</p>
-              <p className={`text-lg font-bold font-mono leading-none ${
-                stopProb > 30 ? 'text-error' : stopProb > 15 ? 'text-warning' : 'text-success'
-              }`}>
-                {stopProb.toFixed(0)}%
-              </p>
-              <p className="text-[9px] text-text-tertiary/50 mt-1 leading-snug">
-                {signalBreakdown?.stop_probability?.stop_probability_label ?? 'Adverse exit probability'}
-              </p>
-            </div>
-          )}
+          </div>
         </div>
-      </Accordion>
+      )}
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          LAYER 3 — ADVANCED ALLOCATION DIAGNOSTICS (fully collapsible)
-          Retail users should never feel required to open this.
-          ═══════════════════════════════════════════════════════════════════ */}
+      {/* ════════════════════════════════════════════════════════════════════
+          SECTION 5 — EXECUTIVE CONCLUSION
+          Concise synthesis: quality · risk posture · capital stance · triggers.
+          3 sentences maximum. Closing memo.
+          ════════════════════════════════════════════════════════════════════ */}
+      <div className="px-5 py-4 border-b border-border/20">
+        <SectionLabel>Executive Conclusion</SectionLabel>
+        <p className="text-[11px] text-text-secondary leading-relaxed mt-1.5">
+          {executiveConclusion}
+        </p>
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════════════
+          ENGINE DIAGNOSTICS — Fully collapsible.
+          Noise filter · Portfolio action context · Conviction basis.
+          Advanced users only — not required for investment decisions.
+          ════════════════════════════════════════════════════════════════════ */}
       {(conviction || signalBreakdown?.noise_filter || signalBreakdown?.portfolio_action) && (
-        <Accordion
-          label="Advanced Allocation Diagnostics"
-          badge="Engine"
-        >
+        <Accordion label="Engine Diagnostics" badge="Advanced">
+
           {/* Noise regime */}
           {signalBreakdown?.noise_filter && (
             <div>
@@ -752,16 +992,6 @@ export function TerminalDashboard({
             </div>
           )}
 
-          {/* Sizing rationale */}
-          {conviction?.rationale && (
-            <div>
-              <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/45 mb-1.5">
-                Sizing Rationale
-              </p>
-              <p className="text-xs text-text-secondary leading-relaxed">{conviction.rationale}</p>
-            </div>
-          )}
-
           {/* Conviction basis */}
           {conviction?.conviction_justification && (
             <div>
@@ -771,27 +1001,6 @@ export function TerminalDashboard({
               <p className="text-xs text-text-secondary leading-relaxed">
                 {conviction.conviction_justification}
               </p>
-            </div>
-          )}
-
-          {/* Cap enforcement grid */}
-          {conviction && (
-            <div>
-              <p className="text-[9px] font-semibold uppercase tracking-wider text-text-tertiary/45 mb-1.5">
-                Allocation Guardrails
-              </p>
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { label: 'Recommended', value: `${conviction.recommended_pct.toFixed(1)}%` },
-                  { label: 'Exec-Constrained', value: `${execPct.toFixed(1)}%` },
-                  { label: 'Policy Cap', value: `${conviction.max_pct.toFixed(1)}%` },
-                ].map(({ label, value }) => (
-                  <div key={label} className="rounded border border-border/25 px-2.5 py-2">
-                    <p className="text-[8px] uppercase tracking-wider text-text-tertiary/35 mb-0.5">{label}</p>
-                    <p className="text-sm font-bold font-mono text-text-secondary">{value}</p>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
         </Accordion>
