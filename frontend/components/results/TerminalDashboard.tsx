@@ -84,6 +84,17 @@ function convictionTierColor(tier: string): string {
   return 'text-text-tertiary'
 }
 
+// Asymmetric return profile descriptor — skewRatio = bull% / |bear%|
+function asymmetryProfile(skewRatio: number | null): string {
+  if (skewRatio === null) return ''
+  if (skewRatio >= 3.0) return 'Strong Positive Skew'
+  if (skewRatio >= 1.8) return 'Moderate Positive Skew'
+  if (skewRatio >= 1.1) return 'Weak Positive Skew'
+  if (skewRatio >= 0.9) return 'Symmetric Distribution'
+  if (skewRatio >= 0.5) return 'Slight Negative Skew'
+  return 'Negative Skew'
+}
+
 function positionTypeLabel(convictionLevel: string): string {
   const l = convictionLevel.toLowerCase()
   if (l === 'high') return 'Core'
@@ -266,74 +277,73 @@ export function TerminalDashboard({
 
       {/* ═══════════════════════════════════════════════════════════════════
           ROW 1 — SIGNAL STRIP
-          Left:   Rating · Conviction tier
-          Center: EV (dominant, text-5xl) · PW Return · Confidence · IRR
-          Right:  Current Price · FV · Implied
+          Non-symmetric flex layout:
+            Left  (fixed ~180px): Ticker dominant → Rating → Conviction
+            Center (flex-1, widest): "Probability-Weighted Edge" label →
+                   EV text-5xl → Asymmetry descriptor → muted supporting metrics
+            Right  (fixed ~200px): Price → FV · Implied muted
           ═══════════════════════════════════════════════════════════════════ */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-border/30">
+      <div className="flex flex-col sm:flex-row divide-y sm:divide-y-0 sm:divide-x divide-border/30">
 
-        {/* Left — identity + rating */}
-        <div className="px-5 py-4 flex flex-col justify-center gap-2.5">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-xs font-bold tracking-widest uppercase ${ratingColor}`}>
-              {bias || rating || '—'}
-            </span>
-            <span className="text-border/40 select-none text-xs">·</span>
-            <span className={`text-[10px] font-semibold ${tierColor}`}>
-              {tier} Conviction
-            </span>
-          </div>
-          <div>
-            <span className="text-base font-bold text-text-primary font-mono">{ticker}</span>
-          </div>
+        {/* Left — ticker anchors the page; rating + conviction below */}
+        <div className="sm:w-44 flex-shrink-0 px-5 py-5 flex flex-col justify-center gap-1.5">
+          <span className="text-3xl font-bold font-mono text-text-primary leading-none tracking-tight">
+            {ticker}
+          </span>
+          <span className={`text-[11px] font-bold tracking-widest uppercase mt-1 ${ratingColor}`}>
+            {bias || rating || '—'}
+          </span>
+          <span className={`text-[10px] font-semibold ${tierColor}`}>
+            {tier} Conviction
+          </span>
         </div>
 
-        {/* Center — EV dominant */}
-        <div className="px-5 py-4 flex flex-col justify-center gap-3">
+        {/* Center — EV is the alpha signal; asymmetry narrates the edge */}
+        <div className="flex-1 px-6 py-5 flex flex-col justify-center gap-2.5">
           <div>
-            <p className="text-[9px] uppercase tracking-[0.15em] font-semibold text-text-tertiary/60 mb-1">
-              Expected Value
+            <p className="text-[9px] uppercase tracking-[0.15em] font-semibold text-text-tertiary/50 mb-1">
+              Probability-Weighted Edge
             </p>
             <p className={`text-5xl font-bold font-mono leading-none ${signColor(effectiveEvPct)}`}>
               {fmt(effectiveEvPct)}
             </p>
+            {upsideSkewRatio !== null && (
+              <p className="text-[10px] text-text-tertiary/50 font-medium mt-1.5 tracking-wide">
+                Asymmetric Profile: {asymmetryProfile(upsideSkewRatio)}
+              </p>
+            )}
           </div>
+          {/* Supporting metrics — muted, secondary */}
           <div className="flex items-center gap-4 flex-wrap">
-            <MetricCell
-              label="PW Return"
-              value={fmt(effectiveEvPct)}
-              valueClass={signColor(effectiveEvPct)}
-              sub="prob-weighted"
-            />
-            <div className="w-px h-5 bg-border/30" />
-            <MetricCell
-              label="Confidence"
-              value={rawConfidence !== null ? `${rawConfidence}` : '—'}
-              valueClass={
-                rawConfidence === null ? 'text-text-secondary' :
-                rawConfidence >= 65 ? 'text-success' :
-                rawConfidence >= 40 ? 'text-warning' : 'text-error'
-              }
-              sub={signalBreakdown?.confidence_integrity?.ev_confidence_level ?? '0–100'}
-            />
+            {rawConfidence !== null && (
+              <MetricCell
+                label="Confidence"
+                value={`${rawConfidence}`}
+                valueClass={
+                  rawConfidence >= 65 ? 'text-success/80' :
+                  rawConfidence >= 40 ? 'text-warning/80' : 'text-error/80'
+                }
+                sub="signal integrity"
+              />
+            )}
+            {irr !== null && rawConfidence !== null && (
+              <div className="w-px h-5 bg-border/25" />
+            )}
             {irr !== null && (
-              <>
-                <div className="w-px h-5 bg-border/30" />
-                <MetricCell
-                  label="Ann. IRR"
-                  value={fmt(irr)}
-                  valueClass={signColor(irr)}
-                  sub="annualised"
-                />
-              </>
+              <MetricCell
+                label="Ann. IRR"
+                value={fmt(irr)}
+                valueClass={`${signColor(irr)} opacity-70`}
+                sub="annualised"
+              />
             )}
           </div>
         </div>
 
-        {/* Right — price + FV + implied */}
-        <div className="px-5 py-4 flex flex-col justify-center gap-3">
+        {/* Right — price reference; FV + implied muted */}
+        <div className="sm:w-52 flex-shrink-0 px-5 py-5 flex flex-col justify-center gap-2.5">
           <div>
-            <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/60 mb-1">
+            <p className="text-[9px] uppercase tracking-[0.13em] font-semibold text-text-tertiary/50 mb-1">
               Current Price
             </p>
             <p className="text-2xl font-bold font-mono text-text-primary leading-none">
@@ -344,12 +354,12 @@ export function TerminalDashboard({
             <MetricCell
               label="Fair Value"
               value={fvMid ? `$${fvMid.toFixed(0)}` : '—'}
-              valueClass="text-text-primary"
+              valueClass="text-text-secondary"
               sub={fairValueCalibration?.display_label ?? 'blended'}
             />
             {impliedUpside !== null && (
               <>
-                <div className="w-px h-5 bg-border/30" />
+                <div className="w-px h-5 bg-border/25" />
                 <MetricCell
                   label="Implied ↑/↓"
                   value={
@@ -360,7 +370,7 @@ export function TerminalDashboard({
                       {fmt(impliedUpside)}
                     </span>
                   }
-                  valueClass={signColor(impliedUpside)}
+                  valueClass={`${signColor(impliedUpside)} opacity-80`}
                   sub="vs FV mid"
                 />
               </>
