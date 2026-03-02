@@ -98,6 +98,12 @@ async def get_entitlements(user: User = Depends(get_current_user)) -> dict:
             "is_credit_based": limits.is_credit_based,
             "free_credits_total": limits.free_credits_total,
         },
+        "tier_config": {
+            "monthly_reports": limits.analyses_per_month,
+            "concurrency_limit": limits.concurrent_analyses,
+            "ticker_cooldown_hours": limits.ticker_cooldown_hours,
+            "queue_priority": limits.queue_priority,
+        },
         "usage": {
             "analyses_used": usage.get("analyses_used", 0),
             "analyses_remaining": usage.get("analyses_remaining", 0),

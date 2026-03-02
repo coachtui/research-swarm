@@ -1,11 +1,10 @@
 'use client'
 
 // Sticky command bar — shown at the top of every report page.
-// Contains: ticker · price · timestamp (left) and mode toggle · watchlist (right).
+// Contains: ticker · price · timestamp (left) and reading-mode toggle · watchlist (right).
 // Everything else (EV, allocation, conviction) lives in the scrollable content.
 
 import { AddToWatchlistButton } from '@/components/dashboard/AddToWatchlistButton'
-import { ModeToggle, type ReportMode } from '@/components/results/ModeToggle'
 import { formatDateTime } from '@/lib/utils/formatting'
 
 interface ReportCommandBarProps {
@@ -14,8 +13,6 @@ interface ReportCommandBarProps {
   timestamp: string
   runId: string
   companyName?: string
-  mode: ReportMode
-  onModeChange: (m: ReportMode) => void
   isReadingMode?: boolean
   onToggleReadingMode?: () => void
 }
@@ -26,8 +23,6 @@ export function ReportCommandBar({
   timestamp,
   runId,
   companyName,
-  mode,
-  onModeChange,
   isReadingMode,
   onToggleReadingMode,
 }: ReportCommandBarProps) {
@@ -65,9 +60,8 @@ export function ReportCommandBar({
             </span>
           </div>
 
-          {/* Right — mode toggle · watchlist */}
+          {/* Right — reading mode toggle · watchlist */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <ModeToggle mode={mode} onChange={onModeChange} />
             {onToggleReadingMode && (
               <button
                 onClick={onToggleReadingMode}

@@ -20,6 +20,9 @@ class PlanLimits:
     # Free-tier-only: credit-based (lifetime) rather than monthly rolling
     is_credit_based: bool = False
     free_credits_total: int = 0
+    # Cooldown and queue governance
+    ticker_cooldown_hours: int = 0      # Hours before same ticker can be re-run (0 = no cooldown)
+    queue_priority: str = "standard"    # "standard" | "priority" | "highest"
 
 
 # Tier limit definitions
@@ -32,27 +35,35 @@ TIER_LIMITS = {
         api_access=False,
         is_credit_based=True,
         free_credits_total=2,
+        ticker_cooldown_hours=48,
+        queue_priority="standard",
     ),
     "starter": PlanLimits(
-        analyses_per_month=5,    # Starter: $19.99/month for 5 reports
+        analyses_per_month=5,    # Starter: $19.99/month for 5 reports — Clarity Layer
+        watchlist_max=999,        # Unlimited watchlist for all tiers
+        concurrent_analyses=1,
+        priority_queue=True,
+        api_access=True,
+        ticker_cooldown_hours=24,
+        queue_priority="standard",
+    ),
+    "investor": PlanLimits(
+        analyses_per_month=15,   # Investor: $39.99/month for 15 reports — Discipline Layer
         watchlist_max=999,        # Unlimited watchlist for all tiers
         concurrent_analyses=2,
         priority_queue=True,
-        api_access=True
-    ),
-    "investor": PlanLimits(
-        analyses_per_month=15,   # Investor: $39.99/month for 15 reports
-        watchlist_max=999,        # Unlimited watchlist for all tiers
-        concurrent_analyses=3,
-        priority_queue=True,
-        api_access=True
+        api_access=True,
+        ticker_cooldown_hours=12,
+        queue_priority="priority",
     ),
     "trader": PlanLimits(
-        analyses_per_month=50,   # Trader: $99.99/month for 50 reports
+        analyses_per_month=50,   # Trader: $99.99/month for 50 reports — Edge Layer
         watchlist_max=999,        # Unlimited watchlist for all tiers
         concurrent_analyses=5,
         priority_queue=True,
-        api_access=True
+        api_access=True,
+        ticker_cooldown_hours=6,
+        queue_priority="highest",
     )
 }
 

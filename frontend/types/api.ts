@@ -1021,6 +1021,18 @@ export interface PositionSizingResponse {
  * Stripe inactive-status downgrade server-side so the client never has to
  * replicate that logic.
  */
+/** Governance configuration for the user's current tier. */
+export interface TierConfig {
+  /** Monthly report quota (0 for credit-based free tier). */
+  monthly_reports: number
+  /** Maximum concurrent analysis jobs allowed. */
+  concurrency_limit: number
+  /** Hours before the same ticker can be re-analyzed (0 = no cooldown). */
+  ticker_cooldown_hours: number
+  /** Queue priority level for this tier. */
+  queue_priority: 'standard' | 'priority' | 'highest'
+}
+
 export interface EntitlementsResponse {
   /** Effective tier after admin override and Stripe status check. */
   tier: 'free' | 'starter' | 'investor' | 'trader'
@@ -1040,6 +1052,8 @@ export interface EntitlementsResponse {
     /** Total lifetime credits available (free tier only). */
     free_credits_total: number
   }
+  /** Governance configuration: quotas, cooldowns, queue priority. */
+  tier_config: TierConfig
   /** Live usage counters — always fresh (no extra client-side DB hit). */
   usage: {
     analyses_used: number

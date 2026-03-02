@@ -22,7 +22,6 @@ import { InstitutionalRiskDashboard } from '@/components/results/InstitutionalRi
 import { ExecutionLayer } from '@/components/results/ExecutionLayer'
 import { ReportCommandBar } from '@/components/results/ReportCommandBar'
 import { DeltaSummaryBox } from '@/components/results/DeltaSummaryBox'
-import type { ReportMode } from '@/components/results/ModeToggle'
 import { TierGate } from '@/components/common/TierGate'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -135,11 +134,11 @@ export function ResultsContent({
   const { data: currentUser } = useCurrentUser()
   const { data: entitlements } = useEntitlements()
   const [isReadingMode, setReadingMode] = useState(false)
-  const [reportMode, setReportMode] = useState<ReportMode>('investor')
 
   const userTier = isPreview ? 'investor' : (currentUser?.tier ?? null)
   const isAdmin  = isPreview ? false : (currentUser?.is_admin ?? false)
 
+  // Granular capability flags derived from server-side entitlements
   const canSeeSignalMetrics     = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
   const canSeeEngineDiagnostics = isAdmin || (entitlements?.features['feature.report.engine_diagnostics'] ?? false)
 
@@ -266,8 +265,6 @@ export function ResultsContent({
         timestamp={run.completed_at || run.created_at}
         runId={run.id}
         companyName={full_output?.fundamentalist_output?.company_name}
-        mode={reportMode}
-        onModeChange={setReportMode}
         isReadingMode={isReadingMode}
         onToggleReadingMode={() => setReadingMode(r => !r)}
       />
@@ -302,9 +299,12 @@ export function ResultsContent({
           {/* ══════════════════════════════════════════════════════════════════
               TRANCHE DEPLOYMENT PATH (Investor+)
               3-stage capital deployment timing framework — display only.
+              Blurred upgrade preview shown for Starter tier.
               ══════════════════════════════════════════════════════════════════ */}
-          {canSeeSignalMetrics && decision_intelligence?.tranche_plan && (
-            <TrancheDeploymentPath tranchePlan={decision_intelligence.tranche_plan} />
+          {decision_intelligence?.tranche_plan && (
+            <TierGate feature="capital_deployment_path" userTier={userTier} isAdmin={isAdmin}>
+              <TrancheDeploymentPath tranchePlan={decision_intelligence.tranche_plan} />
+            </TierGate>
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
@@ -316,7 +316,9 @@ export function ResultsContent({
               title="Structural Quality"
               sublabel="Moat · Earnings durability · Financial health · Quality score"
             >
-              <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
+              <TierGate feature="structural_quality_full" userTier={userTier} isAdmin={isAdmin}>
+                <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
+              </TierGate>
             </CollapsibleSection>
           )}
 

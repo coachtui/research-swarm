@@ -21,33 +21,60 @@ export type Feature =
   | 'analyst_verdict'           // Full Analyst Verdict — investment thesis, full agents report
   | 'execution_layer'           // Execution Layer — position sizing, portfolio risk, trade stability
   | 'trade_setup_details'       // Trader-only: enhanced trade setup table + fund/tech divergence
-  // ── Engine diagnostics (granular sub-section gates) ──────────────────────
+  // ── Investor+ section gates (Discipline Layer) ───────────────────────────
   | 'sizing_summary'            // All tiers: allocation % + plain-language rationale
   | 'signal_metrics'            // Investor+: σ band, noise score, stop probability headline
   | 'stop_probability_detail'   // Investor+: stop prob decomposition table
+  | 'full_scenario_table'       // Investor+: full bear/base/bull probability table
+  | 'capital_deployment_path'   // Investor+: 3-stage tranche deployment path
+  | 'thesis_break_monitor'      // Investor+: thesis break conditions monitor
+  | 'structural_quality_full'   // Investor+: moat & quality score breakdown
+  | 'stop_probability_basic'    // Investor+: stop probability headline value
+  | 'structural_deployment_update' // Investor+: monthly capital deployability report
+  // ── Trader-only section gates (Edge Layer) ───────────────────────────────
   | 'engine_diagnostics'        // Trader: full engine panels + driver ranking
   | 'scenario_weights'          // Trader: model vs effective scenario weights + rotation
   | 'multiplier_stack'          // Trader: position-sizing multiplier list + product
   | 'risk_matrix_full'          // Trader: full portfolio interaction metrics
-  | 'structural_deployment_update' // Investor+: monthly capital deployability report
+  | 'ev_stability_panel'        // Trader: EV stability diagnostics (future)
+  | 'probability_reliability'   // Trader: probability reliability scores (future)
+  | 'stop_probability_advanced' // Trader: advanced stop probability decomposition (future)
+  | 'universe_context'          // Trader: universe percentile context (future)
+  | 'percentile_ranks'          // Trader: percentile rank overlays (future)
+  | 'sensitivity_band'          // Trader: sensitivity band visualization (future)
+  | 'horizon_normalization'     // Trader: horizon efficiency scores (future)
 
 /** Minimum tier required to access each feature. */
 const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
-  historical_patterns:      'investor',
-  institutional_risk:       'investor',
-  probabilistic_engine:     'investor',
-  analyst_verdict:          'investor',
-  execution_layer:          'trader',
-  trade_setup_details:      'trader',
-  // Engine diagnostics
-  sizing_summary:           'starter',
-  signal_metrics:           'investor',
-  stop_probability_detail:  'investor',
-  engine_diagnostics:       'trader',
-  scenario_weights:         'trader',
-  multiplier_stack:         'trader',
-  risk_matrix_full:                'trader',
-  structural_deployment_update:    'investor',
+  // Pre-existing features
+  historical_patterns:         'investor',
+  institutional_risk:          'investor',
+  probabilistic_engine:        'investor',
+  analyst_verdict:             'investor',
+  execution_layer:             'trader',
+  trade_setup_details:         'trader',
+  sizing_summary:              'starter',
+  signal_metrics:              'investor',
+  stop_probability_detail:     'investor',
+  engine_diagnostics:          'trader',
+  scenario_weights:            'trader',
+  multiplier_stack:            'trader',
+  risk_matrix_full:            'trader',
+  structural_deployment_update: 'investor',
+  // New Investor+ gates (Discipline Layer)
+  full_scenario_table:         'investor',
+  capital_deployment_path:     'investor',
+  thesis_break_monitor:        'investor',
+  structural_quality_full:     'investor',
+  stop_probability_basic:      'investor',
+  // New Trader-only gates (Edge Layer)
+  ev_stability_panel:          'trader',
+  probability_reliability:     'trader',
+  stop_probability_advanced:   'trader',
+  universe_context:            'trader',
+  percentile_ranks:            'trader',
+  sensitivity_band:            'trader',
+  horizon_normalization:       'trader',
 }
 
 const TIER_ORDER: Record<Tier, number> = {
@@ -226,6 +253,128 @@ export const FEATURE_GATE_COPY: Record<Feature, {
       'Market deployability snapshot with capital posture classification',
       'Confirmed deployable tickers filtered by 5-criterion structural gate',
       'Sector breadth overview with trend direction',
+    ],
+  },
+  // ── New Investor+ gates ────────────────────────────────────────────────
+  full_scenario_table: {
+    title: 'Full Scenario Probability Table',
+    description: 'Bear / Base / Bull scenarios with probability weights and expected value.',
+    requiredTier: 'investor',
+    bullets: [
+      'Probability-weighted expected value across all three scenarios',
+      'Bear / Base / Bull price targets with supporting rationale',
+      'Scenario rotation index and compression ratio',
+    ],
+  },
+  capital_deployment_path: {
+    title: 'Capital Deployment Path',
+    description: '3-stage tranche deployment framework — when and how much to add.',
+    requiredTier: 'investor',
+    bullets: [
+      '3-stage entry plan tied to price and confirmation signals',
+      'Stage trigger conditions with live status tracking',
+      'Max position sizing with structured add-on logic',
+    ],
+  },
+  thesis_break_monitor: {
+    title: 'Thesis Break Monitor',
+    description: 'Conditions that would invalidate the investment thesis.',
+    requiredTier: 'investor',
+    bullets: [
+      'Monitored thesis break conditions with live thresholds',
+      'Automatic position sizing reduction on thesis breach',
+      'Break severity classification (partial vs full exit)',
+    ],
+  },
+  structural_quality_full: {
+    title: 'Structural Quality Breakdown',
+    description: 'Full moat, earnings durability, and financial health scoring.',
+    requiredTier: 'investor',
+    bullets: [
+      'Component-level moat breakdown across 5 quality dimensions',
+      'Earnings durability and financial health scores',
+      'Overall quality score with conviction weighting',
+    ],
+  },
+  stop_probability_basic: {
+    title: 'Stop Probability',
+    description: 'Headline probability of hitting your stop-loss before target.',
+    requiredTier: 'investor',
+    bullets: [
+      'Stop probability headline from the probabilistic engine',
+      'Volatility regime and trend modifier context',
+      'Effective stop level with narrative explanation',
+    ],
+  },
+  // ── New Trader-only gates ──────────────────────────────────────────────
+  ev_stability_panel: {
+    title: 'EV Stability Panel',
+    description: 'Expected value stability diagnostics across market regimes.',
+    requiredTier: 'trader',
+    bullets: [
+      'EV regime stability classification and drift index',
+      'Sensitivity attribution by driver type',
+      'Confidence integrity with degradation breakdown',
+    ],
+  },
+  probability_reliability: {
+    title: 'Probability Reliability Scores',
+    description: 'Calibration quality of the probabilistic model for this setup.',
+    requiredTier: 'trader',
+    bullets: [
+      'Model calibration score and historical accuracy',
+      'Signal-to-noise ratio for this ticker and regime',
+      'Reliability confidence interval',
+    ],
+  },
+  stop_probability_advanced: {
+    title: 'Advanced Stop Decomposition',
+    description: 'Full driver-level breakdown of stop probability components.',
+    requiredTier: 'trader',
+    bullets: [
+      'Base, trend, support, and volatility modifier breakdown',
+      'Driver ranking by contribution to stop risk',
+      'Scenario-conditional stop probabilities',
+    ],
+  },
+  universe_context: {
+    title: 'Universe Context',
+    description: 'How this position compares to the full analysis universe.',
+    requiredTier: 'trader',
+    bullets: [
+      'Percentile rank vs analyzed universe on quality and EV',
+      'Sector and factor positioning context',
+      'Relative crowding and concentration risk',
+    ],
+  },
+  percentile_ranks: {
+    title: 'Percentile Rank Overlays',
+    description: 'Ranked positioning of key metrics vs historical and universe context.',
+    requiredTier: 'trader',
+    bullets: [
+      'Quality score percentile vs sector and universe',
+      'EV and stop probability percentile context',
+      'Historical percentile for current valuation regime',
+    ],
+  },
+  sensitivity_band: {
+    title: 'Sensitivity Band',
+    description: 'EV sensitivity range under assumption stress-testing.',
+    requiredTier: 'trader',
+    bullets: [
+      'EV sensitivity band (σ) across key assumptions',
+      'Upside/downside asymmetry under stressed inputs',
+      'Stability classification with degradation flags',
+    ],
+  },
+  horizon_normalization: {
+    title: 'Horizon Efficiency',
+    description: 'Return-per-unit-risk normalized across time horizons.',
+    requiredTier: 'trader',
+    bullets: [
+      'Horizon-adjusted EV with time decay modeling',
+      'Risk-efficiency rank vs typical setup duration',
+      'Optimal hold period based on EV trajectory',
     ],
   },
 }

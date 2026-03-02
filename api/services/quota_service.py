@@ -653,3 +653,80 @@ async def sync_watchlist_count(user_id: str, tier: str) -> None:
             where={"id": quota.id},
             data={"watchlistCount": actual_count}
         )
+
+
+# ── Governance: ticker cooldown + concurrency ──────────────────────────────
+
+async def check_ticker_cooldown(user, tier: str, ticker: str) -> dict:
+    """
+    Check whether a ticker is within the re-analysis cooldown window for this user/tier.
+
+    Returns:
+        {"allowed": True}
+        {"allowed": False, "hours_remaining": float, "message": str}
+    """
+    cooldown_hours = get_tier_limits(tier).ticker_cooldown_hours
+    if cooldown_hours == 0:
+        return {"allowed": True}
+
+    db = await get_db()
+    # Find the most recent completed analysis for this user + ticker
+    latest = await db.stockresult.find_first(
+        where={
+            "userId": user.id,
+            "ticker": ticker.upper(),
+            "status": "completed",
+        },
+        order={"createdAt": "desc"},
+    )
+    if not latest:
+        return {"allowed": True}
+
+    age_hours = (datetime.now(timezone.utc) - latest.createdAt.replace(tzinfo=timezone.utc)).total_seconds() / 3600
+    if age_hours >= cooldown_hours:
+        return {"allowed": True}
+
+    hours_remaining = round(cooldown_hours - age_hours, 1)
+    return {
+        "allowed": False,
+        "hours_remaining": hours_remaining,
+        "message": (
+            f"'{ticker}' was analyzed {age_hours:.1f}h ago. "
+            f"Wait {hours_remaining}h before re-running, or upgrade to a higher tier for a shorter cooldown."
+        ),
+    }
+
+
+async def check_concurrent_limit(user, tier: str) -> dict:
+    """
+    Check whether the user has hit their concurrent active-analysis limit.
+
+    Counts Run rows with status 'queued' or 'running' for the user.
+
+    Returns:
+        {"allowed": True}
+        {"allowed": False, "active_count": int, "limit": int, "message": str}
+    """
+    limit = get_tier_limits(tier).concurrent_analyses
+    db = await get_db()
+    active_count = await db.run.count(
+        where={
+            "userId": user.id,
+            "status": {"in": ["queued", "running"]},
+        }
+    )
+    if active_count < limit:
+        return {"allowed": True}
+
+    job_word = "job" if active_count == 1 else "jobs"
+    slot_word = "job" if limit == 1 else "jobs"
+    return {
+        "allowed": False,
+        "active_count": active_count,
+        "limit": limit,
+        "message": (
+            f"You have {active_count} active analysis {job_word}. "
+            f"Your {tier.capitalize()} plan allows {limit} concurrent {slot_word}. "
+            f"Wait for a job to finish, or upgrade for more concurrency."
+        ),
+    }

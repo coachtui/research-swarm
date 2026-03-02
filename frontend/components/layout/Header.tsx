@@ -21,6 +21,38 @@ const AUTH_NAV_LINKS = [
 ]
 
 /**
+ * Tier badge shown for signed-in paid users to reinforce tier identity.
+ * Free users see the UpgradeChip instead.
+ */
+function TierBadge() {
+  const { data: ents } = useEntitlements()
+  if (!ents || ents.usage.is_free_tier) return null
+
+  const tier = ents.tier
+  const label =
+    tier === 'trader' ? 'Trader' :
+    tier === 'investor' ? 'Investor' :
+    tier === 'starter' ? 'Starter' : null
+  if (!label) return null
+
+  const colorClass =
+    tier === 'trader'
+      ? 'bg-warning/10 text-warning border-warning/20'
+      : tier === 'investor'
+        ? 'bg-primary/10 text-primary border-primary/20'
+        : 'bg-surface-elevated text-text-secondary border-border'
+
+  return (
+    <span
+      className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${colorClass}`}
+      title="Your current plan tier"
+    >
+      {label}
+    </span>
+  )
+}
+
+/**
  * Upgrade CTA chip shown in the header for:
  *   - Free users (always, to drive conversion)
  *   - Paid users who have hit ≥80% of their monthly quota (soft nudge)
@@ -102,6 +134,8 @@ export function Header() {
 
           {isSignedIn ? (
             <>
+              {/* Tier badge — shows plan depth for paid users */}
+              <TierBadge />
               {/* Upgrade chip — visible for free users + paid users near limit */}
               <UpgradeChip />
               <Link href="/analyze">

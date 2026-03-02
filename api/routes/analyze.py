@@ -16,7 +16,12 @@ from api.lib.entitlement_resolver import EntitlementContext
 from api.models.auth import User
 from api.services.analysis_service import run_stock_analysis
 from api.lib.db import save_analysis_result, create_pending_run, update_run_failed, get_db
-from api.services.quota_service import check_can_analyze, increment_analysis_count
+from api.services.quota_service import (
+    check_can_analyze,
+    increment_analysis_count,
+    check_ticker_cooldown,
+    check_concurrent_limit,
+)
 
 router = APIRouter()
 
@@ -169,14 +174,41 @@ async def analyze_stock(
     if not can_analyze:
         raise HTTPException(status_code=402, detail=error_msg)
 
+    tier_str = str(user.tier.value) if hasattr(user.tier, "value") else str(user.tier)
+
+    # Concurrent analysis limit check
+    if not user.is_admin:
+        concurrency_result = await check_concurrent_limit(user, tier_str)
+        if not concurrency_result["allowed"]:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "status": "concurrency_exceeded",
+                    "active_count": concurrency_result["active_count"],
+                    "limit": concurrency_result["limit"],
+                    "message": concurrency_result["message"],
+                },
+            )
+
+    # Ticker cooldown check
+    if not user.is_admin:
+        cooldown_result = await check_ticker_cooldown(user, tier_str, request.ticker)
+        if not cooldown_result["allowed"]:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "status": "cooldown_active",
+                    "hours_remaining": cooldown_result["hours_remaining"],
+                    "message": cooldown_result["message"],
+                },
+            )
+
     quarters = request.quarters or ["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"]
     news_days_back = request.news_days_back or 30
 
     # Create Run record immediately so client can start polling
     run_id = await create_pending_run(user.id, request.ticker, news_days_back)
     print(f"📋 Created pending run {run_id} for {request.ticker}")
-
-    tier_str = str(user.tier.value) if hasattr(user.tier, "value") else str(user.tier)
 
     # Queue the analysis — runs after this HTTP response is sent
     background_tasks.add_task(
