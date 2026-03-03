@@ -9,6 +9,9 @@ import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { OwnershipStatusHeader } from '@/components/results/OwnershipStatusHeader'
 import { usePortfolioPosition } from '@/lib/hooks/usePortfolio'
+import { GrowthQualityClassification } from '@/components/results/GrowthQualityClassification'
+import { DivergenceIntelligencePanel } from '@/components/results/DivergenceIntelligencePanel'
+import { DeploymentDriversPanel } from '@/components/results/DeploymentDriversPanel'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
 import { ThesisDriversPanel } from '@/components/results/ThesisDriversPanel'
 import { InvestmentThesisPanel } from '@/components/results/InvestmentThesisPanel'
@@ -235,6 +238,12 @@ export function ResultsContent({
   // Sector from fundamentalist
   const sector = full_output?.fundamentalist_output?.sector || null
 
+  // Extract divergence overlay and fundamentalist output for Growth Quality & Divergence sections
+  const divergenceOverlay = decision_intelligence?.divergence_overlay || null
+  const fundamentalistOutput = full_output?.fundamentalist_output || null
+  const qualityScore = full_output?.price_targets?.valuation_metadata?.quality_score || null
+  const dvrgMode = divergenceOverlay?.dvrg_mode || null
+
   return (
     <OnboardingPanel>
 
@@ -247,6 +256,7 @@ export function ResultsContent({
         companyName={full_output?.fundamentalist_output?.company_name}
         isReadingMode={isReadingMode}
         onToggleReadingMode={() => setReadingMode(r => !r)}
+        dvrgMode={dvrgMode}
       />
 
       <div className="container mx-auto px-4 pt-4 pb-8">
@@ -261,6 +271,26 @@ export function ResultsContent({
             ticker={result.ticker}
             initiationStatus={initiationStatus}
           />
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION 0 — GROWTH QUALITY CLASSIFICATION
+              Durable Growth / Durable Quality / Emerging Compounder classification
+              ══════════════════════════════════════════════════════════════════ */}
+          {(moat_breakdown || fundamentalistOutput) && (
+            <GrowthQualityClassification
+              moatBreakdown={moat_breakdown}
+              fundamentalistOutput={fundamentalistOutput}
+              qualityScore={qualityScore}
+            />
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION 0.5 — DIVERGENCE INTELLIGENCE
+              Timing score · Phase · Sub-metrics · Allocation adjustment
+              ══════════════════════════════════════════════════════════════════ */}
+          {divergenceOverlay && (
+            <DivergenceIntelligencePanel overlay={divergenceOverlay} />
+          )}
 
           {/* ══════════════════════════════════════════════════════════════════
               INVESTMENT THESIS
@@ -363,6 +393,15 @@ export function ResultsContent({
                     currentPrice={currentPrice}
                     ticker={result.ticker}
                     signalBreakdown={signal_breakdown}
+                  />
+                )}
+
+                {/* Deployment drivers waterfall — if divergence overlay exists */}
+                {divergenceOverlay && (
+                  <DeploymentDriversPanel
+                    drivers={divergenceOverlay.deployment_drivers}
+                    finalAllocation={divergenceOverlay.final_allocation}
+                    addIntensityModifier={divergenceOverlay.add_intensity_modifier}
                   />
                 )}
               </div>
