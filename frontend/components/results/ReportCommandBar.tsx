@@ -5,6 +5,7 @@
 // Everything else (EV, allocation, conviction) lives in the scrollable content.
 
 import { AddToWatchlistButton } from '@/components/dashboard/AddToWatchlistButton'
+import { StockLogo } from '@/components/ui/stock-logo'
 import { formatDateTime } from '@/lib/utils/formatting'
 
 interface ReportCommandBarProps {
@@ -34,8 +35,9 @@ export function ReportCommandBar({
       <div className="container mx-auto px-4 h-full">
         <div className="max-w-6xl mx-auto h-full flex items-center justify-between gap-4">
 
-          {/* Left — ticker · company · price · timestamp */}
+          {/* Left — logo · ticker · company · price · timestamp */}
           <div className="flex items-center gap-3 min-w-0">
+            <StockLogo ticker={ticker} size="sm" />
             <span className="text-sm font-bold font-mono text-text-primary tracking-widest uppercase flex-shrink-0">
               {ticker}
             </span>

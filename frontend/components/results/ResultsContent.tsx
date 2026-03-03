@@ -11,6 +11,7 @@ import { OwnershipStatusHeader } from '@/components/results/OwnershipStatusHeade
 import { usePortfolioPosition } from '@/lib/hooks/usePortfolio'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
 import { ThesisDriversPanel } from '@/components/results/ThesisDriversPanel'
+import { InvestmentThesisPanel } from '@/components/results/InvestmentThesisPanel'
 import { DislocationStatePanel } from '@/components/results/DislocationStatePanel'
 import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
 import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
@@ -260,6 +261,20 @@ export function ResultsContent({
             ticker={result.ticker}
             initiationStatus={initiationStatus}
           />
+
+          {/* ══════════════════════════════════════════════════════════════════
+              INVESTMENT THESIS
+              Company overview · Highlights · Key risks · Entry context
+              ══════════════════════════════════════════════════════════════════ */}
+          {full_output?.investment_thesis && (
+            <CollapsibleSection
+              title="Investment Thesis"
+              sublabel="Company overview · Highlights · Key risks · Entry context"
+              defaultOpen
+            >
+              <InvestmentThesisPanel thesis={full_output.investment_thesis} />
+            </CollapsibleSection>
+          )}
 
           {/* ══════════════════════════════════════════════════════════════════
               SECTION I — STRUCTURAL DURABILITY
