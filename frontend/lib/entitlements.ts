@@ -43,6 +43,11 @@ export type Feature =
   | 'percentile_ranks'          // Trader: percentile rank overlays (future)
   | 'sensitivity_band'          // Trader: sensitivity band visualization (future)
   | 'horizon_normalization'     // Trader: horizon efficiency scores (future)
+  // ── Portfolio Engine (Compounder Ownership OS) ──────────────────────────
+  | 'portfolio_core'            // Starter+: single portfolio
+  | 'portfolio_actions'         // Investor+: full action feed
+  | 'portfolio_multi'           // Trader: multiple portfolios
+  | 'portfolio_simulation'      // Trader: action simulation
 
 /** Minimum tier required to access each feature. */
 const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
@@ -67,6 +72,11 @@ const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
   thesis_break_monitor:        'investor',
   structural_quality_full:     'investor',
   stop_probability_basic:      'investor',
+  // Portfolio Engine gates
+  portfolio_core:              'starter',
+  portfolio_actions:           'investor',
+  portfolio_multi:             'trader',
+  portfolio_simulation:        'trader',
   // New Trader-only gates (Edge Layer)
   ev_stability_panel:          'trader',
   probability_reliability:     'trader',
@@ -253,6 +263,48 @@ export const FEATURE_GATE_COPY: Record<Feature, {
       'Market deployability snapshot with capital posture classification',
       'Confirmed deployable tickers filtered by 5-criterion structural gate',
       'Sector breadth overview with trend direction',
+    ],
+  },
+  // ── Portfolio Engine ──────────────────────────────────────────────────
+  portfolio_core: {
+    title: 'Portfolio Engine',
+    description: 'Build and track your compounder ownership portfolio.',
+    requiredTier: 'starter',
+    bullets: [
+      'Create a portfolio with manual position entry',
+      'Track positions, weights, and cost basis',
+      'View engine-generated actions for your holdings',
+    ],
+  },
+  portfolio_actions: {
+    title: 'Full Action Feed',
+    description: 'Complete engine action history with signal snapshots and portfolio impact.',
+    requiredTier: 'investor',
+    bullets: [
+      'Full chronological action feed (not just top 3)',
+      'Signal snapshot at time of action generation',
+      'Portfolio impact preview before/after execution',
+      'Manual engine trigger for on-demand refresh',
+    ],
+  },
+  portfolio_multi: {
+    title: 'Multiple Portfolios',
+    description: 'Run separate portfolios with different mandates.',
+    requiredTier: 'trader',
+    bullets: [
+      'Up to 5 independent portfolios',
+      'Different mandates per portfolio (compounder, growth, custom)',
+      'Cross-portfolio exposure analysis',
+    ],
+  },
+  portfolio_simulation: {
+    title: 'Action Simulation',
+    description: 'Simulate engine actions before committing to portfolio changes.',
+    requiredTier: 'trader',
+    bullets: [
+      'What-if scenario simulation for engine actions',
+      'Portfolio impact modeling before execution',
+      'Export action logs for external analysis',
     ],
   },
   // ── New Investor+ gates ────────────────────────────────────────────────

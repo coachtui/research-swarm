@@ -69,7 +69,9 @@ from api.routes import analyze, runs, health, reports, watchlist, admin, webhook
 from api.routes import billing
 from api.routes import entitlements as entitlements_route
 from api.routes import deployment as deployment_route
+from api.routes import portfolio as portfolio_route
 from api.lib.db import connect_db, disconnect_db
+from api.services.cron_scheduler import start_scheduler, stop_scheduler
 
 # Configure logging to show INFO level messages
 logging.basicConfig(
@@ -100,7 +102,9 @@ async def lifespan(app: FastAPI):
 
     # Fire-and-forget: connect in background, don't block startup.
     asyncio.create_task(connect_db())
+    asyncio.create_task(start_scheduler())
     yield
+    await stop_scheduler()
     await disconnect_db()
 
 
@@ -154,6 +158,7 @@ app.include_router(position_sizing.router, prefix="/api", tags=["Position Sizing
 app.include_router(billing.router, prefix="/api", tags=["Billing"])
 app.include_router(entitlements_route.router, prefix="/api", tags=["Entitlements"])
 app.include_router(deployment_route.router, prefix="/api", tags=["Deployment"])
+app.include_router(portfolio_route.router, prefix="/api", tags=["Portfolio"])
 app.include_router(webhook.router, prefix="/api/webhook", tags=["Webhooks"])
 
 # Root endpoint

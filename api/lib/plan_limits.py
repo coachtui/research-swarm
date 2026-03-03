@@ -23,6 +23,8 @@ class PlanLimits:
     # Cooldown and queue governance
     ticker_cooldown_hours: int = 0      # Hours before same ticker can be re-run (0 = no cooldown)
     queue_priority: str = "standard"    # "standard" | "priority" | "highest"
+    # Portfolio limits
+    max_portfolios: int = 0             # 0 = no portfolio access
 
 
 # Tier limit definitions
@@ -37,6 +39,7 @@ TIER_LIMITS = {
         free_credits_total=2,
         ticker_cooldown_hours=48,
         queue_priority="standard",
+        max_portfolios=0,
     ),
     "starter": PlanLimits(
         analyses_per_month=5,    # Starter: $19.99/month for 5 reports — Clarity Layer
@@ -46,6 +49,7 @@ TIER_LIMITS = {
         api_access=True,
         ticker_cooldown_hours=24,
         queue_priority="standard",
+        max_portfolios=1,
     ),
     "investor": PlanLimits(
         analyses_per_month=15,   # Investor: $39.99/month for 15 reports — Discipline Layer
@@ -55,6 +59,7 @@ TIER_LIMITS = {
         api_access=True,
         ticker_cooldown_hours=12,
         queue_priority="priority",
+        max_portfolios=1,
     ),
     "trader": PlanLimits(
         analyses_per_month=50,   # Trader: $99.99/month for 50 reports — Edge Layer
@@ -64,6 +69,7 @@ TIER_LIMITS = {
         api_access=True,
         ticker_cooldown_hours=6,
         queue_priority="highest",
+        max_portfolios=5,
     )
 }
 

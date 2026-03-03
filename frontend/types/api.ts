@@ -1431,3 +1431,71 @@ export interface ThresholdCalibrationResponse {
 export interface CalibrationNoteListResponse {
   notes: CalibrationNote[]
 }
+
+// ── Portfolio Engine Types (Compounder Ownership OS v3.1) ──────────────────
+
+export interface Portfolio {
+  id: string
+  name: string
+  mandate: 'compounder' | 'growth' | 'custom'
+  positions: PortfolioPosition[]
+  total_weight: number
+  position_count: number
+  created_at: string
+}
+
+export interface PortfolioListResponse {
+  portfolios: Portfolio[]
+}
+
+export interface PortfolioPosition {
+  ticker: string
+  current_weight: number
+  cost_basis: number | null
+  shares: number | null
+  tier_state: string
+  thesis_state: 'intact' | 'monitoring' | 'broken'
+  eligibility_state: 'pending' | 'eligible' | 'disqualified'
+  ownership_status: 'core_compounder' | 'watch' | 'disqualified'
+  entry_date: string | null
+  quarters_held: number
+  compounder_score: number | null
+  last_drawdown: number | null
+  latest_run_id: string | null
+}
+
+export type EngineActionType =
+  | 'INITIATE'
+  | 'ADD_TIER_20'
+  | 'ADD_TIER_30'
+  | 'ADD_TIER_40'
+  | 'ADD_TIER_50'
+  | 'TRIM_EUPHORIA'
+  | 'TRIM_CAP'
+  | 'EXIT_THESIS'
+  | 'REPLACE'
+  | 'HOLD'
+
+export type EngineActionStatus = 'pending' | 'executed' | 'ignored' | 'expired'
+
+export interface EngineAction {
+  id: string
+  ticker: string
+  action_type: EngineActionType
+  weight_delta: number
+  reason_codes: string[]
+  reason_text: string | null
+  status: EngineActionStatus
+  signal_snapshot: Record<string, unknown> | null
+  trigger_cycle: string | null
+  engine_version: string | null
+  created_at: string
+  executed_at: string | null
+  expires_at: string | null
+}
+
+export interface ActionFeed {
+  actions: EngineAction[]
+  total: number
+  pending_count: number
+}

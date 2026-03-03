@@ -27,6 +27,9 @@ import type {
   ThresholdCalibrationResponse,
   CalibrationNote,
   CalibrationNoteListResponse,
+  Portfolio,
+  PortfolioListResponse,
+  ActionFeed,
 } from '@/types/api'
 
 class ApiClient {
@@ -396,6 +399,61 @@ class ApiClient {
 
   async getCalibrationNotes(): Promise<CalibrationNoteListResponse> {
     return this.request('/api/deployment/calibration/notes/admin')
+  }
+
+  // ── Portfolio Engine ────────────────────────────────────────────────────
+
+  async getPortfolios(): Promise<PortfolioListResponse> {
+    return this.request('/api/portfolio')
+  }
+
+  async getPortfolio(id: string): Promise<Portfolio> {
+    return this.request(`/api/portfolio/${id}`)
+  }
+
+  async createPortfolio(name = 'Core', mandate = 'compounder'): Promise<Portfolio> {
+    return this.request('/api/portfolio', {
+      method: 'POST',
+      body: JSON.stringify({ name, mandate }),
+    })
+  }
+
+  async addPosition(portfolioId: string, ticker: string, weight: number, costBasis?: number, shares?: number): Promise<unknown> {
+    return this.request(`/api/portfolio/${portfolioId}/positions`, {
+      method: 'POST',
+      body: JSON.stringify({ ticker, weight, cost_basis: costBasis, shares }),
+    })
+  }
+
+  async updatePosition(portfolioId: string, ticker: string, data: { weight?: number; cost_basis?: number; shares?: number }): Promise<unknown> {
+    return this.request(`/api/portfolio/${portfolioId}/positions/${ticker}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async removePosition(portfolioId: string, ticker: string): Promise<unknown> {
+    return this.request(`/api/portfolio/${portfolioId}/positions/${ticker}`, {
+      method: 'DELETE',
+    })
+  }
+
+  async getPortfolioActions(portfolioId: string, status?: string): Promise<ActionFeed> {
+    const params = status ? `?status=${status}` : ''
+    return this.request(`/api/portfolio/${portfolioId}/actions${params}`)
+  }
+
+  async markAction(portfolioId: string, actionId: string, status: 'executed' | 'ignored', overrideWeight?: number): Promise<unknown> {
+    return this.request(`/api/portfolio/${portfolioId}/actions/${actionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, override_weight: overrideWeight }),
+    })
+  }
+
+  async triggerEngineRun(portfolioId: string, cycleType = 'monthly'): Promise<unknown> {
+    return this.request(`/api/portfolio/${portfolioId}/engine/run?cycle_type=${cycleType}`, {
+      method: 'POST',
+    })
   }
 }
 

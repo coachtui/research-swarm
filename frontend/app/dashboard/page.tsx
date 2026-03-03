@@ -7,11 +7,17 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { AnalysisHistoryView } from '@/components/dashboard/AnalysisHistoryView'
-import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
+import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
+import { PortfolioSeedForm } from '@/components/portfolio/PortfolioSeedForm'
+import { ActionsTab } from '@/components/portfolio/ActionsTab'
+import { HoldingsTab } from '@/components/portfolio/HoldingsTab'
 import { useQuota } from '@/lib/hooks/useQuota'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
+import { usePortfolio } from '@/lib/hooks/usePortfolio'
+import { canAccessFeature } from '@/lib/entitlements'
 import { apiClient } from '@/lib/api/client'
 import { TickerSearchForm } from '@/components/analyze/TickerSearchForm'
+import { TierGate } from '@/components/common/TierGate'
 import { UserInfo } from '@/types/api'
 import { Lock, TrendingUp } from 'lucide-react'
 
@@ -85,57 +91,107 @@ function NoSubscriptionPanel() {
 function DashboardContent({ currentUser }: { currentUser: UserInfo | null }) {
   const { data: quota, isLoading: quotaLoading } = useQuota()
   const { data: entitlements } = useEntitlements()
+  const { data: portfolioData } = usePortfolio()
 
   const PAID_STATUSES = ['active', 'trialing']
   const hasSubscription = currentUser
     ? (currentUser.is_admin || PAID_STATUSES.includes(currentUser.stripe_subscription_status ?? ''))
     : false
 
-  // Show Deployment tab for Investor+ users (and locked preview for others)
-  const showDeploymentTab = entitlements != null
+  const userTier = currentUser?.tier ?? null
+  const portfolio = portfolioData?.portfolios?.[0] || null
+  const hasPortfolio = !!portfolio
+
+  const canSeeActions = canAccessFeature('portfolio_actions', userTier) || (currentUser?.is_admin ?? false)
 
   return (
     <div className="min-h-screen bg-background">
       <DashboardHeader quota={quota} isLoading={quotaLoading} />
 
       <main className="page-container py-8">
-        <Tabs defaultValue="watchlist" className="space-y-0">
+        <Tabs defaultValue="portfolio" className="space-y-0">
           <TabsList>
-            <TabsTrigger value="watchlist">
-              Watchlist {quota && `(${quota.watchlist_count})`}
+            <TabsTrigger value="portfolio">
+              Portfolio
             </TabsTrigger>
-            <TabsTrigger value="history">
-              History
+            <TabsTrigger value="actions">
+              {canSeeActions ? 'Actions' : 'Actions 🔒'}
             </TabsTrigger>
-            <TabsTrigger value="analyze">
-              {hasSubscription ? 'Analyze' : 'Analyze 🔒'}
+            <TabsTrigger value="holdings">
+              Holdings {hasPortfolio ? `(${portfolio.position_count})` : ''}
             </TabsTrigger>
-            {showDeploymentTab && (
-              <TabsTrigger value="deployment">
-                {entitlements?.features['feature.deployment.structural_update']
-                  ? 'Deployment'
-                  : 'Deployment 🔒'}
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="research">
+              Research
+            </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="watchlist">
-            <WatchlistView />
+          {/* ── Portfolio Tab ──────────────────────────────────────────── */}
+          <TabsContent value="portfolio">
+            {hasPortfolio ? (
+              <PortfolioOverview portfolioId={portfolio.id} userTier={userTier} />
+            ) : hasSubscription ? (
+              <PortfolioSeedForm />
+            ) : (
+              <NoSubscriptionPanel />
+            )}
           </TabsContent>
 
-          <TabsContent value="history">
-            <AnalysisHistoryView />
+          {/* ── Actions Tab ───────────────────────────────────────────── */}
+          <TabsContent value="actions">
+            {hasPortfolio ? (
+              canSeeActions ? (
+                <ActionsTab portfolioId={portfolio.id} />
+              ) : (
+                <TierGate feature="portfolio_actions" userTier={userTier} isAdmin={currentUser?.is_admin ?? false}>
+                  <ActionsTab portfolioId={portfolio.id} />
+                </TierGate>
+              )
+            ) : (
+              <div className="text-center py-12 text-sm text-text-tertiary">
+                Create a portfolio first to see engine actions.
+              </div>
+            )}
           </TabsContent>
 
-          <TabsContent value="analyze">
-            {hasSubscription ? <TickerSearchForm /> : <NoSubscriptionPanel />}
+          {/* ── Holdings Tab ──────────────────────────────────────────── */}
+          <TabsContent value="holdings">
+            {hasPortfolio ? (
+              <HoldingsTab portfolioId={portfolio.id} />
+            ) : (
+              <div className="text-center py-12 text-sm text-text-tertiary">
+                Create a portfolio first to see your holdings.
+              </div>
+            )}
           </TabsContent>
 
-          {showDeploymentTab && (
-            <TabsContent value="deployment">
-              <StructuralDeploymentUpdate />
-            </TabsContent>
-          )}
+          {/* ── Research Tab (nested sub-tabs: Watchlist + History + Analyze) */}
+          <TabsContent value="research">
+            <Tabs defaultValue="watchlist" className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="watchlist">
+                  Watchlist {quota && `(${quota.watchlist_count})`}
+                </TabsTrigger>
+                <TabsTrigger value="history">
+                  History
+                </TabsTrigger>
+                <TabsTrigger value="analyze">
+                  {hasSubscription ? 'Analyze' : 'Analyze 🔒'}
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="watchlist">
+                <WatchlistView />
+              </TabsContent>
+
+              <TabsContent value="history">
+                <AnalysisHistoryView />
+              </TabsContent>
+
+              <TabsContent value="analyze">
+                {hasSubscription ? <TickerSearchForm /> : <NoSubscriptionPanel />}
+              </TabsContent>
+            </Tabs>
+          </TabsContent>
         </Tabs>
       </main>
     </div>

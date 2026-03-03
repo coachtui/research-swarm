@@ -56,6 +56,7 @@ model User {
   preferences      UserPreferences?
   entitlement      Entitlement?
   freeReportCredit FreeReportCredit?
+  portfolios       Portfolio[]
 
   @@index([email])
   @@index([clerkId])
@@ -539,6 +540,100 @@ model TickerMeta {
 
   @@index([updatedAt])
   @@map("ticker_meta")
+}
+
+// ── Portfolio Engine Models ─────────────────────────────────────────────────
+// Compounder Ownership OS v3.1 — portfolio-first capital ownership system.
+// Engine produces canonical actions; users mark them executed/ignored.
+
+// User-defined portfolio. Starter/Investor: 1 max. Trader: up to 5.
+model Portfolio {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String   @default("Core")
+  mandate   String   @default("compounder")  // "compounder" | "growth" | "custom"
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  positions Position[]
+  actions   PortfolioAction[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("portfolios")
+}
+
+// Position state machine — tracks ownership lifecycle for each holding.
+model Position {
+  id          String    @id @default(uuid())
+  portfolioId String    @map("portfolio_id")
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  ticker        String
+  currentWeight Float    @default(0)  @map("current_weight")   // 0.0 – 1.0 fraction
+  costBasis     Float?   @map("cost_basis")                     // Average cost per share
+  shares        Float?                                          // Number of shares (optional)
+
+  // State machine fields
+  tierState        String @default("none") @map("tier_state")           // "none" | "t1_20" | "t2_30" | "t3_40" | "t4_50"
+  thesisState      String @default("intact") @map("thesis_state")      // "intact" | "monitoring" | "broken"
+  eligibilityState String @default("pending") @map("eligibility_state") // "pending" | "eligible" | "disqualified"
+  ownershipStatus  String @default("watch") @map("ownership_status")   // "core_compounder" | "watch" | "disqualified"
+
+  // Tracking
+  entryDate       DateTime? @map("entry_date")
+  quartersHeld    Int       @default(0) @map("quarters_held")
+  compounderScore Float?    @map("compounder_score")
+  lastDrawdown    Float?    @map("last_drawdown")
+
+  // Drawdown add-cycle tracking (JSON array of applied thresholds)
+  addTiersApplied Json @default("[]") @map("add_tiers_applied")
+
+  // Link to most recent research
+  latestRunId String? @map("latest_run_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([portfolioId, ticker])
+  @@index([portfolioId])
+  @@index([ticker])
+  @@map("positions")
+}
+
+// Immutable action log — engine produces these, user executes/ignores.
+model PortfolioAction {
+  id          String    @id @default(uuid())
+  portfolioId String    @map("portfolio_id")
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  ticker      String
+  actionType  String   @map("action_type")   // INITIATE | ADD_TIER_20..50 | TRIM_EUPHORIA | TRIM_CAP | EXIT_THESIS | REPLACE | HOLD
+  weightDelta Float    @map("weight_delta")   // Signed: +0.02 for add, -0.03 for trim
+  reasonCodes String[] @map("reason_codes")   // e.g. ["drawdown_30pct", "thesis_intact", "durable"]
+  reasonText  String?  @map("reason_text") @db.Text
+
+  // Status lifecycle
+  status String @default("pending") // "pending" | "executed" | "ignored" | "expired"
+
+  // Snapshot of signal state at action generation time
+  signalSnapshot Json? @map("signal_snapshot")
+
+  // Trigger metadata
+  triggerCycle  String? @map("trigger_cycle")   // "monthly_2026_03" | "quarterly_2026_Q1" | "annual_2026"
+  engineVersion String? @map("engine_version")
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  executedAt DateTime? @map("executed_at")
+  expiresAt  DateTime? @map("expires_at")
+
+  @@index([portfolioId, createdAt(sort: Desc)])
+  @@index([portfolioId, status])
+  @@index([ticker])
+  @@map("portfolio_actions")
 }
 
 // Usage records — idempotency guard preventing double-counting on retry/refresh.

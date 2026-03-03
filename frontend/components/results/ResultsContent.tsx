@@ -7,21 +7,18 @@ import { useAnalysis } from '@/lib/hooks/useAnalysis'
 import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { CapitalDeploymentSummary } from '@/components/results/CapitalDeploymentSummary'
-import { TrancheDeploymentPath } from '@/components/results/TrancheDeploymentPath'
+import { OwnershipStatusHeader } from '@/components/results/OwnershipStatusHeader'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
+import { ThesisDriversPanel } from '@/components/results/ThesisDriversPanel'
+import { DislocationStatePanel } from '@/components/results/DislocationStatePanel'
 import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
 import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
+import { PortfolioRolePanel } from '@/components/results/PortfolioRolePanel'
 import { CompressedRiskPanel } from '@/components/results/CompressedRiskPanel'
 import { WatchForSummary } from '@/components/results/WatchForSummary'
 import { ProbabilisticEngineDashboard } from '@/components/results/ProbabilisticEngineDashboard'
-import { HistoricalAnalogPanel } from '@/components/results/HistoricalAnalogPanel'
-import { SmartMoneyAlert } from '@/components/results/SmartMoneyAlert'
-import { AnalystVerdict } from '@/components/results/AnalystVerdict'
-import { InstitutionalRiskDashboard } from '@/components/results/InstitutionalRiskDashboard'
 import { ExecutionLayer } from '@/components/results/ExecutionLayer'
 import { ReportCommandBar } from '@/components/results/ReportCommandBar'
-import { DeltaSummaryBox } from '@/components/results/DeltaSummaryBox'
 import { TierGate } from '@/components/common/TierGate'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -71,48 +68,6 @@ function CollapsibleSection({
         <div className="border-t border-border/40 px-4 pb-4 pt-3 space-y-4">
           {children}
         </div>
-      )}
-    </div>
-  )
-}
-
-// ── Tactical signal score card (Section 6) ────────────────────────────────────
-
-function SignalCard({
-  label,
-  score,
-  interpretation,
-  hasData,
-}: {
-  label: string
-  score: number
-  interpretation: string
-  hasData?: boolean
-}) {
-  const na = hasData === false
-  const color = na
-    ? 'text-text-tertiary'
-    : score >= 7 ? 'text-success' : score >= 4 ? 'text-warning' : 'text-error'
-  const barColor = score >= 7 ? 'bg-success' : score >= 4 ? 'bg-warning' : 'bg-error'
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-surface-elevated p-3.5 space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{label}</p>
-        <span className={`text-sm font-bold font-mono tabular-nums ${color}`}>
-          {na ? 'N/A' : score.toFixed(1)}
-        </span>
-      </div>
-      {!na && (
-        <div className="h-1.5 bg-surface rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full ${barColor}`}
-            style={{ width: `${Math.min((score / 10) * 100, 100)}%` }}
-          />
-        </div>
-      )}
-      {interpretation && (
-        <p className="text-[11px] text-text-tertiary leading-snug line-clamp-2">{interpretation}</p>
       )}
     </div>
   )
@@ -255,13 +210,39 @@ export function ResultsContent({
     decision_intelligence,
   } = full_output
 
+  // Extract dislocation data from quant output
+  const quant = full_output?.quant_output || {}
+  const ti = quant?.technical_indicators || {}
+  const ma = ti?.moving_averages || {}
+  const high52Week = ti?.high_52_week || ma?.high_252d || null
+  const ma200d = ma?.sma_200 || ti?.sma_200 || null
+  const currentPrice = decision_intelligence?.current_price || ma?.current_price || null
+
+  // Extract thesis break conditions from tranche plan
+  const tranchePlan = decision_intelligence?.tranche_plan
+  const thesisBreakConditions = tranchePlan?.thesis_break_conditions || null
+
+  // Extract initiation data
+  const initiationDecision = decision_intelligence?.initiation_decision
+  const initiationStatus = initiationDecision?.status || null
+  const initiationScore = initiationDecision?.initiation_score ?? null
+  const starterPct = initiationDecision?.starter_allocation_percent ?? null
+  const maxPct = decision_intelligence?.conviction_position?.max_pct ?? null
+  const entryZoneRaw = initiationDecision?.required_entry_zone
+  const entryZone = entryZoneRaw
+    ? `$${entryZoneRaw[0].toFixed(2)}–$${entryZoneRaw[1].toFixed(2)}`
+    : null
+
+  // Sector from fundamentalist
+  const sector = full_output?.fundamentalist_output?.sector || null
+
   return (
     <OnboardingPanel>
 
       {/* ══ STICKY COMMAND BAR ══════════════════════════════════════════════ */}
       <ReportCommandBar
         ticker={result.ticker}
-        price={decision_intelligence?.current_price ?? null}
+        price={currentPrice}
         timestamp={run.completed_at || run.created_at}
         runId={run.id}
         companyName={full_output?.fundamentalist_output?.company_name}
@@ -272,48 +253,28 @@ export function ResultsContent({
       <div className="container mx-auto px-4 pt-4 pb-8">
         <div className="max-w-6xl mx-auto space-y-3">
 
-          {/* ── Longitudinal delta ────────────────────────────────────────── */}
-          {full_output?.previous_analysis_delta && (
-            <DeltaSummaryBox
-              delta={full_output.previous_analysis_delta}
-              ticker={result.ticker}
-            />
-          )}
-
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION 1 — CAPITAL DEPLOYMENT SUMMARY
-              Always expanded. Answers: initiate? at what price? at what size?
-              what breaks the thesis?
+              HEADER — OWNERSHIP STATUS
+              Always visible. Ownership status · Thesis state · Action now ·
+              Portfolio context.
               ══════════════════════════════════════════════════════════════════ */}
-          {decision_intelligence?.conviction_position && (
-            <CapitalDeploymentSummary
-              rating={decision_intelligence.rating}
-              conviction={decision_intelligence.conviction_position}
-              strategy={decision_intelligence.recommended_strategy}
-              upgradeTriggers={upgrade_triggers}
-              downgradeTriggers={downgrade_triggers}
-              ticker={result.ticker}
-            />
-          )}
+          <OwnershipStatusHeader
+            ticker={result.ticker}
+            rating={decision_intelligence?.rating || null}
+            initiationStatus={initiationStatus}
+            initiationScore={initiationScore}
+            starterPct={starterPct}
+            maxPct={maxPct}
+            entryZone={entryZone}
+          />
 
           {/* ══════════════════════════════════════════════════════════════════
-              TRANCHE DEPLOYMENT PATH (Investor+)
-              3-stage capital deployment timing framework — display only.
-              Blurred upgrade preview shown for Starter tier.
-              ══════════════════════════════════════════════════════════════════ */}
-          {decision_intelligence?.tranche_plan && (
-            <TierGate feature="capital_deployment_path" userTier={userTier} isAdmin={isAdmin}>
-              <TrancheDeploymentPath tranchePlan={decision_intelligence.tranche_plan} />
-            </TierGate>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              SECTION 2 — STRUCTURAL QUALITY
+              SECTION I — STRUCTURAL DURABILITY
               Moat · Earnings durability · Financial health · Quality score
               ══════════════════════════════════════════════════════════════════ */}
           {moat_breakdown && moat_score !== null && (
             <CollapsibleSection
-              title="Structural Quality"
+              title="Structural Durability"
               sublabel="Moat · Earnings durability · Financial health · Quality score"
             >
               <TierGate feature="structural_quality_full" userTier={userTier} isAdmin={isAdmin}>
@@ -323,55 +284,97 @@ export function ResultsContent({
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION 3 — MISPRICING ENGINE
-              Intrinsic anchor · Divergence · Valuation regime · Consensus gap
+              SECTION II — STRUCTURAL THESIS
+              Structural drivers · Break conditions (threshold-based)
               ══════════════════════════════════════════════════════════════════ */}
-          {full_output?.fair_value_calibration && (
+          {(upgrade_triggers || downgrade_triggers || thesisBreakConditions) && (
             <CollapsibleSection
-              title="Mispricing Engine"
-              sublabel="Intrinsic anchor · Divergence · Valuation regime · Consensus gap"
+              title="Structural Thesis"
+              sublabel="Structural drivers · Break conditions"
             >
-              <FairValueRegimeCheck
-                calibration={full_output.fair_value_calibration}
-                currentPrice={decision_intelligence?.current_price}
-                financialHealthScore={moat_breakdown?.financial_health}
-                idealEntryZone={decision_intelligence?.recommended_strategy?.entry?.ideal_zone}
+              <TierGate feature="thesis_break_monitor" userTier={userTier} isAdmin={isAdmin}>
+                <ThesisDriversPanel
+                  upgradeTriggers={upgrade_triggers}
+                  downgradeTriggers={downgrade_triggers}
+                  thesisBreakConditions={thesisBreakConditions}
+                />
+              </TierGate>
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION III — DISLOCATION STATE
+              52-week high · Drawdown % · Tier bands · Capacity remaining
+              ══════════════════════════════════════════════════════════════════ */}
+          {(high52Week || currentPrice) && (
+            <CollapsibleSection
+              title="Dislocation State"
+              sublabel="52-week high · Drawdown % · Tier bands · Capacity remaining"
+            >
+              <DislocationStatePanel
+                currentPrice={currentPrice}
+                high52Week={high52Week}
+                ma200d={ma200d}
               />
             </CollapsibleSection>
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION 4 — SCENARIO & EV
-              Bear · Base · Bull · Probability-weighted expected value
+              SECTION IV — CONSERVATIVE VALUATION LENS
+              Intrinsic anchor · Divergence · Scenarios · EV
+              Valuation informs trim sensitivity and risk assessment.
+              It does NOT block adds.
               ══════════════════════════════════════════════════════════════════ */}
-          {decision_intelligence?.current_price && full_output?.price_targets && (
+          {(full_output?.fair_value_calibration || full_output?.price_targets) && (
             <CollapsibleSection
-              title="Scenario & EV"
-              sublabel="Bear · Base · Bull · Probability-weighted expected value · Downside %"
+              title="Conservative Valuation Lens"
+              sublabel="Risk framing · Intrinsic anchor · Scenarios · EV — does NOT block adds"
             >
-              <PriceTargetsCard
-                priceTargets={full_output.price_targets}
-                currentPrice={decision_intelligence.current_price}
-                ticker={result.ticker}
-                signalBreakdown={signal_breakdown}
-              />
+              <div className="space-y-4">
+                {full_output?.fair_value_calibration && (
+                  <FairValueRegimeCheck
+                    calibration={full_output.fair_value_calibration}
+                    currentPrice={currentPrice}
+                    financialHealthScore={moat_breakdown?.financial_health}
+                    idealEntryZone={decision_intelligence?.recommended_strategy?.entry?.ideal_zone}
+                  />
+                )}
+                {currentPrice && full_output?.price_targets && (
+                  <PriceTargetsCard
+                    priceTargets={full_output.price_targets}
+                    currentPrice={currentPrice}
+                    ticker={result.ticker}
+                    signalBreakdown={signal_breakdown}
+                  />
+                )}
+              </div>
             </CollapsibleSection>
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION 5 — RISK FACTORS
-              Key risks · Thesis invalidation · Stop probability
-              No valuation content.
+              SECTION V — PORTFOLIO ROLE
+              Weight · Top 3 exposure · Sector · Role tag
+              ══════════════════════════════════════════════════════════════════ */}
+          <CollapsibleSection
+            title="Portfolio Role"
+            sublabel="Weight · Exposure · Sector · Role tag"
+          >
+            <PortfolioRolePanel ticker={result.ticker} sector={sector} />
+          </CollapsibleSection>
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION VI — MONITORING DASHBOARD
+              Key risks · Thesis flags · Probabilistic diagnostics
               ══════════════════════════════════════════════════════════════════ */}
           {((risk_factors?.length ?? 0) > 0 ||
             (downgrade_triggers?.length ?? 0) > 0 ||
             !!signal_breakdown) && (
             <CollapsibleSection
-              title="Risk Factors"
-              sublabel="Key risks · Thesis invalidation · Stop probability"
+              title="Monitoring Dashboard"
+              sublabel="Key risks · Thesis flags · Probabilistic diagnostics · Next catalyst"
             >
               <div className="space-y-4">
-                {/* Compressed risk bullets + kill-thesis conditions */}
+                {/* Compressed risk bullets */}
                 {((risk_factors?.length ?? 0) > 0 || (downgrade_triggers?.length ?? 0) > 0) && (
                   <CompressedRiskPanel
                     riskFactors={risk_factors || []}
@@ -395,80 +398,6 @@ export function ResultsContent({
                     userTier={userTier}
                     isAdmin={isAdmin}
                   />
-                )}
-
-                {/* Historical analogs (Trader) */}
-                {canSeeEngineDiagnostics && signal_breakdown && (
-                  <TierGate feature="historical_patterns" userTier={userTier} isAdmin={isAdmin}>
-                    <HistoricalAnalogPanel breakdown={signal_breakdown} />
-                  </TierGate>
-                )}
-              </div>
-            </CollapsibleSection>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              SECTION 6 — TACTICAL OVERLAYS
-              Analyst · Sentiment · Insider · Dark pool
-              ══════════════════════════════════════════════════════════════════ */}
-          {signal_breakdown && (
-            <CollapsibleSection
-              title="Tactical Overlays"
-              sublabel="Analyst · Sentiment · Insider · Dark pool"
-            >
-              <div className="space-y-4">
-                {/* 2×2 signal score grid */}
-                <div className="grid grid-cols-2 gap-3">
-                  <SignalCard
-                    label="Analyst"
-                    score={signal_breakdown.analyst_score}
-                    interpretation={signal_breakdown.analyst_interpretation}
-                    hasData={signal_breakdown.analyst_has_data}
-                  />
-                  <SignalCard
-                    label="Sentiment"
-                    score={signal_breakdown.news_score}
-                    interpretation={signal_breakdown.news_interpretation}
-                    hasData={signal_breakdown.news_has_data}
-                  />
-                  <SignalCard
-                    label="Insider"
-                    score={signal_breakdown.insider_score}
-                    interpretation={signal_breakdown.insider_interpretation}
-                    hasData={signal_breakdown.insider_has_data}
-                  />
-                  <SignalCard
-                    label="Dark Pool"
-                    score={signal_breakdown.dark_pool_score}
-                    interpretation={signal_breakdown.dark_pool_interpretation}
-                    hasData={signal_breakdown.dark_pool_has_data}
-                  />
-                </div>
-
-                {/* Smart money alert */}
-                <SmartMoneyAlert signalBreakdown={signal_breakdown} />
-
-                {/* Analyst verdict (Investor+) */}
-                {canSeeSignalMetrics && full_output?.investment_thesis && (
-                  <TierGate feature="analyst_verdict" userTier={userTier} isAdmin={isAdmin}>
-                    <AnalystVerdict
-                      thesis={full_output.investment_thesis}
-                      upgradeTriggers={upgrade_triggers}
-                      downgradeTriggers={downgrade_triggers}
-                      signalBreakdown={signal_breakdown}
-                      valuationScore={moat_breakdown?.valuation}
-                      calibration={full_output.fair_value_calibration}
-                      currentPrice={decision_intelligence?.current_price}
-                      financialHealthScore={moat_breakdown?.financial_health}
-                    />
-                  </TierGate>
-                )}
-
-                {/* Institutional risk (Trader) */}
-                {canSeeEngineDiagnostics && (
-                  <TierGate feature="institutional_risk" userTier={userTier} isAdmin={isAdmin}>
-                    <InstitutionalRiskDashboard breakdown={signal_breakdown} />
-                  </TierGate>
                 )}
               </div>
             </CollapsibleSection>
