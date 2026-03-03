@@ -69,6 +69,9 @@ FEAT_PORTFOLIO_CORE              = "feature.portfolio.core"              # Start
 FEAT_PORTFOLIO_ACTIONS           = "feature.portfolio.actions"           # Investor+: full action feed
 FEAT_PORTFOLIO_MULTI             = "feature.portfolio.multi"             # Trader: multiple portfolios
 FEAT_PORTFOLIO_SIMULATION        = "feature.portfolio.simulation"        # Trader: action simulation
+FEAT_PORTFOLIO_INTELLIGENCE_BASIC  = "feature.portfolio.intelligence.basic"   # Starter+: PM memo + alignment matrix
+FEAT_PORTFOLIO_INTELLIGENCE_FULL   = "feature.portfolio.intelligence.full"    # Investor+: edge score + concentration + regime
+FEAT_PORTFOLIO_INTELLIGENCE_STRESS = "feature.portfolio.intelligence.stress"  # Trader: thematic clusters + all flags
 
 # Trader only — Edge Layer
 FEAT_REPORT_TRADE_SETUP          = "feature.report.trade_setup"
@@ -104,6 +107,9 @@ ALL_FEATURES: list[str] = [
     FEAT_PORTFOLIO_ACTIONS,
     FEAT_PORTFOLIO_MULTI,
     FEAT_PORTFOLIO_SIMULATION,
+    FEAT_PORTFOLIO_INTELLIGENCE_BASIC,
+    FEAT_PORTFOLIO_INTELLIGENCE_FULL,
+    FEAT_PORTFOLIO_INTELLIGENCE_STRESS,
     # Trader only
     FEAT_REPORT_TRADE_SETUP,
     FEAT_ENGINE_DIAGNOSTICS,
@@ -131,11 +137,13 @@ _INVESTOR_PLUS: set[str] = {
     FEAT_STOP_PROB_BASIC,
     FEAT_DEPLOYMENT_STRUCTURAL,
     FEAT_PORTFOLIO_ACTIONS,
+    FEAT_PORTFOLIO_INTELLIGENCE_FULL,
 }
 
 _TRADER_ONLY: set[str] = {
     FEAT_PORTFOLIO_MULTI,
     FEAT_PORTFOLIO_SIMULATION,
+    FEAT_PORTFOLIO_INTELLIGENCE_STRESS,
     FEAT_REPORT_TRADE_SETUP,
     FEAT_ENGINE_DIAGNOSTICS,
     FEAT_SCENARIO_WEIGHTS,
@@ -150,7 +158,7 @@ _TRADER_ONLY: set[str] = {
     FEAT_HORIZON_NORMALIZATION,
 }
 
-_CORE: set[str] = {FEAT_REPORT_CORE, FEAT_SIZING_SUMMARY, FEAT_PORTFOLIO_CORE}
+_CORE: set[str] = {FEAT_REPORT_CORE, FEAT_SIZING_SUMMARY, FEAT_PORTFOLIO_CORE, FEAT_PORTFOLIO_INTELLIGENCE_BASIC}
 
 _ENTITLEMENTS: dict[str, set[str]] = {
     # Free tier: identical content to Starter (gating is credit-based, not feature-based)

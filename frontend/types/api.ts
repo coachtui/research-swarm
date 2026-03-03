@@ -1602,3 +1602,87 @@ export interface ActionFeed {
   total: number
   pending_count: number
 }
+
+// ── Portfolio Intelligence Engine ─────────────────────────────────────────────
+
+export interface PositionIntelligence {
+  ticker: string
+  weight: number                   // decimal 0-1
+  sector: string
+  structural_quality: number       // 0-10
+  valuation_gap_pct: number        // negative = discount vs intrinsic
+  divergence_score: number         // 0-10
+  divergence_phase: 'Weak' | 'Emerging' | 'Strong' | 'Extreme'
+  initiation_status: 'INITIATE' | 'WATCHLIST' | 'WAIT'
+  initiation_score: number         // 0-100
+  bear_return_pct: number          // e.g. -25
+  bull_return_pct: number          // e.g. +35
+  moat_score: number               // 0-10
+  has_data: boolean
+}
+
+export interface PortfolioEdgeScore {
+  total: number                    // 0-10
+  label: 'Defensive' | 'Neutral' | 'Constructive' | 'High Conviction Alignment'
+  structural_component: number     // 0-10
+  valuation_component: number      // 0-10
+  divergence_component: number     // 0-10
+  regime_component: number         // 0-10
+  concentration_score: number      // 0-10 (after penalty)
+  weights_applied: Record<string, number>
+}
+
+export interface AlignmentMatrixRow {
+  dimension: string
+  status: string                   // Strong/Mixed/Weak | Attractive/Fair/Extended | etc.
+  metric_label: string
+}
+
+export interface ConcentrationDiagnostics {
+  top_3_tickers: Array<{ ticker: string; weight: number }>  // weight is %
+  top_3_weight_pct: number
+  sector_breakdown: Record<string, number>                  // sector → weight %
+  top_sector: string
+  top_sector_weight_pct: number
+  hhi: number                      // 0-10000
+  concentration_label: 'Low' | 'Moderate' | 'Elevated'
+  thematic_clusters: Record<string, number>                 // theme → weight % (Trader only)
+  largest_downside_ticker: string
+  largest_downside_impact_pct: number
+}
+
+export interface RegimeVulnerability {
+  projected_portfolio_drawdown: number   // weighted avg bear return %
+  weighted_bull_return: number
+  most_vulnerable: Array<{
+    ticker: string
+    impact_pct: number
+    bear_return_pct: number
+    weight_pct: number
+  }>
+  regime_label: 'Expansion' | 'Neutral' | 'Contraction'
+  expansion_compression_risk: number
+}
+
+export interface MisalignmentFlag {
+  code: string
+  severity: 'warning' | 'critical'
+  message: string
+  affected_tickers: string[]
+}
+
+export interface PortfolioIntelligence {
+  portfolio_id: string
+  position_count: number
+  positions_with_data: number
+  total_weight_covered: number     // 0-1 fraction
+  tier: 'basic' | 'full' | 'stress'
+  edge_score: PortfolioEdgeScore | null
+  alignment_matrix: AlignmentMatrixRow[]
+  concentration: ConcentrationDiagnostics | null
+  regime_vulnerability: RegimeVulnerability | null
+  misalignment_flags: MisalignmentFlag[]
+  pm_memo: string
+  positions_scored: PositionIntelligence[]
+  computed_at: string
+}

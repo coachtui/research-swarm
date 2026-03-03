@@ -12,12 +12,20 @@ Supports:
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.dependencies import get_current_user
 from api.lib.db import get_db
-from api.lib.entitlements import has_feature, FEAT_PORTFOLIO_CORE, FEAT_PORTFOLIO_ACTIONS
+from api.lib.entitlements import (
+    has_feature,
+    FEAT_PORTFOLIO_CORE,
+    FEAT_PORTFOLIO_ACTIONS,
+    FEAT_PORTFOLIO_INTELLIGENCE_BASIC,
+    FEAT_PORTFOLIO_INTELLIGENCE_FULL,
+    FEAT_PORTFOLIO_INTELLIGENCE_STRESS,
+)
 from api.lib.plan_limits import get_tier_limits
 from api.models.auth import User
 from api.models.portfolio import (
@@ -406,3 +414,89 @@ async def trigger_engine_run(
     except Exception as e:
         logger.error("Engine run failed for portfolio %s: %s", portfolio_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Engine run failed: {str(e)}")
+
+
+# ── Portfolio Intelligence ────────────────────────────────────────────────────
+
+
+@router.get("/portfolio/{portfolio_id}/intelligence")
+async def get_portfolio_intelligence(
+    portfolio_id: str,
+    user: User = Depends(get_current_user),
+):
+    """
+    Compute and return the Portfolio Intelligence overlay for a given portfolio.
+
+    Tier levels:
+      Starter  → basic  (PM memo + 3-row alignment matrix)
+      Investor → full   (+ edge score + concentration + regime vulnerability + misalignment flags)
+      Trader   → stress (+ thematic clustering + all 5 misalignment flags)
+    """
+    if not has_feature(user, FEAT_PORTFOLIO_INTELLIGENCE_BASIC):
+        raise HTTPException(status_code=403, detail={
+            "code": "NOT_ENTITLED",
+            "message": "Portfolio Intelligence requires a paid subscription",
+        })
+
+    db = await get_db()
+    portfolio = await _verify_portfolio_ownership(db, portfolio_id, user.id)
+    positions = portfolio.positions or []
+
+    if not positions:
+        from api.lib.portfolio_intelligence import compute_portfolio_intelligence
+        return compute_portfolio_intelligence(portfolio_id, [], "basic")
+
+    # Determine tier level for intelligence computation
+    if has_feature(user, FEAT_PORTFOLIO_INTELLIGENCE_STRESS):
+        tier = "stress"
+    elif has_feature(user, FEAT_PORTFOLIO_INTELLIGENCE_FULL):
+        tier = "full"
+    else:
+        tier = "basic"
+
+    # Fetch latest completed StockResult per ticker
+    tickers = [p.ticker for p in positions]
+    results = await db.stockresult.find_many(
+        where={"userId": user.id, "ticker": {"in": tickers}, "status": "completed"},
+        order={"createdAt": "desc"},
+    )
+
+    # Build ticker → latest result map
+    result_map: dict[str, Any] = {}
+    for r in results:
+        if r.ticker not in result_map:
+            result_map[r.ticker] = r
+
+    # Build positions_data list
+    positions_data = []
+    for pos in positions:
+        stock_result = result_map.get(pos.ticker)
+        full_output: dict | None = None
+        if stock_result and stock_result.fullOutput:
+            raw = stock_result.fullOutput
+            if isinstance(raw, str):
+                try:
+                    full_output = json.loads(raw)
+                except Exception:
+                    full_output = None
+            elif isinstance(raw, dict):
+                full_output = raw
+
+        positions_data.append({
+            "ticker": pos.ticker,
+            "weight": float(pos.currentWeight or 0.0),
+            "full_output": full_output,
+            "sector": stock_result.sector if stock_result else None,
+            "moat_score": float(stock_result.moatScore or 5.0) if stock_result else 5.0,
+        })
+
+    from api.lib.portfolio_intelligence import compute_portfolio_intelligence
+
+    try:
+        result = compute_portfolio_intelligence(portfolio_id, positions_data, tier)
+        return result
+    except Exception as e:
+        logger.error(
+            "Portfolio intelligence failed for portfolio %s: %s", portfolio_id, e, exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=f"Intelligence computation failed: {str(e)}")

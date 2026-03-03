@@ -11,6 +11,7 @@ import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
 import { PortfolioSeedForm } from '@/components/portfolio/PortfolioSeedForm'
 import { ActionsTab } from '@/components/portfolio/ActionsTab'
 import { HoldingsTab } from '@/components/portfolio/HoldingsTab'
+import { PortfolioIntelligencePanel } from '@/components/portfolio/PortfolioIntelligencePanel'
 import { useQuota } from '@/lib/hooks/useQuota'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import { usePortfolio } from '@/lib/hooks/usePortfolio'
@@ -114,6 +115,9 @@ function DashboardContent({ currentUser }: { currentUser: UserInfo | null }) {
             <TabsTrigger value="portfolio">
               Portfolio
             </TabsTrigger>
+            <TabsTrigger value="intelligence">
+              Intelligence
+            </TabsTrigger>
             <TabsTrigger value="actions">
               {canSeeActions ? 'Actions' : 'Actions 🔒'}
             </TabsTrigger>
@@ -133,6 +137,21 @@ function DashboardContent({ currentUser }: { currentUser: UserInfo | null }) {
               <PortfolioSeedForm />
             ) : (
               <NoSubscriptionPanel />
+            )}
+          </TabsContent>
+
+          {/* ── Intelligence Tab ──────────────────────────────────────── */}
+          <TabsContent value="intelligence">
+            {hasPortfolio ? (
+              <PortfolioIntelligencePanel
+                portfolioId={portfolio.id}
+                userTier={userTier}
+                isAdmin={currentUser?.is_admin ?? false}
+              />
+            ) : (
+              <div className="text-center py-12 text-sm text-text-tertiary">
+                Create a portfolio first to unlock portfolio intelligence.
+              </div>
             )}
           </TabsContent>
 

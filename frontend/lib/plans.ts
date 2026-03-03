@@ -60,6 +60,7 @@ export const PLANS: Record<PlanKey, Plan> = {
       'Moat score + signal breakdown',
       'Investment summary + strategic catalysts',
       'Unlimited watchlist tracking',
+      'Portfolio Intelligence — PM memo & alignment matrix',
     ],
     // No locked features beyond core — all core report panels are visible.
     unlockedFeatures: [],
@@ -83,12 +84,14 @@ export const PLANS: Record<PlanKey, Plan> = {
       'Stability & noise diagnostics',
       'Full investment thesis + analyst verdict',
       'Historical pattern framing',
+      'Portfolio Intelligence — edge score, concentration & regime overlay',
     ],
     unlockedFeatures: [
       'historical_patterns',
       'institutional_risk',
       'probabilistic_engine',
       'analyst_verdict',
+      'portfolio_intelligence_full',
     ],
   },
 
@@ -108,6 +111,7 @@ export const PLANS: Record<PlanKey, Plan> = {
       'Dynamic position sizing engine',
       'Portfolio risk & factor exposure',
       'Tactical entry / exit setup',
+      'Portfolio Intelligence — thematic clustering & regime stress',
       'Full engine console + advanced appendix',
     ],
     unlockedFeatures: [
@@ -116,6 +120,7 @@ export const PLANS: Record<PlanKey, Plan> = {
       'probabilistic_engine',
       'analyst_verdict',
       'execution_layer',
+      'portfolio_intelligence_stress',
     ],
   },
 }

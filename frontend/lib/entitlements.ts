@@ -48,6 +48,10 @@ export type Feature =
   | 'portfolio_actions'         // Investor+: full action feed
   | 'portfolio_multi'           // Trader: multiple portfolios
   | 'portfolio_simulation'      // Trader: action simulation
+  // ── Portfolio Intelligence Engine ───────────────────────────────────────
+  | 'portfolio_intelligence_basic'   // Starter+: PM memo + alignment matrix
+  | 'portfolio_intelligence_full'    // Investor+: edge score + concentration + regime
+  | 'portfolio_intelligence_stress'  // Trader: thematic clustering + all flags
 
 /** Minimum tier required to access each feature. */
 const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
@@ -77,6 +81,10 @@ const FEATURE_REQUIREMENTS: Record<Feature, Tier> = {
   portfolio_actions:           'investor',
   portfolio_multi:             'trader',
   portfolio_simulation:        'trader',
+  // Portfolio Intelligence gates
+  portfolio_intelligence_basic:   'starter',
+  portfolio_intelligence_full:    'investor',
+  portfolio_intelligence_stress:  'trader',
   // New Trader-only gates (Edge Layer)
   ev_stability_panel:          'trader',
   probability_reliability:     'trader',
@@ -356,6 +364,37 @@ export const FEATURE_GATE_COPY: Record<Feature, {
       'Stop probability headline from the probabilistic engine',
       'Volatility regime and trend modifier context',
       'Effective stop level with narrative explanation',
+    ],
+  },
+  // ── Portfolio Intelligence gates ──────────────────────────────────────
+  portfolio_intelligence_basic: {
+    title: 'Portfolio Intelligence',
+    description: 'Holistic portfolio scoring — structure, concentration, and regime alignment.',
+    requiredTier: 'starter',
+    bullets: [
+      'PM-style memo summarising portfolio risk',
+      'Capital alignment matrix across key dimensions',
+    ],
+  },
+  portfolio_intelligence_full: {
+    title: 'Portfolio Intelligence — Full',
+    description: 'Edge score, concentration diagnostics, and regime vulnerability overlay.',
+    requiredTier: 'investor',
+    bullets: [
+      'Portfolio Edge Score (0-10) with component breakdown',
+      'Concentration diagnostics: top holdings, sector exposure',
+      'Regime vulnerability with bear-case drawdown simulation',
+      'Misalignment flags: structural, valuation, and regime',
+    ],
+  },
+  portfolio_intelligence_stress: {
+    title: 'Portfolio Intelligence — Stress',
+    description: 'Thematic clustering, regime shift simulation, and full misalignment detection.',
+    requiredTier: 'trader',
+    bullets: [
+      'Thematic cluster analysis (AI/Tech, Energy, Financial, etc.)',
+      'Full 5-flag misalignment detection suite',
+      'Regime shift stress framing across bear scenarios',
     ],
   },
   // ── New Trader-only gates ──────────────────────────────────────────────

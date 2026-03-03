@@ -30,6 +30,7 @@ import type {
   Portfolio,
   PortfolioListResponse,
   ActionFeed,
+  PortfolioIntelligence,
 } from '@/types/api'
 
 class ApiClient {
@@ -454,6 +455,10 @@ class ApiClient {
     return this.request(`/api/portfolio/${portfolioId}/engine/run?cycle_type=${cycleType}`, {
       method: 'POST',
     })
+  }
+
+  async getPortfolioIntelligence(portfolioId: string): Promise<PortfolioIntelligence> {
+    return this.request(`/api/portfolio/${portfolioId}/intelligence`)
   }
 }
 
