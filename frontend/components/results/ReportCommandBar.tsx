@@ -29,7 +29,7 @@ export function ReportCommandBar({
 }: ReportCommandBarProps) {
   return (
     <div
-      className="sticky top-14 z-40 h-16 w-full border-b border-border/50 shadow-sm"
+      className="sticky top-14 z-40 h-[4.5rem] w-full border-b border-border/50 shadow-sm"
       style={{ background: 'rgb(var(--bg-rgb) / 0.98)' }}
     >
       <div className="container mx-auto px-4 h-full">
@@ -37,8 +37,8 @@ export function ReportCommandBar({
 
           {/* Left — logo · ticker · company · price · timestamp */}
           <div className="flex items-center gap-3 min-w-0">
-            <StockLogo ticker={ticker} size="sm" />
-            <span className="text-sm font-bold font-mono text-text-primary tracking-widest uppercase flex-shrink-0">
+            <StockLogo ticker={ticker} size="md" />
+            <span className="text-xl font-bold font-mono text-text-primary tracking-widest uppercase flex-shrink-0">
               {ticker}
             </span>
             {companyName && (
@@ -51,13 +51,13 @@ export function ReportCommandBar({
             )}
             {price !== null && (
               <>
-                <span className="text-border/50 select-none flex-shrink-0">|</span>
-                <span className="text-sm font-semibold font-mono text-text-primary flex-shrink-0">
+                <span className="text-border/60 select-none flex-shrink-0 text-lg">|</span>
+                <span className="text-xl font-bold font-mono text-text-primary flex-shrink-0">
                   ${price.toFixed(2)}
                 </span>
               </>
             )}
-            <span className="text-[11px] text-text-tertiary/60 font-mono truncate hidden sm:block">
+            <span className="text-[11px] text-text-tertiary/60 font-mono truncate hidden lg:block">
               {formatDateTime(timestamp)}
             </span>
           </div>
