@@ -1,10 +1,19 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { usePortfolio, useTriggerEngine } from '@/lib/hooks/usePortfolio'
 import { formatWeight } from '@/lib/ownership-mapping'
 import { Button } from '@/components/ui/button'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
 import { canAccessFeature } from '@/lib/entitlements'
+
+type EngineResult = {
+  success: boolean
+  actions_created: number
+  cycle_type: string
+  trigger_cycle: string
+  diagnostics?: { message?: string }
+}
 
 /**
  * PortfolioOverview — summary of the user's primary portfolio.
@@ -21,9 +30,22 @@ export function PortfolioOverview({
 }) {
   const { data } = usePortfolio()
   const triggerEngine = useTriggerEngine()
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Auto-dismiss the result banner after 12s
+  useEffect(() => {
+    if (triggerEngine.isSuccess || triggerEngine.isError) {
+      dismissTimer.current = setTimeout(() => triggerEngine.reset(), 12000)
+    }
+    return () => {
+      if (dismissTimer.current) clearTimeout(dismissTimer.current)
+    }
+  }, [triggerEngine.isSuccess, triggerEngine.isError])
 
   const portfolio = data?.portfolios?.find(p => p.id === portfolioId)
   if (!portfolio) return null
+
+  const engineResult = triggerEngine.data as EngineResult | undefined
 
   const sorted = [...portfolio.positions].sort((a, b) => b.current_weight - a.current_weight)
   const top3 = sorted.slice(0, 3)
@@ -63,6 +85,34 @@ export function PortfolioOverview({
           </Button>
         )}
       </div>
+
+      {/* ── Engine result banner ─────────────────────────────────────── */}
+      {triggerEngine.isSuccess && engineResult && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-success/30 bg-success/5 px-4 py-3">
+          <CheckCircle className="h-4 w-4 text-success mt-0.5 shrink-0" />
+          <div className="text-xs text-text-secondary">
+            <span className="font-semibold text-success">Engine run complete.</span>{' '}
+            {engineResult.actions_created > 0 ? (
+              <>
+                <span className="font-semibold text-text-primary">{engineResult.actions_created}</span>{' '}
+                new action{engineResult.actions_created !== 1 ? 's' : ''} generated
+                — check the <span className="font-semibold text-text-primary">Actions</span> tab to review them.
+              </>
+            ) : (
+              <>No new actions — positions are on track for the {engineResult.cycle_type} cycle.</>
+            )}
+          </div>
+        </div>
+      )}
+      {triggerEngine.isError && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-error/30 bg-error/5 px-4 py-3">
+          <AlertCircle className="h-4 w-4 text-error mt-0.5 shrink-0" />
+          <p className="text-xs text-error">
+            Engine run failed:{' '}
+            {(triggerEngine.error as { message?: string })?.message ?? 'Unknown error'}
+          </p>
+        </div>
+      )}
 
       {/* ── Summary tiles ────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
