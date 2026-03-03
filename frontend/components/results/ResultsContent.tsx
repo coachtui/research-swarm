@@ -10,6 +10,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { OwnershipStatusHeader } from '@/components/results/OwnershipStatusHeader'
 import { usePortfolioPosition } from '@/lib/hooks/usePortfolio'
 import { GrowthQualityClassification } from '@/components/results/GrowthQualityClassification'
+import { PMSnapshotCard } from '@/components/results/PMSnapshotCard'
 import { DivergenceIntelligencePanel } from '@/components/results/DivergenceIntelligencePanel'
 import { DeploymentDriversPanel } from '@/components/results/DeploymentDriversPanel'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
@@ -262,6 +263,21 @@ export function ResultsContent({
       <div className="container mx-auto px-4 pt-4 pb-8">
         <div className="max-w-6xl mx-auto space-y-3">
 
+            {/* ══════════════════════════════════════════════════════════════════
+              PM SNAPSHOT — Persistent top-of-report block
+              Answers 7 key questions in under 15 seconds.
+              Capital Alignment Matrix · Synthesis · Capital Environment
+              ══════════════════════════════════════════════════════════════════ */}
+          <PMSnapshotCard
+            moatScore={moat_score}
+            priceTargets={full_output?.price_targets ?? null}
+            currentPrice={currentPrice}
+            divergenceOverlay={divergenceOverlay}
+            fairValueCalibration={full_output?.fair_value_calibration ?? null}
+            initiationStatus={initiationStatus}
+            signalBreakdown={signal_breakdown}
+          />
+
           {/* ══════════════════════════════════════════════════════════════════
               HEADER — OWNERSHIP STATUS
               Always visible. Ownership status · Thesis state · Action now ·
@@ -275,101 +291,15 @@ export function ResultsContent({
           />
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION 0 — GROWTH QUALITY CLASSIFICATION
-              Durable Growth / Durable Quality / Emerging Compounder classification
-              ══════════════════════════════════════════════════════════════════ */}
-          {(moat_breakdown || fundamentalistOutput) && (
-            <GrowthQualityClassification
-              moatBreakdown={moat_breakdown}
-              fundamentalistOutput={fundamentalistOutput}
-              qualityScore={qualityScore}
-              moatScore={moat_score}
-            />
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              SECTION 0.5 — DIVERGENCE INTELLIGENCE
-              Timing score · Phase · Sub-metrics · Allocation adjustment
-              ══════════════════════════════════════════════════════════════════ */}
-          {divergenceOverlay && (
-            <DivergenceIntelligencePanel overlay={divergenceOverlay} />
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              INVESTMENT THESIS
-              Company overview · Highlights · Key risks · Entry context
-              ══════════════════════════════════════════════════════════════════ */}
-          {full_output?.investment_thesis && (
-            <CollapsibleSection
-              title="Investment Thesis"
-              sublabel="Company overview · Highlights · Key risks · Entry context"
-              defaultOpen
-            >
-              <InvestmentThesisPanel thesis={full_output.investment_thesis} />
-            </CollapsibleSection>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              SECTION I — STRUCTURAL DURABILITY
-              Moat · Earnings durability · Financial health · Quality score
-              ══════════════════════════════════════════════════════════════════ */}
-          {moat_breakdown && moat_score !== null && (
-            <CollapsibleSection
-              title="Structural Durability"
-              sublabel="Moat · Earnings durability · Financial health · Quality score"
-            >
-              <TierGate feature="structural_quality_full" userTier={userTier} isAdmin={isAdmin}>
-                <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
-              </TierGate>
-            </CollapsibleSection>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              SECTION II — STRUCTURAL THESIS
-              Structural drivers · Break conditions (threshold-based)
-              ══════════════════════════════════════════════════════════════════ */}
-          {(upgrade_triggers || downgrade_triggers || thesisBreakConditions) && (
-            <CollapsibleSection
-              title="Structural Thesis"
-              sublabel="Structural drivers · Break conditions"
-              defaultOpen
-            >
-              <ThesisDriversPanel
-                upgradeTriggers={upgrade_triggers}
-                downgradeTriggers={downgrade_triggers}
-                thesisBreakConditions={thesisBreakConditions}
-              />
-            </CollapsibleSection>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              SECTION III — DISLOCATION STATE
-              52-week high · Drawdown % · Tier bands · Capacity remaining
-              ══════════════════════════════════════════════════════════════════ */}
-          {(high52Week || currentPrice) && (
-            <CollapsibleSection
-              title="Dislocation State"
-              sublabel="252d rolling high · Drawdown % · Tier bands (+2/+4/+6/+8)"
-            >
-              <DislocationStatePanel
-                currentPrice={currentPrice}
-                high52Week={high52Week}
-                ma200d={ma200d}
-                position={portfolioPosition}
-              />
-            </CollapsibleSection>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              SECTION IV — CONSERVATIVE VALUATION LENS
-              Intrinsic anchor · Divergence · Scenarios · EV
+              SECTION I — CONSERVATIVE VALUATION LENS  (moved up — Risk/Reward first)
+              Intrinsic anchor · Scenario risk/reward · EV
               Valuation informs trim sensitivity and risk assessment.
               It does NOT block adds.
               ══════════════════════════════════════════════════════════════════ */}
           {(full_output?.fair_value_calibration || full_output?.price_targets) && (
             <CollapsibleSection
-              title="Conservative Valuation Lens"
-              sublabel="Risk framing · Intrinsic anchor · Scenarios · EV — does NOT block adds"
+              title="Valuation & Risk / Reward"
+              sublabel="Downside · Upside · Intrinsic anchor · Scenarios · EV — does NOT block adds"
             >
               <div className="space-y-4">
                 {/* Disclaimer — valuation is risk framing, never an entry gate */}
@@ -408,6 +338,90 @@ export function ResultsContent({
                   />
                 )}
               </div>
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION II — DIVERGENCE INTELLIGENCE  (Divergence & Allocation)
+              Timing score · Phase · Sub-metrics · Allocation adjustment
+              ══════════════════════════════════════════════════════════════════ */}
+          {divergenceOverlay && (
+            <DivergenceIntelligencePanel overlay={divergenceOverlay} />
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION III — COMPANY CLASSIFICATION
+              Durable Growth / Durable Quality / Emerging Compounder
+              ══════════════════════════════════════════════════════════════════ */}
+          {(moat_breakdown || fundamentalistOutput) && (
+            <GrowthQualityClassification
+              moatBreakdown={moat_breakdown}
+              fundamentalistOutput={fundamentalistOutput}
+              qualityScore={qualityScore}
+              moatScore={moat_score}
+            />
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION IV — INVESTMENT THESIS  (collapsed by default)
+              Company overview · Highlights · Key risks · Entry context
+              ══════════════════════════════════════════════════════════════════ */}
+          {full_output?.investment_thesis && (
+            <CollapsibleSection
+              title="Investment Thesis"
+              sublabel="Company overview · Highlights · Key risks · Entry context"
+            >
+              <InvestmentThesisPanel thesis={full_output.investment_thesis} />
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION V — STRUCTURAL DURABILITY  (collapsed)
+              Moat · Earnings durability · Financial health · Quality score
+              ══════════════════════════════════════════════════════════════════ */}
+          {moat_breakdown && moat_score !== null && (
+            <CollapsibleSection
+              title="Structural Durability"
+              sublabel="Moat · Earnings durability · Financial health · Quality score"
+            >
+              <TierGate feature="structural_quality_full" userTier={userTier} isAdmin={isAdmin}>
+                <ScoreBreakdownBars breakdown={moat_breakdown} overallScore={moat_score} />
+              </TierGate>
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION VI — STRUCTURAL THESIS  (collapsed)
+              Structural drivers · Break conditions (threshold-based)
+              ══════════════════════════════════════════════════════════════════ */}
+          {(upgrade_triggers || downgrade_triggers || thesisBreakConditions) && (
+            <CollapsibleSection
+              title="Structural Thesis"
+              sublabel="Structural drivers · Break conditions"
+            >
+              <ThesisDriversPanel
+                upgradeTriggers={upgrade_triggers}
+                downgradeTriggers={downgrade_triggers}
+                thesisBreakConditions={thesisBreakConditions}
+              />
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION VII — DISLOCATION STATE
+              52-week high · Drawdown % · Tier bands · Capacity remaining
+              ══════════════════════════════════════════════════════════════════ */}
+          {(high52Week || currentPrice) && (
+            <CollapsibleSection
+              title="Dislocation State"
+              sublabel="252d rolling high · Drawdown % · Tier bands (+2/+4/+6/+8)"
+            >
+              <DislocationStatePanel
+                currentPrice={currentPrice}
+                high52Week={high52Week}
+                ma200d={ma200d}
+                position={portfolioPosition}
+              />
             </CollapsibleSection>
           )}
 

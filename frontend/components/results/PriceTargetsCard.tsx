@@ -257,6 +257,47 @@ export function PriceTargetsCard({ priceTargets, currentPrice, signalBreakdown }
         </div>
       </div>
 
+      {/* ── Risk / Reward Summary — downside first, institutional tone ── */}
+      <div className="mt-4 rounded-lg border border-border/60 bg-surface-elevated/30 overflow-hidden">
+        <div className="px-3 py-1.5 border-b border-border/40 flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
+            Risk / Reward Summary
+          </span>
+          <span className="text-[9px] text-text-tertiary/40 italic">Downside assessed first</span>
+        </div>
+        <div className="divide-y divide-border/30">
+          {/* Downside — first, prominent */}
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-xs text-text-secondary">Downside to Bear</span>
+            <span className="font-mono font-bold text-sm text-error">
+              {bearDownside.toFixed(1)}%
+            </span>
+          </div>
+          {/* Upside — second */}
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-xs text-text-secondary">Upside to Bull</span>
+            <span className={`font-mono font-bold text-sm ${bullUpside >= 0 ? 'text-success' : 'text-error'}`}>
+              +{bullUpside.toFixed(1)}%
+            </span>
+          </div>
+          {/* Asymmetry */}
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-xs text-text-secondary">Asymmetry Ratio</span>
+            <span className={`font-mono font-bold text-sm ${asymmetryRatio >= 1.5 ? 'text-success' : asymmetryRatio >= 1.0 ? 'text-text-secondary' : 'text-warning'}`}>
+              {asymmetryRatio.toFixed(1)}:1
+              <span className="text-[10px] font-normal text-text-tertiary ml-1">(bull:bear)</span>
+            </span>
+          </div>
+          {/* Probability-Weighted EV — last */}
+          <div className="flex items-center justify-between px-3 py-2 bg-surface-elevated/40">
+            <span className="text-xs font-medium text-text-secondary">Prob-Weighted EV</span>
+            <span className={`font-mono font-bold text-sm ${evVsCurrent >= 5 ? 'text-success' : evVsCurrent >= 0 ? 'text-text-secondary' : 'text-error'}`}>
+              {evVsCurrent > 0 ? '+' : ''}{evVsCurrent.toFixed(1)}%
+            </span>
+          </div>
+        </div>
+      </div>
+
       {/* ── EV Summary + Effective EV Table ── */}
       <div className="mt-4 pt-4 border-t border-border space-y-3">
 

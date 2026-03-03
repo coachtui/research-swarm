@@ -40,15 +40,16 @@ export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligenceP
     score_coverage,
   } = overlay
 
-  // ── Phase color & badge ────────────────────────────────────────────────────
-  const phaseColors: Record<string, { color: string; bg: string }> = {
-    Weak: { color: 'text-text-tertiary', bg: 'bg-surface-elevated/50' },
-    Emerging: { color: 'text-warning', bg: 'bg-warning/10' },
-    Strong: { color: 'text-primary', bg: 'bg-primary/10' },
-    Extreme: { color: 'text-success', bg: 'bg-success/10' },
+  // ── Phase color, badge & discipline label ─────────────────────────────────
+  // Visual scarcity: muted for weak, neutral for emerging, accent only for confirmed edge
+  const phaseConfig: Record<string, { color: string; bg: string; disciplineLabel: string }> = {
+    Weak:     { color: 'text-text-tertiary',  bg: 'bg-surface-elevated/50',  disciplineLabel: 'No Timing Edge' },
+    Emerging: { color: 'text-text-secondary', bg: 'bg-surface-elevated/60',  disciplineLabel: 'Monitoring Edge' },
+    Strong:   { color: 'text-primary',        bg: 'bg-primary/10',           disciplineLabel: 'Accumulation Edge' },
+    Extreme:  { color: 'text-success',        bg: 'bg-success/15',           disciplineLabel: 'Dislocation Edge' },
   }
 
-  const phaseStyle = phaseColors[divergence_phase] || phaseColors.Weak
+  const phaseStyle = phaseConfig[divergence_phase] || phaseConfig.Weak
 
   return (
     <div className="rounded-xl border border-border/60 bg-surface/30 overflow-hidden">
@@ -71,7 +72,7 @@ export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligenceP
           <div className="flex-1 space-y-2">
             <div className="flex items-center gap-2">
               <span className={`px-2.5 py-1 rounded text-xs font-semibold uppercase tracking-wider ${phaseStyle.bg} ${phaseStyle.color}`}>
-                {divergence_phase} Phase
+                {phaseStyle.disciplineLabel}
               </span>
               <span className="text-sm font-medium text-text-secondary">{phase_label}</span>
             </div>
@@ -158,9 +159,9 @@ export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligenceP
               <tbody>
                 {[
                   { phase: 'Weak', score: '0–3', label: 'No Timing Edge', multiplier: '0.8×' },
-                  { phase: 'Emerging', score: '4–6', label: 'Early Mispricing', multiplier: '1.0×' },
-                  { phase: 'Strong', score: '7–8', label: 'Active Accumulation', multiplier: '1.2×' },
-                  { phase: 'Extreme', score: '9–10', label: 'Deep Dislocation', multiplier: '1.2×' },
+                  { phase: 'Emerging', score: '4–6', label: 'Monitoring Edge', multiplier: '1.0×' },
+                  { phase: 'Strong', score: '7–8', label: 'Accumulation Edge', multiplier: '1.2×' },
+                  { phase: 'Extreme', score: '9–10', label: 'Dislocation Edge', multiplier: '1.2×' },
                 ].map(row => (
                   <tr
                     key={row.phase}
@@ -265,17 +266,20 @@ function ScoreBreakdown({
 
 function ScoreComponentRow({ component: c }: { component: ScoreComponent }) {
   const barWidth = `${c.score * 10}%`
+  // Visual scarcity: 0–3 muted · 4–5 neutral · 6–7 accent · 8+ strong accent
   const barColor =
-    !c.active    ? 'bg-border/40' :
-    c.score >= 7 ? 'bg-success/70' :
-    c.score >= 4 ? 'bg-warning/70' :
-    'bg-error/50'
+    !c.active     ? 'bg-border/40' :
+    c.score >= 8  ? 'bg-success/70' :
+    c.score >= 6  ? 'bg-primary/50' :
+    c.score >= 4  ? 'bg-text-secondary/30' :
+    'bg-border/40'
 
   const scoreColor =
-    !c.active    ? 'text-text-tertiary' :
-    c.score >= 7 ? 'text-success' :
-    c.score >= 4 ? 'text-warning' :
-    'text-text-secondary'
+    !c.active     ? 'text-text-tertiary' :
+    c.score >= 8  ? 'text-success' :
+    c.score >= 6  ? 'text-primary' :
+    c.score >= 4  ? 'text-text-secondary' :
+    'text-text-tertiary'
 
   return (
     <div className="space-y-0.5">
