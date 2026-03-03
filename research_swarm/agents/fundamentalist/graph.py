@@ -880,6 +880,83 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                     if len(margin_history) >= 2:
                         dcf_inputs.operating_margin_history = margin_history
 
+                # ── Ticker Financials Cache — fill remaining DCF gaps ──────────────
+                # When LLM extraction + quarterly_metrics both miss, fetch from cache
+                # (DB first, then yfinance, then EDGAR). Cheap on repeat analyses
+                # because cached rows are reused for 90 days.
+                _needs_margins = not dcf_inputs.operating_margin_history
+                _needs_fcf     = not dcf_inputs.fcf_history
+                _needs_trend   = not dcf_inputs.operating_margin_trend
+
+                if _needs_margins or _needs_fcf:
+                    try:
+                        import asyncio as _asyncio
+                        import concurrent.futures as _futures
+                        from api.services.ticker_financials_service import (
+                            get_quarterly_financials as _get_fins,
+                            compute_margin_trend as _margin_trend,
+                        )
+                        # Graph nodes are sync — run the async fetch in a new thread
+                        # with its own event loop to avoid conflicts with the running loop.
+                        def _run_in_thread():
+                            _loop = _asyncio.new_event_loop()
+                            try:
+                                return _loop.run_until_complete(
+                                    _get_fins(state["ticker"], min_quarters=8)
+                                )
+                            finally:
+                                _loop.close()
+
+                        with _futures.ThreadPoolExecutor(max_workers=1) as _pool:
+                            _fin_rows = _pool.submit(_run_in_thread).result(timeout=30)
+                        if _fin_rows:
+                            # oldest → newest order for trend computation
+                            _fin_rows_asc = list(reversed(_fin_rows))
+
+                            if _needs_margins:
+                                _mh = [
+                                    r["operating_margin"]
+                                    for r in _fin_rows_asc
+                                    if r.get("operating_margin") is not None
+                                ]
+                                if len(_mh) >= 2:
+                                    dcf_inputs.operating_margin_history = _mh
+                                    logger.info(
+                                        f"DCF supplement: {state['ticker']} margin history "
+                                        f"({len(_mh)} quarters) from financials cache"
+                                    )
+
+                            if _needs_fcf:
+                                _fh = [
+                                    r["free_cash_flow"]
+                                    for r in _fin_rows_asc
+                                    if r.get("free_cash_flow") is not None
+                                ]
+                                if len(_fh) >= 2:
+                                    dcf_inputs.fcf_history = _fh
+                                    logger.info(
+                                        f"DCF supplement: {state['ticker']} FCF history "
+                                        f"({len(_fh)} quarters) from financials cache"
+                                    )
+                    except Exception as _fin_exc:
+                        logger.warning(
+                            f"ticker_financials_service supplement failed for "
+                            f"{state['ticker']}: {_fin_exc}"
+                        )
+
+                # Derive operating_margin_trend programmatically if still missing
+                if _needs_trend and dcf_inputs.operating_margin_history:
+                    try:
+                        from api.services.ticker_financials_service import compute_margin_trend as _mt
+                        dcf_inputs.operating_margin_trend = _mt(dcf_inputs.operating_margin_history)
+                    except Exception:
+                        pass
+
+                # Backfill financial_metrics.free_cash_flow from the most recent
+                # cache row so GrowthQualityClassification FCF tile shows a value.
+                if not state.get("financial_metrics", {}).get("free_cash_flow") and dcf_inputs.fcf_history:
+                    state["financial_metrics"]["free_cash_flow"] = dcf_inputs.fcf_history[-1]
+
                 # Calculate fair value using blended methodology
                 fair_value_price = current_price  # from get_current_price() at top of this node
                 if not fair_value_price and market_data_for_dcf:

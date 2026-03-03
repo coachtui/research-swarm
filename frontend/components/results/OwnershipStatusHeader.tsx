@@ -45,10 +45,14 @@ export function OwnershipStatusHeader({
   ticker,
   initiationStatus,
   pendingAction,
+  currentPrice,
+  high52Week,
 }: {
   ticker: string
   initiationStatus: string | null
   pendingAction?: EngineAction | null
+  currentPrice?: number | null
+  high52Week?: number | null
 }) {
   const { portfolio, position } = usePortfolioPosition(ticker)
 
@@ -73,7 +77,15 @@ export function OwnershipStatusHeader({
   const actionColor = actionType ? (ACTION_COLORS[actionType] || 'text-text-secondary') : 'text-text-tertiary'
 
   // ── Drawdown / Tier ───────────────────────────────────────────────────────
-  const drawdownPct = position?.last_drawdown ?? null
+  // Use stored last_drawdown if available (engine-authoritative). Fall back to
+  // live computation from 252d rolling high + current price (same formula as
+  // DislocationStatePanel) when the portfolio engine hasn't run yet.
+  const drawdownPct: number | null =
+    position?.last_drawdown != null
+      ? position.last_drawdown
+      : (currentPrice && high52Week && high52Week > 0)
+        ? (currentPrice / high52Week) - 1
+        : null
   const drawdownColor =
     drawdownPct === null      ? 'text-text-secondary' :
     drawdownPct <= -0.30      ? 'text-error' :

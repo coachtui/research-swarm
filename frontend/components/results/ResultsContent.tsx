@@ -270,6 +270,8 @@ export function ResultsContent({
           <OwnershipStatusHeader
             ticker={result.ticker}
             initiationStatus={initiationStatus}
+            currentPrice={currentPrice}
+            high52Week={high52Week}
           />
 
           {/* ══════════════════════════════════════════════════════════════════

@@ -636,6 +636,46 @@ model PortfolioAction {
   @@map("portfolio_actions")
 }
 
+// ── Ticker Financials Cache ────────────────────────────────────────────────
+// Quarterly and annual financial data cached per ticker.
+// Avoids re-fetching the same earnings data on every analysis run.
+// On each analysis: check this table first; only call yfinance/EDGAR if missing or stale.
+model TickerFinancials {
+  id     String @id @default(cuid())
+  ticker String
+
+  // Period identifier — "2024-Q4" | "2024-FY" | "2023-Q3" etc.
+  period    String
+  periodEnd DateTime @map("period_end")
+
+  // Data source (prefer edgar > yfinance for completeness)
+  source String  // "yfinance" | "edgar"
+
+  // Income statement
+  revenue         Float?
+  operatingIncome Float?  @map("operating_income")
+  operatingMargin Float?  @map("operating_margin")   // operating_income / revenue
+  grossProfit     Float?  @map("gross_profit")
+  netIncome       Float?  @map("net_income")
+  ebitda          Float?
+
+  // Cash flow statement
+  operatingCashFlow Float? @map("operating_cash_flow")
+  capex             Float?
+  freeCashFlow      Float? @map("free_cash_flow")  // operating_cf - capex
+
+  // Balance sheet snapshots
+  totalDebt Float? @map("total_debt")
+  cash      Float?
+
+  // Fetch metadata
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+
+  @@unique([ticker, period, source])
+  @@index([ticker, periodEnd(sort: Desc)])
+  @@map("ticker_financials")
+}
+
 // Usage records — idempotency guard preventing double-counting on retry/refresh.
 // One record per generation_id (= run_id). The UNIQUE constraint is the guard.
 model UsageRecord {
