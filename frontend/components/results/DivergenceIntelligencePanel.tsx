@@ -1,6 +1,7 @@
 'use client'
 
-import type { DivergenceOverlay } from '@/types/api'
+import { useState } from 'react'
+import type { DivergenceOverlay, ScoreComponent } from '@/types/api'
 
 interface DivergenceIntelligencePanelProps {
   overlay: DivergenceOverlay | null | undefined
@@ -18,6 +19,8 @@ interface DivergenceIntelligencePanelProps {
 export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligencePanelProps) {
   if (!overlay) return null
 
+  const [showBreakdown, setShowBreakdown] = useState(false)
+
   const {
     divergence_score,
     divergence_phase,
@@ -33,6 +36,8 @@ export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligenceP
     initial_allocation_adjustment,
     initial_allocation_final,
     add_intensity_modifier,
+    score_components,
+    score_coverage,
   } = overlay
 
   // ── Phase color & badge ────────────────────────────────────────────────────
@@ -45,20 +50,24 @@ export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligenceP
 
   const phaseStyle = phaseColors[divergence_phase] || phaseColors.Weak
 
-  // ── Sub-metric detail grid ─────────────────────────────────────────────────
-  // Type | Price vs Intrinsic | EPS Revisions | Institutional Flow | Technical Structure
-
   return (
     <div className="rounded-xl border border-border/60 bg-surface/30 overflow-hidden">
       <div className="px-5 py-4 space-y-4">
-        {/* Score header row */}
+        {/* Score header row — clickable to reveal component breakdown */}
         <div className="flex items-center gap-4">
-          <div>
-            <div className="text-4xl font-bold font-mono text-text-primary tabular-nums">
+          <button
+            onClick={() => setShowBreakdown(v => !v)}
+            className="flex-shrink-0 text-left group"
+            title="Click to see score breakdown"
+          >
+            <div className="text-4xl font-bold font-mono text-text-primary tabular-nums group-hover:text-primary transition-colors">
               {divergence_score.toFixed(1)}
             </div>
-            <p className="text-[10px] text-text-tertiary mt-0.5">Divergence Score (0–10)</p>
-          </div>
+            <p className="text-[10px] text-text-tertiary mt-0.5 flex items-center gap-1">
+              Score (0–10)
+              <span className="text-primary">{showBreakdown ? '▴' : '▾'}</span>
+            </p>
+          </button>
           <div className="flex-1 space-y-2">
             <div className="flex items-center gap-2">
               <span className={`px-2.5 py-1 rounded text-xs font-semibold uppercase tracking-wider ${phaseStyle.bg} ${phaseStyle.color}`}>
@@ -70,6 +79,11 @@ export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligenceP
             <p className="text-[10px] text-text-tertiary font-mono italic">DVRG Mode: {dvrg_mode}</p>
           </div>
         </div>
+
+        {/* ── Score Breakdown (expandable) ──────────────────────────────── */}
+        {showBreakdown && score_components && score_components.length > 0 && (
+          <ScoreBreakdown components={score_components} coverage={score_coverage} />
+        )}
 
         {/* Detail grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -207,6 +221,84 @@ export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligenceP
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function ScoreBreakdown({
+  components,
+  coverage,
+}: {
+  components: ScoreComponent[]
+  coverage?: number
+}) {
+  const activeCount = components.filter(c => c.active).length
+
+  return (
+    <div className="rounded-lg border border-border/40 bg-surface-elevated/40 px-3 py-3 space-y-2.5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
+          Score Components
+        </p>
+        <span className="text-[10px] text-text-tertiary font-mono">
+          {activeCount}/{components.length} active
+          {coverage !== undefined && (
+            <span className="ml-1 text-text-tertiary">({coverage}% coverage)</span>
+          )}
+        </span>
+      </div>
+
+      {/* Component rows */}
+      <div className="space-y-1.5">
+        {components.map(c => (
+          <ScoreComponentRow key={c.key} component={c} />
+        ))}
+      </div>
+
+      <p className="text-[9px] text-text-tertiary border-t border-border/30 pt-2">
+        Score = equal-weight average of active components × data coverage factor
+      </p>
+    </div>
+  )
+}
+
+function ScoreComponentRow({ component: c }: { component: ScoreComponent }) {
+  const barWidth = `${c.score * 10}%`
+  const barColor =
+    !c.active    ? 'bg-border/40' :
+    c.score >= 7 ? 'bg-success/70' :
+    c.score >= 4 ? 'bg-warning/70' :
+    'bg-error/50'
+
+  const scoreColor =
+    !c.active    ? 'text-text-tertiary' :
+    c.score >= 7 ? 'text-success' :
+    c.score >= 4 ? 'text-warning' :
+    'text-text-secondary'
+
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className={`text-[9px] ${c.active ? 'text-success' : 'text-text-tertiary'}`}>
+            {c.active ? '●' : '○'}
+          </span>
+          <span className="text-[11px] font-semibold text-text-primary truncate">{c.label}</span>
+        </div>
+        <span className={`text-[11px] font-mono font-bold flex-shrink-0 ${scoreColor}`}>
+          {c.active ? `${c.score.toFixed(1)}` : '—'}
+        </span>
+      </div>
+      {/* Bar */}
+      <div className="h-1 bg-border/30 rounded-full overflow-hidden ml-3.5">
+        <div
+          className={`h-full rounded-full transition-all ${barColor}`}
+          style={{ width: barWidth }}
+        />
+      </div>
+      {/* Detail line */}
+      <p className="text-[9px] text-text-tertiary ml-3.5">{c.detail}</p>
     </div>
   )
 }

@@ -65,20 +65,20 @@ def compute_divergence_overlay(
             price_vs_intrinsic_pct = round((_cp / _fv - 1.0) * 100.0, 1)
 
     # ── Step 1: Divergence Score (0–10) ────────────────────────────────────────
+    #
+    # Equal-weight component average across up to 5 dimensions.
+    # Each component is normalized to its PRACTICAL range (not theoretical max),
+    # so a realistic strong-divergence case scores 8+ rather than being suppressed
+    # to ~6 by theoretical ceilings that never fire in real data.
+    #
+    # Components excluded when no data → score reflects actual coverage honestly.
 
     tech_div = float(signal_breakdown.get("tech_divergence_score") or 0)  # 0–10
-    signal_spread = signal_breakdown.get("signal_spread") or 0
-    component_gap = signal_breakdown.get("component_gap") or 0
+    signal_spread = float(signal_breakdown.get("signal_spread") or 0)
+    component_gap = float(signal_breakdown.get("component_gap") or 0)
+    tech_div_has_data = bool(signal_breakdown.get("tech_divergence_has_data", False))
 
-    # Normalize signal spread (≈0–5) → 0–10 scale
-    spread_norm = min(10.0, (signal_spread / 5.0) * 10.0) if signal_spread else 0.0
-
-    # Normalize component gap (≈0–10) → 0–10 scale (use directly)
-    gap_norm = min(10.0, float(component_gap) if component_gap else 0.0)
-
-    # Smart money premium: how much higher is smart money (institutional + insider +
-    # dark pool) vs public sentiment (news + analyst)? Only counts when smart money
-    # is net-bullish relative to public — the highest-conviction divergence setup.
+    # Smart money vs public groups (used in both score + type classification)
     _sm_raw: List[float] = []
     if signal_breakdown.get("institutional_has_data"):
         _sm_raw.append(float(signal_breakdown.get("institutional_score") or 5.0))
@@ -92,38 +92,82 @@ def compute_divergence_overlay(
     if signal_breakdown.get("analyst_has_data"):
         _pub_raw.append(float(signal_breakdown.get("analyst_score") or 5.0))
 
-    sm_premium_norm = 0.0
-    if _sm_raw and _pub_raw:
-        _sm_avg  = sum(_sm_raw) / len(_sm_raw)
-        _pub_avg = sum(_pub_raw) / len(_pub_raw)
-        # Scale: gap of 0 → 0, gap of 4 → 10 (only bullish direction scores)
-        sm_premium_norm = min(10.0, max(0.0, (_sm_avg - _pub_avg) * 2.5))
+    _sm_avg  = sum(_sm_raw) / len(_sm_raw) if _sm_raw else None
+    _pub_avg = sum(_pub_raw) / len(_pub_raw) if _pub_raw else None
 
-    # Valuation discount: price trading below fair value lifts the score.
-    # Scale: 0% → 0, -20% → 5, -40%+ → 10
-    val_discount_norm = 0.0
-    if price_vs_intrinsic_pct is not None and price_vs_intrinsic_pct < 0:
-        val_discount_norm = min(10.0, abs(price_vs_intrinsic_pct) / 4.0)
-
-    # Severity bonus from fund/tech divergence (legacy additive bonus)
-    fund_tech = signal_breakdown.get("fund_tech_divergence") or {}
-    severity = fund_tech.get("severity") if isinstance(fund_tech, dict) else None
-    sev_bonus = 1.0 if severity == "HIGH" else (0.5 if severity == "MODERATE" else 0.0)
-
-    # Weighted composite — max without sev_bonus = 10.0, with sev_bonus max ≈ 11 → clamped
-    # Weights: tech(25%) + spread(25%) + gap(20%) + smart-money(15%) + valuation(15%)
-    raw = (
-        tech_div         * 0.25
-        + spread_norm    * 0.25
-        + gap_norm       * 0.20
-        + sm_premium_norm * 0.15
-        + val_discount_norm * 0.15
-        + sev_bonus
+    # ── Component 1: Technical Patterns (RSI / MACD / Volume divergence)
+    # Practical range: 5.0 (no patterns = neutral) → 8.5 (3 bullish patterns)
+    # Zero when neutral — no patterns means no contribution to dislocation score.
+    _tech_active = tech_div_has_data and tech_div > 5.0
+    tech_component = round(max(0.0, (tech_div - 5.0) / 3.5 * 10.0), 2) if _tech_active else 0.0
+    _tech_label = (
+        f"RSI/MACD/Volume — {tech_div:.1f}/10 bullish"
+        if _tech_active else
+        ("No bullish patterns detected" if tech_div_has_data else "Data unavailable")
     )
 
-    # Apply data integrity confidence factor
+    # ── Component 2: Signal Breadth (σ of all 7 scores)
+    # Practical max σ ≈ 3.5 (σ=5 requires impossible half-at-0/half-at-10 split)
+    _spread_active = signal_spread > 0
+    spread_component = round(min(10.0, (signal_spread / 3.5) * 10.0), 2) if _spread_active else 0.0
+    _spread_label = f"σ={signal_spread:.2f} across {signal_breakdown.get('valid_signal_count', '?')} signals" if _spread_active else "No signal data"
+
+    # ── Component 3: Valuation vs Technical Gap (component_gap)
+    # Practical max ≈ 4.0
+    _gap_active = component_gap > 0
+    gap_component = round(min(10.0, (component_gap / 4.0) * 10.0), 2) if _gap_active else 0.0
+    _gap_label = f"Valuation/Technical gap {component_gap:.1f}" if _gap_active else "No gap data"
+
+    # ── Component 4: Smart Money Premium (directional signal group divergence)
+    # Only counts when smart money is net-bullish vs public — highest-conviction setup.
+    _sm_active = _sm_avg is not None and _pub_avg is not None
+    if _sm_active:
+        _sm_gap = _sm_avg - _pub_avg  # type: ignore[operator]
+        sm_component = round(min(10.0, max(0.0, _sm_gap * 2.5)), 2)
+        _sm_label = f"SM {_sm_avg:.1f} vs Public {_pub_avg:.1f} (Δ{_sm_gap:+.1f})"
+    else:
+        sm_component = 0.0
+        _sm_label = "Insufficient smart money data"
+
+    # ── Component 5: Valuation Discount (price below fair value)
+    # Scale: 0% → 0, -20% → 5, -40%+ → 10
+    _val_active = price_vs_intrinsic_pct is not None and price_vs_intrinsic_pct < 0
+    if _val_active:
+        val_component = round(min(10.0, abs(price_vs_intrinsic_pct) / 4.0), 2)  # type: ignore[arg-type]
+        _val_label = f"{price_vs_intrinsic_pct:+.1f}% vs fair value"
+    else:
+        val_component = 0.0
+        _val_label = "At or above fair value" if price_vs_intrinsic_pct is not None else "Fair value unavailable"
+
+    # Build scored components list for transparency output
+    score_components: List[Dict[str, Any]] = [
+        {"key": "technical_patterns", "label": "Technical Patterns",  "score": tech_component,   "active": _tech_active,   "detail": _tech_label},
+        {"key": "signal_breadth",     "label": "Signal Breadth",      "score": spread_component, "active": _spread_active, "detail": _spread_label},
+        {"key": "valuation_gap",      "label": "Valuation vs Tech",   "score": gap_component,    "active": _gap_active,    "detail": _gap_label},
+        {"key": "smart_money",        "label": "Smart Money Gap",     "score": sm_component,     "active": _sm_active,     "detail": _sm_label},
+        {"key": "valuation_discount", "label": "Valuation Discount",  "score": val_component,    "active": _val_active,    "detail": _val_label},
+    ]
+
+    # Equal-weight average across ACTIVE components only
+    _active_scores = [c["score"] for c in score_components if c["active"]]
+    _raw_avg = sum(_active_scores) / len(_active_scores) if _active_scores else 0.0
+
+    # Data coverage confidence: fewer active components → modest haircut
+    _coverage = len(_active_scores) / len(score_components)
+    _coverage_factor = 0.75 + 0.25 * _coverage  # 0.75 at 0/5, 1.0 at 5/5
+
+    # Also apply signal data integrity factor from the 7-factor system
     conf_factor = float(signal_breakdown.get("data_integrity_confidence_factor") or 1.0)
-    divergence_score = round(min(10.0, raw) * conf_factor, 2)
+
+    divergence_score = round(min(10.0, _raw_avg * _coverage_factor * conf_factor), 2)
+
+    # Legacy severity bonus from fund_tech_divergence (kept but now additive to avg)
+    fund_tech = signal_breakdown.get("fund_tech_divergence") or {}
+    severity = fund_tech.get("severity") if isinstance(fund_tech, dict) else None
+    if severity == "HIGH":
+        divergence_score = round(min(10.0, divergence_score + 0.5), 2)
+    elif severity == "MODERATE":
+        divergence_score = round(min(10.0, divergence_score + 0.25), 2)
 
     # ── Step 2: Phase Classification ────────────────────────────────────────────
 
@@ -185,9 +229,10 @@ def compute_divergence_overlay(
     else:
         technical_structure = "Weak"
 
-    # Divergence Type — data-driven classification using 7-factor signal breakdown
+    # Divergence Type — data-driven classification; pass pre-computed group avgs to avoid duplication
     divergence_type = _classify_divergence_type(
-        signal_breakdown, price_vs_intrinsic_pct, fundamentalist_output
+        signal_breakdown, price_vs_intrinsic_pct, fundamentalist_output,
+        sm_avg=_sm_avg, pub_avg=_pub_avg,
     )
 
     # ── Step 4: Allocation Adjustments ────────────────────────────────────────
@@ -287,6 +332,9 @@ def compute_divergence_overlay(
         "add_intensity_modifier": add_modifier,
         "deployment_drivers": deployment_drivers,
         "final_allocation": final_allocation,
+        # Score transparency — each component with its value, status, and what drove it
+        "score_components": score_components,
+        "score_coverage": round(_coverage * 100),  # % of components with confirmed data
     }
 
 
@@ -297,6 +345,8 @@ def _classify_divergence_type(
     signal_breakdown: Dict[str, Any],
     price_vs_intrinsic_pct: Optional[float],
     fundamentalist_output: Optional[Dict[str, Any]] = None,
+    sm_avg: Optional[float] = None,
+    pub_avg: Optional[float] = None,
 ) -> str:
     """
     Classify the dominant divergence type from 7-factor signal breakdown.
@@ -343,19 +393,21 @@ def _classify_divergence_type(
         return "Sentiment > Dark Pool"
 
     # ── 3. Smart Money vs Public ─────────────────────────────────────────────
-    sm_scores = [s for s, has in [
-        (institutional_score, institutional_has_data),
-        (insider_score, insider_has_data),
-        (dark_pool_score, dark_pool_has_data),
-    ] if has]
-    pub_scores = [s for s, has in [
-        (news_score, news_has_data),
-        (analyst_score, analyst_has_data),
-    ] if has]
+    # Use pre-computed averages if passed in (avoids duplicate group computation)
+    if sm_avg is None or pub_avg is None:
+        sm_scores = [s for s, has in [
+            (institutional_score, institutional_has_data),
+            (insider_score, insider_has_data),
+            (dark_pool_score, dark_pool_has_data),
+        ] if has]
+        pub_scores = [s for s, has in [
+            (news_score, news_has_data),
+            (analyst_score, analyst_has_data),
+        ] if has]
+        sm_avg  = sum(sm_scores) / len(sm_scores) if sm_scores else None
+        pub_avg = sum(pub_scores) / len(pub_scores) if pub_scores else None
 
-    if sm_scores and pub_scores:
-        sm_avg  = sum(sm_scores) / len(sm_scores)
-        pub_avg = sum(pub_scores) / len(pub_scores)
+    if sm_avg is not None and pub_avg is not None:
         gap = sm_avg - pub_avg
         if gap >= 2.0:
             return "Smart Money > Public"

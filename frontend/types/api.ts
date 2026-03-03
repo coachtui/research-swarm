@@ -627,6 +627,23 @@ export interface DivergenceOverlay {
   deployment_drivers: DeploymentDriver[]
   /** Final allocation percentage capped at max */
   final_allocation: number
+  /** Individual score components for transparency — each dimension with its value and status */
+  score_components?: ScoreComponent[]
+  /** Percentage of score components with confirmed data (0–100) */
+  score_coverage?: number
+}
+
+export interface ScoreComponent {
+  /** Internal key for this component */
+  key: 'technical_patterns' | 'signal_breadth' | 'valuation_gap' | 'smart_money' | 'valuation_discount'
+  /** Display label */
+  label: string
+  /** Component score 0–10 */
+  score: number
+  /** Whether this component had confirmed data and contributed to the score */
+  active: boolean
+  /** Human-readable detail of what drove this score */
+  detail: string
 }
 
 // --- Decision Intelligence Types ---
