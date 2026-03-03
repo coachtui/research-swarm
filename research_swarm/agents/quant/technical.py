@@ -224,6 +224,11 @@ class TechnicalAnalyzer:
             sma_50 = float(sma_50_series.iloc[-1]) if not pd.isna(sma_50_series.iloc[-1]) else None
             sma_200 = float(sma_200_series.iloc[-1]) if not pd.isna(sma_200_series.iloc[-1]) else None
 
+            # 252-trading-day rolling high (≈1 calendar year)
+            high_col = df['High'] if 'High' in df.columns else prices
+            window = min(252, len(high_col))
+            high_252d = float(high_col.iloc[-window:].max()) if window > 0 else None
+
             # Detect crossovers
             crossover_signal = CrossoverSignal.NONE
             days_since_crossover = None
@@ -261,6 +266,7 @@ class TechnicalAnalyzer:
                 sma_50=sma_50,
                 sma_200=sma_200,
                 current_price=current_price,
+                high_252d=high_252d,
                 crossover_signal=crossover_signal,
                 days_since_crossover=days_since_crossover,
             )

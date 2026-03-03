@@ -85,6 +85,7 @@ class MovingAverages(BaseModel):
     sma_50: Optional[float] = Field(None, description="50-day simple moving average")
     sma_200: Optional[float] = Field(None, description="200-day simple moving average")
     current_price: Optional[float] = Field(None, description="Current/latest price")
+    high_252d: Optional[float] = Field(None, description="Rolling 252-trading-day high (≈1-year)")
     crossover_signal: CrossoverSignal = Field(
         CrossoverSignal.NONE,
         description="Golden cross or death cross signal"
