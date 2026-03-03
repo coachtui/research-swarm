@@ -93,12 +93,26 @@ def compute_divergence_overlay(
     # ── Step 3: Sub-Metrics ────────────────────────────────────────────────────
 
     # Price vs Intrinsic
+    # current_price lives in valuation_metrics (not price_targets); fair_value_mid is in
+    # fundamentalist_output.price_targets (quantitative blended model), NOT the top-level
+    # price_targets (LLM-generated). Check both sources.
     price_vs_intrinsic_pct = None
-    if price_targets:
-        current_price = float(price_targets.get("current_price") or 0)
-        fair_value_mid = float(price_targets.get("fair_value_mid") or 0)
-        if current_price > 0 and fair_value_mid > 0:
-            price_vs_intrinsic_pct = round((current_price / fair_value_mid - 1.0) * 100.0, 1)
+    _fo = fundamentalist_output or {}
+    _valuation_metrics = _fo.get("valuation_metrics") or {}
+    _fund_price_targets = _fo.get("price_targets") or {}
+    _current_price_raw = (
+        (price_targets or {}).get("current_price")
+        or _valuation_metrics.get("current_price")
+    )
+    _fair_value_mid_raw = (
+        _fund_price_targets.get("fair_value_mid")
+        or (price_targets or {}).get("fair_value_mid")
+    )
+    if _current_price_raw and _fair_value_mid_raw:
+        _cp = float(_current_price_raw or 0)
+        _fv = float(_fair_value_mid_raw or 0)
+        if _cp > 0 and _fv > 0:
+            price_vs_intrinsic_pct = round((_cp / _fv - 1.0) * 100.0, 1)
 
     # EPS Revision Direction
     if _signal_missing:
