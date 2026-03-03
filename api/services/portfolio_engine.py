@@ -231,21 +231,23 @@ async def run_portfolio_engine(
                 "ma_200d": sig.ma_200d,
             }
 
-        await db.portfolioaction.create(
-            data={
-                "portfolioId": portfolio_id,
-                "ticker": action.ticker,
-                "actionType": _map_action_type(action),
-                "weightDelta": action.target_weight - action.current_weight,
-                "reasonCodes": _extract_reason_codes(action),
-                "reasonText": action.reason,
-                "status": "pending",
-                "signalSnapshot": signal_snapshot,
-                "triggerCycle": trigger_cycle,
-                "engineVersion": ENGINE_VERSION,
-                "expiresAt": _next_cycle_expiry(trigger_cycle),
-            }
-        )
+        action_data: dict = {
+            "portfolioId": portfolio_id,
+            "ticker": action.ticker,
+            "actionType": _map_action_type(action),
+            "weightDelta": action.target_weight - action.current_weight,
+            "reasonCodes": _extract_reason_codes(action),
+            "reasonText": action.reason,
+            "status": "pending",
+            "triggerCycle": trigger_cycle,
+            "engineVersion": ENGINE_VERSION,
+            "expiresAt": _next_cycle_expiry(trigger_cycle),
+        }
+        # Prisma rejects None for Json? fields — omit key entirely when no snapshot
+        if signal_snapshot is not None:
+            action_data["signalSnapshot"] = signal_snapshot
+
+        await db.portfolioaction.create(data=action_data)
         actions_created += 1
 
     # 7. Update position states
