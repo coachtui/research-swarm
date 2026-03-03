@@ -55,7 +55,7 @@ export function OwnershipStatusHeader({
   // ── Eligibility ───────────────────────────────────────────────────────────
   const eligibility = position
     ? {
-        pending:      { label: 'Pending',     color: 'text-warning' },
+        pending:      { label: 'Awaiting Engine', color: 'text-text-tertiary' },
         eligible:     { label: 'Eligible',    color: 'text-success' },
         disqualified: { label: 'Disqualified', color: 'text-error' },
       }[position.eligibility_state] ?? { label: position.eligibility_state, color: 'text-text-secondary' }
@@ -69,7 +69,7 @@ export function OwnershipStatusHeader({
 
   // ── Action Now ────────────────────────────────────────────────────────────
   const actionType = pendingAction?.action_type as EngineActionType | undefined
-  const actionLabel = actionType ? (ACTION_LABELS[actionType] || actionType) : 'No Action Pending'
+  const actionLabel = actionType ? (ACTION_LABELS[actionType] || actionType) : '—'
   const actionColor = actionType ? (ACTION_COLORS[actionType] || 'text-text-secondary') : 'text-text-tertiary'
 
   // ── Drawdown / Tier ───────────────────────────────────────────────────────
