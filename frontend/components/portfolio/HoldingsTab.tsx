@@ -1,12 +1,14 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
-import { usePortfolioDetail } from '@/lib/hooks/usePortfolio'
+import { Pencil, Trash2, Check, X } from 'lucide-react'
+import { usePortfolioDetail, useUpdatePosition, useRemovePosition } from '@/lib/hooks/usePortfolio'
 import { formatWeight } from '@/lib/ownership-mapping'
 import type { PortfolioPosition } from '@/types/api'
 
 /**
- * HoldingsTab — grid of current positions with state machine visualization.
+ * HoldingsTab — grid of current positions with inline edit and delete.
  */
 export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
   const { data: portfolio, isLoading } = usePortfolioDetail(portfolioId)
@@ -40,14 +42,69 @@ export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
       {/* Position grid */}
       <div className="grid gap-2">
         {sorted.map((pos) => (
-          <PositionRow key={pos.ticker} position={pos} />
+          <PositionRow key={pos.ticker} portfolioId={portfolioId} position={pos} />
         ))}
       </div>
     </div>
   )
 }
 
-function PositionRow({ position }: { position: PortfolioPosition }) {
+function PositionRow({ portfolioId, position }: { portfolioId: string; position: PortfolioPosition }) {
+  const [editing, setEditing] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [weight, setWeight] = useState('')
+  const [costBasis, setCostBasis] = useState('')
+  const [shares, setShares] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const updatePosition = useUpdatePosition()
+  const removePosition = useRemovePosition()
+
+  const handleEditOpen = () => {
+    setWeight((position.current_weight * 100).toFixed(1))
+    setCostBasis(position.cost_basis?.toString() ?? '')
+    setShares(position.shares?.toString() ?? '')
+    setError(null)
+    setConfirmingDelete(false)
+    setEditing(true)
+  }
+
+  const handleEditCancel = () => {
+    setEditing(false)
+    setError(null)
+  }
+
+  const handleSave = () => {
+    const w = parseFloat(weight)
+    if (isNaN(w) || w < 0 || w > 100) {
+      setError('Weight must be between 0 and 100%')
+      return
+    }
+    const data: { weight?: number; cost_basis?: number; shares?: number } = {
+      weight: w / 100,
+    }
+    if (costBasis !== '') data.cost_basis = parseFloat(costBasis) || undefined
+    if (shares !== '') data.shares = parseFloat(shares) || undefined
+
+    updatePosition.mutate(
+      { portfolioId, ticker: position.ticker, data },
+      {
+        onSuccess: () => {
+          setEditing(false)
+          setError(null)
+        },
+        onError: (err: Error) => setError(err.message),
+      }
+    )
+  }
+
+  const handleRemove = () => {
+    removePosition.mutate(
+      { portfolioId, ticker: position.ticker },
+      { onError: (err: Error) => setError(err.message) }
+    )
+  }
+
   const ownershipColor = {
     core_compounder: 'text-success',
     watch: 'text-warning',
@@ -67,52 +124,145 @@ function PositionRow({ position }: { position: PortfolioPosition }) {
   }[position.thesis_state] || 'text-text-tertiary'
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-surface/30 px-4 py-3">
-      <div className="flex items-center gap-3 min-w-0">
-        {/* Ticker + status badge */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold font-mono text-text-primary">{position.ticker}</span>
-          <span className={`text-[9px] font-semibold uppercase tracking-wide ${ownershipColor}`}>
-            {ownershipLabel}
+    <div className="rounded-lg border border-border/60 bg-surface/30 overflow-hidden">
+      {/* Main row */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold font-mono text-text-primary">{position.ticker}</span>
+            <span className={`text-[9px] font-semibold uppercase tracking-wide ${ownershipColor}`}>
+              {ownershipLabel}
+            </span>
+          </div>
+          <span className="text-xs font-mono font-semibold text-text-secondary">
+            {formatWeight(position.current_weight)}
           </span>
         </div>
 
-        {/* Weight */}
-        <span className="text-xs font-mono font-semibold text-text-secondary">
-          {formatWeight(position.current_weight)}
-        </span>
-      </div>
+        <div className="flex items-center gap-3">
+          {position.tier_state !== 'none' && (
+            <span className="text-[9px] font-mono bg-warning/10 text-warning px-1.5 py-0.5 rounded">
+              {position.tier_state.toUpperCase()}
+            </span>
+          )}
 
-      <div className="flex items-center gap-3">
-        {/* Tier state */}
-        {position.tier_state !== 'none' && (
-          <span className="text-[9px] font-mono bg-warning/10 text-warning px-1.5 py-0.5 rounded">
-            {position.tier_state.toUpperCase()}
+          <span className={`text-[9px] font-semibold uppercase ${thesisColor}`}>
+            {position.thesis_state}
           </span>
-        )}
 
-        {/* Thesis state */}
-        <span className={`text-[9px] font-semibold uppercase ${thesisColor}`}>
-          {position.thesis_state}
-        </span>
+          {position.compounder_score !== null && (
+            <span className="text-[10px] font-mono text-text-tertiary">
+              CS: {(position.compounder_score * 100).toFixed(0)}
+            </span>
+          )}
 
-        {/* Compounder score */}
-        {position.compounder_score !== null && (
-          <span className="text-[10px] font-mono text-text-tertiary">
-            CS: {(position.compounder_score * 100).toFixed(0)}
-          </span>
-        )}
+          {position.latest_run_id && !editing && !confirmingDelete && (
+            <Link
+              href={`/results/${position.latest_run_id}`}
+              className="text-[10px] text-primary hover:underline"
+            >
+              Research
+            </Link>
+          )}
 
-        {/* Link to research */}
-        {position.latest_run_id && (
-          <Link
-            href={`/results/${position.latest_run_id}`}
-            className="text-[10px] text-primary hover:underline"
+          {/* Delete confirmation inline prompt */}
+          {confirmingDelete && !editing && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-error font-semibold">Remove?</span>
+              <button
+                onClick={handleRemove}
+                disabled={removePosition.isPending}
+                className="text-[10px] font-semibold text-error hover:text-error/80 disabled:opacity-50"
+              >
+                {removePosition.isPending ? '...' : 'Yes'}
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                className="text-[10px] font-semibold text-text-tertiary hover:text-text-secondary"
+              >
+                No
+              </button>
+            </div>
+          )}
+
+          {/* Edit button */}
+          <button
+            onClick={editing ? handleEditCancel : handleEditOpen}
+            className="text-text-tertiary hover:text-text-primary transition-colors"
+            title={editing ? 'Cancel edit' : 'Edit position'}
           >
-            Research
-          </Link>
-        )}
+            {editing ? <X className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+          </button>
+
+          {/* Delete button — only shown when not editing */}
+          {!editing && (
+            <button
+              onClick={() => setConfirmingDelete(v => !v)}
+              className={`transition-colors ${confirmingDelete ? 'text-error' : 'text-text-tertiary hover:text-error'}`}
+              title="Remove position"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Inline edit form */}
+      {editing && (
+        <div className="border-t border-border/40 px-4 py-3 bg-surface/60 space-y-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-24">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Weight %</label>
+              <input
+                type="number"
+                value={weight}
+                onChange={e => setWeight(e.target.value)}
+                min={0}
+                max={100}
+                step={0.5}
+                autoFocus
+                className="w-full mt-1 px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text-primary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div className="w-28">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Cost Basis</label>
+              <input
+                type="text"
+                value={costBasis}
+                onChange={e => setCostBasis(e.target.value)}
+                placeholder="Optional"
+                className="w-full mt-1 px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-tertiary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div className="w-24">
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Shares</label>
+              <input
+                type="text"
+                value={shares}
+                onChange={e => setShares(e.target.value)}
+                placeholder="Optional"
+                className="w-full mt-1 px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-tertiary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <button
+              onClick={handleSave}
+              disabled={updatePosition.isPending}
+              className="flex items-center gap-1 h-[34px] px-3 text-xs font-semibold rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              <Check className="h-3.5 w-3.5" />
+              {updatePosition.isPending ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+          {error && <p className="text-xs text-error">{error}</p>}
+        </div>
+      )}
+
+      {/* Remove error */}
+      {!editing && error && (
+        <div className="border-t border-border/40 px-4 py-2 bg-surface/60">
+          <p className="text-xs text-error">{error}</p>
+        </div>
+      )}
     </div>
   )
 }

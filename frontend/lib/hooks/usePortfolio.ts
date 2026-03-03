@@ -79,6 +79,48 @@ export function useMarkAction() {
 }
 
 /**
+ * useUpdatePosition — mutation to update a position's weight, cost basis, or shares.
+ */
+export function useUpdatePosition() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      portfolioId,
+      ticker,
+      data,
+    }: {
+      portfolioId: string
+      ticker: string
+      data: { weight?: number; cost_basis?: number; shares?: number }
+    }) => apiClient.updatePosition(portfolioId, ticker, data),
+    onSuccess: (_res, { portfolioId }) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+}
+
+/**
+ * useRemovePosition — mutation to delete a position from a portfolio.
+ */
+export function useRemovePosition() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      portfolioId,
+      ticker,
+    }: {
+      portfolioId: string
+      ticker: string
+    }) => apiClient.removePosition(portfolioId, ticker),
+    onSuccess: (_res, { portfolioId }) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+}
+
+/**
  * useTriggerEngine — mutation to manually trigger an engine run.
  */
 export function useTriggerEngine() {
