@@ -11,6 +11,11 @@ import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
 import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
+import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
+import { PortfolioSeedForm } from '@/components/portfolio/PortfolioSeedForm'
+import { ActionsTab } from '@/components/portfolio/ActionsTab'
+import { HoldingsTab } from '@/components/portfolio/HoldingsTab'
+import { usePortfolio } from '@/lib/hooks/usePortfolio'
 import { Shield, AlertCircle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { apiClient } from '@/lib/api/client'
@@ -40,6 +45,8 @@ export default function AdminPage() {
 function AdminContent() {
   const { data: metrics, isLoading, error } = useAdminMetrics()
   const { data: costs, isLoading: costsLoading } = useAdminCosts()
+  const { data: portfolioData } = usePortfolio()
+  const portfolio = portfolioData?.portfolios?.[0] || null
 
   // Access denied if not admin
   if (error && (error as any).status === 403) {
@@ -80,13 +87,14 @@ function AdminContent() {
       {/* Content */}
       <main className="container mx-auto px-4 py-8">
         <Tabs defaultValue="metrics" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6 lg:w-[768px]">
+          <TabsList className="grid w-full grid-cols-7 lg:w-[896px]">
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
             <TabsTrigger value="revenue">Revenue</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="analyses">Analyses</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
             <TabsTrigger value="deployment">Deployment</TabsTrigger>
+            <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
           </TabsList>
 
           <TabsContent value="metrics">
@@ -114,6 +122,33 @@ function AdminContent() {
 
           <TabsContent value="deployment">
             <StructuralDeploymentUpdate adminMode />
+          </TabsContent>
+
+          <TabsContent value="portfolio">
+            <Tabs defaultValue="overview" className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="overview">Portfolio</TabsTrigger>
+                <TabsTrigger value="actions">Actions</TabsTrigger>
+                <TabsTrigger value="holdings">
+                  Holdings {portfolio ? `(${portfolio.position_count})` : ''}
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="overview">
+                {portfolio
+                  ? <PortfolioOverview portfolioId={portfolio.id} userTier="trader" />
+                  : <PortfolioSeedForm />}
+              </TabsContent>
+              <TabsContent value="actions">
+                {portfolio
+                  ? <ActionsTab portfolioId={portfolio.id} />
+                  : <div className="text-center py-12 text-sm text-text-tertiary">Create a portfolio first.</div>}
+              </TabsContent>
+              <TabsContent value="holdings">
+                {portfolio
+                  ? <HoldingsTab portfolioId={portfolio.id} />
+                  : <div className="text-center py-12 text-sm text-text-tertiary">Create a portfolio first.</div>}
+              </TabsContent>
+            </Tabs>
           </TabsContent>
         </Tabs>
       </main>
