@@ -6,6 +6,7 @@ interface GrowthQualityClassificationProps {
   moatBreakdown?: MoatBreakdown | null
   fundamentalistOutput?: FundamentalistOutput | null
   qualityScore?: number | null
+  moatScore?: number | null
 }
 
 /**
@@ -20,6 +21,7 @@ export function GrowthQualityClassification({
   moatBreakdown,
   fundamentalistOutput,
   qualityScore,
+  moatScore,
 }: GrowthQualityClassificationProps) {
   if (!moatBreakdown && !fundamentalistOutput) return null
 
@@ -29,7 +31,7 @@ export function GrowthQualityClassification({
   // quality ≥ 5 AND growth ≥ 20% → "High-Growth Emerging Compounder"
   // default → "Quality Assessment Pending"
 
-  const quality = qualityScore ?? 0
+  const quality = qualityScore ?? moatScore ?? 0
   const revenueGrowthYoy = fundamentalistOutput?.financial_metrics?.revenue_growth_yoy ?? 0
 
   let classificationLabel = 'Quality Assessment Pending'
@@ -70,10 +72,10 @@ export function GrowthQualityClassification({
     fcfConversion = `${conversion.toFixed(1)}%`
   }
 
-  // Balance Sheet: from score_breakdown
+  // Balance Sheet: from financial_health component score
   let balanceSheetLabel = '—'
   let balanceSheetColor = 'text-text-secondary'
-  const bsScore = moatBreakdown?.score_breakdown?.balance_sheet ?? null
+  const bsScore = moatBreakdown?.financial_health ?? null
   if (bsScore !== null) {
     if (bsScore >= 7) {
       balanceSheetLabel = 'Strong'
@@ -112,7 +114,7 @@ export function GrowthQualityClassification({
 
           <ClassificationTile label="FCF Conversion" value={fcfConversion} />
           <ClassificationTile label="Balance Sheet" value={balanceSheetLabel} valueColor={balanceSheetColor} />
-          <ClassificationTile label="Moat Score" value={moatBreakdown?.moat_score?.toFixed(1) ?? '—'} sublabel="/ 10" />
+          <ClassificationTile label="Moat Score" value={moatScore != null ? moatScore.toFixed(1) : '—'} sublabel="/ 10" />
         </div>
       </div>
     </div>

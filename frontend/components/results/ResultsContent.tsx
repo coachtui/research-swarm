@@ -281,6 +281,7 @@ export function ResultsContent({
               moatBreakdown={moat_breakdown}
               fundamentalistOutput={fundamentalistOutput}
               qualityScore={qualityScore}
+              moatScore={moat_score}
             />
           )}
 

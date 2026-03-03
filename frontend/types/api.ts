@@ -45,6 +45,38 @@ export interface StockResult {
   updated_at: string
 }
 
+export interface MoatBreakdown {
+  earnings_momentum: number     // 25%
+  financial_health: number      // 25%
+  valuation: number             // 20%
+  technical_strength: number    // 15%
+  sentiment_catalysts: number   // 15%
+  moat_score?: number
+}
+
+export interface FundamentalistOutput {
+  company_name?: string
+  sector?: string
+  industry?: string
+  financial_metrics?: {
+    revenue?: number
+    revenue_growth_yoy?: number
+    free_cash_flow?: number
+    [key: string]: unknown
+  }
+  dcf_inputs?: {
+    operating_margin_trend?: 'expanding' | 'stable' | 'contracting'
+    [key: string]: unknown
+  }
+  valuation_metrics?: {
+    current_price?: number
+    [key: string]: unknown
+  }
+  price_targets?: Record<string, unknown>
+  fair_value_calibration?: Record<string, unknown>
+  [key: string]: unknown
+}
+
 export interface ManagerOutput {
   ticker: string
   analysis_date: string
@@ -53,7 +85,7 @@ export interface ManagerOutput {
   news_days_back: number
 
   // Agent outputs
-  fundamentalist_output: any
+  fundamentalist_output: FundamentalistOutput
   news_hound_output: any
   quant_output: any
 
@@ -71,13 +103,7 @@ export interface ManagerOutput {
   }>
 
   // Moat breakdown (v2.0 formula)
-  moat_breakdown: {
-    earnings_momentum: number     // 25%
-    financial_health: number       // 25%
-    valuation: number              // 20%
-    technical_strength: number     // 15%
-    sentiment_catalysts: number    // 15%
-  }
+  moat_breakdown: MoatBreakdown
 
   // VGM scores
   vgm_scores?: {
@@ -131,6 +157,13 @@ export interface ManagerOutput {
     }
     // P0: Chain validation (auto-correction notes)
     chain_validation_notes?: string[]
+    // DVRG P2: Valuation metadata (quality score, regime, etc.)
+    valuation_metadata?: {
+      quality_score?: number
+      regime_multiple_adj?: number
+      confidence_filter_applied?: boolean
+      [key: string]: unknown
+    }
   }
   structured_risks?: Array<{
     risk: string
@@ -576,7 +609,7 @@ export interface DivergenceOverlay {
   /** Institutional flow indicator */
   institutional_flow: 'Strong' | 'Moderate' | 'Weak'
   /** Technical structure condition */
-  technical_structure: 'Strong' | 'Stabilizing' | 'Weak' | 'Deteriorating'
+  technical_structure: 'Strong' | 'Stabilizing' | 'Weak' | 'Deteriorating' | 'Neutral'
   /** Base allocation percentage before adjustments */
   initial_allocation_base: number
   /** Divergence-based adjustment to allocation */
