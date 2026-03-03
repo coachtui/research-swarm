@@ -74,6 +74,11 @@ export interface FundamentalistOutput {
   }
   price_targets?: Record<string, unknown>
   fair_value_calibration?: Record<string, unknown>
+  vgm_scores?: {
+    value_score: number
+    growth_score: number
+    momentum_score: number
+  }
   [key: string]: unknown
 }
 
