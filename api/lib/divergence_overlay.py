@@ -36,8 +36,12 @@ def compute_divergence_overlay(
         Dict with divergence_score, phase, DVRG Mode, allocation adjustments, deployment drivers.
         None if insufficient data.
     """
-    if not signal_breakdown:
-        return None
+    # When signal_breakdown is missing, still render the panel with neutral sub-metrics
+    # and score=0 (Weak phase). Avoids returning None for completed reports where the
+    # signal calculation failed (e.g. data unavailable for a specific ticker).
+    _signal_missing = not signal_breakdown
+    if _signal_missing:
+        signal_breakdown = {}
 
     # ── Step 1: Divergence Score (0–10) ────────────────────────────────────────
 
@@ -97,25 +101,33 @@ def compute_divergence_overlay(
             price_vs_intrinsic_pct = round((current_price / fair_value_mid - 1.0) * 100.0, 1)
 
     # EPS Revision Direction
-    earnings_score = float(signal_breakdown.get("earnings_score") or 0)
-    if earnings_score >= 6.0:
-        eps_revision_direction = "Positive"
-    elif earnings_score <= 4.0:
-        eps_revision_direction = "Negative"
-    else:
+    if _signal_missing:
         eps_revision_direction = "Neutral"
+    else:
+        earnings_score = float(signal_breakdown.get("earnings_score") or 0)
+        if earnings_score >= 6.0:
+            eps_revision_direction = "Positive"
+        elif earnings_score <= 4.0:
+            eps_revision_direction = "Negative"
+        else:
+            eps_revision_direction = "Neutral"
 
     # Institutional Flow (from institutional_score)
-    institutional_score = float(signal_breakdown.get("institutional_score") or 0)
-    if institutional_score >= 7.0:
-        institutional_flow = "Strong"
-    elif institutional_score >= 5.0:
+    if _signal_missing:
         institutional_flow = "Moderate"
     else:
-        institutional_flow = "Weak"
+        institutional_score = float(signal_breakdown.get("institutional_score") or 0)
+        if institutional_score >= 7.0:
+            institutional_flow = "Strong"
+        elif institutional_score >= 5.0:
+            institutional_flow = "Moderate"
+        else:
+            institutional_flow = "Weak"
 
     # Technical Structure (from tech_divergence_score)
-    if tech_div >= 7.0:
+    if _signal_missing:
+        technical_structure = "Neutral"
+    elif tech_div >= 7.0:
         technical_structure = "Strong"
     elif tech_div >= 5.0:
         technical_structure = "Stabilizing"

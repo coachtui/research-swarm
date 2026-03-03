@@ -11,6 +11,7 @@ The caller must treat None as "no metadata available" and continue normally.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -118,7 +119,7 @@ async def get_ticker_meta(ticker: str) -> Optional[dict]:
         "country": country,
         "currency": currency,
         "source": "yfinance",
-        "raw": raw_compact if raw_compact else None,
+        "raw": json.dumps(raw_compact) if raw_compact else None,
     }
     try:
         await db.tickermeta.upsert(
