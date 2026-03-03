@@ -14,3 +14,11 @@ aptPkgs = [
 ]
 # Rebuild ldconfig cache so /etc/ld.so.cache includes the apt-installed libs.
 cmds = ["ldconfig"]
+
+# Use uv instead of pip — 10-100x faster installs (Rust-based, parallel downloads).
+# `--system` installs into the system Python that nixpacks exposes to the runtime.
+[phases.install]
+cmds = [
+  "pip install uv --quiet",
+  "uv pip install -r requirements.txt --system",
+]
