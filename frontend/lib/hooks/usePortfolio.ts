@@ -79,6 +79,32 @@ export function useMarkAction() {
 }
 
 /**
+ * useAddPosition — mutation to add a new position to an existing portfolio.
+ */
+export function useAddPosition() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      portfolioId,
+      ticker,
+      weight,
+      costBasis,
+      shares,
+    }: {
+      portfolioId: string
+      ticker: string
+      weight: number
+      costBasis?: number
+      shares?: number
+    }) => apiClient.addPosition(portfolioId, ticker, weight, costBasis, shares),
+    onSuccess: (_res, { portfolioId }) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+}
+
+/**
  * useUpdatePosition — mutation to update a position's weight, cost basis, or shares.
  */
 export function useUpdatePosition() {
