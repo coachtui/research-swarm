@@ -1,134 +1,156 @@
 'use client'
 
 import { usePortfolioPosition } from '@/lib/hooks/usePortfolio'
-import { mapToOwnershipStatus, mapToThesisState, mapToActionLabel, formatWeight } from '@/lib/ownership-mapping'
-import type { PortfolioPosition, EngineAction } from '@/types/api'
+import { mapToThesisState, formatWeight } from '@/lib/ownership-mapping'
+import type { EngineAction, EngineActionType } from '@/types/api'
+
+const ACTION_LABELS: Record<EngineActionType, string> = {
+  INITIATE:      'Initiate',
+  ADD_TIER_20:   'Add +2% (Tier 1)',
+  ADD_TIER_30:   'Add +4% (Tier 2)',
+  ADD_TIER_40:   'Add +6% (Tier 3)',
+  ADD_TIER_50:   'Add +8% (Tier 4)',
+  TRIM_EUPHORIA: 'Trim — Euphoria',
+  TRIM_CAP:      'Trim — Cap',
+  EXIT_THESIS:   'Exit — Thesis Break',
+  REPLACE:       'Replace',
+  HOLD:          'Hold',
+}
+
+const ACTION_COLORS: Record<EngineActionType, string> = {
+  INITIATE:      'text-success',
+  ADD_TIER_20:   'text-success',
+  ADD_TIER_30:   'text-success',
+  ADD_TIER_40:   'text-success',
+  ADD_TIER_50:   'text-success',
+  TRIM_EUPHORIA: 'text-warning',
+  TRIM_CAP:      'text-warning',
+  EXIT_THESIS:   'text-error',
+  REPLACE:       'text-primary',
+  HOLD:          'text-text-tertiary',
+}
 
 /**
- * OwnershipStatusHeader — always-visible header for the report page.
+ * OwnershipStatusHeader — engine-first ownership panel.
  *
- * Replaces CapitalDeploymentSummary as the canonical Section 1.
- * Shows: Ownership Status, Thesis State, Action Now, Portfolio Context.
+ * Shows ONLY engine-derived state — no initiation score, no entry zone,
+ * no intrinsic price thresholds.
  *
- * Falls back gracefully when user has no portfolio (derives from initiation_decision).
+ * Top row:  Eligibility | Thesis | Action Now
+ * Tiles:    Weight | Drawdown% | Tier | Add Capacity
+ *
+ * Falls back gracefully when user has no portfolio position.
  */
 export function OwnershipStatusHeader({
   ticker,
-  rating,
   initiationStatus,
-  initiationScore,
-  starterPct,
-  maxPct,
-  entryZone,
   pendingAction,
 }: {
   ticker: string
-  rating: string | null
   initiationStatus: string | null
-  initiationScore: number | null
-  starterPct: number | null
-  maxPct: number | null
-  entryZone: string | null
   pendingAction?: EngineAction | null
 }) {
   const { portfolio, position } = usePortfolioPosition(ticker)
 
-  const ownership = mapToOwnershipStatus(rating, initiationStatus, position)
+  // ── Eligibility ───────────────────────────────────────────────────────────
+  const eligibility = position
+    ? {
+        pending:      { label: 'Pending',     color: 'text-warning' },
+        eligible:     { label: 'Eligible',    color: 'text-success' },
+        disqualified: { label: 'Disqualified', color: 'text-error' },
+      }[position.eligibility_state] ?? { label: position.eligibility_state, color: 'text-text-secondary' }
+    : initiationStatus === 'INITIATE'  ? { label: 'Eligible',     color: 'text-success' }
+    : initiationStatus === 'WATCHLIST' ? { label: 'Watch',         color: 'text-warning' }
+    : initiationStatus === 'WAIT'      ? { label: 'Not Eligible',  color: 'text-error' }
+    : { label: '—', color: 'text-text-tertiary' }
+
+  // ── Thesis ────────────────────────────────────────────────────────────────
   const thesis = mapToThesisState(position)
-  const action = mapToActionLabel(pendingAction)
+
+  // ── Action Now ────────────────────────────────────────────────────────────
+  const actionType = pendingAction?.action_type as EngineActionType | undefined
+  const actionLabel = actionType ? (ACTION_LABELS[actionType] || actionType) : 'No Action Pending'
+  const actionColor = actionType ? (ACTION_COLORS[actionType] || 'text-text-secondary') : 'text-text-tertiary'
+
+  // ── Drawdown / Tier ───────────────────────────────────────────────────────
+  const drawdownPct = position?.last_drawdown ?? null
+  const drawdownColor =
+    drawdownPct === null      ? 'text-text-secondary' :
+    drawdownPct <= -0.30      ? 'text-error' :
+    drawdownPct <= -0.20      ? 'text-warning' :
+    'text-text-secondary'
+
+  const tierMap: Record<string, string> = {
+    none:  'None',
+    t1_20: 'T1 −20%',
+    t2_30: 'T2 −30%',
+    t3_40: 'T3 −40%',
+    t4_50: 'T4 −50%',
+  }
+  const tierLabel = position ? (tierMap[position.tier_state] ?? position.tier_state) : '—'
+
+  // ── Add Capacity (25% hard cap) ───────────────────────────────────────────
+  const addCapacity = position ? Math.max(0, 0.25 - position.current_weight) : null
 
   return (
     <div className="rounded-xl border border-border/60 bg-surface/30 overflow-hidden">
       <div className="px-5 py-4 space-y-4">
 
-        {/* ── Status Row ────────────────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Ownership Status Badge */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
-              Status
-            </span>
-            <span className={`text-sm font-bold ${ownership.color}`}>
-              {ownership.status}
-            </span>
-          </div>
-
-          <span className="text-border">|</span>
-
-          {/* Thesis State */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
-              Thesis
-            </span>
-            <span className={`text-sm font-bold ${thesis.color}`}>
-              {thesis.state}
-            </span>
-          </div>
-
-          <span className="text-border">|</span>
-
-          {/* Action Now */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
-              Action
-            </span>
-            <span className={`text-sm font-bold ${action.color}`}>
-              {action.label}
-            </span>
-          </div>
+        {/* ── Engine State Row ──────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <StatusPill label="Eligibility" value={eligibility.label} color={eligibility.color} />
+          <span className="text-border hidden sm:block">|</span>
+          <StatusPill label="Thesis" value={thesis.state} color={thesis.color} />
+          <span className="text-border hidden sm:block">|</span>
+          <StatusPill label="Action Now" value={actionLabel} color={actionColor} />
         </div>
 
-        {/* ── Metrics Row ───────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {/* Initiation Score */}
-          <MetricTile
-            label="Initiation Score"
-            value={initiationScore !== null ? `${Math.round(initiationScore)}` : '—'}
-            sublabel={initiationStatus || undefined}
-          />
-
-          {/* Starter % */}
-          <MetricTile
-            label="Starter %"
-            value={starterPct !== null ? `${starterPct.toFixed(1)}%` : '—'}
-            sublabel={maxPct !== null ? `Max ${maxPct.toFixed(1)}%` : undefined}
-          />
-
-          {/* Entry Zone */}
-          <MetricTile
-            label="Entry Zone"
-            value={entryZone || '—'}
-          />
-
-          {/* Portfolio Context (only if position exists) */}
-          {position ? (
-            <MetricTile
-              label="Portfolio Weight"
+        {/* ── Portfolio Context Tiles ───────────────────────────────────── */}
+        {position ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <ContextTile
+              label="Current Weight"
               value={formatWeight(position.current_weight)}
-              sublabel={position.tier_state !== 'none' ? `Tier: ${position.tier_state.toUpperCase()}` : undefined}
+              sublabel={
+                position.ownership_status === 'core_compounder' ? 'Core Compounder' :
+                position.ownership_status === 'disqualified'    ? 'Disqualified' :
+                'Watch'
+              }
             />
-          ) : (
-            <MetricTile
-              label="Portfolio"
-              value="Not Held"
-              sublabel={portfolio ? 'Add via Holdings' : 'Create portfolio first'}
+            <ContextTile
+              label="Drawdown"
+              value={drawdownPct !== null ? `${(drawdownPct * 100).toFixed(1)}%` : '—'}
+              valueColor={drawdownColor}
             />
-          )}
-        </div>
+            <ContextTile
+              label="Tier State"
+              value={tierLabel}
+            />
+            <ContextTile
+              label="Add Capacity"
+              value={addCapacity !== null ? formatWeight(addCapacity) : '—'}
+              sublabel="to 25% cap"
+            />
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border/40 bg-surface-elevated/50 px-3 py-2.5 text-[11px] text-text-tertiary">
+            {portfolio
+              ? 'Not in portfolio — add via Holdings tab to track state.'
+              : 'Create a portfolio to track ownership state, tier triggers, and drawdown.'}
+          </div>
+        )}
 
-        {/* ── Drawdown context (if in portfolio) ────────────────────────── */}
-        {position && position.last_drawdown !== null && position.last_drawdown < -0.05 && (
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">
-              Drawdown
-            </span>
-            <span className={`text-xs font-mono font-bold ${
-              position.last_drawdown <= -0.30 ? 'text-error' :
-              position.last_drawdown <= -0.20 ? 'text-warning' :
-              'text-text-secondary'
-            }`}>
-              {(position.last_drawdown * 100).toFixed(1)}%
-            </span>
+        {/* ── Pending action reason codes ───────────────────────────────── */}
+        {pendingAction?.reason_codes && pendingAction.reason_codes.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {pendingAction.reason_codes.map((code, i) => (
+              <span
+                key={i}
+                className="text-[9px] font-mono bg-surface-elevated px-1.5 py-0.5 rounded text-text-tertiary"
+              >
+                {code}
+              </span>
+            ))}
           </div>
         )}
       </div>
@@ -136,22 +158,33 @@ export function OwnershipStatusHeader({
   )
 }
 
-function MetricTile({
+function StatusPill({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{label}</span>
+      <span className={`text-sm font-bold ${color}`}>{value}</span>
+    </div>
+  )
+}
+
+function ContextTile({
   label,
   value,
   sublabel,
+  valueColor,
 }: {
   label: string
   value: string
   sublabel?: string
+  valueColor?: string
 }) {
   return (
     <div className="rounded-lg border border-border/40 bg-surface-elevated/50 px-3 py-2.5">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">{label}</p>
-      <p className="text-sm font-bold text-text-primary mt-0.5 font-mono tabular-nums">{value}</p>
-      {sublabel && (
-        <p className="text-[10px] text-text-tertiary mt-0.5">{sublabel}</p>
-      )}
+      <p className={`text-sm font-bold mt-0.5 font-mono tabular-nums ${valueColor || 'text-text-primary'}`}>
+        {value}
+      </p>
+      {sublabel && <p className="text-[10px] text-text-tertiary mt-0.5">{sublabel}</p>}
     </div>
   )
 }

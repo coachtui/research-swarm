@@ -8,6 +8,7 @@ import { useCurrentUser } from '@/lib/hooks/useCurrentUser'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { OwnershipStatusHeader } from '@/components/results/OwnershipStatusHeader'
+import { usePortfolioPosition } from '@/lib/hooks/usePortfolio'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
 import { ThesisDriversPanel } from '@/components/results/ThesisDriversPanel'
 import { DislocationStatePanel } from '@/components/results/DislocationStatePanel'
@@ -222,16 +223,13 @@ export function ResultsContent({
   const tranchePlan = decision_intelligence?.tranche_plan
   const thesisBreakConditions = tranchePlan?.thesis_break_conditions || null
 
-  // Extract initiation data
+  // Extract initiation status (used only for no-portfolio fallback in header)
   const initiationDecision = decision_intelligence?.initiation_decision
   const initiationStatus = initiationDecision?.status || null
-  const initiationScore = initiationDecision?.initiation_score ?? null
-  const starterPct = initiationDecision?.starter_allocation_percent ?? null
-  const maxPct = decision_intelligence?.conviction_position?.max_pct ?? null
-  const entryZoneRaw = initiationDecision?.required_entry_zone
-  const entryZone = entryZoneRaw
-    ? `$${entryZoneRaw[0].toFixed(2)}–$${entryZoneRaw[1].toFixed(2)}`
-    : null
+
+  // Portfolio position for dislocation panel
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const { position: portfolioPosition } = usePortfolioPosition(result.ticker)
 
   // Sector from fundamentalist
   const sector = full_output?.fundamentalist_output?.sector || null
@@ -260,12 +258,7 @@ export function ResultsContent({
               ══════════════════════════════════════════════════════════════════ */}
           <OwnershipStatusHeader
             ticker={result.ticker}
-            rating={decision_intelligence?.rating || null}
             initiationStatus={initiationStatus}
-            initiationScore={initiationScore}
-            starterPct={starterPct}
-            maxPct={maxPct}
-            entryZone={entryZone}
           />
 
           {/* ══════════════════════════════════════════════════════════════════
@@ -291,14 +284,13 @@ export function ResultsContent({
             <CollapsibleSection
               title="Structural Thesis"
               sublabel="Structural drivers · Break conditions"
+              defaultOpen
             >
-              <TierGate feature="thesis_break_monitor" userTier={userTier} isAdmin={isAdmin}>
-                <ThesisDriversPanel
-                  upgradeTriggers={upgrade_triggers}
-                  downgradeTriggers={downgrade_triggers}
-                  thesisBreakConditions={thesisBreakConditions}
-                />
-              </TierGate>
+              <ThesisDriversPanel
+                upgradeTriggers={upgrade_triggers}
+                downgradeTriggers={downgrade_triggers}
+                thesisBreakConditions={thesisBreakConditions}
+              />
             </CollapsibleSection>
           )}
 
@@ -309,12 +301,13 @@ export function ResultsContent({
           {(high52Week || currentPrice) && (
             <CollapsibleSection
               title="Dislocation State"
-              sublabel="52-week high · Drawdown % · Tier bands · Capacity remaining"
+              sublabel="252d rolling high · Drawdown % · Tier bands (+2/+4/+6/+8)"
             >
               <DislocationStatePanel
                 currentPrice={currentPrice}
                 high52Week={high52Week}
                 ma200d={ma200d}
+                position={portfolioPosition}
               />
             </CollapsibleSection>
           )}
@@ -331,6 +324,16 @@ export function ResultsContent({
               sublabel="Risk framing · Intrinsic anchor · Scenarios · EV — does NOT block adds"
             >
               <div className="space-y-4">
+                {/* Disclaimer — valuation is risk framing, never an entry gate */}
+                <div className="flex items-start gap-2 rounded-lg border border-border/40 bg-surface-elevated/30 px-3 py-2 text-[10px] text-text-tertiary">
+                  <span className="font-semibold uppercase tracking-wider">Note:</span>
+                  <span>
+                    Conservative valuation is used as risk framing and trim sensitivity only.
+                    It does <span className="font-semibold text-text-secondary">not</span> block initiations or tier adds —
+                    those are governed by CompounderScore, drawdown state, and portfolio slot.
+                  </span>
+                </div>
+
                 {full_output?.fair_value_calibration && (
                   <FairValueRegimeCheck
                     calibration={full_output.fair_value_calibration}

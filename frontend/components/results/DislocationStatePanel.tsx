@@ -43,13 +43,17 @@ export function DislocationStatePanel({
   const activeTier = position?.tier_state || 'none'
   const currentWeight = position?.current_weight ?? 0
 
+  // Guard: if rolling high is missing, tier adds can't be computed
+  const rollingHighMissing = !high52Week
+
   return (
     <div className="space-y-4">
       {/* ── Price Context ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-3 gap-3">
         <PriceTile
-          label="52-Week High"
-          value={high52Week ? `$${high52Week.toFixed(2)}` : '—'}
+          label="252d Rolling High"
+          value={high52Week ? `$${high52Week.toFixed(2)}` : 'Data unavailable'}
+          color={rollingHighMissing ? 'text-text-tertiary' : undefined}
         />
         <PriceTile
           label="Current Price"
@@ -72,6 +76,11 @@ export function DislocationStatePanel({
         <h4 className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary mb-2">
           Drawdown Accumulation Tiers
         </h4>
+        {rollingHighMissing && (
+          <div className="text-[10px] text-text-tertiary bg-surface-elevated/50 border border-border/40 rounded-lg px-3 py-2 mb-2">
+            252d rolling high unavailable — tier adds cannot be computed until price data loads.
+          </div>
+        )}
         <div className="space-y-1.5">
           {tiers.map((tier) => {
             const isTriggered = drawdownPct !== null && drawdownPct <= tier.threshold

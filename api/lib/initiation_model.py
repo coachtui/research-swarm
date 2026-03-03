@@ -1,15 +1,16 @@
 """
-DVRG Initiation Model — deterministic INITIATE / WATCHLIST / WAIT decision.
+DVRG Initiation Model — informational risk-framing score only.
 
-This layer sits on top of the existing valuation, EV, and quality calculations.
-It does NOT modify any upstream numbers — it only consumes them as read-only inputs.
+CANONICAL DECISION AUTHORITY: CompounderEngine (compounder_owner_v3.py)
+This model is used ONLY for the Conservative Valuation Lens section.
+It does NOT gate initiations or tier adds — those are governed by
+CompounderScore, drawdown state, and portfolio slot.
 
-Decision flow:
-  Step 1 → Compute raw composite (weighted factor sum)
-  Step 2 → Normalize to 0–100
-  Step 3 → Apply threshold → INITIATE | WATCHLIST | WAIT
-  Step 4 → Compute Starter Allocation %
-  Step 5 → Return structured output dict
+Score formula:
+  EV% × 3.0  +  QualityScore × 4.0  −  DownsideRiskFactor × 3.0  −  VolatilityPenalty × 2.0
+
+Note: valuation discount factor (VDF) removed — price position relative to
+intrinsic value must NOT influence the initiation score.
 """
 
 from typing import Any, Dict, Optional
@@ -17,18 +18,17 @@ from typing import Any, Dict, Optional
 
 # ── Normalization bounds ────────────────────────────────────────────────────────
 #
-# Derived from realistic input ranges:
+# Derived from realistic input ranges (VDF removed):
 #   EV_percent ∈ [-30, +40]       → EV × 3   : [-90, +120]
 #   Quality_score ∈ [0, 10]       → Q  × 4   : [  0,  +40]
-#   Valuation_discount_factor × 2 :            [-20,  +20]
 #   Downside_risk_factor × 3 (sub):            [  0,  -30]
 #   Volatility_penalty × 2 (sub)  :            [  0,  -20]
 # ─────────────────────────────────────────────────────────────────────────────
-#   RAW_MIN = -90 + 0 - 20 - 30 - 20  = -160
-#   RAW_MAX = +120 + 40 + 20 - 0 - 0  = +180
+#   RAW_MIN = -90 + 0 - 30 - 20  = -140
+#   RAW_MAX = +120 + 40 - 0 - 0  = +160
 
-_RAW_MIN = -160.0
-_RAW_MAX = 180.0
+_RAW_MIN = -140.0
+_RAW_MAX = 160.0
 
 
 # ── Factor helpers ──────────────────────────────────────────────────────────────
@@ -128,7 +128,6 @@ def _build_rationale(
     score: float,
     ev_percent: float,
     quality_score: float,
-    vdf: int,
     drf: int,
     vp: int,
     starter_alloc: float,
@@ -137,14 +136,9 @@ def _build_rationale(
     qual_str = f"quality {quality_score:.1f}/10"
 
     if status == "INITIATE":
-        val_note = (
-            "at discount" if vdf == 10
-            else "within band" if vdf == 5
-            else "above band"
-        )
         return (
-            f"Score {score:.0f}/100 — {ev_str}, {qual_str}, "
-            f"price {val_note}. Starter {starter_alloc:.1f}% recommended."
+            f"Score {score:.0f}/100 — {ev_str}, {qual_str}. "
+            f"Starter {starter_alloc:.1f}% recommended."
         )
 
     if status == "WATCHLIST":
@@ -153,12 +147,10 @@ def _build_rationale(
             blockers.append("downside risk elevated")
         if vp >= 5:
             blockers.append("volatility high")
-        if vdf == -10:
-            blockers.append("price above fair value band")
         reason = "; ".join(blockers) if blockers else "conditions mixed"
         return (
             f"Score {score:.0f}/100 — {ev_str}, {qual_str}. "
-            f"Not yet initiating: {reason}."
+            f"Monitoring: {reason}."
         )
 
     # WAIT
@@ -167,8 +159,8 @@ def _build_rationale(
         blockers.append("insufficient expected return")
     if drf >= 10:
         blockers.append("high downside risk")
-    if vdf == -10:
-        blockers.append("price above intrinsic band")
+    if vp >= 10:
+        blockers.append("elevated volatility")
     reason = "; ".join(blockers) if blockers else "risk/reward not favourable"
     return (
         f"Score {score:.0f}/100 — {ev_str}, {qual_str}. "
@@ -237,11 +229,12 @@ def calculate_initiation_decision(
         vp  = _volatility_penalty(volatility_beta)
 
         # ── Step 2: Raw composite ──────────────────────────────────────────────
+        # VDF (valuation discount factor) excluded — price vs intrinsic must
+        # never gate initiation. Score reflects quality + risk only.
 
         raw = (
             ev_percent   * 3.0
             + quality_score * 4.0
-            + vdf           * 2.0
             - drf           * 3.0
             - vp            * 2.0
         )
@@ -270,7 +263,7 @@ def calculate_initiation_decision(
 
         rationale = _build_rationale(
             status, score, ev_percent, quality_score,
-            vdf, drf, vp, starter_alloc,
+            drf, vp, starter_alloc,
         )
 
         return {
