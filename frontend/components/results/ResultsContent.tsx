@@ -98,6 +98,10 @@ export function ResultsContent({
   const canSeeSignalMetrics     = isAdmin || (entitlements?.features['feature.report.signal_metrics'] ?? false)
   const canSeeEngineDiagnostics = isAdmin || (entitlements?.features['feature.report.engine_diagnostics'] ?? false)
 
+  // Must be called unconditionally before any early returns (Rules of Hooks)
+  const _tickerForHook = run?.results?.[0]?.ticker ?? ''
+  const { position: portfolioPosition } = usePortfolioPosition(_tickerForHook)
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
@@ -226,10 +230,6 @@ export function ResultsContent({
   // Extract initiation status (used only for no-portfolio fallback in header)
   const initiationDecision = decision_intelligence?.initiation_decision
   const initiationStatus = initiationDecision?.status || null
-
-  // Portfolio position for dislocation panel
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const { position: portfolioPosition } = usePortfolioPosition(result.ticker)
 
   // Sector from fundamentalist
   const sector = full_output?.fundamentalist_output?.sector || null
