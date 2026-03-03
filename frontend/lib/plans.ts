@@ -51,7 +51,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     pricePerMonth: 19.99,
     analysesPerMonth: 5,
     pricePerAnalysis: '$4.00',
-    description: 'Structured verdict layer — core allocation framework',
+    description: 'Structured research for disciplined investors.',
     popular: false,
     bullets: [
       '5 analyses / month',
@@ -73,7 +73,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     pricePerMonth: 39.99,
     analysesPerMonth: 15,
     pricePerAnalysis: '$2.67',
-    description: 'Full probabilistic capital deployment engine.',
+    description: 'Capital allocation framework with portfolio visibility.',
     popular: true,
     bullets: [
       '15 analyses / month',
@@ -100,7 +100,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     pricePerMonth: 99.99,
     analysesPerMonth: 50,
     pricePerAnalysis: '$2.00',
-    description: 'Extended scenario modeling + asymmetry layers + regime conditioning.',
+    description: 'Advanced portfolio diagnostics and execution discipline.',
     popular: false,
     bullets: [
       '50 analyses / month',

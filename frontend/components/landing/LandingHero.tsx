@@ -759,38 +759,36 @@ export function LandingHero() {
               style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}
             >
               <Zap className="w-3.5 h-3.5 shrink-0" />
-              Research Consolidation · Structured Edge
+              Capital Discipline System · Institutional Structure
             </div>
 
             {/* Headline */}
             <h1 className="text-[2.25rem] md:text-[2.75rem] font-bold text-text-primary leading-[1.15] tracking-tight">
-              From scattered research
+              Capital without structure
               <br />
-              to a unified thesis —
-              <br />
-              <span style={{ color: 'var(--accent)' }}>built to deploy capital.</span>
+              <span style={{ color: 'var(--accent)' }}>compounds mistakes.</span>
             </h1>
 
-            {/* Tension line */}
+            {/* Subheadline */}
             <p className="text-base md:text-lg font-semibold text-text-primary leading-tight tracking-tight">
-              DVRG consolidates fundamental analysis, valuation signals,
+              DVRG brings institutional discipline to retail capital —
               <br className="hidden sm:block" />
-              and structural diagnostics into a single output.
-              <br />
-              Then converts that thesis into a calibrated position size.
+              turning scattered research into probabilistic, risk-aware allocation.
             </p>
 
-            {/* Micro-caption */}
-            <p className="text-xs leading-snug" style={{ color: 'var(--text-subtle)' }}>
-              Replace hours of fragmented research with one structured decision.
-            </p>
+            {/* Supporting lines */}
+            <div className="space-y-1">
+              <p className="text-sm text-text-secondary leading-snug">See downside clearly.</p>
+              <p className="text-sm text-text-secondary leading-snug">Understand regime context.</p>
+              <p className="text-sm text-text-secondary leading-snug">Deploy capital with structure.</p>
+            </div>
 
             {/* Micro authority line */}
             <p
               className="text-[10px] font-medium uppercase tracking-widest"
               style={{ color: 'var(--text-subtle)' }}
             >
-              Built for disciplined capital allocators — not narrative traders.
+              Institutional structure. Retail access.
             </p>
 
             {/* Edge line */}
@@ -820,12 +818,12 @@ export function LandingHero() {
             <div className="flex flex-col sm:flex-row gap-3 pt-1">
               <Link href="/welcome/free">
                 <Button size="lg" className="w-full sm:w-auto">
-                  Start Free – 2 Full Reports <ArrowRight className="ml-1.5 w-4 h-4" />
+                  Build Conviction. Deploy with Discipline. <ArrowRight className="ml-1.5 w-4 h-4" />
                 </Button>
               </Link>
               <Link href="/preview/nvda">
                 <Button size="lg" variant="outline" className="w-full sm:w-auto">
-                  View Live Example
+                  View Sample Report
                 </Button>
               </Link>
             </div>
@@ -834,10 +832,10 @@ export function LandingHero() {
             <div className="pt-4" style={{ borderTop: '1px solid var(--border)' }}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-2.5 gap-x-4">
                 {[
-                  'Consolidates fundamental, valuation, and structural signals',
-                  'Translates research into quantified expected value',
-                  'Converts conviction into a probability-weighted position size',
-                  'Eliminates fragmented workflows — one structured output',
+                  'Anchors to valuation, not narrative momentum',
+                  'Respects regime shifts and macro context',
+                  'Sizes positions by probabilistic edge, not instinct',
+                  'Monitors invalidation triggers systematically',
                 ].map((item) => (
                   <div key={item} className="flex items-start gap-2 text-xs text-text-secondary">
                     <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />

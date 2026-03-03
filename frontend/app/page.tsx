@@ -108,15 +108,18 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ── Bold tagline ─────────────────────────────────────────────────── */}
+      {/* ── Cost of Unstructured Capital ─────────────────────────────────── */}
       <div
-        className="py-8 text-center"
+        className="py-10 text-center"
         style={{ borderTop: '1px solid var(--border)' }}
       >
         <p className="text-xl md:text-2xl font-bold text-text-primary tracking-tight leading-tight">
-          Stop researching in isolation.
+          Capital without structure
           <br />
-          <span className="text-primary">Start building structured edge.</span>
+          <span className="text-primary">compounds mistakes.</span>
+        </p>
+        <p className="mt-3 text-sm text-text-secondary max-w-lg mx-auto leading-relaxed">
+          DVRG structures what brokers and screeners ignore.
         </p>
       </div>
 
@@ -138,20 +141,20 @@ export default function Home() {
             <div className="grid md:grid-cols-2 gap-6 mb-12">
               {[
                 {
-                  title: 'Fragmented Across Sources',
-                  body: 'Research lives across dozens of tabs — earnings calls, screeners, newsletters, analyst reports. No unified output. No synthesis.',
+                  title: 'True Downside Is Never Quantified',
+                  body: 'Most retail research produces directional opinions, not probability-weighted risk. The actual downside exposure — scenario-weighted, regime-adjusted — stays invisible.',
                 },
                 {
-                  title: 'Narrative Bias Distorts Conviction',
-                  body: 'When research is story-driven, conviction follows narrative. It inflates on positive headlines and collapses on noise.',
+                  title: 'Probability-Weighted Outcomes Are Missing',
+                  body: 'When research is story-driven, conviction follows narrative. There are no weighted scenarios, no EV computation, no structured outcome model.',
                 },
                 {
-                  title: 'Position Sizing is Emotional',
-                  body: 'Without a probabilistic framework, allocation decisions default to instinct. Equal-weight or arbitrary sizing replaces disciplined deployment.',
+                  title: 'Macro Regime Shifts Go Untracked',
+                  body: 'Capital deployed in one regime can be mispositioned in the next. Most approaches treat allocation as static — ignoring the regime context underlying each setup.',
                 },
                 {
-                  title: 'Static Allocations Ignore Uncertainty',
-                  body: 'Market regimes shift. Volatility changes. Most approaches treat allocation as fixed — ignoring the probability structure underlying each setup.',
+                  title: 'Capital Misalignment Compounds Risk',
+                  body: 'Without a unified allocation framework, position sizes are arbitrary. The same capital that should be protected in a risk-off environment stays deployed.',
                 },
               ].map(({ title, body }) => (
                 <div
@@ -244,6 +247,10 @@ export default function Home() {
               </div>
             </div>
 
+            <p className="mt-8 text-center text-sm font-semibold text-text-primary">
+              DVRG structures what brokers and screeners ignore.
+            </p>
+
           </div>
         </div>
       </section>
@@ -258,8 +265,8 @@ export default function Home() {
                 The Edge Comes From Structure
               </h2>
               <p className="mt-4 text-sm text-text-secondary leading-relaxed max-w-2xl">
-                DVRG does not give you better predictions. It gives you a better process.
-                Structure is the edge.
+                Institutional investors do not win by finding better information.
+                They win by applying a more disciplined process to the same information.
               </p>
             </div>
 
@@ -267,24 +274,24 @@ export default function Home() {
               <div style={{ borderTop: '1px solid var(--border)' }}>
                 {[
                   {
-                    label: 'DVRG does not predict.',
-                    detail: 'It structures uncertainty into a probability-weighted model across defined scenarios.',
+                    label: 'Anchor to valuation.',
+                    detail: 'Every position is evaluated against intrinsic value — not price momentum or narrative strength.',
                   },
                   {
-                    label: 'DVRG quantifies expected value.',
-                    detail: 'Not directional opinion — a calibrated EV computed across probability-weighted outcomes.',
+                    label: 'Respect regime shifts.',
+                    detail: 'Macro and volatility context governs deployment. The same setup that warrants 8% in a favorable regime warrants 1% in a stressed one.',
                   },
                   {
-                    label: 'DVRG calibrates confidence.',
-                    detail: 'Conviction is measured against regime state and signal stability — not narrative momentum.',
+                    label: 'Size positions probabilistically.',
+                    detail: 'Allocation is derived from expected value and stop probability — not instinct, not equal-weighting.',
                   },
                   {
-                    label: 'DVRG converts conviction into exposure.',
-                    detail: 'Allocation size is derived from EV and regime multiplier, not instinct.',
+                    label: 'Separate thesis from price.',
+                    detail: 'Conviction is calibrated against signal stability and scenario structure, not the price action that followed.',
                   },
                   {
-                    label: 'Capital discipline becomes systematic.',
-                    detail: 'The same framework governs every analysis. No exceptions for high-conviction narratives.',
+                    label: 'Monitor invalidation triggers.',
+                    detail: 'Every position has defined thesis-break conditions. The framework disciplines exit as rigorously as entry.',
                   },
                 ].map(({ label, detail }) => (
                   <div
@@ -311,7 +318,7 @@ export default function Home() {
                     ['Probability Modeling', 'replaces narrative'],
                     ['Conviction Sizing', 'replaces gut positioning'],
                     ['Regime Awareness', 'replaces static allocation'],
-                    ['Unified Thesis', 'replaces fragmented research'],
+                    ['Invalidation Framework', 'replaces passive holding'],
                   ].map(([title, sub]) => (
                     <div key={title} className="flex items-center gap-3">
                       <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
@@ -324,6 +331,11 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+            <p className="mt-8 text-sm font-semibold text-text-primary">
+              DVRG systematizes that process.
+            </p>
+
           </div>
         </div>
       </section>
@@ -335,35 +347,35 @@ export default function Home() {
             <div className="mb-12">
               <SectionLabel>Process</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                How DVRG Thinks
+                How DVRG Thinks Like a Fund
               </h2>
             </div>
 
             <div style={{ borderTop: '1px solid var(--border)' }}>
               <Step
                 n="1"
-                title="Detect Structural Divergence"
-                body="Identify regime, liquidity, and volatility state."
+                title="Structural First — Is the business durable?"
+                body="Evaluate moat quality, earnings consistency, and balance sheet resilience before any valuation work begins."
               />
               <Step
                 n="2"
-                title="Weight Scenarios by Probability"
-                body="Model stop, targets, and expansion paths."
+                title="Valuation Anchor — Is there margin of safety?"
+                body="Compute blended fair value across multiple methodologies. Identify where current price sits relative to intrinsic value."
               />
               <Step
                 n="3"
-                title="Quantify Expected Value"
-                body="Compute probability-weighted return."
+                title="Positioning Context — Is capital accumulating?"
+                body="Assess institutional activity, sentiment regime, and signal alignment. Determine whether smart money is building or reducing exposure."
               />
               <Step
                 n="4"
-                title="Enforce Risk Stability"
-                body="Apply multiplier and policy cap."
+                title="Regime Awareness — Is macro supportive?"
+                body="Evaluate volatility state, liquidity conditions, and macro regime. Adjust conviction and deployment accordingly."
               />
               <Step
                 n="5"
-                title="Convert Probability into Size"
-                body="Translate edge into allocation."
+                title="Capital Bias — How large should you be?"
+                body="Translate expected value and regime multiplier into a probability-weighted allocation size. Enforce policy cap."
               />
             </div>
 
@@ -497,6 +509,27 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ── Avoiding One Mistake ─────────────────────────────────────────── */}
+      <section className="py-16" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
+        <div className="container mx-auto px-4">
+          <div className="max-w-2xl mx-auto text-center">
+            <p className="text-xl md:text-2xl font-bold text-text-primary tracking-tight leading-snug">
+              Avoiding one 20% allocation mistake
+              <br />
+              pays for years of disciplined research.
+            </p>
+            <div className="mt-6 space-y-2">
+              <p className="text-sm text-text-secondary leading-relaxed">
+                DVRG is not built to create activity.
+              </p>
+              <p className="text-sm font-semibold text-text-primary">
+                It is built to protect capital.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── Pricing ──────────────────────────────────────────────────────── */}
       <section id="pricing" className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
         <div className="container mx-auto px-4">
@@ -504,10 +537,10 @@ export default function Home() {
             <div className="mb-12">
               <SectionLabel>Pricing</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Select Your Depth of Analysis
+                Select Your Depth of Capital Discipline
               </h2>
               <p className="mt-4 text-sm text-text-secondary leading-relaxed max-w-xl">
-                Each tier unlocks a deeper layer of the allocation framework. Start with the structured core. Add diagnostics and advanced controls as your process matures.
+                Each tier reflects a different depth of the capital allocation framework. Start with structured research. Expand into full probabilistic deployment controls as your process demands.
               </p>
             </div>
             <PricingCards />
@@ -535,9 +568,10 @@ export default function Home() {
                 <p className="text-xs font-semibold uppercase tracking-widest text-success mb-5">Built For</p>
                 <div style={{ borderTop: '1px solid var(--border)' }}>
                   {[
-                    'Investors who want structure, not more data',
-                    'Capital allocators who want a repeatable process',
-                    'Active investors managing position size discipline',
+                    'Investors managing meaningful personal capital',
+                    'Operators who think in risk/reward terms',
+                    'Long-term allocators, not momentum traders',
+                    'Those who value discipline over noise',
                   ].map((item) => (
                     <div
                       key={item}
@@ -592,19 +626,19 @@ export default function Home() {
             <div style={{ borderTop: '1px solid var(--border)' }}>
               {[
                 {
-                  title: 'Not a day-trading signal service',
-                  detail: 'DVRG is a structured capital allocation framework. It is not a real-time alert feed or a buy/sell trigger.',
+                  title: 'Not a signal-chasing stock picker',
+                  detail: 'DVRG does not surface trending tickers or chase momentum. Analysis is structurally grounded — valuation-anchored, regime-aware, probabilistic.',
                 },
                 {
-                  title: 'Not a hype-driven recommendation engine',
-                  detail: 'There are no hot stock picks, trending tickers, or urgency-based calls. Analysis is regime-aware and fundamentally grounded.',
+                  title: 'Not a momentum alert service',
+                  detail: 'There are no urgency-based calls, hot-take feeds, or buy/sell triggers. Capital decisions are deliberate, not reactive.',
                 },
                 {
-                  title: 'Not a guarantee engine',
-                  detail: 'No system predicts markets. DVRG structures probability. Outcomes remain uncertain — the process is what improves.',
+                  title: 'Not a trading casino',
+                  detail: 'DVRG is built to reduce activity, not increase it. High-quality allocation means fewer, better-structured positions — not more trades.',
                 },
                 {
-                  title: 'Not a replacement for your judgment',
+                  title: 'Not financial advice',
                   detail: 'DVRG provides a structured decision framework. You retain full discretion. It informs. You decide.',
                 },
               ].map(({ title, detail }) => (
@@ -629,6 +663,9 @@ export default function Home() {
                 </div>
               ))}
             </div>
+            <p className="mt-8 text-sm font-semibold text-text-primary">
+              It is a structured capital framework.
+            </p>
           </div>
         </div>
       </section>
@@ -678,21 +715,28 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="max-w-2xl mx-auto text-center space-y-6">
             <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-              Build Conviction. Deploy with Discipline.
+              Build Conviction. Deploy With Discipline.
             </h2>
             <p className="text-text-secondary">
-              Replace fragmented research workflows with a single structured capital allocation system.
+              Institutional structure. Retail access.
             </p>
-            <Link href="/welcome/free">
-              <Button size="lg" variant="outline">
-                Try Free — 2 Full Reports
-              </Button>
-            </Link>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link href="/welcome/free">
+                <Button size="lg">
+                  Start Building Your Edge <ArrowRight className="ml-2 w-4 h-4" />
+                </Button>
+              </Link>
+              <Link href="/preview/nvda">
+                <Button size="lg" variant="outline">
+                  Explore a Sample Report
+                </Button>
+              </Link>
+            </div>
             <p
               className="text-[10px] uppercase tracking-widest"
               style={{ color: 'var(--text-subtle)' }}
             >
-              Quantitative capital allocation framework.
+              Structured capital allocation framework.
             </p>
           </div>
         </div>
