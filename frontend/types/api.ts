@@ -545,6 +545,52 @@ export interface TranchePlan {
   stage3_conditions: TrancheTriggerCondition[]
 }
 
+// --- DVRG 2026 Divergence Overlay Types ---
+
+export interface DeploymentDriver {
+  /** Driver label: "Quality Base", "EV / Opportunity", "Divergence Overlay", "Risk Adjustment" */
+  label: string
+  /** Numeric delta (absolute value) */
+  delta: number
+  /** Sign indicator for display */
+  sign: '+' | '-'
+}
+
+export interface DivergenceOverlay {
+  /** Composite divergence score (0–10) from signal spread, component gap, and tech divergence */
+  divergence_score: number
+  /** Phase classification: Weak / Emerging / Strong / Extreme */
+  divergence_phase: 'Weak' | 'Emerging' | 'Strong' | 'Extreme'
+  /** Phase label for display: "No Timing Edge", "Early Mispricing", etc. */
+  phase_label: string
+  /** Interpretation of the phase and its timing implication */
+  phase_interpretation: string
+  /** Strategic identity line for the report: "Accumulating High-Quality Growth During Dislocation", etc. */
+  dvrg_mode: string
+  /** Type of divergence detected: "Fundamental > Sentiment", etc. */
+  divergence_type: string
+  /** Price relative to fair value mid as a percentage (-16% means 16% discount) */
+  price_vs_intrinsic_pct: number | null
+  /** EPS revision direction: Positive / Neutral / Negative */
+  eps_revision_direction: 'Positive' | 'Neutral' | 'Negative'
+  /** Institutional flow indicator */
+  institutional_flow: 'Strong' | 'Moderate' | 'Weak'
+  /** Technical structure condition */
+  technical_structure: 'Strong' | 'Stabilizing' | 'Weak' | 'Deteriorating'
+  /** Base allocation percentage before adjustments */
+  initial_allocation_base: number
+  /** Divergence-based adjustment to allocation */
+  initial_allocation_adjustment: number
+  /** Final initial allocation after divergence adjustment */
+  initial_allocation_final: number
+  /** Modifier for tranche add intensity (0.85 / 1.0 / 1.25) */
+  add_intensity_modifier: number
+  /** Breakdown of allocation drivers: Quality Base → EV → Divergence → Risk → Final */
+  deployment_drivers: DeploymentDriver[]
+  /** Final allocation percentage capped at max */
+  final_allocation: number
+}
+
 // --- Decision Intelligence Types ---
 
 export interface DecisionIntelligence {
@@ -564,6 +610,8 @@ export interface DecisionIntelligence {
   initiation_decision?: InitiationDecision | null
   /** 3-stage tranche scaling plan — deployment timing layer */
   tranche_plan?: TranchePlan | null
+  /** DVRG 2026 divergence overlay — timing intelligence modifier on allocation sizing */
+  divergence_overlay?: DivergenceOverlay | null
 }
 
 export interface DecisionFramework {

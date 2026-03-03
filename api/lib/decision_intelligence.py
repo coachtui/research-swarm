@@ -547,6 +547,15 @@ def enrich_with_decision_intelligence(
             initiation_decision=initiation_decision,
         )
 
+        # Compute DVRG divergence overlay (timing intelligence layer)
+        from api.lib.divergence_overlay import compute_divergence_overlay
+        divergence_overlay = compute_divergence_overlay(
+            signal_breakdown=signal_breakdown,
+            initiation_decision=initiation_decision,
+            price_targets=full_output.get("price_targets"),
+            fundamentalist_output=full_output.get("fundamentalist_output"),
+        )
+
         # Merge into full_output
         full_output["decision_intelligence"] = {
             "decision_framework": di_result.get("decision_framework"),
@@ -561,6 +570,7 @@ def enrich_with_decision_intelligence(
             "capital_deployment_rationale": capital_deployment_rationale,
             "initiation_decision": initiation_decision,
             "tranche_plan": tranche_plan,
+            "divergence_overlay": divergence_overlay,
         }
 
     except Exception as e:
