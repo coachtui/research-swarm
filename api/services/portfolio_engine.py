@@ -409,3 +409,20 @@ async def _update_position_states(
                 where={"id": position.id},
                 data=update_data,
             )
+
+    # Auto-heal positions that have no signal AND no engine action.
+    # These were skipped (no analysis data yet). If they were previously
+    # marked broken by a bad engine run (the old "no signal → EXIT" bug),
+    # reset them to intact/watch so the user isn't stuck in a broken state.
+    action_tickers = {a.ticker for a in result.actions}
+    for ticker in engine_positions:
+        if ticker in action_tickers or ticker in signals_map:
+            continue  # Has an action or a real signal — don't touch
+        position = await db.position.find_first(
+            where={"portfolioId": portfolio_id, "ticker": ticker}
+        )
+        if position and position.thesisState == "broken" and position.ownershipStatus == "disqualified":
+            await db.position.update(
+                where={"id": position.id},
+                data={"thesisState": "intact", "ownershipStatus": "watch", "eligibilityState": "pending"},
+            )

@@ -382,11 +382,8 @@ def compute_thesis_breaks(
     for ticker, pos in positions.items():
         sig = signals_map.get(ticker)
         if sig is None:
-            actions.append(OwnerAction(
-                ticker=ticker, action="SELL",
-                current_weight=pos.weight, target_weight=0.0,
-                reason="No signal data — universe exit",
-            ))
+            # No completed analysis yet — hold, don't exit.
+            # User may have just added this position; run an analysis first.
             continue
 
         # Condition A: Growth Collapse (requires 3 confirming signals)
