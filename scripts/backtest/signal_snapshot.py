@@ -116,6 +116,19 @@ class SignalRow:
     scenario_valid: bool = True
     invalid_reason: str = ""
 
+    # ── Fundamental fields (for ER decomposition) ─────────────────────────────
+    fair_value_mid: float = 0.0          # blended fair value midpoint
+    revenue_growth_yoy: Optional[float] = None  # YoY revenue growth %
+    gross_margin: Optional[float] = None         # gross margin %
+    fcf_margin: Optional[float] = None           # FCF margin %
+    eps_revision_positive: bool = False          # most recent 2 quarters EPS QoQ > 0
+    sector: str = "Unknown"                      # GICS sector
+
+    # ── Multi-quarter durability fields ──────────────────────────────────────
+    revenue_3y_cagr: Optional[float] = None          # 3-year revenue CAGR (%)
+    revenue_growth_persistence: Optional[int] = None  # of last 8Q with positive YoY rev growth
+    margin_trend: str = "unknown"                     # expanding/stable/contracting/unknown
+
     # ── Diagnostic metadata (set from production signal output) ───────────────
     proxy_fallback: bool = False    # production engine fell back to proxy
     missing_ebitda: bool = False    # EV/EBITDA component unavailable
@@ -178,6 +191,19 @@ def validate_scenarios(
             return False, f"base_price_ratio_too_low:{ratio:.3f}"
         if ratio > max_ratio:
             return False, f"base_price_ratio_too_high:{ratio:.3f}"
+
+    # 5. Skew sanity — when bear ≥ current_price the denominator in
+    #    asymmetry_ratio collapses to ~1e-6 producing ratios of 1000–16000×.
+    #    Such values are not genuine reward/risk signals; they indicate that all
+    #    three scenarios sit above the current price (extreme undervaluation claim
+    #    that should be validated rather than blindly accepted).
+    if current_price > 0:
+        raw_down = current_price - bear
+        skew_denom = max(raw_down, 1e-6)
+        skew_up = max(bull - current_price, 0.0)
+        computed_skew = skew_up / skew_denom
+        if computed_skew > 20.0:
+            return False, f"skew_unreasonable:{computed_skew:.1f}"
 
     return True, ""
 
@@ -262,6 +288,17 @@ def compute_signal(
         data_quality=result["data_quality"],
         inputs_used=result["inputs_used"],
         data_warnings=result["data_warnings"],
+        # Fundamental fields for ER decomposition
+        fair_value_mid=result.get("fair_value_mid", 0.0) or 0.0,
+        revenue_growth_yoy=result.get("revenue_growth_yoy"),
+        gross_margin=result.get("gross_margin"),
+        fcf_margin=result.get("fcf_margin"),
+        eps_revision_positive=result.get("eps_revision_positive", False),
+        sector=result.get("sector", "Unknown"),
+        # Multi-quarter durability fields
+        revenue_3y_cagr=result.get("revenue_3y_cagr"),
+        revenue_growth_persistence=result.get("revenue_growth_persistence"),
+        margin_trend=result.get("margin_trend", "unknown"),
         # Validation and diagnostic fields
         scenario_valid=scenario_valid,
         invalid_reason=invalid_reason,
@@ -645,9 +682,10 @@ def extract_t1_fields(
     risk_level_int = _RLE.get(risk_level_str, 2)
 
     upside = max(bull_target - current_price, 0.0)
-    downside = max(current_price - bear_target, 0.01)
+    raw_downside = current_price - bear_target
+    downside_severity = max(0.0, raw_downside) / current_price   # always ≥ 0
+    downside = max(raw_downside, 1e-6)
     asymmetry_ratio = upside / downside
-    downside_severity = (current_price - bear_target) / current_price
 
     di = full_output.get("decision_intelligence") or {}
     cp = di.get("conviction_position") or {}

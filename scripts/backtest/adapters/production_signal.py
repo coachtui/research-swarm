@@ -93,7 +93,7 @@ def compute_signal_production(
 
     stock_info = build_stock_info(fund, current_price, beta)
     valuation_metrics = build_valuation_metrics(fund, current_price)
-    dcf_inputs = build_dcf_inputs(fund)
+    dcf_inputs = build_dcf_inputs(fund, current_price)
     historical_eps = build_historical_eps(fund)
     quarterly_margin_std = compute_quarterly_margin_std(fund)
 
@@ -159,10 +159,18 @@ def compute_signal_production(
     risk_level_int, risk_level_str = _compute_risk_level(moat_score, fund, beta)
 
     # ── Step 7: Asymmetry + Downside ─────────────────────────────────────────
+    # downside_severity: fraction of price at risk in the bear case — ALWAYS ≥ 0.
+    # When bear_target > current_price (stock looks undervalued even in bear case),
+    # downside_severity is 0 (no loss risk).  Using max(0, ...) prevents a negative
+    # value from trivially passing the ≤ T1_DOWNSIDE_MAX gate while hiding the fact
+    # that the denominator for asymmetry_ratio collapses.
     upside = max(bull_target - current_price, 0.0)
-    downside_denom = max(current_price - bear_target, 0.01)
+    raw_downside = current_price - bear_target
+    downside_severity = max(0.0, raw_downside) / current_price   # always ≥ 0
+    # Protect asymmetry denominator against collapse when bear ≥ current_price.
+    # max(raw_downside, 1e-6) preserves the sign-corrected floor.
+    downside_denom = max(raw_downside, 1e-6)
     asymmetry_ratio = upside / downside_denom
-    downside_severity = (current_price - bear_target) / current_price
 
     # ── Step 8: Recommended weight via DI enrichment ──────────────────────────
     recommended_weight = _get_recommended_weight_via_di(
@@ -179,6 +187,9 @@ def compute_signal_production(
 
     # Extract per-method values for parity reporting
     method_values = pts.method_values or {}
+
+    # ── Fundamental fields for ER decomposition ─────────────────────────────
+    eps_rev_positive = _compute_eps_revision_positive(fund)
 
     return dict(
         ticker=ticker,
@@ -208,6 +219,16 @@ def compute_signal_production(
         dcf_target=round(method_values.get("dcf", 0.0), 4) if method_values.get("dcf") else None,
         reporting_currency=fund.reporting_currency,
         currency_converted=fund.currency_converted,
+        # Fundamental fields for ER decomposition
+        revenue_growth_yoy=fund.revenue_growth_yoy,
+        gross_margin=fund.gross_margin,
+        fcf_margin=fund.fcf_margin,
+        eps_revision_positive=eps_rev_positive,
+        sector=stock_info.get("sector", "Unknown"),
+        # Multi-quarter durability fields
+        revenue_3y_cagr=fund.revenue_3y_cagr,
+        revenue_growth_persistence=fund.revenue_growth_persistence,
+        margin_trend=fund.margin_trend,
         inputs_used={
             "fund_period": fund.reporting_period.isoformat(),
             "fund_lag_days": (as_of - fund.reporting_period).days,
@@ -385,6 +406,23 @@ def _score_valuation_component(fund: PITFundamentals) -> float:
     return max(0.0, min(10.0, score))
 
 
+# ── EPS revision signal ───────────────────────────────────────────────────────
+
+
+def _compute_eps_revision_positive(fund: PITFundamentals) -> bool:
+    """
+    Determine if EPS revisions are positive: most recent 2 quarters must both
+    show QoQ EPS improvement (eps[0] > eps[1] AND eps[1] > eps[2]).
+
+    Returns False if fewer than 3 quarters of EPS data are available.
+    """
+    eps = fund.eps_series  # newest first
+    if len(eps) < 3:
+        return False
+    # eps[0] = most recent, eps[1] = prior, eps[2] = two quarters ago
+    return eps[0] > eps[1] and eps[1] > eps[2]
+
+
 # ── Rating + risk helpers ──────────────────────────────────────────────────────
 
 
@@ -554,10 +592,14 @@ def _proxy_signal_dict(
     rating_label = "Accumulate" if rating in _ACCUMULATE_RATINGS else rating
 
     upside = max(bull_target - current_price, 0.0)
-    downside_denom = max(current_price - bear_target, 0.01)
+    raw_downside = current_price - bear_target
+    downside_severity = max(0.0, raw_downside) / current_price   # always ≥ 0
+    downside_denom = max(raw_downside, 1e-6)
     asymmetry_ratio = upside / downside_denom
-    downside_severity = (current_price - bear_target) / current_price
     recommended_weight = _recommended_weight(moat_score)
+
+    # Fundamental fields for ER decomposition
+    eps_rev_positive = _compute_eps_revision_positive(fund)
 
     warnings.append("proxy_fallback")
     return dict(
@@ -581,6 +623,16 @@ def _proxy_signal_dict(
         beta=round(beta, 4),
         fundamentals_period=fund.reporting_period,
         data_quality=fund.data_quality,
+        # Fundamental fields for ER decomposition
+        revenue_growth_yoy=fund.revenue_growth_yoy,
+        gross_margin=fund.gross_margin,
+        fcf_margin=fund.fcf_margin,
+        eps_revision_positive=eps_rev_positive,
+        sector="Unknown",  # proxy path has no sector data
+        # Multi-quarter durability fields
+        revenue_3y_cagr=fund.revenue_3y_cagr,
+        revenue_growth_persistence=fund.revenue_growth_persistence,
+        margin_trend=fund.margin_trend,
         inputs_used={
             "fund_period": fund.reporting_period.isoformat(),
             "fund_lag_days": (as_of - fund.reporting_period).days,

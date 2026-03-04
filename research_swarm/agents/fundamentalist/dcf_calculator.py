@@ -101,6 +101,19 @@ class DCFCalculator:
             bull_value = max(bull_value, base_value * 1.1)
             bear_value = max(min(bear_value, base_value * 0.9), 0.01)
 
+            # ── Sanity check: large-cap with sub-$1 DCF signals negative equity ──
+            # Negative equity (debt > EV + cash) floors to $0.01 sentinel.
+            # For companies with market_cap > $10B this is almost certainly a
+            # unit mismatch or bad data — return None so blended_valuation omits DCF.
+            if dcf_inputs.market_cap_millions is not None and dcf_inputs.market_cap_millions > 10_000:
+                if base_value < 1.0:
+                    logger.warning(
+                        f"DCF sanity fail: market_cap={dcf_inputs.market_cap_millions:.0f}M "
+                        f"but DCF base=${base_value:.4f} (negative equity or unit mismatch) — "
+                        f"DCF omitted from blend"
+                    )
+                    return None
+
             # Build scenario descriptions
             margin_note = ""
             if dcf_inputs.operating_margin_trend:

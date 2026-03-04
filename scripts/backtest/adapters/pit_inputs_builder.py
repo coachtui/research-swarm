@@ -150,13 +150,17 @@ def build_valuation_metrics(
     }
 
 
-def build_dcf_inputs(fund: PITFundamentals):
+def build_dcf_inputs(fund: PITFundamentals, current_price: Optional[float] = None):
     """
     Build a ``DCFInputs`` Pydantic model from PITFundamentals.
 
     ``fcf_history`` is a single-year estimate (TTM FCF in millions) since we
     only have one TTM snapshot.  The production DCF engine seeds the
     projection from this value.
+
+    ``current_price`` is optional but recommended — used to populate
+    ``market_cap_millions`` so the DCF sanity check can detect implausibly
+    low per-share values for large-caps (unit mismatch / negative equity).
 
     Returns None if FCF data is entirely missing (engine will skip DCF method).
     """
@@ -166,7 +170,7 @@ def build_dcf_inputs(fund: PITFundamentals):
     if fund.fcf_ttm_raw is None and fund.fcf_per_share is None:
         return None
 
-    # Prefer raw dollar FCF (millions); fall back to per-share × shares
+    # Prefer raw dollar FCF; fall back to per-share × shares — both converted to millions
     fcf_millions: Optional[float] = None
     if fund.fcf_ttm_raw is not None:
         fcf_millions = fund.fcf_ttm_raw / 1_000_000
@@ -187,6 +191,11 @@ def build_dcf_inputs(fund: PITFundamentals):
         fund.cash_raw / 1_000_000 if fund.cash_raw is not None else None
     )
 
+    # Market cap in millions — used by DCF sanity check to detect nonsensical outputs
+    market_cap_millions: Optional[float] = None
+    if current_price is not None and current_price > 0 and fund.shares_raw:
+        market_cap_millions = (fund.shares_raw * current_price) / 1_000_000
+
     return DCFInputs(
         fcf_history=fcf_history,
         revenue_growth_rate=fund.revenue_growth_yoy,
@@ -194,6 +203,7 @@ def build_dcf_inputs(fund: PITFundamentals):
         total_debt=total_debt_millions,
         cash_and_equivalents=cash_millions,
         shares_outstanding=shares_millions,
+        market_cap_millions=market_cap_millions,
     )
 
 

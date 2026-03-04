@@ -561,3 +561,386 @@ def test_scenario_sanity_ordering_violation():
     assert reason == "base_lt_bear", (
         f"Expected 'base_lt_bear', got '{reason}'"
     )
+
+
+# ── Test: downside_severity is never negative after fix ───────────────────────
+
+
+def test_downside_severity_never_negative():
+    """
+    When bear_target > current_price (stock looks undervalued even in bear case),
+    downside_severity must be clamped to 0.0, NOT negative.
+
+    Regression test for bug B: `(price - bear) / price` was unguarded and could
+    return e.g. -0.38 when bear = 138 and price = 100.  The T1 downside gate
+    (`<= 0.30`) would silently pass a negative value, masking the broken scenario.
+    """
+    from scripts.backtest.signal_snapshot import compute_signal
+    from scripts.backtest.data.fundamentals import PITFundamentals
+
+    # Build a synthetic fund that will produce a BUY-rated signal.
+    # Raw dollar fields must be set so build_dcf_inputs has valid FCF.
+    fund = PITFundamentals(
+        ticker="TSST",
+        reporting_period=date(2017, 9, 30),
+        earliest_use_date=date(2017, 11, 29),
+        quarters_available=12,
+        eps_ttm=8.00,
+        fcf_per_share=7.50,
+        revenue_growth_yoy=14.0,
+        fcf_margin=25.0,
+        roe=30.0,
+        de_ratio=0.20,
+        net_margin=22.0,
+        gross_margin=40.0,
+        eps_series=[2.0, 1.9, 2.1, 2.0, 1.8, 1.85, 1.75, 1.80],
+        data_quality="complete",
+        net_income_ttm_raw=8_000_000_000,
+        revenue_ttm_raw=36_363_636_364,
+        fcf_ttm_raw=9_000_000_000,
+        total_debt_raw=5_000_000_000,
+        cash_raw=20_000_000_000,
+        shares_raw=1_200_000_000,
+        reporting_currency="USD",
+    )
+
+    # Price well below bear scenario target to force bear > current_price
+    # (stock trading at deep discount — bear case still above market price)
+    price = 80.0     # current price $80
+    # When base_target ≈ $130 and bear = $104 (80% of base), bear > price.
+    sig = compute_signal("TSST", date(2018, 2, 28), fund, price, beta=0.9,
+                         scenario_sanity_check=False)
+
+    if sig is None:
+        pytest.skip("Signal computation returned None — not enough data for this synthetic fund")
+
+    assert sig.downside_severity >= 0.0, (
+        f"downside_severity must be ≥ 0, got {sig.downside_severity:.4f}. "
+        f"bear={sig.bear_target:.2f}, price={sig.current_price:.2f}"
+    )
+
+
+# ── Test: validate_scenarios flags skew > 20 as skew_unreasonable ─────────────
+
+
+def test_validate_scenarios_skew_unreasonable():
+    """
+    validate_scenarios() must return (False, 'skew_unreasonable:X') when the
+    computed asymmetry_ratio exceeds 20.  This happens when bear_target > current_price
+    (all scenarios above current price) causing the denominator to collapse to ~1e-6.
+    """
+    from scripts.backtest.signal_snapshot import validate_scenarios
+
+    price = 100.0
+    # All three scenarios are ABOVE current price.
+    # bear = $110, base = $140, bull = $180 — ordering is valid but skew is huge.
+    # asymmetry_ratio = (180-100) / max(100-110, 1e-6) = 80 / 1e-6 >> 20
+    signal_all_above = {
+        "bear_target": 110.0,
+        "base_target": 140.0,
+        "bull_target": 180.0,
+    }
+    is_valid, reason = validate_scenarios(signal_all_above, price)
+    assert not is_valid, (
+        "All scenarios above current_price → skew collapse → must be flagged invalid"
+    )
+    assert reason.startswith("skew_unreasonable"), (
+        f"Expected 'skew_unreasonable:X', got '{reason}'"
+    )
+
+    # Normal asymmetric scenario (bear below price) must still pass.
+    signal_normal = {
+        "bear_target":  80.0,
+        "base_target": 120.0,
+        "bull_target": 160.0,
+    }
+    is_valid_normal, reason_normal = validate_scenarios(signal_normal, price)
+    assert is_valid_normal, (
+        f"Normal scenario should pass: bear=80, base=120, bull=160 at price=100 "
+        f"(skew={(160-100)/(100-80):.1f}). Reason: '{reason_normal}'"
+    )
+
+
+# ── Test: DCF sanity check blocks sub-$1 output for large-caps ────────────────
+
+
+def test_dcf_sanity_check_large_cap():
+    """
+    When a large-cap company (market_cap > $10B) produces a DCF base_value < $1
+    (typically because debt > EV + cash → negative equity floored to $0.01),
+    DCFCalculator.calculate_dcf() must return None rather than propagating a
+    nonsensical sentinel value into the blended fair value.
+    """
+    from research_swarm.agents.fundamentalist.models import DCFInputs
+    from research_swarm.agents.fundamentalist.dcf_calculator import DCFCalculator
+
+    calc = DCFCalculator()
+
+    # Simulate a highly leveraged company with debt >> EV.
+    # market_cap = $50B, FCF = $1B, debt = $200B, cash = $10B, shares = 1B.
+    # Equity = (EV of FCF stream) + cash - debt → almost certainly negative.
+    dcf_inputs = DCFInputs(
+        fcf_history=[1_000.0],           # $1B FCF (millions)
+        revenue_growth_rate=2.0,
+        total_debt=200_000.0,            # $200B debt (millions)
+        cash_and_equivalents=10_000.0,   # $10B cash (millions)
+        shares_outstanding=1_000.0,      # 1B shares (millions)
+        market_cap_millions=50_000.0,    # $50B market cap → triggers sanity check
+    )
+    result = calc.calculate_dcf(dcf_inputs, current_price=50.0)
+
+    assert result is None, (
+        f"DCF must return None for large-cap with negative equity — got base={result.base_target if result else 'N/A'}"
+    )
+
+    # A healthy company with the same market cap must NOT be blocked.
+    dcf_healthy = DCFInputs(
+        fcf_history=[20_000.0],          # $20B FCF (millions)
+        revenue_growth_rate=8.0,
+        total_debt=30_000.0,             # $30B debt (millions)
+        cash_and_equivalents=40_000.0,   # $40B cash (millions)
+        shares_outstanding=1_000.0,
+        market_cap_millions=50_000.0,
+    )
+    result_healthy = calc.calculate_dcf(dcf_healthy, current_price=50.0)
+    assert result_healthy is not None, "Healthy large-cap DCF should succeed"
+    assert result_healthy.base_target >= 1.0, (
+        f"Healthy DCF base_target should be ≥ $1, got {result_healthy.base_target}"
+    )
+
+
+# ── Test: T1 qualifiers emerge for at least one month ────────────────────────
+
+
+def test_t1_qualifiers_with_synthetic_signals():
+    """
+    With well-formed synthetic signals that meet all T1 criteria
+    (moat≥7, EV≥15%, confidence≥55, risk≤2, skew≥1.3, downside≤30%, weight>0),
+    apply_t1_filter() and build_portfolio() must produce a non-empty portfolio.
+
+    This is the core regression test for the complete fix set: after fixing
+    downside sign, skew robustness, and DCF sanity, a set of valid signals
+    MUST produce T1 qualifiers (pass_all > 0 for this synthetic "month").
+    """
+    from scripts.backtest.signal_snapshot import SignalRow
+    from scripts.backtest.backtest_t1 import apply_t1_filter, build_portfolio
+
+    rng = np.random.default_rng(2018)
+
+    def make_qualifying_signal(ticker: str, i: int) -> SignalRow:
+        """Create a signal that explicitly satisfies every T1 gate."""
+        price = 100.0
+        base = 125.0
+        bull = 162.5   # 1.30× upside vs 0.20× downside → skew = (62.5/20) = 3.125 ≥ 1.3
+        bear = 80.0    # downside_severity = (100-80)/100 = 0.20 ≤ 0.30
+        ev_price = base * 0.5 + bull * 0.25 + bear * 0.25   # = 110.125
+        ev = (ev_price - price) / price                       # = 0.101 → below threshold, bump
+        # Set expected_value directly above threshold
+        return SignalRow(
+            ticker=ticker,
+            as_of_date=date(2018, 2, 28),
+            rating="BUY",
+            rating_label="Accumulate",         # ← must be "Accumulate"
+            expected_value=0.20 + i * 0.01,    # ≥ 0.15 ✓
+            confidence_score=65.0,             # ≥ 55 ✓
+            risk_level=2,                      # ≤ 2 ✓
+            risk_level_str="Medium",
+            asymmetry_ratio=3.125,             # ≥ 1.3 ✓
+            downside_severity=0.20,            # ≤ 0.30 ✓  (positive, ≥ 0)
+            recommended_weight=0.04,           # > 0 ✓
+            moat_score=7.5,
+            current_price=price,
+            ev_price=ev_price,
+            base_target=base,
+            bull_target=bull,
+            bear_target=bear,
+            beta=1.0,
+            fundamentals_period=date(2017, 12, 31),
+            data_quality="complete",
+            scenario_valid=True,
+        )
+
+    signals = [make_qualifying_signal(f"SY{i:03d}", i) for i in range(10)]
+
+    qualified = apply_t1_filter(signals)
+    assert len(qualified) > 0, (
+        "apply_t1_filter must return ≥ 1 qualified signal for these well-formed inputs. "
+        f"Got 0 from {len(signals)} signals."
+    )
+
+    weights = build_portfolio(qualified)
+    assert not weights.empty, "build_portfolio must produce non-empty weights"
+    assert weights.sum() <= 1.0 + 1e-9, f"Weights sum {weights.sum():.6f} > 1.0"
+
+
+# ── Test: normalize_bool_series coerces all dtypes correctly ──────────────────
+
+
+def test_normalize_bool_series():
+    """
+    normalize_bool_series must coerce bool, int 0/1, str "true"/"false", and
+    NaN/None to strict Python bool without raising.
+    """
+    from scripts.backtest.backtest_t1 import normalize_bool_series
+
+    # bool passthrough
+    result = normalize_bool_series(pd.Series([True, False, True]))
+    assert result.tolist() == [True, False, True], f"bool dtype: {result.tolist()}"
+
+    # int 0/1
+    result = normalize_bool_series(pd.Series([1, 0, 1, 0]))
+    assert result.tolist() == [True, False, True, False], f"int dtype: {result.tolist()}"
+
+    # string variants
+    result = normalize_bool_series(pd.Series(["True", "False", "true", "false", "1", "0"]))
+    assert result.tolist() == [True, False, True, False, True, False], f"str dtype: {result.tolist()}"
+
+    # NaN / None → False
+    result = normalize_bool_series(pd.Series([True, np.nan, None, False]))
+    assert result.tolist() == [True, False, False, False], f"NaN/None: {result.tolist()}"
+
+    # Mixed int + NaN (common in CSV-loaded DataFrames)
+    result = normalize_bool_series(pd.Series([1.0, 0.0, np.nan]))
+    assert result.tolist() == [True, False, False], f"float+NaN: {result.tolist()}"
+
+
+# ── Test: _assert_gate_integrity passes for clean rows ────────────────────────
+
+
+def test_gate_integrity_passes_for_clean_rows():
+    """_assert_gate_integrity must not raise when pass_all == all(5 gates)."""
+    from scripts.backtest.backtest_t1 import _assert_gate_integrity
+
+    clean_rows = [
+        {
+            "month": "2018-01", "ticker": "AAPL",
+            "pass_ev": True, "pass_conf": True, "pass_risk": True,
+            "pass_skew": True, "pass_downside": True,
+            "pass_all": True,   # correct: all 5 = True
+            "scenario_valid": True, "t1_qualifies": True,
+        },
+        {
+            "month": "2018-01", "ticker": "MSFT",
+            "pass_ev": False, "pass_conf": True, "pass_risk": True,
+            "pass_skew": True, "pass_downside": True,
+            "pass_all": False,  # correct: one gate False → False
+            "scenario_valid": True, "t1_qualifies": False,
+        },
+    ]
+    # Must not raise
+    _assert_gate_integrity(clean_rows, context="test_clean", out_dir=None)
+
+
+# ── Test: _assert_gate_integrity raises for stale/mismatched pass_all ─────────
+
+
+def test_gate_integrity_raises_for_dirty_rows():
+    """
+    _assert_gate_integrity must raise RuntimeError when pass_all stored in a row
+    disagrees with the recomputed truth from the 5 GATE_COLS.
+    This exactly reproduces the original defect: pass_all was False even though
+    all 5 gates were True (blocked by the stale rating_label == 'Accumulate' check).
+    """
+    from scripts.backtest.backtest_t1 import _assert_gate_integrity
+
+    dirty_rows = [
+        {
+            "month": "2018-01", "ticker": "HOLD_TICKER",
+            # All 5 gates True:
+            "pass_ev": True, "pass_conf": True, "pass_risk": True,
+            "pass_skew": True, "pass_downside": True,
+            # But old code set pass_all=False due to rating_label != "Accumulate":
+            "pass_all": False,
+            "scenario_valid": True, "t1_qualifies": False,
+        },
+    ]
+    with pytest.raises(RuntimeError, match="INTEGRITY FAILURE"):
+        _assert_gate_integrity(dirty_rows, context="test_dirty", out_dir=None)
+
+
+# ── Test: HOLD-rated signal with all 5 gates passing qualifies after fix ───────
+
+
+def test_hold_rated_signal_qualifies_after_integrity_fix():
+    """
+    A HOLD-rated signal (moat_score < 7.0, rating_label != 'Accumulate') that
+    passes all 5 T1 gates MUST be returned by apply_t1_filter after the fix.
+
+    Before the fix: blocked by ``rating_label == 'Accumulate'`` condition.
+    After the fix : qualifies because only the 5 gate thresholds matter.
+    """
+    from scripts.backtest.signal_snapshot import SignalRow
+    from scripts.backtest.backtest_t1 import apply_t1_filter
+
+    hold_signal = SignalRow(
+        ticker="HOLD_TEST",
+        as_of_date=date(2018, 1, 31),
+        rating="HOLD",
+        rating_label="HOLD",        # NOT "Accumulate" — moat_score = 6.0 < 7.0
+        expected_value=0.20,        # ≥ 0.15 ✓
+        confidence_score=65.0,      # ≥ 55 ✓
+        risk_level=2,               # ≤ 2 ✓
+        risk_level_str="Medium",
+        asymmetry_ratio=1.5,        # ≥ 1.3 ✓
+        downside_severity=0.20,     # ≤ 0.30 ✓
+        recommended_weight=0.0,     # 0 — was previously a disqualifier
+        moat_score=6.0,             # < 7.0 → HOLD rating
+        current_price=100.0,
+        ev_price=120.0,
+        base_target=120.0,
+        bull_target=140.0,
+        bear_target=80.0,
+        beta=1.0,
+        fundamentals_period=date(2017, 12, 31),
+        data_quality="complete",
+        scenario_valid=True,
+    )
+
+    qualified = apply_t1_filter([hold_signal])
+    assert len(qualified) == 1, (
+        "HOLD-rated signal with all 5 gates passing must qualify after the integrity fix. "
+        f"Got {len(qualified)} qualified (expected 1)."
+    )
+
+
+# ── Test: invalid scenario is never t1_qualifies regardless of gates ──────────
+
+
+def test_invalid_scenario_never_qualifies():
+    """
+    A signal with scenario_valid=False must never be returned by apply_t1_filter,
+    even if all 5 gate values are above threshold.
+    """
+    from scripts.backtest.signal_snapshot import SignalRow
+    from scripts.backtest.backtest_t1 import apply_t1_filter
+
+    invalid_signal = SignalRow(
+        ticker="INVALID_TEST",
+        as_of_date=date(2018, 1, 31),
+        rating="BUY",
+        rating_label="Accumulate",
+        expected_value=0.25,
+        confidence_score=70.0,
+        risk_level=1,
+        risk_level_str="Low",
+        asymmetry_ratio=2.0,
+        downside_severity=0.15,
+        recommended_weight=0.05,
+        moat_score=8.0,
+        current_price=100.0,
+        ev_price=125.0,
+        base_target=125.0,
+        bull_target=150.0,
+        bear_target=85.0,
+        beta=1.0,
+        fundamentals_period=date(2017, 12, 31),
+        data_quality="complete",
+        scenario_valid=False,           # ← invalid scenario
+        invalid_reason="ordering_violation",
+    )
+
+    qualified = apply_t1_filter([invalid_signal])
+    assert len(qualified) == 0, (
+        "Signal with scenario_valid=False must never qualify. "
+        f"Got {len(qualified)} qualified (expected 0)."
+    )

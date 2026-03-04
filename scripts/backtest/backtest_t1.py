@@ -70,6 +70,7 @@ from dotenv import load_dotenv
 load_dotenv(PROJECT_ROOT / ".env")
 
 from scripts.backtest.config import (
+    # ── Backtest parameters ───────────────────────────────────────────────────
     BACKTEST_END,
     BACKTEST_START,
     BENCHMARK_FALLBACK,
@@ -95,6 +96,33 @@ from scripts.backtest.config import (
     T1_RISK_MAX,
     T1_SKEW_MIN,
     TRANSACTION_COST_BPS,
+    # ── Alpha engine ──────────────────────────────────────────────────────────
+    ALPHA_MAX_WEIGHT,
+    ALPHA_MIN_WEIGHT,
+    ALPHA_W_CONF,
+    ALPHA_W_DOWNSIDE,
+    ALPHA_W_EV,
+    ALPHA_W_MOM,
+    ALPHA_W_QUAL,
+    ALPHA_W_SKEW,
+    BETA_HARD_CAP,
+    GAMMA_DEFAULT,
+    GRID_CONFIGS,
+    N_ALPHA_NAMES,
+    REGIME_CONTRACTION_GAMMA,
+    REGIME_CONTRACTION_W_DOWNSIDE,
+    REGIME_EXPANSION_GAMMA,
+    REGIME_EXPANSION_W_MOM,
+    VOL_HARD_CAP,
+    VOL_LOOKBACK_DAYS,
+    # ── Expected Return Engine ───────────────────────────────────────────────
+    ER_ALPHA_W_CONF,
+    ER_ALPHA_W_DOWNSIDE,
+    ER_ALPHA_W_ER,
+    ER_ALPHA_W_MOM,
+    ER_ALPHA_W_QUAL,
+    ER_ALPHA_W_SKEW,
+    SQE_MAX_POSITION_CEILING_BOOST,
 )
 from scripts.backtest.data.fundamentals import prewarm_fundamentals
 from scripts.backtest.data.prices import (
@@ -131,22 +159,152 @@ logger = logging.getLogger(__name__)
 MONTHS_PER_YEAR = 12
 TRADING_DAYS_PER_YEAR = 252
 
+# ── Canonical gate columns (single source of truth) ───────────────────────────
+
+GATE_COLS: List[str] = ["pass_ev", "pass_conf", "pass_risk", "pass_skew", "pass_downside"]
+
+
+def normalize_bool_series(s: pd.Series) -> "pd.Series":
+    """
+    Coerce any gate-column dtype to strict Python bool.
+
+    Handles:
+      • bool          — passed through unchanged
+      • int (0 / 1)   — 0 → False, non-zero → True
+      • str           — case-insensitive "true" / "1" → True; anything else → False
+      • NaN / None    — → False
+    """
+    if pd.api.types.is_bool_dtype(s):
+        return s.fillna(False).astype(bool)
+
+    def _coerce(v):
+        if v is None:
+            return False
+        if isinstance(v, bool):          # bool before int — bool subclasses int
+            return v
+        if isinstance(v, float):
+            return False if np.isnan(v) else bool(int(v))  # 1.0→True, 0.0→False
+        if isinstance(v, (int, np.integer)):
+            return bool(v)
+        return str(v).strip().lower() in ("true", "1")
+
+    return s.map(_coerce).astype(bool)
+
+
+def _assert_gate_integrity(
+    rows: List[dict],
+    context: str,
+    out_dir: Optional[Path] = None,
+) -> None:
+    """
+    Hard-fail if any row's ``pass_all`` disagrees with the recomputed truth
+    derived from the 5 canonical GATE_COLS.
+
+    If ``out_dir`` is given, ``t1_qualify_mismatches.csv`` is written first
+    (even when there are zero mismatches — an empty file proves a clean run).
+    """
+    mismatch_col_order = (
+        ["month", "ticker", "pass_all_stored", "pass_all_truth",
+         "scenario_valid", "t1_qualifies"] + GATE_COLS
+    )
+
+    if not rows:
+        if out_dir is not None:
+            pd.DataFrame(columns=mismatch_col_order).to_csv(
+                out_dir / "t1_qualify_mismatches.csv", index=False
+            )
+            logger.info("  t1_qualify_mismatches.csv: 0 mismatch rows (clean)")
+        return
+
+    df = pd.DataFrame(rows)
+    if "pass_all" not in df.columns:
+        return
+
+    for col in GATE_COLS:
+        if col in df.columns:
+            df[col] = normalize_bool_series(df[col])
+
+    pass_all_truth  = df[GATE_COLS].all(axis=1)
+    pass_all_stored = normalize_bool_series(df["pass_all"])
+    mismatch_mask   = pass_all_stored != pass_all_truth
+
+    # Always write the mismatches CSV (empty = clean proof)
+    if out_dir is not None:
+        mdf = df[mismatch_mask].copy()
+        mdf["pass_all_stored"] = pass_all_stored[mismatch_mask].values
+        mdf["pass_all_truth"]  = pass_all_truth[mismatch_mask].values
+        out_cols = [c for c in mismatch_col_order if c in mdf.columns]
+        mdf[out_cols].to_csv(out_dir / "t1_qualify_mismatches.csv", index=False)
+        logger.info(
+            "  t1_qualify_mismatches.csv: %d mismatch rows (0 = clean)",
+            int(mismatch_mask.sum()),
+        )
+
+    if mismatch_mask.any():
+        n = int(mismatch_mask.sum())
+        sample_cols = ["month", "ticker", "pass_all"] + GATE_COLS
+        sample = (
+            df[mismatch_mask]
+            .head(5)[[c for c in sample_cols if c in df.columns]]
+            .to_string(index=False)
+        )
+        raise RuntimeError(
+            f"[INTEGRITY FAILURE @ {context}] pass_all mismatches pass_all_truth "
+            f"on {n} rows.\nSample:\n{sample}"
+        )
+
+
+# ── Audit CSV schema guarantee ────────────────────────────────────────────────
+
+# Minimum columns required in every audit CSV row.
+# Any deviation from this schema is a hard error — not a silent omission.
+AUDIT_REQUIRED_COLS: List[str] = [
+    "month", "ticker",
+    "scenario_valid", "invalid_reason", "proxy_fallback",
+    "pass_ev", "pass_conf", "pass_risk", "pass_skew", "pass_downside",
+    "pass_all", "t1_qualifies",
+    "ev_pct", "confidence", "risk", "skew", "downside_pct",
+    "current_price",
+]
+
+
+def _assert_audit_schema(rows: List[dict], csv_name: str) -> None:
+    """
+    Hard-fail if any required column is missing from the audit rows.
+    Called before writing t1_gate_audit_sample.csv and t1_gate_audit_full.csv.
+    """
+    if not rows:
+        return
+    present = set(rows[0].keys())
+    missing = [c for c in AUDIT_REQUIRED_COLS if c not in present]
+    if missing:
+        raise RuntimeError(
+            f"[SCHEMA FAILURE @ {csv_name}] Required columns missing: {missing}. "
+            f"Present columns: {sorted(present)}"
+        )
+
 
 # ── T1 filter ─────────────────────────────────────────────────────────────────
 
 
 def apply_t1_filter(signals: List[SignalRow]) -> List[SignalRow]:
-    """Apply all T1 Accumulate criteria to a list of SignalRows."""
+    """
+    Apply all T1 Accumulate criteria to a list of SignalRows.
+
+    Qualification: scenario_valid=True AND all 5 gate thresholds met.
+    rating_label and recommended_weight are NOT qualification criteria —
+    they must not gate entry (see integrity spec item E).
+    """
     qualified = []
     for s in signals:
+        if not s.scenario_valid:
+            continue
         if (
-            s.rating_label == "Accumulate"
-            and s.expected_value >= T1_EV_THRESHOLD
+            s.expected_value >= T1_EV_THRESHOLD
             and s.confidence_score >= T1_CONFIDENCE_THRESHOLD
             and s.risk_level <= T1_RISK_MAX
             and s.asymmetry_ratio >= T1_SKEW_MIN
             and s.downside_severity <= T1_DOWNSIDE_MAX
-            and s.recommended_weight > 0
         ):
             qualified.append(s)
     return qualified
@@ -182,15 +340,10 @@ def _apply_t1_filter_breakdown(
         for k, v in gates.items():
             if v:
                 gate_counts[k] += 1
-        if (
-            s.rating_label == "Accumulate"
-            and gates["pass_ev"]
-            and gates["pass_conf"]
-            and gates["pass_risk"]
-            and gates["pass_skew"]
-            and gates["pass_downside"]
-            and s.recommended_weight > 0
-        ):
+        # Qualify on the 5 canonical gates only.
+        # scenario_valid is already guaranteed by the valid_sigs pre-filter upstream.
+        # rating_label and recommended_weight are NOT qualification criteria.
+        if all(gates.values()):
             qualified.append(s)
     return qualified, gate_counts
 
@@ -236,6 +389,369 @@ def build_portfolio(qualified: List[SignalRow]) -> pd.Series:
                 break
             weights = capped
     # If total <= 1.0: keep as-is; cash holds the remainder (ALLOW_CASH=True).
+
+    return weights
+
+
+# ── Alpha engine: continuous scoring + concentration allocation ───────────────
+
+
+def get_spy_200dma(price_data: "PriceData", as_of: date) -> Optional[float]:
+    """Return SPY 200-day simple moving average as of *as_of*, or None if insufficient history."""
+    as_of_ts = pd.Timestamp(as_of)
+    spy_hist = price_data.spy_daily[price_data.spy_daily.index <= as_of_ts].dropna()
+    if len(spy_hist) < 200:
+        return None
+    return float(spy_hist.tail(200).mean())
+
+
+def compute_6m_rel_strength(
+    tickers: List[str],
+    price_data: "PriceData",
+    as_of: date,
+) -> pd.Series:
+    """
+    6-month total return for each ticker minus SPY 6-month return.
+
+    Returns a Series indexed by ticker.  NaN for tickers with < 2 price points
+    in the 6-month window.
+    """
+    as_of_ts = pd.Timestamp(as_of)
+    start_6m = as_of_ts - pd.DateOffset(months=6)
+
+    # SPY reference return
+    spy_window = price_data.spy_daily[
+        (price_data.spy_daily.index >= start_6m)
+        & (price_data.spy_daily.index <= as_of_ts)
+    ].dropna()
+    spy_ret = (
+        float(spy_window.iloc[-1] / spy_window.iloc[0] - 1)
+        if len(spy_window) >= 2
+        else 0.0
+    )
+
+    result: Dict[str, float] = {}
+    daily = price_data.daily
+    for ticker in tickers:
+        if ticker not in daily.columns:
+            result[ticker] = float("nan")
+            continue
+        col = daily[ticker]
+        hist = col[
+            (col.index >= start_6m) & (col.index <= as_of_ts)
+        ].dropna()
+        if len(hist) < 2:
+            result[ticker] = float("nan")
+            continue
+        result[ticker] = float(hist.iloc[-1] / hist.iloc[0] - 1) - spy_ret
+
+    return pd.Series(result)
+
+
+def _rank_normalize(series: pd.Series) -> pd.Series:
+    """
+    Rank-normalize *series* to (0, 1] scale: score_i = rank_i / N.
+
+    Higher value in the original series → higher score.
+    NaN values receive the median score (0.5) so they don't skew allocations.
+    """
+    n = int(series.notna().sum())
+    if n == 0:
+        return series.fillna(0.5)
+    ranked = series.rank(method="average", na_option="keep")
+    out = ranked / n
+    return out.fillna(0.5)
+
+
+def compute_alpha_scores(
+    signals: List["SignalRow"],
+    price_data: "PriceData",
+    as_of: date,
+    spy_200dma: Optional[float],
+) -> pd.DataFrame:
+    """
+    Compute regime-aware composite alpha scores for all *signals*.
+
+    Components (all rank-normalized to (0,1]):
+      ev_score       — expected_value          (higher → better)
+      skew_score     — asymmetry_ratio         (higher → better)
+      conf_score     — confidence_score        (higher → better)
+      mom_score      — 6M relative strength    (higher → better)
+      qual_score     — moat_score              (higher → better)
+      downside_score — downside_severity       (higher → more risky; subtracted)
+
+    Composite:
+      expansion  (SPY > 200DMA): gamma=1.8, mom_weight boosted to 0.20
+      contraction (SPY ≤ 200DMA): gamma=1.2, downside_weight boosted to 0.20
+
+    Returns a DataFrame indexed by ticker with one column per component
+    plus ``alpha_score`` and ``regime``.
+    """
+    if not signals:
+        return pd.DataFrame()
+
+    tickers = [s.ticker for s in signals]
+
+    ev_raw       = pd.Series({s.ticker: s.expected_value    for s in signals})
+    skew_raw     = pd.Series({s.ticker: s.asymmetry_ratio   for s in signals})
+    conf_raw     = pd.Series({s.ticker: s.confidence_score  for s in signals})
+    qual_raw     = pd.Series({s.ticker: s.moat_score        for s in signals})
+    downside_raw = pd.Series({s.ticker: s.downside_severity for s in signals})
+    mom_raw      = compute_6m_rel_strength(tickers, price_data, as_of)
+
+    ev_score       = _rank_normalize(ev_raw)
+    skew_score     = _rank_normalize(skew_raw)
+    conf_score     = _rank_normalize(conf_raw)
+    qual_score     = _rank_normalize(qual_raw)
+    downside_score = _rank_normalize(downside_raw)  # higher = more downside risk
+    mom_score      = _rank_normalize(mom_raw.reindex(ev_raw.index))
+
+    # Determine regime
+    spy_current: Optional[float] = None
+    try:
+        spy_current = float(price_data.spy_daily.asof(pd.Timestamp(as_of)))
+    except Exception:
+        pass
+    in_expansion = (
+        spy_200dma is not None
+        and spy_current is not None
+        and spy_current > spy_200dma
+    )
+
+    w_mom      = REGIME_EXPANSION_W_MOM      if in_expansion else ALPHA_W_MOM
+    w_downside = ALPHA_W_DOWNSIDE             if in_expansion else REGIME_CONTRACTION_W_DOWNSIDE
+
+    alpha_score = (
+        ALPHA_W_EV   * ev_score
+        + ALPHA_W_SKEW * skew_score
+        + ALPHA_W_CONF * conf_score
+        + w_mom        * mom_score
+        + ALPHA_W_QUAL * qual_score
+        - w_downside   * downside_score
+    )
+
+    return pd.DataFrame({
+        "ev_score":       ev_score,
+        "skew_score":     skew_score,
+        "conf_score":     conf_score,
+        "mom_score":      mom_score,
+        "qual_score":     qual_score,
+        "downside_score": downside_score,
+        "alpha_score":    alpha_score,
+        "regime":         "expansion" if in_expansion else "contraction",
+    })
+
+
+def compute_alpha_scores_er(
+    signals: List["SignalRow"],
+    er_series: pd.Series,
+    sqe_mask: pd.Series,
+    price_data: "PriceData",
+    as_of: date,
+    spy_200dma: Optional[float],
+) -> pd.DataFrame:
+    """
+    ER-integrated alpha scoring.
+
+    Replaces ev_score with rank-normalized expected return as primary driver.
+    SQE-eligible names get a quality boost.
+
+    Components (all rank-normalized to (0,1]):
+      er_score       — expected return (replaces ev_score)
+      skew_score     — asymmetry_ratio
+      conf_score     — confidence_score
+      mom_score      — 6M relative strength
+      qual_score     — moat_score (SQE-boosted for eligible names)
+      downside_score — downside_severity (subtracted)
+
+    Returns DataFrame with alpha_score, regime, sqe_eligible columns.
+    """
+    if not signals:
+        return pd.DataFrame()
+
+    tickers = [s.ticker for s in signals]
+
+    # Rank-normalize all components
+    er_score       = _rank_normalize(er_series.reindex(tickers))
+    skew_raw       = pd.Series({s.ticker: s.asymmetry_ratio   for s in signals})
+    conf_raw       = pd.Series({s.ticker: s.confidence_score  for s in signals})
+    qual_raw       = pd.Series({s.ticker: s.moat_score        for s in signals})
+    downside_raw   = pd.Series({s.ticker: s.downside_severity for s in signals})
+    mom_raw        = compute_6m_rel_strength(tickers, price_data, as_of)
+
+    skew_score     = _rank_normalize(skew_raw)
+    conf_score     = _rank_normalize(conf_raw)
+    qual_score     = _rank_normalize(qual_raw)
+    downside_score = _rank_normalize(downside_raw)
+    mom_score      = _rank_normalize(mom_raw.reindex(er_score.index))
+
+    # SQE: boost quality score for eligible names by 25%
+    sqe_reindexed = sqe_mask.reindex(qual_score.index, fill_value=False)
+    adjusted_qual = qual_score.copy()
+    adjusted_qual[sqe_reindexed] *= SQE_MAX_POSITION_CEILING_BOOST
+
+    # Determine regime
+    spy_current: Optional[float] = None
+    try:
+        spy_current = float(price_data.spy_daily.asof(pd.Timestamp(as_of)))
+    except Exception:
+        pass
+    in_expansion = (
+        spy_200dma is not None
+        and spy_current is not None
+        and spy_current > spy_200dma
+    )
+
+    w_mom      = REGIME_EXPANSION_W_MOM      if in_expansion else ER_ALPHA_W_MOM
+    w_downside = ER_ALPHA_W_DOWNSIDE          if in_expansion else REGIME_CONTRACTION_W_DOWNSIDE
+
+    alpha_score = (
+        ER_ALPHA_W_ER    * er_score
+        + ER_ALPHA_W_SKEW  * skew_score
+        + ER_ALPHA_W_CONF  * conf_score
+        + w_mom            * mom_score
+        + ER_ALPHA_W_QUAL  * adjusted_qual
+        - w_downside       * downside_score
+    )
+
+    return pd.DataFrame({
+        "er_score":        er_score,
+        "skew_score":      skew_score,
+        "conf_score":      conf_score,
+        "mom_score":       mom_score,
+        "qual_score":      adjusted_qual,
+        "downside_score":  downside_score,
+        "alpha_score":     alpha_score,
+        "regime":          "expansion" if in_expansion else "contraction",
+        "sqe_eligible":    sqe_reindexed,
+    })
+
+
+def build_portfolio_alpha(
+    alpha_df: pd.DataFrame,
+    n_names: int,
+    gamma: float,
+    max_weight: float,
+    min_weight: float,
+) -> pd.Series:
+    """
+    Build concentration-weighted portfolio from alpha scores.
+
+    Steps:
+      1. Rank by alpha_score descending; select top *n_names*.
+      2. Shift scores to be strictly positive.
+      3. weight_i = score_i^gamma / Σ score_j^gamma
+      4. Iteratively clip to [min_weight, max_weight] and renormalize.
+
+    Returns an empty Series if fewer than MIN_NAMES names are available.
+    """
+    if alpha_df.empty:
+        return pd.Series(dtype=float)
+
+    top = alpha_df.nlargest(n_names, "alpha_score")
+    if len(top) < MIN_NAMES:
+        return pd.Series(dtype=float)
+
+    scores = top["alpha_score"].copy()
+    score_min = scores.min()
+    if score_min <= 0:
+        scores = scores - score_min + 1e-6  # shift so all values > 0
+
+    powered = scores ** gamma
+    weights = powered / powered.sum()
+
+    # Cap/floor guardrails with iterative renormalization
+    for _ in range(20):
+        clipped = weights.clip(lower=min_weight, upper=max_weight)
+        if (clipped == weights).all():
+            break
+        weights = clipped / clipped.sum()
+
+    return weights
+
+
+def _get_portfolio_beta(
+    weights: pd.Series,
+    signals_map: dict,
+) -> float:
+    """
+    Weighted-average beta: Σ (w_i / Σw) × β_i.
+
+    Uses normalized weights so partial allocations (risk-scaled) don't
+    understate beta.  Returns 1.0 if no beta data is available.
+    """
+    total_w = float(weights.sum())
+    if total_w < 1e-9:
+        return 1.0
+    beta = 0.0
+    for ticker, w in weights.items():
+        sig = signals_map.get(ticker)
+        if sig is not None and sig.beta is not None:
+            beta += (float(w) / total_w) * float(sig.beta)
+    return beta
+
+
+def _get_portfolio_trailing_vol(
+    weights: pd.Series,
+    price_data: "PriceData",
+    as_of: date,
+) -> float:
+    """
+    Conservative ex-ante vol estimate: Σ w_i × σ_i (assumes ρ = 1 upper bound).
+
+    Uses VOL_LOOKBACK_DAYS trailing daily returns per ticker.
+    Returns annualized volatility fraction (e.g. 0.18 for 18%).
+    """
+    as_of_ts = pd.Timestamp(as_of)
+    daily_rets = price_data.daily_returns()
+    weighted_vol = 0.0
+    for ticker, w in weights.items():
+        if ticker not in daily_rets.columns:
+            continue
+        hist = (
+            daily_rets[ticker][daily_rets.index <= as_of_ts]
+            .tail(VOL_LOOKBACK_DAYS)
+            .dropna()
+        )
+        if len(hist) < 10:
+            continue
+        vol_i = float(hist.std()) * np.sqrt(TRADING_DAYS_PER_YEAR)
+        weighted_vol += float(w) * vol_i
+    return weighted_vol
+
+
+def apply_risk_monitor(
+    weights: pd.Series,
+    signals_map: dict,
+    price_data: "PriceData",
+    as_of: date,
+) -> pd.Series:
+    """
+    Proportionally scale all weights down if portfolio beta or ex-ante vol
+    exceeds hard caps.  Relative ranking is preserved; cash holds excess.
+
+    Constraints:
+      portfolio beta ≤ BETA_HARD_CAP
+      ex-ante portfolio vol ≤ VOL_HARD_CAP
+    """
+    if weights.empty:
+        return weights
+
+    port_beta = _get_portfolio_beta(weights, signals_map)
+    port_vol  = _get_portfolio_trailing_vol(weights, price_data, as_of)
+
+    scale = 1.0
+    if port_beta > BETA_HARD_CAP:
+        scale = min(scale, BETA_HARD_CAP / port_beta)
+    if port_vol > VOL_HARD_CAP:
+        scale = min(scale, VOL_HARD_CAP / port_vol)
+
+    if scale < 1.0:
+        logger.debug(
+            "Risk monitor triggered: beta=%.2f vol=%.1f%% → scale=%.3f",
+            port_beta, port_vol * 100, scale,
+        )
+        return weights * scale
 
     return weights
 
@@ -419,6 +935,62 @@ def compute_metrics(
     }
 
 
+def compute_extended_metrics(
+    equity: pd.Series,
+    benchmark: pd.Series,
+    turnover_series: pd.Series,
+    all_holdings: List[dict],
+    all_portfolio_betas: List[float],
+) -> dict:
+    """
+    Extends compute_metrics with alpha-engine-specific analytics.
+
+    Additional fields:
+      avg_portfolio_beta       — mean rebalance-date beta across full sample
+      information_ratio        — annualised alpha / annualised tracking error
+      rolling_3y_alpha_avg_pct — mean of the rolling 3Y excess-return series (%)
+      top5_concentration_avg   — average top-5 names combined weight (%)
+    """
+    base = compute_metrics(equity, benchmark, turnover_series)
+
+    # Average portfolio beta across all rebalance dates
+    avg_beta = round(float(np.mean(all_portfolio_betas)), 3) if all_portfolio_betas else None
+
+    # Information ratio
+    rets = equity.pct_change().dropna()
+    bret = benchmark.pct_change().dropna()
+    shared = rets.index.intersection(bret.index)
+    excess = rets.loc[shared] - bret.loc[shared]
+    tracking_err = float(excess.std() * np.sqrt(TRADING_DAYS_PER_YEAR))
+    alpha_ann     = float(excess.mean() * TRADING_DAYS_PER_YEAR)
+    ir = round(alpha_ann / tracking_err, 3) if tracking_err > 1e-9 else 0.0
+
+    # Rolling 3Y alpha: average of the rolling window series
+    window = ROLLING_YEARS * TRADING_DAYS_PER_YEAR
+    rolling_excess_ann = excess.rolling(window).mean() * TRADING_DAYS_PER_YEAR * 100
+    valid_roll = rolling_excess_ann.dropna()
+    rolling_3y_avg = round(float(valid_roll.mean()), 2) if not valid_roll.empty else 0.0
+
+    # Top-5 average concentration across all rebalances
+    top5_avg = 0.0
+    if all_holdings:
+        hdf = pd.DataFrame(all_holdings)
+        hdf = hdf[hdf["ticker"] != "CASH"]
+        if not hdf.empty:
+            top5_by_date = hdf.groupby("date").apply(
+                lambda g: g.nlargest(5, "weight_pct")["weight_pct"].sum()
+            )
+            top5_avg = round(float(top5_by_date.mean()), 1)
+
+    base.update({
+        "avg_portfolio_beta":        avg_beta,
+        "information_ratio":         ir,
+        "rolling_3y_alpha_avg_pct":  rolling_3y_avg,
+        "top5_concentration_avg_pct": top5_avg,
+    })
+    return base
+
+
 # ── Chart generation ──────────────────────────────────────────────────────────
 
 
@@ -538,6 +1110,98 @@ def format_summary(m: dict) -> str:
     return "\n".join(lines)
 
 
+def format_alpha_summary(m: dict, n_names: int, gamma: float) -> str:
+    """Performance summary for the alpha engine (replaces format_summary in run_backtest)."""
+    beta_str = f"{m['avg_portfolio_beta']:.3f}" if m.get("avg_portfolio_beta") is not None else "N/A"
+    lines = [
+        "=" * 66,
+        "  DVRG Alpha Engine — Historical Backtest Performance",
+        "=" * 66,
+        f"  Period            : {m['start']}  →  {m['end']}  ({m['n_years']:.1f} yr)",
+        "",
+        "  Returns",
+        f"    CAGR             : {m['cagr']:>+7.2f}%   (bench: {m['bench_cagr']:+.2f}%)",
+        f"    Alpha (ann.)     : {m['alpha_cagr']:>+7.2f}%",
+        f"    Total Return     : {m['total_return']:>+7.2f}%   (bench: {m['bench_total_return']:+.2f}%)",
+        "",
+        "  Risk",
+        f"    Volatility       : {m['volatility']:>7.2f}%   (bench: {m['bench_vol']:.2f}%)",
+        f"    Max Drawdown     : {m['max_drawdown']:>+7.2f}%",
+        f"    Avg Portfolio β  : {beta_str:>7}",
+        "",
+        "  Risk-Adjusted",
+        f"    Sharpe           : {m['sharpe']:>7.3f}",
+        f"    Sortino          : {m['sortino']:>7.3f}",
+        f"    Info Ratio       : {m.get('information_ratio', 0.0):>7.3f}",
+        "",
+        "  Alpha Quality",
+        f"    Rolling 3Y Alpha : {m.get('rolling_3y_alpha_avg_pct', 0.0):>+7.2f}%  (avg)",
+        f"    Top-5 Conc. Avg  : {m.get('top5_concentration_avg_pct', 0.0):>7.1f}%",
+        "",
+        "  Execution",
+        f"    Hit Rate         : {m['hit_rate_pct']:>7.1f}%  (% daily excess > 0)",
+        f"    Avg Monthly Turn : {m['avg_monthly_turnover_pct']:>7.2f}%",
+        "=" * 66,
+        "",
+        "  Alpha Engine Parameters",
+        f"    N names = {n_names}  |  γ = {gamma}  |  "
+        f"Pos cap = {ALPHA_MAX_WEIGHT*100:.0f}%  |  "
+        f"Floor = {ALPHA_MIN_WEIGHT*100:.1f}%  |  TXN = {TRANSACTION_COST_BPS:.0f} bps",
+        f"    β cap = {BETA_HARD_CAP}  |  Vol cap = {VOL_HARD_CAP*100:.0f}%",
+        "=" * 66,
+        "",
+        "  Success Criteria",
+        f"    CAGR ≥ SPY+3%:  {'✓' if m['alpha_cagr'] >= 3.0 else '✗'}  "
+        f"({m['alpha_cagr']:+.2f}%)",
+        f"    Sharpe ≥ 0.9:   {'✓' if m['sharpe'] >= 0.9 else '✗'}  "
+        f"({m['sharpe']:.3f})",
+        f"    Pos alpha:      {'✓' if m['alpha_cagr'] > 0 else '✗'}",
+        f"    Max DD < -50%:  {'✓' if m['max_drawdown'] > -50 else '✗'}  "
+        f"({m['max_drawdown']:+.1f}%)",
+        "=" * 66,
+    ]
+    return "\n".join(lines)
+
+
+def _write_grid_comparison(results: List[dict], out_dir: Path) -> None:
+    """Write grid parameter comparison table to grid_comparison.txt and stdout."""
+    W = 95
+    lines = [
+        "=" * W,
+        "  DVRG Alpha Engine — Parameter Grid Comparison",
+        "=" * W,
+        f"  {'Config':<7} {'γ':>5} {'N':>4}  "
+        f"{'CAGR%':>7} {'Alpha%':>7} {'Sharpe':>7} {'MaxDD%':>8} "
+        f"{'Roll3Y%':>8} {'IR':>7} {'β':>6}",
+        "-" * W,
+    ]
+    for m in results:
+        beta = m.get("avg_portfolio_beta") or 0.0
+        lines.append(
+            f"  {m.get('config', '?'):<7} "
+            f"{m.get('gamma', 0)!s:>5} "
+            f"{m.get('n_names', 0)!s:>4}  "
+            f"{m.get('cagr', 0):>+7.2f} "
+            f"{m.get('alpha_cagr', 0):>+7.2f} "
+            f"{m.get('sharpe', 0):>7.3f} "
+            f"{m.get('max_drawdown', 0):>+8.2f} "
+            f"{m.get('rolling_3y_alpha_avg_pct', 0):>+8.2f} "
+            f"{m.get('information_ratio', 0):>7.3f} "
+            f"{beta:>6.3f}"
+        )
+    lines += [
+        "=" * W,
+        "",
+        "  Success: CAGR ≥ SPY+3%  |  Sharpe ≥ 0.9  |  Alpha > 0  |  Max DD > -50%",
+        "=" * W,
+    ]
+    text = "\n".join(lines)
+    (out_dir / "grid_comparison.txt").write_text(text)
+    print()
+    print(text)
+    logger.info("Grid comparison → %s/grid_comparison.txt", out_dir)
+
+
 # ── Integrity report ──────────────────────────────────────────────────────────
 
 
@@ -550,9 +1214,14 @@ def _format_integrity_report(
     gate_breakdown_rows: Optional[List[dict]] = None,
     all_invalid_reasons: Optional[dict] = None,
     valid_signal_ratios: Optional[List[float]] = None,
+    monthly_sanity_rows: Optional[List[dict]] = None,
 ) -> str:
     """
     Produce a human-readable integrity report that summarises backtest quality.
+
+    Terminology (post integrity fix 2026-03-01):
+      pass_all     = all 5 gate thresholds met (EV / Conf / Risk / Skew / Downside)
+      t1_qualifies = scenario_valid AND pass_all
 
     Sections
     ─────────
@@ -562,6 +1231,8 @@ def _format_integrity_report(
     4. Cash %         — average uninvested allocation
     5. Turnover       — avg monthly one-way turnover
     6. Concentration  — top-5 average weight (last rebalance)
+    7. Gate pass rates — individual gate rates + gate-only passes + t1_qualifies
+    8. Scenario sanity — invalid reasons, base/price ratios, worst months
     """
     lines = [
         "=" * 68,
@@ -647,17 +1318,45 @@ def _format_integrity_report(
     # ── 7. Gate pass rates (avg across months) ────────────────────────────────
     if gate_breakdown_rows:
         gb_df = pd.DataFrame(gate_breakdown_rows)
-        lines += ["  7. T1 Gate Pass Rates  (avg across months, % of valid signals)"]
+        lines += [
+            "  7. T1 Gate Pass Rates  (avg across months, % of valid signals)",
+            "     Individual gates:",
+        ]
         for col, label in [
-            ("pass_ev_rate_pct",       f"  EV ≥ {T1_EV_THRESHOLD*100:.0f}%"),
-            ("pass_conf_rate_pct",     f"  Confidence ≥ {T1_CONFIDENCE_THRESHOLD:.0f}"),
-            ("pass_risk_rate_pct",     f"  Risk ≤ {T1_RISK_MAX}"),
-            ("pass_skew_rate_pct",     f"  Skew ≥ {T1_SKEW_MIN}"),
-            ("pass_downside_rate_pct", f"  Downside ≤ {T1_DOWNSIDE_MAX*100:.0f}%"),
-            ("t1_qual_rate_pct",       "  ALL gates (T1 qualify)"),
+            ("pass_ev_rate_pct",       f"    EV ≥ {T1_EV_THRESHOLD*100:.0f}%"),
+            ("pass_conf_rate_pct",     f"    Confidence ≥ {T1_CONFIDENCE_THRESHOLD:.0f}"),
+            ("pass_risk_rate_pct",     f"    Risk ≤ {T1_RISK_MAX}"),
+            ("pass_skew_rate_pct",     f"    Skew ≥ {T1_SKEW_MIN}"),
+            ("pass_downside_rate_pct", f"    Downside ≤ {T1_DOWNSIDE_MAX*100:.0f}%"),
         ]:
             if col in gb_df.columns:
-                lines.append(f"     {label:<32}: {gb_df[col].mean():.1f}%")
+                lines.append(f"     {label:<34}: {gb_df[col].mean():.1f}%")
+
+        # Gate-only pass rate from monthly_sanity_rows (all signals, incl. invalid)
+        if monthly_sanity_rows:
+            ms_df = pd.DataFrame(monthly_sanity_rows)
+            if "n_pass_all" in ms_df.columns and "n_signals" in ms_df.columns:
+                gate_only_rate = (
+                    ms_df["n_pass_all"].sum() / max(ms_df["n_signals"].sum(), 1) * 100
+                )
+                lines.append("")
+                lines.append(
+                    f"     {'  Gate-only passes (pass_all, any scenario)':<34}: {gate_only_rate:.1f}%"
+                )
+            if "n_t1_qualifies" in ms_df.columns and "n_valid" in ms_df.columns:
+                t1q_rate = (
+                    ms_df["n_t1_qualifies"].sum() / max(ms_df["n_valid"].sum(), 1) * 100
+                )
+                lines.append(
+                    f"     {'  T1 qualifies (scenario_valid ∧ pass_all)':<34}: {t1q_rate:.1f}%"
+                )
+        else:
+            # Fallback: use gate_breakdown t1_qual_rate_pct
+            if "t1_qual_rate_pct" in gb_df.columns:
+                lines.append("")
+                lines.append(
+                    f"     {'  T1 qualifies (scenario_valid ∧ all gates)':<34}: {gb_df['t1_qual_rate_pct'].mean():.1f}%"
+                )
         lines.append("")
 
     # ── 8. Scenario sanity analysis ───────────────────────────────────────────
@@ -700,7 +1399,15 @@ def _format_integrity_report(
                     )
                 lines.append("")
 
-    lines += ["=" * 68]
+    lines += [
+        "=" * 68,
+        "",
+        "  Audit outputs:",
+        "    t1_gate_audit_full.csv        — every signal, every month (no sampling)",
+        "    t1_invalid_reasons_summary.csv — ranked invalid_reason counts",
+        "    t1_sanity_metrics_by_month.csv — per-month skew/downside health",
+        "=" * 68,
+    ]
     return "\n".join(lines)
 
 
@@ -720,7 +1427,11 @@ def run_backtest(
     scenario_sanity_check: bool = True,
     sanity_min_ratio: float = 0.5,
     sanity_max_ratio: float = 2.0,
-) -> None:
+    # ── Alpha engine parameters ───────────────────────────────────────────────
+    n_alpha_names: int = N_ALPHA_NAMES,
+    gamma: float = GAMMA_DEFAULT,
+    quiet: bool = False,  # suppress stdout for grid runs
+) -> Optional[dict]:  # returns metrics dict
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -795,16 +1506,29 @@ def run_backtest(
     all_holdings: List[dict] = []
     all_trades: List[dict] = []
     all_turnovers: List[float] = []
+    all_portfolio_betas: List[float] = []   # per-rebalance beta for extended metrics
     rebalance_audit: List[dict] = []
     monthly_qualifying: List[dict] = []  # {month, t1_count, universe_size, cash_pct}
 
     # Gate breakdown accumulators (new)
     gate_breakdown_rows: List[dict] = []
     gate_audit_rows: List[dict] = []
+    gate_audit_all_rows: List[dict] = []      # full universe audit (not sampled)
+    monthly_sanity_rows: List[dict] = []      # per-month skew/downside distributions
     all_invalid_reasons: Dict[str, int] = {}
     valid_signal_ratios: List[float] = []  # base_target/current_price for valid signals
 
     prev_universe: set = set()
+
+    # ── State machine + rotation (persistent across rebalance months) ────────
+    from scripts.backtest.portfolio_state_machine import (
+        PortfolioStateMachine,
+        compute_breadth_signals,
+        enforce_deployment_floor,
+    )
+    from scripts.backtest.rotation_engine import compute_sector_rotation, get_sector_multiplier
+
+    state_machine = PortfolioStateMachine()
 
     for i, rb_ts in enumerate(rebalance_dates[:-1]):
         rb_date = rb_ts.date()
@@ -844,16 +1568,122 @@ def run_backtest(
             if _s.current_price > 0:
                 valid_signal_ratios.append(_s.base_target / _s.current_price)
 
+        _month_str = rb_date.strftime("%Y-%m")
+
+        # T1 gate evaluation — kept for audit/diagnostic CSVs; NOT used for selection.
         qualified, gate_counts = _apply_t1_filter_breakdown(valid_sigs)
-        new_weights = build_portfolio(qualified)
+
+        # Integrity guard: verify each T1-gate-qualified signal actually passes all gates.
+        for _qs in qualified:
+            _qg = _eval_t1_gates(_qs)
+            if not all(_qg.values()):
+                raise RuntimeError(
+                    f"[INTEGRITY FAILURE] Qualified signal {_qs.ticker} ({_month_str}) "
+                    f"fails a T1 gate: {_qg}"
+                )
+
+        # ── Expected Return computation ──────────────────────────────────────
+        from scripts.backtest.expected_return import compute_expected_returns
+        from scripts.backtest.risk_budget import RiskBudgetAllocator
+
+        er_series, sqe_mask, _er_details = compute_expected_returns(
+            valid_sigs, price_data, rb_date,
+        )
+
+        # ── Alpha engine: ER-integrated scoring; select top N ────────────────
+        spy_200dma_now = get_spy_200dma(price_data, rb_date)
+        alpha_df = compute_alpha_scores_er(
+            valid_sigs, er_series, sqe_mask,
+            price_data, rb_date, spy_200dma_now,
+        )
+
+        # Select top N names by alpha score (pre-filter for risk budget)
+        if not alpha_df.empty:
+            top_tickers = list(
+                alpha_df.nlargest(n_alpha_names, "alpha_score").index
+            )
+        else:
+            top_tickers = []
+
+        # Build signal map early — needed for risk monitor and holdings snapshot.
+        sig_map = {s.ticker: s for s in valid_sigs}
+
+        # ── State machine: update portfolio regime ─────────────────────────
+        breadth = compute_breadth_signals(valid_sigs, price_data, rb_date)
+        state_params = state_machine.update(breadth, rb_date)
+
+        # ── Sector rotation: compute multipliers ─────────────────────────────
+        rotation_df = compute_sector_rotation(valid_sigs, price_data, rb_date)
+
+        # ── Risk Budget Allocator: covariance-based vol targeting ────────────
+        new_weights = pd.Series(dtype=float)
+        port_beta = 1.0
+
+        if top_tickers:
+            rb_allocator = RiskBudgetAllocator(
+                vol_target=state_params.vol_target,
+                vol_hard_cap=state_params.vol_hard_cap,
+                min_weight=state_params.min_weight,
+                max_weight=state_params.max_weight,
+                sector_cap=state_params.sector_cap,
+            )
+            cov_matrix = rb_allocator.compute_covariance_matrix(
+                top_tickers, price_data, rb_date,
+            )
+            indiv_vol = rb_allocator.compute_individual_vol(
+                top_tickers, price_data, rb_date,
+            )
+            sectors = pd.Series(
+                {s.ticker: s.sector for s in valid_sigs if s.ticker in top_tickers}
+            )
+
+            if not cov_matrix.empty:
+                new_weights = rb_allocator.optimize_weights(
+                    er_series.reindex(top_tickers),
+                    cov_matrix,
+                    indiv_vol,
+                    sectors=sectors,
+                    sqe_mask=sqe_mask.reindex(top_tickers) if not sqe_mask.empty else None,
+                )
+            else:
+                # Fallback to alpha-weighted portfolio if covariance unavailable
+                new_weights = build_portfolio_alpha(
+                    alpha_df, n_alpha_names, gamma, ALPHA_MAX_WEIGHT, ALPHA_MIN_WEIGHT
+                )
+
+            # Apply sector rotation multipliers to position ceilings
+            if not new_weights.empty and not rotation_df.empty:
+                for ticker in new_weights.index:
+                    sector = sectors.get(ticker, "Unknown")
+                    sector_mult = get_sector_multiplier(rotation_df, sector)
+                    max_for_ticker = state_params.max_weight * sector_mult * state_params.deployment_multiplier
+                    new_weights[ticker] = min(float(new_weights[ticker]), max_for_ticker)
+
+            # Deployment floor enforcement
+            if not new_weights.empty:
+                new_weights = enforce_deployment_floor(
+                    new_weights, er_series, state_params,
+                )
+
+            if not new_weights.empty:
+                port_beta = _get_portfolio_beta(new_weights, sig_map)
+                all_portfolio_betas.append(port_beta)
+                # Beta hard cap check (risk budget handles vol; beta is separate)
+                if port_beta > BETA_HARD_CAP:
+                    beta_scale = BETA_HARD_CAP / port_beta
+                    new_weights = new_weights * beta_scale
 
         # ── Gate breakdown row ────────────────────────────────────────────────
-        n_valid     = len(valid_sigs)
-        n_invalid   = len(invalid_sigs)
-        n_attempted = signals_result.attempted_count
-        n_qualified = len(qualified)
-        _sv         = max(n_valid, 1)
-        _sa         = max(n_attempted, 1)
+        n_valid          = len(valid_sigs)
+        n_invalid        = len(invalid_sigs)
+        n_attempted      = signals_result.attempted_count
+        n_t1_qualified   = len(qualified)           # T1-gate pass count (diagnostic only)
+        n_alpha_selected = len(new_weights)         # alpha-engine selected count
+        _sv              = max(n_valid, 1)
+        _sa              = max(n_attempted, 1)
+        _regime          = (
+            alpha_df["regime"].iloc[0] if not alpha_df.empty else "unknown"
+        )
         gate_breakdown_rows.append({
             "month":                   rb_date.strftime("%Y-%m"),
             "universe_count":          len(universe),
@@ -865,51 +1695,87 @@ def run_backtest(
             "pass_risk_count":         gate_counts["pass_risk"],
             "pass_skew_count":         gate_counts["pass_skew"],
             "pass_downside_count":     gate_counts["pass_downside"],
-            "t1_qualifiers_count":     n_qualified,
-            "success_rate_pct":        round(n_valid   / _sa * 100, 1),
-            "invalid_rate_pct":        round(n_invalid / _sa * 100, 1),
+            "t1_qualifiers_count":     n_t1_qualified,   # diagnostic
+            "alpha_selected_count":    n_alpha_selected,  # active selection
+            "portfolio_beta":          round(port_beta, 3),
+            "regime":                  _regime,
+            "success_rate_pct":        round(n_valid          / _sa * 100, 1),
+            "invalid_rate_pct":        round(n_invalid        / _sa * 100, 1),
             "pass_ev_rate_pct":        round(gate_counts["pass_ev"]       / _sv * 100, 1),
             "pass_conf_rate_pct":      round(gate_counts["pass_conf"]     / _sv * 100, 1),
             "pass_risk_rate_pct":      round(gate_counts["pass_risk"]     / _sv * 100, 1),
             "pass_skew_rate_pct":      round(gate_counts["pass_skew"]     / _sv * 100, 1),
             "pass_downside_rate_pct":  round(gate_counts["pass_downside"] / _sv * 100, 1),
-            "t1_qual_rate_pct":        round(n_qualified / _sv * 100, 1),
+            "t1_qual_rate_pct":        round(n_t1_qualified   / _sv * 100, 1),
         })
 
         # ── Gate audit sample (deterministic RNG seed per month) ──────────────
-        _month_str = rb_date.strftime("%Y-%m")
         _rng = _random.Random(abs(hash(_month_str)) % (2 ** 31))
         _pool = all_sigs if len(all_sigs) <= audit_sample_size else _rng.sample(all_sigs, audit_sample_size)
+
+        def _audit_row(s: "SignalRow", month: str) -> dict:
+            g = _eval_t1_gates(s)
+            # Canonical: pass_all = all 5 gates only (no rating_label / weight conditions)
+            pass_all    = all(g.values())
+            t1_qualifies = s.scenario_valid and pass_all
+            return {
+                "month":          month,
+                "ticker":         s.ticker,
+                "current_price":  round(s.current_price, 4),
+                "ev_pct":         round(s.expected_value * 100, 2),
+                "confidence":     round(s.confidence_score, 1),
+                "risk":           s.risk_level,
+                "skew":           round(s.asymmetry_ratio, 3),
+                "downside_pct":   round(s.downside_severity * 100, 2),
+                "pass_ev":        g["pass_ev"],
+                "pass_conf":      g["pass_conf"],
+                "pass_risk":      g["pass_risk"],
+                "pass_skew":      g["pass_skew"],
+                "pass_downside":  g["pass_downside"],
+                "pass_all":       pass_all,
+                "t1_qualifies":   t1_qualifies,
+                "scenario_valid": s.scenario_valid,
+                "invalid_reason": s.invalid_reason,
+                "proxy_fallback": s.proxy_fallback,
+                "missing_ebitda": s.missing_ebitda,
+                "dcf_value_used": s.dcf_value_used,
+                "pe_value_used":  s.pe_value_used,
+                "ev_value_used":  s.ev_value_used,
+            }
+
         for _s in _pool:
-            _gates   = _eval_t1_gates(_s)
-            _pass_all = (
-                all(_gates.values())
-                and _s.rating_label == "Accumulate"
-                and _s.recommended_weight > 0
-                and _s.scenario_valid
-            )
-            gate_audit_rows.append({
-                "month":          _month_str,
-                "ticker":         _s.ticker,
-                "current_price":  round(_s.current_price, 4),
-                "ev_pct":         round(_s.expected_value * 100, 2),
-                "confidence":     round(_s.confidence_score, 1),
-                "risk":           _s.risk_level,
-                "skew":           round(_s.asymmetry_ratio, 3),
-                "downside_pct":   round(_s.downside_severity * 100, 2),
-                "pass_ev":        _gates["pass_ev"],
-                "pass_conf":      _gates["pass_conf"],
-                "pass_risk":      _gates["pass_risk"],
-                "pass_skew":      _gates["pass_skew"],
-                "pass_downside":  _gates["pass_downside"],
-                "pass_all":       _pass_all,
-                "invalid_reason": _s.invalid_reason,
-                "proxy_fallback": _s.proxy_fallback,
-                "missing_ebitda": _s.missing_ebitda,
-                "dcf_value_used": _s.dcf_value_used,
-                "pe_value_used":  _s.pe_value_used,
-                "ev_value_used":  _s.ev_value_used,
-            })
+            gate_audit_rows.append(_audit_row(_s, _month_str))
+
+        # ── Full audit — every signal this month (no sampling) ────────────────
+        for _s in all_sigs:
+            gate_audit_all_rows.append(_audit_row(_s, _month_str))
+
+        # ── Per-month sanity metrics ───────────────────────────────────────────
+        _all_skews     = [s.asymmetry_ratio for s in all_sigs if s.asymmetry_ratio is not None]
+        _all_downs     = [s.downside_severity * 100 for s in all_sigs]
+        _sanity_rows = [_audit_row(s, _month_str) for s in all_sigs]
+        _n_pass_all      = sum(1 for r in _sanity_rows if r["pass_all"])
+        _n_t1_qualifies  = sum(1 for r in _sanity_rows if r["t1_qualifies"])
+        _n_neg_down      = sum(1 for s in all_sigs if s.downside_severity < 0)
+        _n_huge_skew     = sum(1 for s in all_sigs if s.asymmetry_ratio > 20.0)
+        _n_inv_skew      = sum(
+            1 for s in all_sigs
+            if not s.scenario_valid and "skew_unreasonable" in (s.invalid_reason or "")
+        )
+        monthly_sanity_rows.append({
+            "month":               _month_str,
+            "n_signals":           len(all_sigs),
+            "n_valid":             n_valid,
+            "n_invalid":           n_invalid,
+            "n_pass_all":          _n_pass_all,
+            "n_t1_qualifies":      _n_t1_qualifies,
+            "n_skew_gt20":         _n_huge_skew,
+            "n_invalid_skew":      _n_inv_skew,
+            "n_neg_downside":      _n_neg_down,
+            "median_skew":         round(float(np.median(_all_skews)), 3) if _all_skews else None,
+            "p95_skew":            round(float(np.percentile(_all_skews, 95)), 3) if _all_skews else None,
+            "median_downside_pct": round(float(np.median(_all_downs)), 2) if _all_downs else None,
+        })
 
         # ── Monthly qualifying snapshot ───────────────────────────────────────
         invested_pct = float(new_weights.sum()) if not new_weights.empty else 0.0
@@ -930,10 +1796,12 @@ def run_backtest(
             f"{gate_counts['pass_downside']}"
         )
         logger.info(
-            "[%s] universe=%d attempted=%d success=%d invalid=%d T1=%d "
-            "pass(ev/conf/risk/skew/down)=%s",
+            "[%s] universe=%d attempted=%d valid=%d invalid=%d "
+            "alpha=%d(β=%.2f/%s) T1gate=%d pass(ev/conf/risk/skew/down)=%s",
             _month_str, len(universe),
-            n_attempted, n_valid, n_invalid, n_qualified, _gate_str,
+            n_attempted, n_valid, n_invalid,
+            n_alpha_selected, port_beta, _regime,
+            n_t1_qualified, _gate_str,
         )
 
         # ── Rebalance audit row ───────────────────────────────────────────────
@@ -978,8 +1846,7 @@ def run_backtest(
         trades = compute_trades(current_weights, new_weights, exec_date, universe_exit)
         all_trades.extend(trades)
 
-        # Holdings snapshot
-        sig_map = {s.ticker: s for s in signals}
+        # Holdings snapshot  (sig_map built earlier, before risk monitor)
         for ticker, w in new_weights.items():
             sig = sig_map.get(ticker)
             all_holdings.append({
@@ -1030,7 +1897,7 @@ def run_backtest(
     # ── Build equity curves ───────────────────────────────────────────────────
     if not all_daily:
         logger.error("No daily returns computed — check price data coverage")
-        return
+        return None
 
     daily_df = pd.DataFrame(all_daily)
     daily_df["date"] = pd.to_datetime(daily_df["date"])
@@ -1049,7 +1916,10 @@ def run_backtest(
 
     # ── Metrics ───────────────────────────────────────────────────────────────
     turnover_series = pd.Series(all_turnovers)
-    metrics = compute_metrics(portfolio_equity, benchmark_equity, turnover_series)
+    metrics = compute_extended_metrics(
+        portfolio_equity, benchmark_equity, turnover_series,
+        all_holdings, all_portfolio_betas,
+    )
 
     # ── Write outputs ─────────────────────────────────────────────────────────
     logger.info("Writing outputs → %s", out_dir)
@@ -1095,8 +1965,39 @@ def run_backtest(
 
     # t1_gate_audit_sample.csv
     if gate_audit_rows:
+        _assert_audit_schema(gate_audit_rows, "t1_gate_audit_sample.csv")
         pd.DataFrame(gate_audit_rows).to_csv(out_dir / "t1_gate_audit_sample.csv", index=False)
         logger.info("  t1_gate_audit_sample.csv: %d rows", len(gate_audit_rows))
+
+    # t1_qualify_mismatches.csv + integrity assertion (hard-fail before writing full audit)
+    # This assertion verifies pass_all == all(5 gates) for every row. After the fix it must
+    # always be zero mismatches; a non-zero count indicates a regression.
+    _assert_gate_integrity(gate_audit_all_rows, context="t1_gate_audit_full.csv", out_dir=out_dir)
+
+    # t1_gate_audit_full.csv — complete signal universe (no sampling)
+    if gate_audit_all_rows:
+        _assert_audit_schema(gate_audit_all_rows, "t1_gate_audit_full.csv")
+        pd.DataFrame(gate_audit_all_rows).to_csv(out_dir / "t1_gate_audit_full.csv", index=False)
+        logger.info("  t1_gate_audit_full.csv: %d rows (all signals, all months)", len(gate_audit_all_rows))
+
+    # t1_invalid_reasons_summary.csv — ranked count of every invalid_reason code
+    if all_invalid_reasons:
+        reasons_df = pd.DataFrame(
+            sorted(all_invalid_reasons.items(), key=lambda x: -x[1]),
+            columns=["invalid_reason", "count"],
+        )
+        total_invalid = reasons_df["count"].sum()
+        reasons_df["pct_of_invalid"] = (reasons_df["count"] / max(total_invalid, 1) * 100).round(1)
+        reasons_df.to_csv(out_dir / "t1_invalid_reasons_summary.csv", index=False)
+        logger.info(
+            "  t1_invalid_reasons_summary.csv: %d reason codes, %d total invalid",
+            len(reasons_df), total_invalid,
+        )
+
+    # t1_sanity_metrics_by_month.csv — per-month skew/downside health summary
+    if monthly_sanity_rows:
+        pd.DataFrame(monthly_sanity_rows).to_csv(out_dir / "t1_sanity_metrics_by_month.csv", index=False)
+        logger.info("  t1_sanity_metrics_by_month.csv: %d months", len(monthly_sanity_rows))
 
     # fallback_rate.csv + fallback check
     fallback_tracker.write_csv(out_dir / "fallback_rate.csv")
@@ -1104,10 +2005,11 @@ def run_backtest(
     logger.info("  Fallback rate: %s", fallback_summary)
 
     # performance_summary.txt
-    summary_text = format_summary(metrics)
+    summary_text = format_alpha_summary(metrics, n_names=n_alpha_names, gamma=gamma)
     (out_dir / "performance_summary.txt").write_text(summary_text)
-    print()
-    print(summary_text)
+    if not quiet:
+        print()
+        print(summary_text)
 
     # integrity_report.txt
     integrity_text = _format_integrity_report(
@@ -1119,9 +2021,11 @@ def run_backtest(
         gate_breakdown_rows=gate_breakdown_rows,
         all_invalid_reasons=all_invalid_reasons,
         valid_signal_ratios=valid_signal_ratios,
+        monthly_sanity_rows=monthly_sanity_rows,
     )
     (out_dir / "integrity_report.txt").write_text(integrity_text)
-    print(integrity_text)
+    if not quiet:
+        print(integrity_text)
 
     # Charts
     if not no_charts:
@@ -1136,6 +2040,79 @@ def run_backtest(
             raise
 
     logger.info("Done.  All outputs in: %s", out_dir)
+    return metrics
+
+
+# ── Parameter grid ────────────────────────────────────────────────────────────
+
+
+def run_parameter_grid(
+    start: str,
+    end: str,
+    out_dir: Path,
+    allow_survivorship_bias: bool = False,
+    no_charts: bool = True,
+    fail_on_fallback_rate: bool = False,
+) -> List[dict]:
+    """
+    Run a full backtest for each configuration in GRID_CONFIGS and produce a
+    side-by-side comparison table (grid_comparison.txt).
+
+    Grid sets (defined in config.GRID_CONFIGS):
+      A : gamma=1.3, N=15
+      B : gamma=1.5, N=12  ← default
+      C : gamma=2.0, N=10
+
+    Comparison metrics: CAGR, Alpha, Sharpe, Max DD, Rolling 3Y alpha, IR, Beta.
+    Data (prices + fundamentals) is re-loaded from cache for each run — no
+    redundant downloads, but signal computation repeats per run.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    results: List[dict] = []
+    for cfg in GRID_CONFIGS:
+        cfg_name = cfg["name"]
+        cfg_gamma = float(cfg["gamma"])
+        cfg_n     = int(cfg["n"])
+        cfg_out   = out_dir / f"grid_{cfg_name}"
+
+        logger.info("=" * 60)
+        logger.info(
+            "Grid Set %s — gamma=%.1f  N=%d  → %s",
+            cfg_name, cfg_gamma, cfg_n, cfg_out,
+        )
+
+        m = run_backtest(
+            start=start,
+            end=end,
+            allow_survivorship_bias=allow_survivorship_bias,
+            out_dir=cfg_out,
+            no_charts=no_charts,
+            fail_on_fallback_rate=fail_on_fallback_rate,
+            n_alpha_names=cfg_n,
+            gamma=cfg_gamma,
+            quiet=True,
+        )
+
+        if m is not None:
+            m["config"]  = cfg_name
+            m["gamma"]   = cfg_gamma
+            m["n_names"] = cfg_n
+            results.append(m)
+            logger.info(
+                "  Grid %s: CAGR=%+.2f%%  Alpha=%+.2f%%  Sharpe=%.3f  MaxDD=%+.1f%%",
+                cfg_name,
+                m.get("cagr", 0),
+                m.get("alpha_cagr", 0),
+                m.get("sharpe", 0),
+                m.get("max_drawdown", 0),
+            )
+
+    if results:
+        _write_grid_comparison(results, out_dir)
+
+    return results
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -1196,6 +2173,25 @@ def parse_args() -> argparse.Namespace:
         metavar="RATIO",
         help="Max base_target/price ratio; above this → invalid (default: 2.0)",
     )
+    # ── Alpha engine CLI overrides ─────────────────────────────────────────────
+    p.add_argument(
+        "--gamma", type=float, default=None, metavar="FLOAT",
+        help=f"Concentration exponent for power weighting (default: {GAMMA_DEFAULT})",
+    )
+    p.add_argument(
+        "--n-names", type=int, default=None, metavar="N", dest="n_names",
+        help=f"Top-N names selected each rebalance (default: {N_ALPHA_NAMES})",
+    )
+    _grid_desc = ", ".join(
+        "gamma={} N={}".format(c["gamma"], c["n"]) for c in GRID_CONFIGS
+    )
+    p.add_argument(
+        "--grid-test", action="store_true", default=False, dest="grid_test",
+        help=(
+            f"Run grid comparison across {len(GRID_CONFIGS)} parameter sets "
+            f"({_grid_desc}) and write grid_comparison.txt"
+        ),
+    )
     return p.parse_args()
 
 
@@ -1211,21 +2207,36 @@ def main() -> None:
     start = pd.Timestamp(start).to_period("M").start_time.strftime("%Y-%m-%d")
     end = (pd.Timestamp(end).to_period("M") + 0).end_time.strftime("%Y-%m-%d")
 
+    n_alpha = args.n_names if args.n_names is not None else N_ALPHA_NAMES
+    gamma   = args.gamma   if args.gamma   is not None else GAMMA_DEFAULT
+
     try:
-        run_backtest(
-            start=start,
-            end=end,
-            allow_survivorship_bias=args.allow_survivorship_bias,
-            force_refresh=args.force_refresh,
-            out_dir=Path(args.out_dir),
-            no_charts=args.no_charts,
-            fail_on_fallback_rate=args.fail_on_fallback_rate,
-            fallback_rate_threshold=args.fallback_rate_threshold,
-            audit_sample_size=args.audit_sample_size,
-            scenario_sanity_check=not args.no_scenario_sanity,
-            sanity_min_ratio=args.sanity_min_ratio,
-            sanity_max_ratio=args.sanity_max_ratio,
-        )
+        if args.grid_test:
+            run_parameter_grid(
+                start=start,
+                end=end,
+                out_dir=Path(args.out_dir),
+                allow_survivorship_bias=args.allow_survivorship_bias,
+                no_charts=args.no_charts,
+                fail_on_fallback_rate=args.fail_on_fallback_rate,
+            )
+        else:
+            run_backtest(
+                start=start,
+                end=end,
+                allow_survivorship_bias=args.allow_survivorship_bias,
+                force_refresh=args.force_refresh,
+                out_dir=Path(args.out_dir),
+                no_charts=args.no_charts,
+                fail_on_fallback_rate=args.fail_on_fallback_rate,
+                fallback_rate_threshold=args.fallback_rate_threshold,
+                audit_sample_size=args.audit_sample_size,
+                scenario_sanity_check=not args.no_scenario_sanity,
+                sanity_min_ratio=args.sanity_min_ratio,
+                sanity_max_ratio=args.sanity_max_ratio,
+                n_alpha_names=n_alpha,
+                gamma=gamma,
+            )
     except FallbackRateExceeded as exc:
         logger.error("FATAL: %s", exc)
         _sys.exit(1)

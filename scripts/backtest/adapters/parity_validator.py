@@ -99,17 +99,22 @@ def _qualifies_t1(sig: Dict[str, Any]) -> bool:
     """
     Return True if the signal dict passes all T1 Accumulate criteria.
 
-    Mirrors ``apply_t1_filter()`` in backtest_t1.py so both live and backtest
-    signals can be evaluated with the same gate.
+    Mirrors ``apply_t1_filter()`` in backtest_t1.py (integrity spec item D/E).
+    Qualification = scenario_valid AND all 5 gate thresholds.
+
+    IMPORTANT — the following fields do NOT gate T1 eligibility:
+      • rating_label  (was "Accumulate" check — removed, enforced moat≥7 implicitly)
+      • recommended_weight  (was >0 check — removed, blocks HOLD-rated names unfairly)
+      • moat_score  (diagnostic / allocation weight only, not an eligibility gate)
     """
+    scenario_ok = sig.get("scenario_valid", True)  # default True for live records
     return (
-        sig.get("rating_label") == "Accumulate"
+        scenario_ok
         and (sig.get("expected_value") or 0.0) >= T1_EV_THRESHOLD
         and (sig.get("confidence_score") or 0.0) >= T1_CONFIDENCE_THRESHOLD
         and (sig.get("risk_level") or 3) <= T1_RISK_MAX
         and (sig.get("asymmetry_ratio") or 0.0) >= T1_SKEW_MIN
         and (sig.get("downside_severity") or 1.0) <= T1_DOWNSIDE_MAX
-        and (sig.get("recommended_weight") or 0.0) > 0
     )
 
 

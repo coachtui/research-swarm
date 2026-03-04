@@ -6,11 +6,16 @@ LOCKED before running.  Do not modify after backtest is initiated.
 
 # ── T1 Accumulate Criteria ────────────────────────────────────────────────────
 #
-#  rating_label == "Accumulate"
-#      Maps to DVRG ratings BUY / STRONG BUY.  Any other rating fails T1.
+#  T1 qualification = scenario_valid AND all 5 gate thresholds below.
 #
-T1_RATING_LABELS: set[str] = {"Accumulate"}
-_ACCUMULATE_RATINGS: set[str] = {"STRONG BUY", "BUY"}   # internal DVRG → T1 label
+#  NOT eligibility gates (allocation / presentation only):
+#    rating_label  — diagnostic field; moat≥7.0 earns "Accumulate" label but
+#                    does NOT gate T1 entry (fix: integrity spec 2026-03-01).
+#    recommended_weight — starting allocation hint; may be 0.0 for moat<6.0;
+#                         portfolio builder floors it at MIN_WEIGHT anyway.
+#    moat_score   — used to set risk_level and recommended_weight; not a gate.
+#
+_ACCUMULATE_RATINGS: set[str] = {"STRONG BUY", "BUY"}   # DVRG label → "Accumulate"
 
 #  expected_value >= T1_EV_THRESHOLD
 #      Expected return = (probability-weighted price target - current_price) / current_price
@@ -36,10 +41,6 @@ T1_SKEW_MIN: float = 1.3
 #      NOTE: filter uses <=, not >=.  Bear-case loss must not exceed 30%.
 #      T1_DOWNSIDE_MAX is a ceiling, not a floor.
 T1_DOWNSIDE_MAX: float = 0.30
-
-#  recommended_weight > 0
-#      conviction_position.recommended_pct / 100.  Must be non-zero.
-#      (Derived from moat_score when decision_intelligence not yet enriched.)
 
 # ── Portfolio Construction ────────────────────────────────────────────────────
 MAX_NAMES: int = 25          # if > 25 qualify, rank by EV × confidence; take top 25
@@ -103,3 +104,91 @@ FUNDAMENTALS_WORKERS: int = 3
 # Cache format: "parquet" (preferred, requires pyarrow) or "pickle" (fallback)
 # Auto-detected at runtime.
 CACHE_FORMAT: str = "auto"
+
+# ── Alpha Engine (Continuous Scoring) ─────────────────────────────────────────
+#
+#  Replaces binary T1 gate filter with rank-normalized composite alpha score
+#  and concentration-weighted capital allocation.
+#
+#  Selection: top N_ALPHA_NAMES by alpha_score each rebalance.
+#  Weighting: w_i = score_i^gamma / Σ score_j^gamma, then cap/floor.
+
+#  Top-N names selected each rebalance (no minimum score threshold).
+N_ALPHA_NAMES: int = 12
+
+#  Concentration exponent.  Higher γ → more capital to top-ranked names.
+GAMMA_DEFAULT: float = 1.5
+
+#  Position size guardrails (alpha engine only; replaces old 1%/8% bounds).
+ALPHA_MAX_WEIGHT: float = 0.20   # 20% max per position
+ALPHA_MIN_WEIGHT: float = 0.005  # 0.5% min per position
+
+# ── Portfolio Risk Monitor ─────────────────────────────────────────────────────
+BETA_HARD_CAP: float = 1.5      # scale all weights down if Σ w_i β_i > cap
+VOL_HARD_CAP: float = 0.25      # scale all weights down if ex-ante vol > cap
+VOL_LOOKBACK_DAYS: int = 63     # trailing window (≈ 3 months) for individual vol
+
+# ── Alpha Score Component Weights (base regime) ────────────────────────────────
+#  All components are rank-normalized to [0, 1] before weighting.
+#  Composite = Σ positive_terms − downside_penalty.
+ALPHA_W_EV: float = 0.35        # expected-value percentile
+ALPHA_W_SKEW: float = 0.20      # asymmetry-ratio percentile
+ALPHA_W_CONF: float = 0.15      # confidence-score percentile
+ALPHA_W_MOM: float = 0.15       # 6-month relative-strength percentile
+ALPHA_W_QUAL: float = 0.10      # moat-score (quality) percentile
+ALPHA_W_DOWNSIDE: float = 0.15  # downside-severity percentile (subtracted)
+
+# ── Regime Overlay ─────────────────────────────────────────────────────────────
+#  SPY price vs SPY 200-day MA determines regime.
+
+#  Expansion  (SPY > 200DMA): pro-cyclical — boost momentum, higher γ.
+REGIME_EXPANSION_GAMMA: float = 1.8
+REGIME_EXPANSION_W_MOM: float = 0.20   # replaces ALPHA_W_MOM in expansion
+
+#  Contraction (SPY ≤ 200DMA): defensive — increase downside penalty, lower γ.
+REGIME_CONTRACTION_GAMMA: float = 1.2
+REGIME_CONTRACTION_W_DOWNSIDE: float = 0.20  # replaces ALPHA_W_DOWNSIDE in contraction
+
+# ── Expected Return Engine ────────────────────────────────────────────────────
+#
+#  Decomposes expected return into four structural components.
+#  Replaces binary T1 EV gate with continuous gradient allocation.
+#
+#  ER = w_growth * ForwardEPSGrowth
+#     + w_multiple * MultipleExpansionPotential
+#     + w_capital * CapitalReturnYield
+#     - w_macro * MacroRiskDiscount
+
+ER_W_GROWTH: float = 0.35       # forward EPS growth contribution weight
+ER_W_MULTIPLE: float = 0.30     # valuation discount gradient weight
+ER_W_CAPITAL: float = 0.15      # shareholder yield proxy weight
+ER_W_MACRO: float = 0.20        # beta-adjusted macro risk discount weight
+
+# ── Structural Quality Elasticity (SQE) ──────────────────────────────────────
+#
+#  When quality >= 85th pctile AND eps_revision_positive AND rotation_favorable:
+#    → Reduce valuation penalty by 50%
+#    → Increase max position ceiling by 25%
+#  This prevents suppression of high-quality growth names (NVDA test case).
+
+SQE_QUALITY_PERCENTILE: float = 0.85        # 85th percentile threshold
+SQE_VALUATION_PENALTY_REDUCTION: float = 0.50  # 50% boost to multiple expansion
+SQE_MAX_POSITION_CEILING_BOOST: float = 1.25   # 25% increase to max position
+
+# ── ER-Integrated Alpha Score Weights ─────────────────────────────────────────
+#  Same structure as ALPHA_W_* but with ER replacing EV as primary driver.
+
+ER_ALPHA_W_ER: float = 0.40          # expected return (replaces ALPHA_W_EV=0.35)
+ER_ALPHA_W_SKEW: float = 0.15        # asymmetry ratio (was 0.20)
+ER_ALPHA_W_CONF: float = 0.15        # confidence score (unchanged)
+ER_ALPHA_W_MOM: float = 0.15         # 6M relative strength (unchanged)
+ER_ALPHA_W_QUAL: float = 0.10        # moat score / quality (unchanged)
+ER_ALPHA_W_DOWNSIDE: float = 0.15    # downside severity (unchanged)
+
+# ── Parameter Grid Test Sets ───────────────────────────────────────────────────
+#  Compared on: CAGR, Alpha, Sharpe, Max DD, Rolling 3Y excess return.
+GRID_CONFIGS: list = [
+    {"name": "A", "gamma": 1.3, "n": 15},
+    {"name": "B", "gamma": 1.5, "n": 12},   # default config
+    {"name": "C", "gamma": 2.0, "n": 10},
+]

@@ -78,6 +78,13 @@ class PITFundamentals:
     # Earnings stability (for confidence penalty)
     eps_series: list[float] = field(default_factory=list)  # quarterly EPS, newest first
 
+    # ── Multi-quarter series (for durability scoring) ───────────────────────
+    revenue_series: list[float] = field(default_factory=list)    # quarterly revenue, newest first
+    gross_margin_series: list[float] = field(default_factory=list)  # quarterly gross margin %, newest first
+    revenue_3y_cagr: Optional[float] = None      # 3-year revenue CAGR (%)
+    revenue_growth_persistence: Optional[int] = None  # of last 8 quarters with positive YoY revenue growth
+    margin_trend: str = "unknown"                 # "expanding" | "stable" | "contracting" | "unknown"
+
     # Quality indicator
     data_quality: str = "complete"   # "complete" | "partial" | "insufficient"
 
@@ -200,8 +207,12 @@ def _load_raw_quarters(
         except Exception as exc:
             logger.debug("Cache load failed for %s: %s", ticker, exc)
 
-    # Download from yfinance
-    data = _fetch_from_yfinance(ticker)
+    # Try SEC EDGAR first (historical quarterly data back to ~2010).
+    # Fall back to yfinance for tickers not in SEC (foreign ADRs, ETFs, etc.)
+    # or when SEC EDGAR returns insufficient data.
+    data = _fetch_from_sec_edgar(ticker)
+    if data is None:
+        data = _fetch_from_yfinance(ticker)
     if data is None:
         return None
 
@@ -213,6 +224,16 @@ def _load_raw_quarters(
         logger.debug("Cache save failed for %s: %s", ticker, exc)
 
     return data
+
+
+def _fetch_from_sec_edgar(ticker: str) -> Optional[dict]:
+    """Try to fetch historical quarterly fundamentals from SEC EDGAR XBRL."""
+    try:
+        from scripts.backtest.data.sec_edgar import fetch_quarterly_fundamentals
+        return fetch_quarterly_fundamentals(ticker)
+    except Exception as exc:
+        logger.debug("SEC EDGAR wrapper failed for %s: %s", ticker, exc)
+        return None
 
 
 def _reset_yf_session() -> None:
@@ -540,6 +561,68 @@ def _build_fundamentals(
                 ticker, reporting_currency, as_of, exc,
             )
 
+    # ── Multi-quarter series for durability scoring ───────────────────────────
+    # Revenue series: quarterly revenue amounts, newest first
+    revenue_series: list[float] = []
+    for q in usable[:16]:  # up to 4 years of quarterly revenue
+        rev = q.get("total_revenue")
+        if rev is not None:
+            revenue_series.append(float(rev))
+
+    # Gross margin series: quarterly gross margin %, newest first
+    gross_margin_series: list[float] = []
+    for q in usable[:16]:
+        gp = q.get("gross_profit")
+        rev_q = q.get("total_revenue")
+        if gp is not None and rev_q is not None and rev_q > 0:
+            gross_margin_series.append(float(gp / rev_q * 100))
+
+    # Revenue 3Y CAGR — use raw quarterly data (including None gaps)
+    # Build TTM from 4 most recent non-None quarters, then compare to 4 from ~12 quarters ago
+    revenue_3y_cagr: Optional[float] = None
+    all_rev_quarters = [(q.get("total_revenue"), i) for i, q in enumerate(usable)]
+    non_none_rev = [(v, i) for v, i in all_rev_quarters if v is not None]
+    if len(non_none_rev) >= 8:
+        # Recent TTM: sum first 4 non-None
+        recent_4 = [v for v, _ in non_none_rev[:4]]
+        # Find quarters ~12 positions ago for 3Y comparison
+        old_candidates = [(v, i) for v, i in non_none_rev if i >= 10]
+        if len(old_candidates) >= 3:
+            old_4 = [v for v, _ in old_candidates[:4]]
+            ttm_now = sum(recent_4)
+            ttm_old = sum(old_4)
+            # Estimate years between (based on quarter indices)
+            avg_recent_idx = sum(i for _, i in non_none_rev[:4]) / 4
+            avg_old_idx = sum(i for _, i in old_candidates[:4]) / 4
+            years_gap = (avg_old_idx - avg_recent_idx) / 4.0  # 4 quarters per year
+            if ttm_old > 0 and ttm_now > 0 and years_gap > 1.5:
+                revenue_3y_cagr = ((ttm_now / ttm_old) ** (1.0 / max(years_gap, 1.0)) - 1.0) * 100
+
+    # Revenue growth persistence: how many of last 8 quarters had positive YoY growth
+    revenue_growth_persistence: Optional[int] = None
+    if len(revenue_series) >= 8:
+        pos_count = 0
+        for i in range(min(8, len(revenue_series) - 4)):
+            q_now = revenue_series[i]
+            q_prior = revenue_series[i + 4] if (i + 4) < len(revenue_series) else None
+            if q_now is not None and q_prior is not None and q_prior > 0:
+                if q_now > q_prior:
+                    pos_count += 1
+        revenue_growth_persistence = pos_count
+
+    # Margin trend: compare avg gross margin of last 4Q vs prior 4Q
+    margin_trend = "unknown"
+    if len(gross_margin_series) >= 8:
+        recent_avg = sum(gross_margin_series[:4]) / 4
+        prior_avg = sum(gross_margin_series[4:8]) / 4
+        diff = recent_avg - prior_avg
+        if diff > 1.5:
+            margin_trend = "expanding"
+        elif diff < -1.5:
+            margin_trend = "contracting"
+        else:
+            margin_trend = "stable"
+
     return PITFundamentals(
         ticker=ticker,
         reporting_period=reporting_period,
@@ -565,6 +648,12 @@ def _build_fundamentals(
         # Currency metadata
         reporting_currency=reporting_currency,
         currency_converted=currency_converted,
+        # Multi-quarter series
+        revenue_series=revenue_series,
+        gross_margin_series=gross_margin_series,
+        revenue_3y_cagr=revenue_3y_cagr,
+        revenue_growth_persistence=revenue_growth_persistence,
+        margin_trend=margin_trend,
     )
 
 
