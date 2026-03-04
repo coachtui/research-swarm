@@ -17,8 +17,12 @@ cmds = ["ldconfig"]
 
 # Use uv instead of pip — 10-100x faster installs (Rust-based, parallel downloads).
 # `--system` installs into the system Python that nixpacks exposes to the runtime.
+# nixpacks' nix Python has no pip module — venv bootstraps its own pip via ensurepip.
+# Then install uv (tiny) via venv pip, and use uv for the heavy requirements install.
+# /opt/venv/bin is added to PATH by nixpacks at runtime, so all binaries resolve correctly.
 [phases.install]
 cmds = [
-  "python -m pip install uv --quiet",
-  "uv pip install -r requirements.txt --system",
+  "python -m venv /opt/venv",
+  "/opt/venv/bin/pip install uv --quiet",
+  "/opt/venv/bin/uv pip install -r requirements.txt",
 ]
