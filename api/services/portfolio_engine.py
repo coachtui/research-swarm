@@ -291,7 +291,14 @@ async def _build_signals(
             continue
 
         full_output = result.fullOutput if isinstance(result.fullOutput, dict) else {}
-        moat_score = result.moatScore or 0.0
+        if result.moatScore is None:
+            logger.warning(
+                "Null moatScore for %s (runId=%s) — skipping to avoid false EXIT_THESIS",
+                ticker,
+                getattr(result, "runId", "?"),
+            )
+            continue
+        moat_score = float(result.moatScore)
         sector = result.sector or "Unknown"
 
         # Get current price from quant output
