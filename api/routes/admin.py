@@ -624,3 +624,32 @@ async def clear_public_example(
     )
 
     return {"ok": True, "ticker": ticker, "cleared": cleared.count}
+
+
+# ── Data Cache Admin ───────────────────────────────────────────────────────────
+
+@router.get("/admin/cache/stats")
+async def cache_stats(admin: User = Depends(require_admin)):
+    """
+    Return row counts (total / valid / expired) for each Neon data cache table.
+    Useful for monitoring cache utilisation and hit rates.
+    """
+    import asyncio
+    from research_swarm.data.data_cache_service import data_cache
+
+    stats = await asyncio.get_event_loop().run_in_executor(None, data_cache.stats)
+    return {"ok": True, "stats": stats}
+
+
+@router.post("/admin/cache/purge")
+async def cache_purge(admin: User = Depends(require_admin)):
+    """
+    Delete expired rows from all Neon data cache tables and update last_purge_at.
+    Returns a per-table count of deleted rows.  Idempotent — safe to call anytime.
+    """
+    import asyncio
+    from research_swarm.data.data_cache_service import data_cache
+
+    counts = await asyncio.get_event_loop().run_in_executor(None, data_cache.purge_expired)
+    total = sum(counts.values())
+    return {"ok": True, "deleted_total": total, "by_table": counts}

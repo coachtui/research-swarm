@@ -676,6 +676,108 @@ model TickerFinancials {
   @@map("ticker_financials")
 }
 
+// ── Data Cache Models ──────────────────────────────────────────────────────────
+// Neon PostgreSQL-backed TTL cache for all external data fetches.
+// Written/read by DataCacheService (psycopg2, sync) in data_provider_hybrid.py.
+//
+// Tier 1 (90d)  : company_profile, financial_statements  — slow-changing fundamentals
+// Tier 2 (7d)   : earnings_calendar, analyst_data        — semi-dynamic signals
+// Tier 2B (24h) : short_interest                         — daily FINRA/dark-pool refresh
+// Tier 2C (48h) : institutional_ownership, insider_transactions — 13F-frequency
+// Tier 3 (15min): price_snapshot                         — real-time valuation + OHLCV
+
+model CacheCompanyProfile {
+  ticker    String   @id
+  data      Json
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("cache_company_profile")
+}
+
+model CacheFinancialStatements {
+  ticker    String   @id
+  data      Json
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("cache_financial_statements")
+}
+
+model CacheEarningsCalendar {
+  ticker    String   @id
+  data      Json
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("cache_earnings_calendar")
+}
+
+model CacheAnalystData {
+  ticker    String   @id
+  data      Json
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("cache_analyst_data")
+}
+
+model CacheInstitutionalOwnership {
+  ticker    String   @id
+  data      Json
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("cache_institutional_ownership")
+}
+
+model CacheInsiderTransactions {
+  ticker    String   @id
+  data      Json
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("cache_insider_transactions")
+}
+
+model CacheShortInterest {
+  ticker    String   @id
+  data      Json
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("cache_short_interest")
+}
+
+model CachePriceSnapshot {
+  ticker    String   @id
+  data      Json
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+  expiresAt DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("cache_price_snapshot")
+}
+
+// Admin-overridable TTL and enable/disable per table.
+// Seeded with defaults; edit rows to adjust TTLs without code changes.
+model CacheControl {
+  tableName   String    @id @map("table_name")
+  ttlHours    Float     @map("ttl_hours")
+  isEnabled   Boolean   @default(true) @map("is_enabled")
+  lastPurgeAt DateTime? @map("last_purge_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("cache_control")
+}
+
 // Usage records — idempotency guard preventing double-counting on retry/refresh.
 // One record per generation_id (= run_id). The UNIQUE constraint is the guard.
 model UsageRecord {

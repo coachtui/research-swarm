@@ -16,6 +16,7 @@ python-dotenv==1.0.0
 # Database (Neon PostgreSQL via Prisma)
 prisma>=0.11.0
 asyncpg>=0.29.0
+psycopg2-binary>=2.9.0
 
 # API clients
 requests==2.31.0
