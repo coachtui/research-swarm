@@ -75,7 +75,7 @@ function AdminContent() {
           <div className="flex items-center gap-3">
             <Shield className="h-6 w-6 text-primary" />
             <div>
-              <h1 className="text-3xl font-bold text-text-primary">Admin Dashboard</h1>
+              <h1 className="text-xl sm:text-3xl font-bold text-text-primary">Admin Dashboard</h1>
               <p className="text-sm text-text-secondary mt-1">
                 Platform management and user administration
               </p>
@@ -87,7 +87,7 @@ function AdminContent() {
       {/* Content */}
       <main className="container mx-auto px-4 py-8">
         <Tabs defaultValue="metrics" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-7 lg:w-[896px]">
+          <TabsList>
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
             <TabsTrigger value="revenue">Revenue</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>

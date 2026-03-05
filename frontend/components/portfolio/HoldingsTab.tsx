@@ -31,28 +31,26 @@ export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
   return (
     <div className="space-y-3">
       {/* Summary row */}
-      <div className="flex items-center justify-between text-xs text-text-tertiary">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 text-xs text-text-tertiary">
         <span>
           {portfolio ? `${portfolio.positions.length} position${portfolio.positions.length !== 1 ? 's' : ''}` : 'No portfolio'}
-        </span>
-        <div className="flex items-center gap-3">
           {portfolio && (
-            <span>
-              Total weight:{' '}
+            <span className="ml-2">
+              · Total:{' '}
               <span className="font-mono font-semibold text-text-primary">
                 {formatWeight(portfolio.total_weight)}
               </span>
             </span>
           )}
-          <button
-            onClick={() => setAddingPosition(v => !v)}
-            className="flex items-center gap-1 text-primary hover:text-primary/80 transition-colors font-semibold"
-          >
-            <Plus className="h-3 w-3" />
-            Add Position
-            <ChevronDown className={`h-3 w-3 transition-transform ${addingPosition ? 'rotate-180' : ''}`} />
-          </button>
-        </div>
+        </span>
+        <button
+          onClick={() => setAddingPosition(v => !v)}
+          className="flex items-center gap-1 text-primary hover:text-primary/80 transition-colors font-semibold self-start sm:self-auto"
+        >
+          <Plus className="h-3 w-3" />
+          Add Position
+          <ChevronDown className={`h-3 w-3 transition-transform ${addingPosition ? 'rotate-180' : ''}`} />
+        </button>
       </div>
 
       {/* Add Position form */}
@@ -304,9 +302,9 @@ function PositionRow({ portfolioId, position }: { portfolioId: string; position:
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           {position.tier_state !== 'none' && (
-            <span className="text-[9px] font-mono bg-warning/10 text-warning px-1.5 py-0.5 rounded">
+            <span className="hidden sm:inline-flex text-[9px] font-mono bg-warning/10 text-warning px-1.5 py-0.5 rounded">
               {position.tier_state.toUpperCase()}
             </span>
           )}
@@ -316,7 +314,7 @@ function PositionRow({ portfolioId, position }: { portfolioId: string; position:
           </span>
 
           {position.compounder_score !== null && (
-            <span className="text-[10px] font-mono text-text-tertiary">
+            <span className="hidden sm:inline text-[10px] font-mono text-text-tertiary">
               CS: {(position.compounder_score * 100).toFixed(0)}
             </span>
           )}

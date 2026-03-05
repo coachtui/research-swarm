@@ -14,7 +14,8 @@ const TabsList = React.forwardRef<
     ref={ref}
     className={cn(
       // Framework Guide underline tab bar — no pill/bg, hairline bottom border
-      'inline-flex items-end gap-0',
+      // flex (not inline-flex) so border spans full width; overflow-x-auto for mobile scrolling
+      'flex items-end gap-0 overflow-x-auto',
       className
     )}
     style={{ borderBottom: '1px solid var(--border)' }}

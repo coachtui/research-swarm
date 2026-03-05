@@ -25,7 +25,7 @@ export function DashboardHeader({ quota, isLoading }: DashboardHeaderProps) {
               <Skeleton className="h-20 w-36" />
             </div>
           ) : quota ? (
-            <div className="flex gap-3 flex-wrap">
+            <div className="flex gap-3 flex-wrap w-full sm:w-auto">
               <AnalysesQuotaCard quota={quota} />
               <QuotaCard
                 icon={<ListChecks className="h-4 w-4" />}
@@ -59,7 +59,7 @@ function AnalysesQuotaCard({ quota }: AnalysesQuotaCardProps) {
 
   return (
     <div
-      className="min-w-[168px] rounded-card p-4"
+      className="flex-1 min-w-[140px] rounded-card p-4"
       style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
     >
       <div className="flex items-center gap-2 mb-2">
@@ -114,7 +114,7 @@ function QuotaCard({ icon, label, used, limit, remaining }: QuotaCardProps) {
 
   return (
     <div
-      className="min-w-[140px] rounded-card p-4"
+      className="flex-1 min-w-[120px] rounded-card p-4"
       style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
     >
       <div className="flex items-center gap-2 mb-2">

@@ -53,7 +53,7 @@ export function AdminUserTable() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <CardTitle>Users ({data.total})</CardTitle>
           <div className="flex items-center gap-2">
             <Button
@@ -64,7 +64,7 @@ export function AdminUserTable() {
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="text-sm text-text-secondary">
+            <span className="text-sm text-text-secondary whitespace-nowrap">
               Page {page + 1} of {totalPages}
             </span>
             <Button
@@ -83,13 +83,13 @@ export function AdminUserTable() {
           {data.users.map((user) => (
             <div
               key={user.id}
-              className="flex items-center justify-between p-4 rounded-lg border border-surface-elevated hover:border-primary/50 transition-colors"
+              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg border border-surface-elevated hover:border-primary/50 transition-colors"
             >
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <p className="font-medium text-text-primary">{user.email}</p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1 min-w-0">
+                  <p className="font-medium text-text-primary truncate min-w-0">{user.email}</p>
                   {user.is_admin && (
-                    <div title="Admin">
+                    <div title="Admin" className="shrink-0">
                       <Shield className="h-4 w-4 text-primary" />
                     </div>
                   )}
@@ -98,16 +98,16 @@ export function AdminUserTable() {
                   )}
                 </div>
                 {user.full_name && (
-                  <p className="text-sm text-text-secondary">{user.full_name}</p>
+                  <p className="text-sm text-text-secondary truncate">{user.full_name}</p>
                 )}
                 <p className="text-xs text-text-tertiary mt-1">
-                  Joined {formatDateTime(user.created_at)} •
-                  {user.analyses_used}/{user.analyses_limit} analyses •
-                  {user.watchlist_count} watchlist stocks
+                  Joined {formatDateTime(user.created_at)} •{' '}
+                  {user.analyses_used}/{user.analyses_limit} analyses •{' '}
+                  {user.watchlist_count} watchlist
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {/* Tier selector */}
                 <select
                   value={user.tier}

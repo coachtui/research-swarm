@@ -151,12 +151,12 @@ function EdgeScoreGauge({ edge }: { edge: PortfolioEdgeScore }) {
         />
       </div>
 
-      {/* Scale legend */}
+      {/* Scale legend — abbreviated on mobile, full on sm+ */}
       <div className="flex justify-between text-[10px] text-text-tertiary">
-        <span>0 Defensive</span>
-        <span>4 Neutral</span>
-        <span>6 Constructive</span>
-        <span>10 High Conviction</span>
+        <span>Defensive</span>
+        <span className="hidden sm:inline">4 Neutral</span>
+        <span className="hidden sm:inline">6 Constructive</span>
+        <span>High Conv.</span>
       </div>
 
       {/* Component bars */}
@@ -360,10 +360,10 @@ function RegimeVulnerabilityCard({ regime }: { regime: RegimeVulnerability }) {
           </span>
           <div className="space-y-1">
             {regime.most_vulnerable.map((item) => (
-              <div key={item.ticker} className="flex items-center justify-between text-xs">
+              <div key={item.ticker} className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs gap-0.5 sm:gap-0">
                 <span className="font-mono font-medium text-text-primary">{item.ticker}</span>
-                <div className="flex items-center gap-3 text-text-tertiary">
-                  <span>{item.weight_pct.toFixed(1)}% weight</span>
+                <div className="flex items-center gap-2 sm:gap-3 text-text-tertiary flex-wrap">
+                  <span>{item.weight_pct.toFixed(1)}% wt</span>
                   <span className="text-error">{item.bear_return_pct.toFixed(1)}% bear</span>
                   <span className="font-mono text-text-secondary">
                     {item.impact_pct.toFixed(1)}% impact

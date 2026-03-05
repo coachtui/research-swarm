@@ -65,9 +65,9 @@ export function PortfolioOverview({
   return (
     <div className="space-y-6">
       {/* ── Header ───────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold text-text-primary">{portfolio.name}</h3>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold text-text-primary truncate">{portfolio.name}</h3>
           <p className="text-xs text-text-tertiary">
             {portfolio.mandate} mandate · {portfolio.position_count} positions
           </p>
@@ -78,7 +78,7 @@ export function PortfolioOverview({
             variant="outline"
             onClick={() => triggerEngine.mutate({ portfolioId })}
             disabled={triggerEngine.isPending}
-            className="h-8 text-xs"
+            className="h-8 text-xs self-start sm:self-auto shrink-0"
           >
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${triggerEngine.isPending ? 'animate-spin' : ''}`} />
             {triggerEngine.isPending ? 'Running...' : 'Run Engine'}

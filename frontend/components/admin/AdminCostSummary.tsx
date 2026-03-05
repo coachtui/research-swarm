@@ -56,7 +56,7 @@ export function AdminCostSummary({ costs, isLoading }: AdminCostSummaryProps) {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
           <CardTitle>Cost Tracking</CardTitle>
           <div className="text-sm text-text-secondary">
             Running tallies for all analyses
@@ -108,20 +108,20 @@ export function AdminCostSummary({ costs, isLoading }: AdminCostSummaryProps) {
 
         {/* All-time summary */}
         <div className="mt-6 pt-6 border-t border-surface-elevated">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-text-secondary mb-1">
                 All-Time Total
               </p>
-              <p className="text-2xl font-bold text-text-primary">
+              <p className="text-2xl font-bold text-text-primary tabular-nums">
                 {formatCost(costs.all_time)}
               </p>
             </div>
-            <div className="text-right">
+            <div className="sm:text-right">
               <p className="text-sm font-medium text-text-secondary mb-1">
                 Average per Analysis
               </p>
-              <p className="text-2xl font-bold text-text-primary">
+              <p className="text-2xl font-bold text-text-primary tabular-nums">
                 {costPerAnalysis(costs.all_time, costs.analyses_all_time)}
               </p>
             </div>

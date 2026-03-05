@@ -44,7 +44,7 @@ export function AdminAnalysisTable() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <CardTitle>Recent Analyses ({data.total})</CardTitle>
           <div className="flex items-center gap-2">
             <input
@@ -52,7 +52,7 @@ export function AdminAnalysisTable() {
               placeholder="Filter by ticker..."
               value={ticker}
               onChange={(e) => setTicker(e.target.value.toUpperCase())}
-              className="px-3 py-1.5 rounded-md border border-surface-elevated bg-surface text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary w-40"
+              className="px-3 py-1.5 rounded-md border border-surface-elevated bg-surface text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-40"
             />
           </div>
         </div>
