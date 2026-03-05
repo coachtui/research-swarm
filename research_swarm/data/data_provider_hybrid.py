@@ -91,6 +91,8 @@ class HybridDataProvider:
 
         # ── Tier 1: Financial statements (90 days) ─────────────────────────────
         # Cached together so SEC + yfinance are fetched in one shot on miss.
+        # Double-check pattern: re-read cache after fetching to let a concurrent
+        # request's write win — prevents stampede divergence on first parallel runs.
         cached_fin = data_cache.get_financial_statements(ticker)
         if cached_fin is not None:
             filings_raw = cached_fin.get("filings_raw") or {}
@@ -107,13 +109,25 @@ class HybridDataProvider:
             quarterly_financials_override=quarterly_financials_override,
         )
 
-        # Write financial statements cache on miss (both sources now available)
+        # Write financial statements cache on miss (both sources now available).
+        # Re-check first: if a concurrent request already wrote while we were
+        # fetching, adopt its data so both runs use the identical inputs.
         if cached_fin is None:
-            data_cache.set_financial_statements(
-                ticker,
-                yfinance_bundle.get("quarterly_financials"),
-                filings_raw,
-            )
+            cached_fin_recheck = data_cache.get_financial_statements(ticker)
+            if cached_fin_recheck is not None:
+                # Another request beat us — use its data for consistency
+                logger.info(
+                    f"[Swarm Data] Stampede guard: adopting concurrent cache write for {ticker}"
+                )
+                filings_raw = cached_fin_recheck.get("filings_raw") or filings_raw
+                if cached_fin_recheck.get("quarterly_financials") is not None:
+                    yfinance_bundle["quarterly_financials"] = cached_fin_recheck["quarterly_financials"]
+            else:
+                data_cache.set_financial_statements(
+                    ticker,
+                    yfinance_bundle.get("quarterly_financials"),
+                    filings_raw,
+                )
 
         result: Dict[str, Any] = {
             "filings_raw": filings_raw,
@@ -241,6 +255,8 @@ class HybridDataProvider:
                 data_cache.set_company_profile(ticker, bundle["company_info"])
 
         # ── Tier 3: Price snapshot (15 min) ────────────────────────────────────
+        # Double-check on miss: if a concurrent request already wrote while we
+        # fetched, adopt its data so both runs use identical valuation inputs.
         cached_price = data_cache.get_price_snapshot(ticker)
         if cached_price is not None:
             bundle["valuation_metrics"] = cached_price.get("valuation_metrics")
@@ -259,9 +275,15 @@ class HybridDataProvider:
             except Exception as e:
                 logger.warning(f"Failed to get historical data for {ticker}: {e}")
                 bundle["historical_data"] = None
-            data_cache.set_price_snapshot(
-                ticker, bundle["valuation_metrics"], bundle["historical_data"]
-            )
+            # Re-check: prefer concurrent writer's data over our own fetch
+            cached_price_recheck = data_cache.get_price_snapshot(ticker)
+            if cached_price_recheck is not None:
+                bundle["valuation_metrics"] = cached_price_recheck.get("valuation_metrics")
+                bundle["historical_data"] = cached_price_recheck.get("historical_data")
+            else:
+                data_cache.set_price_snapshot(
+                    ticker, bundle["valuation_metrics"], bundle["historical_data"]
+                )
 
         # ── Tier 2: Earnings calendar (7 days) ─────────────────────────────────
         cached_earnings = data_cache.get_earnings_calendar(ticker)
