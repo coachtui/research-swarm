@@ -304,12 +304,14 @@ def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
             logger.debug("Fetching analyst recommendations directly (no shared data)")
             recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
 
-        # CRITICAL FIX: Fetch upgrades/downgrades data for revision detection
-        logger.debug("Fetching upgrades/downgrades data for revision metrics")
-        upgrades_downgrades = market_data_client.get_upgrades_downgrades(
-            state["ticker"],
-            days_back=90  # Last 3 months
-        )
+        # Upgrades/downgrades: use shared bundle first, fallback to direct fetch
+        upgrades_downgrades = shared_data.get("upgrades_downgrades")
+        if upgrades_downgrades is None:
+            logger.debug("Fetching upgrades/downgrades data for revision metrics")
+            upgrades_downgrades = market_data_client.get_upgrades_downgrades(
+                state["ticker"],
+                days_back=90  # Last 3 months
+            )
 
         # Calculate revision metrics from upgrades/downgrades
         revision_metrics = calculate_revision_metrics(upgrades_downgrades)
@@ -510,6 +512,7 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
     state["status"] = "analyzing_insider"
 
     from research_swarm.data.openinsider_client import openinsider_client
+    from research_swarm.data.data_cache_service import data_cache
 
     try:
         # Pull market cap and float from pre-fetched shared data (best-effort)
@@ -519,11 +522,18 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
         market_cap = company_info.get("market_cap")        # dollars from yfinance
         float_shares = short_data.get("float_shares")     # share count
 
-        # Fetch insider transactions from OpenInsider (more reliable than yfinance)
-        transactions = openinsider_client.get_insider_transactions(
-            state["ticker"],
-            days_back=365  # 1 year lookback
-        )
+        # Check Neon cache before hitting OpenInsider (HTML scrape — 3-5s each)
+        cached_oi = data_cache.get_openinsider(state["ticker"])
+        if cached_oi is not None:
+            logger.debug(f"Using cached OpenInsider transactions for {state['ticker']}")
+            transactions = cached_oi
+        else:
+            transactions = openinsider_client.get_insider_transactions(
+                state["ticker"],
+                days_back=365  # 1 year lookback
+            )
+            if transactions is not None:
+                data_cache.set_openinsider(state["ticker"], transactions)
 
         # Calculate insider score using 5-component institutional framework
         insider_result = openinsider_client.calculate_insider_score(

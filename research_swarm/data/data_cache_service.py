@@ -33,7 +33,10 @@ _DEFAULT_TTL: Dict[str, float] = {
     "cache_analyst_data":            7 * 24,   # 7 days
     "cache_institutional_ownership": 48.0,     # 48h
     "cache_insider_transactions":    48.0,     # 48h
+    "cache_openinsider":             48.0,     # 48h
     "cache_short_interest":          24.0,     # 24h
+    "cache_dark_pool":               24.0,     # 24h
+    "cache_8k_filings":              24.0,     # 24h
     "cache_price_snapshot":           0.25,    # 15 min
 }
 
@@ -271,11 +274,13 @@ class DataCacheService:
         recommendations: Any,
         price_target: Any,
         analyst_estimates: Any,
+        upgrades_downgrades: Any = None,
     ) -> None:
         payload = {
             "recommendations": recommendations,
             "price_target": price_target,
             "analyst_estimates": analyst_estimates,
+            "upgrades_downgrades": upgrades_downgrades,
         }
         self._set("cache_analyst_data", ticker, payload)
 
@@ -306,6 +311,30 @@ class DataCacheService:
 
     def set_short_interest(self, ticker: str, short_interest: Any) -> None:
         self._set("cache_short_interest", ticker, short_interest)
+
+    # ── Tier 2B: Dark Pool / FINRA ATS (24h) ──────────────────────────────────
+
+    def get_dark_pool(self, ticker: str) -> Optional[Any]:
+        return self._get("cache_dark_pool", ticker)
+
+    def set_dark_pool(self, ticker: str, dark_pool_data: Any) -> None:
+        self._set("cache_dark_pool", ticker, dark_pool_data)
+
+    # ── Tier 2C: OpenInsider transactions (48h) ────────────────────────────────
+
+    def get_openinsider(self, ticker: str) -> Optional[Any]:
+        return self._get("cache_openinsider", ticker)
+
+    def set_openinsider(self, ticker: str, transactions: Any) -> None:
+        self._set("cache_openinsider", ticker, transactions)
+
+    # ── Tier 2B: SEC 8-K filings (24h) ────────────────────────────────────────
+
+    def get_8k_filings(self, ticker: str) -> Optional[Any]:
+        return self._get("cache_8k_filings", ticker)
+
+    def set_8k_filings(self, ticker: str, filings_data: Any) -> None:
+        self._set("cache_8k_filings", ticker, filings_data)
 
     # ── Tier 3: Price Snapshot (15 min) ────────────────────────────────────────
     # Stores valuation_metrics (dict) + historical_data (DataFrame).

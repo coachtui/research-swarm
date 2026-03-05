@@ -12,10 +12,13 @@ Cache TTL summary (see data_cache_service.py for full config):
   company_profile      — 90 days  (sector, industry, description)
   financial_statements — 90 days  (quarterly_financials + filings_raw)
   earnings_calendar    —  7 days  (earnings dates + history)
-  analyst_data         —  7 days  (recommendations, price target, estimates)
+  analyst_data         —  7 days  (recommendations, price target, estimates, upgrades_downgrades)
   institutional_owners —  48h     (13F holders)
-  insider_transactions —  48h     (Form 4 activity)
-  short_interest       —  24h     (FINRA / dark pool)
+  insider_transactions —  48h     (Form 4 yfinance activity)
+  openinsider          —  48h     (OpenInsider Form 4 scrape)
+  short_interest       —  24h     (yfinance short data)
+  dark_pool            —  24h     (FINRA ATS dark pool)
+  8k_filings           —  24h     (SEC 8-K material events)
   price_snapshot       —  15 min  (valuation metrics + OHLCV)
 """
 from typing import Any, Dict, Optional
@@ -81,7 +84,7 @@ class HybridDataProvider:
             - filings_raw, company_info, valuation_metrics, earnings_data,
               quarterly_financials, historical_data, institutional_holders,
               insider_transactions, short_interest, analyst_estimates,
-              recent_8k_filings, is_foreign
+              upgrades_downgrades, recent_8k_filings, dark_pool_data, is_foreign
         """
         logger.info(f"[Swarm Data] Fetching complete swarm data for {ticker}")
 
@@ -140,21 +143,50 @@ class HybridDataProvider:
             "insider_transactions": yfinance_bundle.get("insider_transactions"),
             "short_interest": yfinance_bundle.get("short_interest"),
             "analyst_estimates": yfinance_bundle.get("analyst_estimates"),
+            "upgrades_downgrades": yfinance_bundle.get("upgrades_downgrades"),
             "is_foreign": is_foreign,
         }
 
-        # ── Recent 8-K filings (News Hound) — not cached, too dynamic ─────────
-        try:
-            result["recent_8k_filings"] = sec_client.get_8k_filings(ticker, days_back=90)
+        # ── Recent 8-K filings (24h Neon cache) ───────────────────────────────
+        cached_8k = data_cache.get_8k_filings(ticker)
+        if cached_8k is not None:
+            result["recent_8k_filings"] = cached_8k
             count = (
-                result["recent_8k_filings"].get("_metadata", {}).get("filings_found", 0)
-                if result["recent_8k_filings"]
-                else 0
+                cached_8k.get("_metadata", {}).get("filings_found", 0) if cached_8k else 0
             )
-            logger.info(f"[Swarm Data] Fetched {count} recent 8-K filings for {ticker}")
-        except Exception as e:
-            logger.warning(f"Failed to get 8-K filings for {ticker}: {e}")
-            result["recent_8k_filings"] = None
+            logger.info(f"[Swarm Data] 8-K filings cache HIT for {ticker} ({count} filings)")
+        else:
+            try:
+                filings_8k = sec_client.get_8k_filings(ticker, days_back=90)
+                result["recent_8k_filings"] = filings_8k
+                count = (
+                    filings_8k.get("_metadata", {}).get("filings_found", 0)
+                    if filings_8k
+                    else 0
+                )
+                logger.info(f"[Swarm Data] Fetched {count} recent 8-K filings for {ticker}")
+                if filings_8k is not None:
+                    data_cache.set_8k_filings(ticker, filings_8k)
+            except Exception as e:
+                logger.warning(f"Failed to get 8-K filings for {ticker}: {e}")
+                result["recent_8k_filings"] = None
+
+        # ── FINRA dark pool / ATS data (24h Neon cache) ───────────────────────
+        cached_dark = data_cache.get_dark_pool(ticker)
+        if cached_dark is not None:
+            result["dark_pool_data"] = cached_dark
+            logger.info(f"[Swarm Data] Dark pool cache HIT for {ticker}")
+        else:
+            try:
+                from research_swarm.data.finra_client import finra_client
+                dark_pool_data = finra_client.get_dark_pool_activity(ticker, weeks_back=13)
+                result["dark_pool_data"] = dark_pool_data
+                if dark_pool_data is not None:
+                    data_cache.set_dark_pool(ticker, dark_pool_data)
+                    logger.info(f"[Swarm Data] Fetched and cached dark pool data for {ticker}")
+            except Exception as e:
+                logger.warning(f"Failed to get dark pool data for {ticker}: {e}")
+                result["dark_pool_data"] = None
 
         logger.info(f"[Swarm Data] Successfully assembled data bundle for {ticker}")
         return result
@@ -307,10 +339,12 @@ class HybridDataProvider:
             earnings_data["recommendations"] = cached_analyst.get("recommendations")
             earnings_data["price_target"] = cached_analyst.get("price_target")
             bundle["analyst_estimates"] = cached_analyst.get("analyst_estimates")
+            bundle["upgrades_downgrades"] = cached_analyst.get("upgrades_downgrades")
         else:
             recommendations: Any = None
             price_target: Any = None
             analyst_estimates: Any = None
+            upgrades_downgrades: Any = None
             try:
                 recommendations = market_data_client.get_analyst_recommendations(ticker)
             except Exception:
@@ -324,10 +358,20 @@ class HybridDataProvider:
                 logger.debug(f"Fetched analyst estimates for {ticker}")
             except Exception as e:
                 logger.warning(f"Failed to get analyst estimates for {ticker}: {e}")
+            try:
+                upgrades_downgrades = market_data_client.get_upgrades_downgrades(
+                    ticker, days_back=90
+                )
+                logger.debug(f"Fetched upgrades/downgrades for {ticker}")
+            except Exception as e:
+                logger.warning(f"Failed to get upgrades/downgrades for {ticker}: {e}")
             earnings_data["recommendations"] = recommendations
             earnings_data["price_target"] = price_target
             bundle["analyst_estimates"] = analyst_estimates
-            data_cache.set_analyst_data(ticker, recommendations, price_target, analyst_estimates)
+            bundle["upgrades_downgrades"] = upgrades_downgrades
+            data_cache.set_analyst_data(
+                ticker, recommendations, price_target, analyst_estimates, upgrades_downgrades
+            )
 
         bundle["earnings_data"] = earnings_data
 
