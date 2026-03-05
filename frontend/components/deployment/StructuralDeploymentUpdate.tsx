@@ -663,46 +663,48 @@ function SectorLeadershipBlock({
           <span className="text-xs text-text-secondary opacity-70">{coverageLabel}</span>
         )}
       </div>
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-surface-elevated/50">
-            <Th>Rank</Th>
-            <Th>Sector</Th>
-            <Th align="right">Rot. Score</Th>
-            <Th align="right">Opp.</Th>
-            <Th align="right">Structural</Th>
-            {hasDelta && <Th align="right">Δ Opp</Th>}
-            {hasDelta && <Th align="right">Δ Struct</Th>}
-            {hasDelta && <Th align="right">Δ T2</Th>}
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((e) => (
-            <tr key={e.sector} className="border-b border-surface-elevated/30 hover:bg-surface-elevated/20 transition-colors">
-              <td className="py-1.5 pr-3 font-mono text-text-secondary w-6">{e.rank}.</td>
-              <td className="py-1.5 pr-4 font-medium text-text-primary">{e.sector}</td>
-              <Td align="right">
-                <span className="font-mono font-semibold text-teal-400">
-                  {e.rotation_score.toFixed(3)}
-                </span>
-              </Td>
-              <Td align="right">
-                <span className="font-mono text-text-secondary">
-                  {(e.opportunity_score ?? 0).toFixed(3)}
-                </span>
-              </Td>
-              <Td align="right">
-                <span className="font-mono text-text-secondary">
-                  {(e.structural_score ?? 0).toFixed(3)}
-                </span>
-              </Td>
-              {hasDelta && <Td align="right"><DeltaScore v={e.delta_opp ?? null} /></Td>}
-              {hasDelta && <Td align="right"><DeltaScore v={e.delta_structural ?? null} /></Td>}
-              {hasDelta && <Td align="right"><DeltaCount v={e.delta_tier2 ?? null} /></Td>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-surface-elevated/50">
+              <Th>Rank</Th>
+              <Th>Sector</Th>
+              <Th align="right">Rot. Score</Th>
+              <Th align="right">Opp.</Th>
+              <Th align="right">Structural</Th>
+              {hasDelta && <Th align="right">Δ Opp</Th>}
+              {hasDelta && <Th align="right">Δ Struct</Th>}
+              {hasDelta && <Th align="right">Δ T2</Th>}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {entries.map((e) => (
+              <tr key={e.sector} className="border-b border-surface-elevated/30 hover:bg-surface-elevated/20 transition-colors">
+                <td className="py-1.5 pr-3 font-mono text-text-secondary w-6">{e.rank}.</td>
+                <td className="py-1.5 pr-4 font-medium text-text-primary whitespace-nowrap">{e.sector}</td>
+                <Td align="right">
+                  <span className="font-mono font-semibold text-teal-400">
+                    {e.rotation_score.toFixed(3)}
+                  </span>
+                </Td>
+                <Td align="right">
+                  <span className="font-mono text-text-secondary">
+                    {(e.opportunity_score ?? 0).toFixed(3)}
+                  </span>
+                </Td>
+                <Td align="right">
+                  <span className="font-mono text-text-secondary">
+                    {(e.structural_score ?? 0).toFixed(3)}
+                  </span>
+                </Td>
+                {hasDelta && <Td align="right"><DeltaScore v={e.delta_opp ?? null} /></Td>}
+                {hasDelta && <Td align="right"><DeltaScore v={e.delta_structural ?? null} /></Td>}
+                {hasDelta && <Td align="right"><DeltaCount v={e.delta_tier2 ?? null} /></Td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -745,34 +747,38 @@ function RotationSignalPanel({ leaders }: { leaders: RotationSignalLeader[] }) {
       {early.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs text-teal-400/70 font-medium">Early Rotation ↑</p>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-surface-elevated/50">
-                <Th>Sector</Th>
-                <Th align="right">Δ Opp</Th>
-                <Th align="right">Δ Structural</Th>
-                <Th align="right">Signal</Th>
-              </tr>
-            </thead>
-            <tbody>{early.map((l) => <SignalRow key={l.sector} l={l} />)}</tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-surface-elevated/50">
+                  <Th>Sector</Th>
+                  <Th align="right">Δ Opp</Th>
+                  <Th align="right">Δ Structural</Th>
+                  <Th align="right">Signal</Th>
+                </tr>
+              </thead>
+              <tbody>{early.map((l) => <SignalRow key={l.sector} l={l} />)}</tbody>
+            </table>
+          </div>
         </div>
       )}
 
       {extended.length > 0 && (
         <div className="space-y-1">
           <p className="text-xs text-red-400/60 font-medium">Overextended ↓</p>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-surface-elevated/50">
-                <Th>Sector</Th>
-                <Th align="right">Δ Opp</Th>
-                <Th align="right">Δ Structural</Th>
-                <Th align="right">Signal</Th>
-              </tr>
-            </thead>
-            <tbody>{extended.map((l) => <SignalRow key={l.sector} l={l} />)}</tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-surface-elevated/50">
+                  <Th>Sector</Th>
+                  <Th align="right">Δ Opp</Th>
+                  <Th align="right">Δ Structural</Th>
+                  <Th align="right">Signal</Th>
+                </tr>
+              </thead>
+              <tbody>{extended.map((l) => <SignalRow key={l.sector} l={l} />)}</tbody>
+            </table>
+          </div>
         </div>
       )}
 
