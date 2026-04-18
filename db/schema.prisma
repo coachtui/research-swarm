@@ -808,6 +808,53 @@ model CacheControl {
   @@map("cache_control")
 }
 
+model WeeklySignal {
+  id                  String   @id @default(cuid())
+  ticker              String
+  runDate             DateTime // The date the batch ran (Sunday midnight UTC)
+
+  // Core verdict
+  verdict             String?  // "buy" | "hold" | "avoid"
+  currentPrice        Float?
+  fairValue           Float?
+  fairValueGapPct     Float?   // (fairValue - currentPrice) / currentPrice * 100
+
+  // Probabilistic signals
+  evProbability       Float?   // 0.0–1.0
+  stopLossProbability Float?   // 0.0–1.0
+
+  // Activity signals
+  insiderScore        Float?   // 0.0–10.0
+  darkPoolScore       Float?   // 0.0–10.0
+  sentimentScore      Float?   // 0.0–10.0
+
+  // Text
+  synthesisSummary    String?  // 2–3 sentence thesis lead for teasers/leaderboard
+  catalystSummary     String?  // key catalyst bullet points
+
+  // Position
+  positionSizeRec     String?  // e.g. "2.5% initial, scale to 5%"
+
+  // Market context (week-over-week %)
+  esChangePct         Float?   // S&P 500
+  nqChangePct         Float?   // Nasdaq 100
+  dowChangePct        Float?   // Dow Jones
+
+  // Alert diffing — prior week values
+  priorVerdict        String?
+  priorEvProbability  Float?
+
+  // Screener metadata
+  screenerScore       Float?   // Stage 1 score that selected this ticker
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([ticker, runDate])
+  @@index([runDate])
+  @@index([ticker])
+}
+
 // Usage records — idempotency guard preventing double-counting on retry/refresh.
 // One record per generation_id (= run_id). The UNIQUE constraint is the guard.
 model UsageRecord {
