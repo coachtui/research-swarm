@@ -853,6 +853,7 @@ model WeeklySignal {
   @@unique([ticker, runDate])
   @@index([runDate])
   @@index([ticker])
+  @@map("weekly_signals")
 }
 
 // Usage records — idempotency guard preventing double-counting on retry/refresh.

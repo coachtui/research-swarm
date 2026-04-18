@@ -2,7 +2,7 @@
 -- All downstream surfaces (leaderboard, alerts, portfolio scan, public teasers)
 -- query this table instead of re-running expensive LLM analysis.
 
-CREATE TABLE IF NOT EXISTS "WeeklySignal" (
+CREATE TABLE IF NOT EXISTS "weekly_signals" (
     "id"                  TEXT        NOT NULL,
     "ticker"              TEXT        NOT NULL,
     "runDate"             TIMESTAMP(3) NOT NULL,
@@ -44,9 +44,9 @@ CREATE TABLE IF NOT EXISTS "WeeklySignal" (
     "createdAt"           TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt"           TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "WeeklySignal_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "weekly_signals_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX IF NOT EXISTS "WeeklySignal_runDate_idx" ON "WeeklySignal"("runDate");
-CREATE INDEX IF NOT EXISTS "WeeklySignal_ticker_idx" ON "WeeklySignal"("ticker");
-CREATE UNIQUE INDEX IF NOT EXISTS "WeeklySignal_ticker_runDate_key" ON "WeeklySignal"("ticker", "runDate");
+CREATE INDEX IF NOT EXISTS "weekly_signals_runDate_idx" ON "weekly_signals"("runDate");
+CREATE INDEX IF NOT EXISTS "weekly_signals_ticker_idx" ON "weekly_signals"("ticker");
+CREATE UNIQUE INDEX IF NOT EXISTS "weekly_signals_ticker_runDate_key" ON "weekly_signals"("ticker", "runDate");
