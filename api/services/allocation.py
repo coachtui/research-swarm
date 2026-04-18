@@ -30,7 +30,7 @@ def compute_portfolio_total(positions, cash_balance: float) -> float:
 
 def compute_allocation_pct(position, total_value: float) -> Optional[float]:
     """
-    Return position's allocation as a percentage (0-100).
+    Return position's allocation as a fraction (0.0-1.0).
 
     Returns None if lastKnownPrice is None or total_value is 0.
     Returns 0.0 if shares is 0.
@@ -40,7 +40,7 @@ def compute_allocation_pct(position, total_value: float) -> Optional[float]:
     mv = compute_market_value(position.shares or 0.0, position.lastKnownPrice)
     if mv is None:
         return None
-    return (mv / total_value) * 100.0
+    return mv / total_value
 
 
 def _position_to_response(position, allocation_pct: Optional[float], market_value: Optional[float]) -> PositionResponse:

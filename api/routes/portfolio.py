@@ -515,7 +515,7 @@ async def rebalance_portfolio(
 
     actions_created = 0
     for pos in positions:
-        current_alloc = (compute_allocation_pct(pos, total) or 0.0) / 100.0
+        current_alloc = compute_allocation_pct(pos, total) or 0.0
 
         stock_result = None
         if pos.latestRunId:

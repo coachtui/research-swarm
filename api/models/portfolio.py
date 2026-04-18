@@ -54,7 +54,7 @@ class PositionResponse(BaseModel):
     cost_basis: Optional[float]
     last_known_price: Optional[float]
     last_price_at: Optional[datetime]
-    allocation_pct: Optional[float]   # computed: shares * price / total, as percentage (0-100)
+    allocation_pct: Optional[float]   # computed: shares * price / total, as fraction (0.0-1.0)
     market_value: Optional[float]     # shares * last_known_price
     target_weight: float              # user-set target as fraction (0.0-1.0)
     engine_suggested_weight: Optional[float]

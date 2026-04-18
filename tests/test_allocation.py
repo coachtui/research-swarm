@@ -76,12 +76,12 @@ def test_portfolio_total_cash_only():
 def test_allocation_pct_normal():
     pos = _make_pos("NVDA", 10, 100.0)
     pct = compute_allocation_pct(pos, total_value=1000.0)
-    assert pct == pytest.approx(100.0)  # 1000 / 1000 = 100%
+    assert pct == pytest.approx(1.0)  # 1000 / 1000 = 100%
 
 def test_allocation_pct_partial():
     pos = _make_pos("NVDA", 10, 100.0)
     pct = compute_allocation_pct(pos, total_value=2000.0)
-    assert pct == pytest.approx(50.0)
+    assert pct == pytest.approx(0.5)
 
 def test_allocation_pct_null_price():
     pos = _make_pos("NVDA", 10, None)
@@ -115,7 +115,7 @@ def test_breakdown_normal():
     assert breakdown.cash_pct == pytest.approx(0.2)  # 500 / 2500 = 0.2
     assert len(breakdown.positions) == 2
     nvda = next(p for p in breakdown.positions if p.ticker == "NVDA")
-    assert nvda.allocation_pct == pytest.approx(40.0)  # 1000 / 2500 * 100
+    assert nvda.allocation_pct == pytest.approx(0.4)  # 1000 / 2500
     assert nvda.market_value == pytest.approx(1000.0)
 
 def test_breakdown_zero_portfolio():
