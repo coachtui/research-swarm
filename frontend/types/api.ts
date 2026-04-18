@@ -1542,9 +1542,12 @@ export interface Portfolio {
   name: string
   mandate: 'compounder' | 'growth' | 'custom'
   positions: PortfolioPosition[]
-  total_weight: number
+  total_value: number
+  cash_balance: number
+  cash_pct: number
   position_count: number
   created_at: string
+  cash_updated_at: string | null
 }
 
 export interface PortfolioListResponse {
@@ -1553,13 +1556,18 @@ export interface PortfolioListResponse {
 
 export interface PortfolioPosition {
   ticker: string
-  current_weight: number
+  shares: number
   cost_basis: number | null
-  shares: number | null
+  last_known_price: number | null
+  last_price_at: string | null
+  allocation_pct: number | null
+  market_value: number | null
+  target_weight: number
+  engine_suggested_weight: number | null
   tier_state: string
   thesis_state: 'intact' | 'monitoring' | 'broken'
   eligibility_state: 'pending' | 'eligible' | 'disqualified'
-  ownership_status: 'core_compounder' | 'watch' | 'disqualified'
+  ownership_status: 'active' | 'watch' | 'exited'
   entry_date: string | null
   quarters_held: number
   compounder_score: number | null
@@ -1579,7 +1587,7 @@ export type EngineActionType =
   | 'REPLACE'
   | 'HOLD'
 
-export type EngineActionStatus = 'pending' | 'executed' | 'ignored' | 'expired'
+export type EngineActionStatus = 'pending' | 'executed' | 'ignored' | 'expired' | 'cancelled'
 
 export interface EngineAction {
   id: string
@@ -1595,12 +1603,43 @@ export interface EngineAction {
   created_at: string
   executed_at: string | null
   expires_at: string | null
+  trigger_price: number | null
+  trigger_condition: 'price_above' | 'price_below' | 'catalyst_confirmed' | 'immediate' | null
+  parent_action_id: string | null
 }
 
 export interface ActionFeed {
   actions: EngineAction[]
   total: number
   pending_count: number
+}
+
+export interface ActionChainResponse {
+  parent: EngineAction
+  children: EngineAction[]
+}
+
+export interface RefreshPricesResponse {
+  updated: number
+  skipped: number
+  portfolio_id: string
+}
+
+export interface ExecuteActionResponse {
+  success: boolean
+  action_id: string
+  status: 'executed'
+}
+
+export interface CancelActionResponse {
+  success: boolean
+  action_id: string
+  cancelled_count: number
+}
+
+export interface UpdateCashResponse {
+  success: boolean
+  cash_balance: number
 }
 
 // ── Portfolio Intelligence Engine ─────────────────────────────────────────────
