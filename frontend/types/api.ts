@@ -1567,7 +1567,7 @@ export interface PortfolioPosition {
   tier_state: string
   thesis_state: 'intact' | 'monitoring' | 'broken'
   eligibility_state: 'pending' | 'eligible' | 'disqualified'
-  ownership_status: 'active' | 'watch' | 'exited'
+  ownership_status: 'core_compounder' | 'watch' | 'disqualified'
   entry_date: string | null
   quarters_held: number
   compounder_score: number | null
@@ -1638,8 +1638,8 @@ export interface CancelActionResponse {
 }
 
 export interface UpdateCashResponse {
-  success: boolean
   cash_balance: number
+  updated_at: string
 }
 
 // ── Portfolio Intelligence Engine ─────────────────────────────────────────────

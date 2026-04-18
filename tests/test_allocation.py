@@ -112,7 +112,7 @@ def test_breakdown_normal():
 
     breakdown = compute_portfolio_breakdown(FakePortfolio())
     assert breakdown.total_value == pytest.approx(2500.0)
-    assert breakdown.cash_pct == pytest.approx(20.0)  # 500 / 2500 * 100
+    assert breakdown.cash_pct == pytest.approx(0.2)  # 500 / 2500 = 0.2
     assert len(breakdown.positions) == 2
     nvda = next(p for p in breakdown.positions if p.ticker == "NVDA")
     assert nvda.allocation_pct == pytest.approx(40.0)  # 1000 / 2500 * 100

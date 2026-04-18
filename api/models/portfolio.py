@@ -75,7 +75,7 @@ class PositionResponse(BaseModel):
 class PortfolioBreakdown(BaseModel):
     total_value: float
     cash_balance: float
-    cash_pct: float  # percentage (0-100)
+    cash_pct: float  # fraction (0-1)
     positions: list[PositionResponse]
 
 

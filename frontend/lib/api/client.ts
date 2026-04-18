@@ -35,7 +35,6 @@ import type {
   ExecuteActionResponse,
   CancelActionResponse,
   UpdateCashResponse,
-  ActionChainResponse,
 } from '@/types/api'
 import type {
   LeaderboardResponse,
@@ -482,7 +481,7 @@ class ApiClient {
     })
   }
 
-  async rebalancePortfolio(portfolioId: string): Promise<{ chains: ActionChainResponse[] }> {
+  async rebalancePortfolio(portfolioId: string): Promise<{ actions_created: number; portfolio_id: string }> {
     return this.request(`/api/portfolio/${portfolioId}/rebalance`, { method: 'POST' })
   }
 

@@ -10,9 +10,6 @@ import type { EngineAction } from '@/types/api'
 interface ActionPlanCardProps {
   ticker: string
   actions: EngineAction[]
-  onExecute: (actionId: string) => void
-  onCancel: (actionId: string) => void
-  isUpdating: boolean
 }
 
 /**
@@ -25,10 +22,9 @@ interface ActionPlanCardProps {
 export function ActionPlanCard({
   ticker,
   actions,
-  onExecute,
-  onCancel,
-  isUpdating,
 }: ActionPlanCardProps) {
+  const executeAction = useExecuteAction()
+  const cancelAction = useCancelAction()
   const [expanded, setExpanded] = useState(false)
 
   // Separate parent actions from children
@@ -86,9 +82,9 @@ export function ActionPlanCard({
                 <ActionStep
                   action={parent}
                   isParent={true}
-                  onExecute={onExecute}
-                  onCancel={onCancel}
-                  isUpdating={isUpdating}
+                  onExecute={(id) => executeAction.mutate(id)}
+                  onCancel={(id) => cancelAction.mutate(id)}
+                  isUpdating={executeAction.isPending || cancelAction.isPending}
                 />
 
                 {/* Child actions (indented) */}
@@ -99,9 +95,9 @@ export function ActionPlanCard({
                         key={child.id}
                         action={child}
                         isParent={false}
-                        onExecute={onExecute}
-                        onCancel={onCancel}
-                        isUpdating={isUpdating}
+                        onExecute={(id) => executeAction.mutate(id)}
+                        onCancel={(id) => cancelAction.mutate(id)}
+                        isUpdating={executeAction.isPending || cancelAction.isPending}
                       />
                     ))}
                   </div>

@@ -324,15 +324,15 @@ function PositionRow({
   }
 
   const ownershipColor = {
-    active: 'text-success',
+    core_compounder: 'text-success',
     watch: 'text-warning',
-    exited: 'text-text-tertiary',
+    disqualified: 'text-error',
   }[position.ownership_status] || 'text-text-tertiary'
 
   const ownershipLabel = {
-    active: 'Active',
+    core_compounder: 'Core',
     watch: 'Watch',
-    exited: 'Exited',
+    disqualified: 'DQ',
   }[position.ownership_status] || position.ownership_status
 
   const thesisColor = {
@@ -517,7 +517,7 @@ function PositionRow({
 
       {/* Action plan card */}
       {actions.length > 0 && (
-        <ActionPlanCard ticker={position.ticker} actions={actions} onExecute={() => {}} onCancel={() => {}} isUpdating={false} />
+        <ActionPlanCard ticker={position.ticker} actions={actions} />
       )}
     </div>
   )

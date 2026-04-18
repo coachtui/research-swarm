@@ -83,7 +83,7 @@ def compute_portfolio_breakdown(portfolio) -> PortfolioBreakdown:
         alloc_pct = compute_allocation_pct(pos, total)
         position_responses.append(_position_to_response(pos, alloc_pct, mv))
 
-    cash_pct = (cash / total * 100.0) if total > 0 else 0.0
+    cash_pct = (cash / total) if total > 0 else 0.0
 
     return PortfolioBreakdown(
         total_value=total,
