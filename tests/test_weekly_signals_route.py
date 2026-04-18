@@ -68,7 +68,8 @@ class TestShapePublic:
     def test_does_not_include_ev_probability(self):
         signal = _make_signal("AAPL")
         result = _shape_public(signal)
-        assert not hasattr(result, "ev_probability") or result.__class__ is WeeklySignalPublic
+        assert result.__class__ is WeeklySignalPublic
+        assert "ev_probability" not in result.model_fields
 
 
 class TestShapeFull:

@@ -183,7 +183,7 @@ async def get_track_record(limit: int = 100):
     return TrackRecordResponse(weeks=weeks, total_weeks=len(weeks))
 
 
-@router.get("/weekly-signals/preview/{ticker}", response_model=WeeklySignalPublic)
+@router.get("/weekly-signals/preview/{ticker}", response_model=WeeklySignalFull)
 async def get_weekly_preview(
     ticker: str,
     user: Optional[User] = Depends(get_optional_user),
