@@ -105,6 +105,9 @@ def _action_response(action) -> ActionResponse:
         signal_snapshot=action.signalSnapshot,
         trigger_cycle=action.triggerCycle,
         engine_version=action.engineVersion,
+        trigger_price=action.triggerPrice,
+        trigger_condition=action.triggerCondition,
+        parent_action_id=action.parentActionId,
         created_at=action.createdAt,
         executed_at=action.executedAt,
         expires_at=action.expiresAt,
@@ -308,6 +311,7 @@ async def get_actions(
     # Starter tier: limit to 3 most recent
     if not has_feature(user, FEAT_PORTFOLIO_ACTIONS):
         limit = min(limit, 3)
+        offset = 0
 
     where: dict = {"portfolioId": portfolio_id}
     if status:

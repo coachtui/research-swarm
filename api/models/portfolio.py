@@ -109,9 +109,9 @@ class ActionResponse(BaseModel):
     signal_snapshot: Optional[dict[str, Any]]
     trigger_cycle: Optional[str]
     engine_version: Optional[str]
-    trigger_price: Optional[float]
-    trigger_condition: Optional[str]
-    parent_action_id: Optional[str]
+    trigger_price: Optional[float] = None
+    trigger_condition: Optional[str] = None
+    parent_action_id: Optional[str] = None
     created_at: datetime
     executed_at: Optional[datetime]
     expires_at: Optional[datetime]
