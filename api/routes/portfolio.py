@@ -12,7 +12,7 @@ Supports:
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -28,7 +28,11 @@ from api.lib.entitlements import (
 )
 from api.lib.plan_limits import get_tier_limits
 from api.models.auth import User
+from api.services.allocation import compute_portfolio_breakdown
+from api.services.pricing import refresh_position_prices
 from api.models.portfolio import (
+    ActionChainResponse,
+    UpdateCashRequest,
     ActionFeedResponse,
     ActionResponse,
     AddPositionRequest,
@@ -48,13 +52,18 @@ router = APIRouter()
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _position_response(pos) -> PositionResponse:
+def _position_response(pos, allocation_pct=None, market_value=None) -> PositionResponse:
     """Convert a Prisma Position record to PositionResponse."""
     return PositionResponse(
         ticker=pos.ticker,
-        current_weight=pos.currentWeight,
+        shares=pos.shares or 0.0,
         cost_basis=pos.costBasis,
-        shares=pos.shares,
+        last_known_price=pos.lastKnownPrice,
+        last_price_at=pos.lastPriceAt,
+        allocation_pct=allocation_pct,
+        market_value=market_value,
+        target_weight=pos.targetWeight or 0.0,
+        engine_suggested_weight=pos.engineSuggestedWeight,
         tier_state=pos.tierState,
         thesis_state=pos.thesisState,
         eligibility_state=pos.eligibilityState,
@@ -69,15 +78,16 @@ def _position_response(pos) -> PositionResponse:
 
 def _portfolio_response(portfolio) -> PortfolioResponse:
     """Convert a Prisma Portfolio record (with positions) to PortfolioResponse."""
-    positions = [_position_response(p) for p in (portfolio.positions or [])]
-    total_weight = sum(p.current_weight for p in positions)
+    breakdown = compute_portfolio_breakdown(portfolio)
     return PortfolioResponse(
         id=portfolio.id,
         name=portfolio.name,
         mandate=portfolio.mandate,
-        positions=positions,
-        total_weight=total_weight,
-        position_count=len(positions),
+        positions=breakdown.positions,
+        total_value=breakdown.total_value,
+        cash_balance=breakdown.cash_balance,
+        cash_pct=breakdown.cash_pct,
+        position_count=len(breakdown.positions),
         created_at=portfolio.createdAt,
     )
 
@@ -180,20 +190,27 @@ async def add_position(
     request: AddPositionRequest,
     user: User = Depends(get_current_user),
 ):
-    """Add a position to a portfolio."""
+    """Add a position to a portfolio. Requires shares count."""
+    if not has_feature(user, FEAT_PORTFOLIO_CORE):
+        raise HTTPException(status_code=403, detail={
+            "code": "NOT_ENTITLED",
+            "message": "Portfolio access requires a paid subscription",
+        })
+
     db = await get_db()
-    portfolio = await _verify_portfolio_ownership(db, portfolio_id, user.id)
+    await _verify_portfolio_ownership(db, portfolio_id, user.id)
 
     ticker = request.ticker.upper()
 
-    # Check if position already exists
     existing = await db.position.find_first(
         where={"portfolioId": portfolio_id, "ticker": ticker}
     )
     if existing:
         raise HTTPException(status_code=400, detail=f"{ticker} already in portfolio")
 
-    # Find most recent completed analysis for this ticker
+    from api.services.pricing import get_latest_price
+    price, price_at = await get_latest_price(ticker, user.id)
+
     latest_result = await db.stockresult.find_first(
         where={"userId": user.id, "ticker": ticker, "status": "completed"},
         order={"createdAt": "desc"},
@@ -203,11 +220,15 @@ async def add_position(
         data={
             "portfolioId": portfolio_id,
             "ticker": ticker,
-            "currentWeight": request.weight,
-            "costBasis": request.cost_basis,
             "shares": request.shares,
+            "costBasis": request.cost_basis,
+            "lastKnownPrice": price,
+            "lastPriceAt": price_at,
+            "targetWeight": request.target_weight or 0.0,
+            "engineSuggestedWeight": request.target_weight,
             "entryDate": datetime.now(timezone.utc),
             "latestRunId": latest_result.runId if latest_result else None,
+            "ownershipStatus": "watch",
         }
     )
     return _position_response(position)
@@ -220,7 +241,7 @@ async def update_position(
     request: UpdatePositionRequest,
     user: User = Depends(get_current_user),
 ):
-    """Update an existing position's weight, cost basis, or shares."""
+    """Update an existing position's shares, cost basis, or target weight."""
     db = await get_db()
     await _verify_portfolio_ownership(db, portfolio_id, user.id)
 
@@ -232,12 +253,12 @@ async def update_position(
         raise HTTPException(status_code=404, detail=f"{ticker} not found in portfolio")
 
     update_data = {}
-    if request.weight is not None:
-        update_data["currentWeight"] = request.weight
-    if request.cost_basis is not None:
-        update_data["costBasis"] = request.cost_basis
     if request.shares is not None:
         update_data["shares"] = request.shares
+    if request.cost_basis is not None:
+        update_data["costBasis"] = request.cost_basis
+    if request.target_weight is not None:
+        update_data["targetWeight"] = request.target_weight
 
     if not update_data:
         return _position_response(position)
@@ -276,7 +297,7 @@ async def remove_position(
 async def get_actions(
     portfolio_id: str,
     user: User = Depends(get_current_user),
-    status: str | None = Query(None, description="Filter by status: pending, executed, ignored, expired"),
+    status: Optional[str] = Query(None, description="Filter by status: pending, executed, ignored, expired"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -416,6 +437,111 @@ async def trigger_engine_run(
         raise HTTPException(status_code=500, detail=f"Engine run failed: {str(e)}")
 
 
+# ── Refresh Prices ────────────────────────────────────────────────────────────
+
+
+@router.post("/portfolio/{portfolio_id}/refresh-prices")
+async def refresh_prices(
+    portfolio_id: str,
+    user: User = Depends(get_current_user),
+):
+    """Refresh lastKnownPrice for all positions from their latest StockResult."""
+    db = await get_db()
+    await _verify_portfolio_ownership(db, portfolio_id, user.id)
+    updated, skipped = await refresh_position_prices(portfolio_id, user.id)
+    return {"updated": updated, "skipped": skipped, "portfolio_id": portfolio_id}
+
+
+# ── Cash Balance ──────────────────────────────────────────────────────────────
+
+
+@router.post("/portfolio/{portfolio_id}/cash")
+async def update_cash(
+    portfolio_id: str,
+    request: UpdateCashRequest,
+    user: User = Depends(get_current_user),
+):
+    """Update the cash balance for a portfolio."""
+    db = await get_db()
+    await _verify_portfolio_ownership(db, portfolio_id, user.id)
+    now = datetime.now(timezone.utc)
+    await db.portfolio.update(
+        where={"id": portfolio_id},
+        data={"cashBalance": request.amount, "cashUpdatedAt": now},
+    )
+    return {"cash_balance": request.amount, "updated_at": now.isoformat()}
+
+
+# ── Rebalance ─────────────────────────────────────────────────────────────────
+
+
+@router.post("/portfolio/{portfolio_id}/rebalance")
+async def rebalance_portfolio(
+    portfolio_id: str,
+    user: User = Depends(get_current_user),
+):
+    """
+    Run signal-driven action plan generator for each position.
+
+    Expires existing pending actions, then creates new linked PortfolioAction chains.
+    """
+    if not has_feature(user, FEAT_PORTFOLIO_ACTIONS):
+        raise HTTPException(status_code=403, detail={
+            "code": "NOT_ENTITLED",
+            "message": "Rebalance requires Starter tier or above",
+        })
+
+    db = await get_db()
+    portfolio = await _verify_portfolio_ownership(db, portfolio_id, user.id)
+    positions = portfolio.positions or []
+
+    if not positions:
+        return {"actions_created": 0, "message": "No positions"}
+
+    from api.services.allocation import compute_portfolio_total, compute_allocation_pct
+    from api.services.portfolio_engine import generate_action_plan
+
+    cash = portfolio.cashBalance or 0.0
+    total = compute_portfolio_total(positions, cash)
+
+    await db.portfolioaction.update_many(
+        where={"portfolioId": portfolio_id, "status": "pending"},
+        data={"status": "expired"},
+    )
+
+    actions_created = 0
+    for pos in positions:
+        current_alloc = (compute_allocation_pct(pos, total) or 0.0) / 100.0
+
+        stock_result = None
+        if pos.latestRunId:
+            stock_result = await db.stockresult.find_first(
+                where={"userId": user.id, "ticker": pos.ticker, "status": "completed"},
+                order={"createdAt": "desc"},
+            )
+
+        action_dicts = generate_action_plan(
+            position=pos,
+            stock_result=stock_result,
+            current_alloc=current_alloc,
+            portfolio_id=portfolio_id,
+        )
+
+        parent_id = None
+        for i, ad in enumerate(action_dicts):
+            create_data = {k: v for k, v in ad.items() if k != "parentActionId"}
+            if i == 0:
+                created = await db.portfolioaction.create(data=create_data)
+                parent_id = created.id
+            else:
+                if ad.get("parentActionId") == "__PARENT__":
+                    create_data["parentActionId"] = parent_id
+                await db.portfolioaction.create(data=create_data)
+            actions_created += 1
+
+    return {"actions_created": actions_created, "portfolio_id": portfolio_id}
+
+
 # ── Portfolio Intelligence ────────────────────────────────────────────────────
 
 
@@ -471,7 +597,7 @@ async def get_portfolio_intelligence(
     positions_data = []
     for pos in positions:
         stock_result = result_map.get(pos.ticker)
-        full_output: dict | None = None
+        full_output: Optional[dict] = None
         if stock_result and stock_result.fullOutput:
             raw = stock_result.fullOutput
             if isinstance(raw, str):
