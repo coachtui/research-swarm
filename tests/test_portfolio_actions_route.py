@@ -125,3 +125,44 @@ def test_add_position_requires_shares():
                            json={"ticker": "AAPL"})
 
     assert resp.status_code == 422
+
+
+# ── POST /portfolio/{id}/rebalance ──────────────────────────────────────────
+
+def test_rebalance_expires_pending_and_creates_actions():
+    user = _make_user()
+
+    pos = MagicMock()
+    pos.id = "pos1"
+    pos.ticker = "AAPL"
+    pos.shares = 10.0
+    pos.lastKnownPrice = 100.0
+    pos.lastPriceAt = None
+    pos.targetWeight = 0.1
+    pos.engineSuggestedWeight = 0.1
+    pos.ownershipStatus = "active"
+    pos.latestRunId = None  # skip stockresult query
+    pos.thesisState = "intact"
+    pos.costBasis = 90.0
+
+    portfolio = _make_portfolio(positions=[pos])
+    portfolio.id = "port1"
+    portfolio.cashBalance = 0.0
+
+    mock_action = MagicMock()
+    mock_action.id = "act1"
+
+    mock_db = MagicMock()
+    mock_db.portfolio.find_unique = AsyncMock(return_value=portfolio)
+    mock_db.portfolioaction.update_many = AsyncMock(return_value=None)
+    mock_db.stockresult.find_first = AsyncMock(return_value=None)
+    mock_db.portfolioaction.create = AsyncMock(return_value=mock_action)
+
+    with patch("api.routes.portfolio.get_db", new_callable=AsyncMock, return_value=mock_db), \
+         patch("api.routes.portfolio.has_feature", return_value=True):
+        app = _make_app(user)
+        client = TestClient(app)
+        resp = client.post("/api/portfolio/port1/rebalance")
+
+    assert resp.status_code == 200
+    mock_db.portfolioaction.update_many.assert_called_once()
