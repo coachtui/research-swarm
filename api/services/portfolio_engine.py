@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+
+SIGNAL_MAX_AGE_DAYS = 90  # StockResults older than this are treated as "no signal"
 
 from api.lib.compounder_owner_v3 import (
     CompounderEngine,
@@ -299,6 +301,15 @@ async def _build_signals(
         )
         if not result or not result.fullOutput:
             logger.warning("No completed analysis for %s, skipping signal", ticker)
+            continue
+
+        # Ignore stale analyses for thesis-break decisions — old data causes false exits
+        result_age = (datetime.now(timezone.utc) - result.createdAt).days
+        if result_age > SIGNAL_MAX_AGE_DAYS:
+            logger.info(
+                "Signal for %s is %d days old (> %d) — treating as no signal to avoid stale exits",
+                ticker, result_age, SIGNAL_MAX_AGE_DAYS,
+            )
             continue
 
         full_output = result.fullOutput if isinstance(result.fullOutput, dict) else {}

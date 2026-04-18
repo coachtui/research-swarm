@@ -491,6 +491,35 @@ async def refresh_prices(
     return {"updated": updated, "skipped": skipped, "portfolio_id": portfolio_id}
 
 
+@router.post("/portfolio/{portfolio_id}/reset-thesis")
+async def reset_thesis_states(
+    portfolio_id: str,
+    user: User = Depends(get_current_user),
+):
+    """
+    Reset all positions to watch state (intact thesis, pending eligibility).
+
+    Use when the engine has incorrectly flagged positions as broken due to
+    stale signal data. Positions revert to neutral until the next engine run.
+    """
+    db = await get_db()
+    await _verify_portfolio_ownership(db, portfolio_id, user.id)
+
+    await db.position.update_many(
+        where={"portfolioId": portfolio_id},
+        data={
+            "thesisState": "intact",
+            "ownershipStatus": "watch",
+            "eligibilityState": "pending",
+        },
+    )
+    await db.portfolioaction.update_many(
+        where={"portfolioId": portfolio_id, "status": "pending"},
+        data={"status": "cancelled"},
+    )
+    return {"reset": True, "portfolio_id": portfolio_id}
+
+
 # ── Cash Balance ──────────────────────────────────────────────────────────────
 
 

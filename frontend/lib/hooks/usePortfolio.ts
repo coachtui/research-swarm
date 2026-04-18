@@ -196,6 +196,21 @@ export function useCashBalance() {
 }
 
 /**
+ * useResetThesis — mutation to clear stuck broken-thesis states.
+ */
+export function useResetThesis() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (portfolioId: string) => apiClient.resetThesis(portfolioId),
+    onSuccess: (_res, portfolioId) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+      queryClient.invalidateQueries({ queryKey: ['portfolio-actions', portfolioId] })
+    },
+  })
+}
+
+/**
  * useRebalance — mutation to trigger on-demand engine rebalance.
  */
 export function useRebalance() {

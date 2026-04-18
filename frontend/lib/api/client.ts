@@ -485,6 +485,10 @@ class ApiClient {
     return this.request(`/api/portfolio/${portfolioId}/rebalance`, { method: 'POST' })
   }
 
+  async resetThesis(portfolioId: string): Promise<{ reset: boolean; portfolio_id: string }> {
+    return this.request(`/api/portfolio/${portfolioId}/reset-thesis`, { method: 'POST' })
+  }
+
   async executeAction(actionId: string): Promise<ExecuteActionResponse> {
     return this.request(`/api/actions/${actionId}/execute`, { method: 'POST' })
   }

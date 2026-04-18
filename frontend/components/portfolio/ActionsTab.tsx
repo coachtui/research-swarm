@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, AlertTriangle, TrendingDown, TrendingUp, Minus } from 'lucide-react'
-import { usePortfolioActions, useMarkAction } from '@/lib/hooks/usePortfolio'
+import { ChevronDown, ChevronUp, AlertTriangle, TrendingDown, TrendingUp, Minus, RotateCcw } from 'lucide-react'
+import { usePortfolioActions, useMarkAction, useResetThesis } from '@/lib/hooks/usePortfolio'
 import { Button } from '@/components/ui/button'
 import type { EngineAction, EngineActionType } from '@/types/api'
 
@@ -60,6 +60,7 @@ function cleanReason(raw: string | null | undefined): string | null {
 export function ActionsTab({ portfolioId }: { portfolioId: string }) {
   const { data: feed, isLoading } = usePortfolioActions(portfolioId)
   const markAction = useMarkAction()
+  const resetThesis = useResetThesis()
 
   if (isLoading) {
     return <div className="text-sm text-text-tertiary text-center py-8">Loading recommendations...</div>
@@ -68,6 +69,9 @@ export function ActionsTab({ portfolioId }: { portfolioId: string }) {
   const actions = feed?.actions ?? []
   const pending = actions.filter(a => a.status === 'pending')
   const past    = actions.filter(a => a.status !== 'pending')
+
+  // Detect when the engine has generated exits on everything — likely stale signal data
+  const allExits = pending.length > 0 && pending.every(a => a.action_type === 'EXIT_THESIS')
 
   if (actions.length === 0) {
     return (
@@ -86,13 +90,41 @@ export function ActionsTab({ portfolioId }: { portfolioId: string }) {
   return (
     <div className="space-y-5">
 
+      {/* ── Stale-signal warning ────────────────────────────────────── */}
+      {allExits && (
+        <div className="rounded-lg border border-warning/30 bg-warning/5 px-4 py-3 space-y-2">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-text-primary">Everything showing as Exit</p>
+              <p className="text-[11px] text-text-secondary leading-relaxed">
+                This usually means the engine ran on analyses older than 90 days, or positions were marked broken by a previous run.
+                Run fresh reports on your holdings, then re-run the engine. Or reset thesis state now to clear the flags and start clean.
+              </p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={resetThesis.isPending}
+            onClick={() => resetThesis.mutate(portfolioId)}
+          >
+            <RotateCcw className={`h-3 w-3 mr-1.5 ${resetThesis.isPending ? 'animate-spin' : ''}`} />
+            {resetThesis.isPending ? 'Resetting…' : 'Reset thesis state'}
+          </Button>
+        </div>
+      )}
+
       {/* ── Disclaimer ─────────────────────────────────────────────── */}
-      <div className="flex items-start gap-2.5 rounded-lg bg-surface-elevated/60 border border-border/40 px-3.5 py-2.5">
-        <AlertTriangle className="h-3.5 w-3.5 text-text-tertiary mt-0.5 flex-shrink-0" />
-        <p className="text-[11px] text-text-tertiary leading-relaxed">
-          These are model-generated suggestions based on your holdings and latest research. Review before acting — all decisions are yours.
-        </p>
-      </div>
+      {!allExits && (
+        <div className="flex items-start gap-2.5 rounded-lg bg-surface-elevated/60 border border-border/40 px-3.5 py-2.5">
+          <AlertTriangle className="h-3.5 w-3.5 text-text-tertiary mt-0.5 flex-shrink-0" />
+          <p className="text-[11px] text-text-tertiary leading-relaxed">
+            These are model-generated suggestions based on your holdings and latest research. Review before acting — all decisions are yours.
+          </p>
+        </div>
+      )}
 
       {/* ── Pending ────────────────────────────────────────────────── */}
       {pending.length > 0 && (
