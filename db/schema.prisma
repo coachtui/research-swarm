@@ -558,6 +558,9 @@ model Portfolio {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  cashBalance      Float     @default(0)    @map("cash_balance")
+  cashUpdatedAt    DateTime? @map("cash_updated_at")
+
   positions Position[]
   actions   PortfolioAction[]
 
@@ -595,6 +598,11 @@ model Position {
   // Link to most recent research
   latestRunId String? @map("latest_run_id")
 
+  lastKnownPrice         Float?    @map("last_known_price")
+  lastPriceAt            DateTime? @map("last_price_at")
+  targetWeight           Float     @default(0) @map("target_weight")
+  engineSuggestedWeight  Float?    @map("engine_suggested_weight")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -629,6 +637,12 @@ model PortfolioAction {
   createdAt  DateTime  @default(now()) @map("created_at")
   executedAt DateTime? @map("executed_at")
   expiresAt  DateTime? @map("expires_at")
+
+  triggerPrice      Float?             @map("trigger_price")
+  triggerCondition  String?            @map("trigger_condition")
+  parentActionId    String?            @map("parent_action_id")
+  parent            PortfolioAction?   @relation("ActionChain", fields: [parentActionId], references: [id])
+  children          PortfolioAction[]  @relation("ActionChain")
 
   @@index([portfolioId, createdAt(sort: Desc)])
   @@index([portfolioId, status])
