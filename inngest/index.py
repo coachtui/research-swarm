@@ -12,6 +12,7 @@ import os
 
 # Import all function modules
 from inngest.functions.analyze_stock import inngest, analyze_stock
+from inngest.functions.weekly_batch import weekly_batch
 
 # Create Flask app for Inngest HTTP handler
 app = Flask(__name__)
@@ -20,7 +21,7 @@ app = Flask(__name__)
 serve(
     app,
     inngest,
-    [analyze_stock],
+    [analyze_stock, weekly_batch],
     signing_key=os.getenv("INNGEST_SIGNING_KEY")
 )
 
