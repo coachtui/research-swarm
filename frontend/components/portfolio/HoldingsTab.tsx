@@ -2,21 +2,34 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Pencil, Trash2, Check, X, Plus, ChevronDown } from 'lucide-react'
+import { Pencil, Trash2, Check, X, Plus, ChevronDown, RefreshCw } from 'lucide-react'
 import {
   usePortfolioDetail,
   useAddPosition,
   useUpdatePosition,
   useRemovePosition,
+  usePortfolioActions,
+  useRefreshPrices,
 } from '@/lib/hooks/usePortfolio'
-import { formatWeight } from '@/lib/ownership-mapping'
-import type { PortfolioPosition } from '@/types/api'
+import { CashCard } from '@/components/portfolio/CashCard'
+import { ActionPlanCard } from '@/components/portfolio/ActionPlanCard'
+import type { PortfolioPosition, EngineAction } from '@/types/api'
+
+/**
+ * isPriceStale — returns true if lastPriceAt is more than 7 days old.
+ */
+function isPriceStale(lastPriceAt: string | null): boolean {
+  if (!lastPriceAt) return false
+  return Date.now() - new Date(lastPriceAt).getTime() > 7 * 24 * 60 * 60 * 1000
+}
 
 /**
  * HoldingsTab — grid of current positions with inline add, edit, and delete.
  */
 export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
   const { data: portfolio, isLoading } = usePortfolioDetail(portfolioId)
+  const { data: feed } = usePortfolioActions(portfolioId)
+  const refreshPrices = useRefreshPrices()
   const [addingPosition, setAddingPosition] = useState(false)
 
   if (isLoading) {
@@ -25,8 +38,11 @@ export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
 
   const hasPositions = portfolio && portfolio.positions.length > 0
   const sorted = hasPositions
-    ? [...portfolio.positions].sort((a, b) => b.current_weight - a.current_weight)
+    ? [...portfolio.positions].sort((a, b) => (b.allocation_pct ?? -1) - (a.allocation_pct ?? -1))
     : []
+
+  const activePositions = sorted.filter(p => p.ownership_status !== 'watch')
+  const watchPositions = sorted.filter(p => p.ownership_status === 'watch')
 
   return (
     <div className="space-y-3">
@@ -34,23 +50,33 @@ export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 text-xs text-text-tertiary">
         <span>
           {portfolio ? `${portfolio.positions.length} position${portfolio.positions.length !== 1 ? 's' : ''}` : 'No portfolio'}
-          {portfolio && (
+          {portfolio && portfolio.total_value !== undefined && portfolio.total_value !== null && (
             <span className="ml-2">
-              · Total:{' '}
-              <span className="font-mono font-semibold text-text-primary">
-                {formatWeight(portfolio.total_weight)}
+              · <span className="font-mono font-semibold text-text-primary">
+                ${portfolio.total_value.toLocaleString()}
               </span>
             </span>
           )}
         </span>
-        <button
-          onClick={() => setAddingPosition(v => !v)}
-          className="flex items-center gap-1 text-primary hover:text-primary/80 transition-colors font-semibold self-start sm:self-auto"
-        >
-          <Plus className="h-3 w-3" />
-          Add Position
-          <ChevronDown className={`h-3 w-3 transition-transform ${addingPosition ? 'rotate-180' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => refreshPrices.mutate(portfolioId)}
+            disabled={refreshPrices.isPending}
+            className="flex items-center gap-1 text-text-tertiary hover:text-text-primary transition-colors disabled:opacity-50"
+            title="Refresh prices"
+          >
+            <RefreshCw className={`h-3 w-3 ${refreshPrices.isPending ? 'animate-spin' : ''}`} />
+            {refreshPrices.isPending ? 'Refreshing...' : 'Refresh Prices'}
+          </button>
+          <button
+            onClick={() => setAddingPosition(v => !v)}
+            className="flex items-center gap-1 text-primary hover:text-primary/80 transition-colors font-semibold"
+          >
+            <Plus className="h-3 w-3" />
+            Add Position
+            <ChevronDown className={`h-3 w-3 transition-transform ${addingPosition ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Add Position form */}
@@ -62,19 +88,43 @@ export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
         />
       )}
 
-      {/* Position grid */}
-      {hasPositions ? (
+      {/* Cash card */}
+      {portfolio && (
+        <CashCard
+          portfolioId={portfolioId}
+          cashBalance={portfolio.cash_balance}
+          cashPct={portfolio.cash_pct}
+        />
+      )}
+
+      {/* Active holdings */}
+      {activePositions.length > 0 && (
         <div className="grid gap-2">
-          {sorted.map((pos) => (
-            <PositionRow key={pos.ticker} portfolioId={portfolioId} position={pos} />
-          ))}
+          {activePositions.map((pos) => {
+            const posActions = (feed?.actions ?? []).filter(a => a.ticker === pos.ticker)
+            return <PositionRow key={pos.ticker} portfolioId={portfolioId} position={pos} actions={posActions} />
+          })}
         </div>
-      ) : (
-        !addingPosition && (
-          <div className="text-center py-8 text-sm text-text-tertiary">
-            No positions yet — click Add Position above to get started.
+      )}
+
+      {/* Watchlist section */}
+      {watchPositions.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-wider text-text-tertiary pt-2">Watchlist</div>
+          <div className="grid gap-2">
+            {watchPositions.map((pos) => {
+              const posActions = (feed?.actions ?? []).filter(a => a.ticker === pos.ticker)
+              return <PositionRow key={pos.ticker} portfolioId={portfolioId} position={pos} actions={posActions} />
+            })}
           </div>
-        )
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!hasPositions && !addingPosition && (
+        <div className="text-center py-8 text-sm text-text-tertiary">
+          No positions yet — click Add Position above to get started.
+        </div>
       )}
     </div>
   )
@@ -92,7 +142,7 @@ function AddPositionForm({
   onDone: () => void
 }) {
   const [ticker, setTicker] = useState('')
-  const [weight, setWeight] = useState('5')
+  const [targetWeight, setTargetWeight] = useState('')
   const [costBasis, setCostBasis] = useState('')
   const [shares, setShares] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -109,9 +159,9 @@ function AddPositionForm({
       setError(`${t} is already in your portfolio`)
       return
     }
-    const w = parseFloat(weight)
-    if (isNaN(w) || w <= 0 || w > 100) {
-      setError('Weight must be between 0.1 and 100%')
+    const sh = parseFloat(shares)
+    if (!shares || isNaN(sh) || sh < 0) {
+      setError('Shares is required and must be a valid non-negative number')
       return
     }
     const cb = costBasis ? parseFloat(costBasis) : undefined
@@ -119,16 +169,13 @@ function AddPositionForm({
       setError('Cost basis must be a valid number')
       return
     }
-    const sh = shares ? parseFloat(shares) : undefined
-    if (shares && isNaN(sh!)) {
-      setError('Shares must be a valid number')
-      return
-    }
+    const twParsed = targetWeight ? parseFloat(targetWeight) : NaN
+    const tw = !isNaN(twParsed) ? twParsed / 100 : undefined
 
     try {
-      await addPosition.mutateAsync({ portfolioId, ticker: t, weight: w / 100, costBasis: cb, shares: sh })
+      await addPosition.mutateAsync({ portfolioId, ticker: t, shares: sh, costBasis: cb, targetWeight: tw })
       setTicker('')
-      setWeight('5')
+      setTargetWeight('')
       setCostBasis('')
       setShares('')
       setError(null)
@@ -154,15 +201,13 @@ function AddPositionForm({
           />
         </div>
         <div className="w-24">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Weight %</label>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Shares</label>
           <input
-            type="number"
-            value={weight}
-            onChange={e => setWeight(e.target.value)}
-            min={0}
-            max={100}
-            step={0.5}
-            className="w-full mt-1 px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text-primary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+            type="text"
+            value={shares}
+            onChange={e => setShares(e.target.value)}
+            placeholder="Required"
+            className="w-full mt-1 px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-tertiary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
         <div className="w-28">
@@ -176,11 +221,14 @@ function AddPositionForm({
           />
         </div>
         <div className="w-24">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Shares</label>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Target %</label>
           <input
-            type="text"
-            value={shares}
-            onChange={e => setShares(e.target.value)}
+            type="number"
+            value={targetWeight}
+            onChange={e => setTargetWeight(e.target.value)}
+            min={0}
+            max={100}
+            step={0.5}
             placeholder="Optional"
             className="w-full mt-1 px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-tertiary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
           />
@@ -209,10 +257,18 @@ function AddPositionForm({
 
 // ── Position Row ──────────────────────────────────────────────────────────────
 
-function PositionRow({ portfolioId, position }: { portfolioId: string; position: PortfolioPosition }) {
+function PositionRow({
+  portfolioId,
+  position,
+  actions,
+}: {
+  portfolioId: string
+  position: PortfolioPosition
+  actions: EngineAction[]
+}) {
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [weight, setWeight] = useState('')
+  const [targetWeight, setTargetWeight] = useState('')
   const [costBasis, setCostBasis] = useState('')
   const [shares, setShares] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -221,7 +277,7 @@ function PositionRow({ portfolioId, position }: { portfolioId: string; position:
   const removePosition = useRemovePosition()
 
   const handleEditOpen = () => {
-    setWeight((position.current_weight * 100).toFixed(1))
+    setTargetWeight((position.target_weight * 100).toFixed(1))
     setCostBasis(position.cost_basis?.toString() ?? '')
     setShares(position.shares?.toString() ?? '')
     setError(null)
@@ -235,12 +291,11 @@ function PositionRow({ portfolioId, position }: { portfolioId: string; position:
   }
 
   const handleSave = async () => {
-    const w = parseFloat(weight)
-    if (isNaN(w) || w < 0 || w > 100) {
-      setError('Weight must be between 0 and 100%')
-      return
+    const data: { target_weight?: number; cost_basis?: number; shares?: number } = {}
+    if (targetWeight !== '') {
+      const tw = parseFloat(targetWeight)
+      if (!isNaN(tw)) data.target_weight = tw / 100
     }
-    const data: { weight?: number; cost_basis?: number; shares?: number } = { weight: w / 100 }
     if (costBasis !== '') {
       const parsed = parseFloat(costBasis)
       if (!isNaN(parsed)) data.cost_basis = parsed
@@ -269,15 +324,15 @@ function PositionRow({ portfolioId, position }: { portfolioId: string; position:
   }
 
   const ownershipColor = {
-    core_compounder: 'text-success',
+    active: 'text-success',
     watch: 'text-warning',
-    disqualified: 'text-error',
+    exited: 'text-text-tertiary',
   }[position.ownership_status] || 'text-text-tertiary'
 
   const ownershipLabel = {
-    core_compounder: 'Core',
+    active: 'Active',
     watch: 'Watch',
-    disqualified: 'DQ',
+    exited: 'Exited',
   }[position.ownership_status] || position.ownership_status
 
   const thesisColor = {
@@ -285,6 +340,17 @@ function PositionRow({ portfolioId, position }: { portfolioId: string; position:
     monitoring: 'text-warning',
     broken: 'text-error',
   }[position.thesis_state] || 'text-text-tertiary'
+
+  // Allocation vs target delta
+  const allocationPct = position.allocation_pct !== null ? position.allocation_pct * 100 : null
+  const targetPct = position.target_weight * 100
+  const deltaPct = allocationPct !== null ? allocationPct - targetPct : null
+  const deltaColor = deltaPct === null ? '' : deltaPct > 0 ? 'text-error' : 'text-success'
+  const deltaText = deltaPct !== null
+    ? `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%`
+    : null
+
+  const stale = isPriceStale(position.last_price_at)
 
   return (
     <div className="rounded-lg border border-border/60 bg-surface/30 overflow-hidden">
@@ -297,12 +363,34 @@ function PositionRow({ portfolioId, position }: { portfolioId: string; position:
               {ownershipLabel}
             </span>
           </div>
+
+          {/* Allocation % */}
           <span className="text-xs font-mono font-semibold text-text-secondary">
-            {formatWeight(position.current_weight)}
+            {position.allocation_pct !== null ? `${(position.allocation_pct * 100).toFixed(1)}%` : '—'}
           </span>
+
+          {/* Market value */}
+          <span className="hidden sm:inline text-xs font-mono text-text-tertiary">
+            {position.market_value !== null
+              ? position.market_value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+              : '—'}
+          </span>
+
+          {/* Stale price badge */}
+          {stale && (
+            <span className="text-[9px] font-semibold px-1 py-0.5 rounded bg-warning/10 text-warning">Stale</span>
+          )}
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Target % and delta */}
+          <span className="hidden sm:inline text-[10px] font-mono text-text-tertiary">
+            tgt {targetPct.toFixed(1)}%
+          </span>
+          {deltaText && (
+            <span className={`text-[10px] font-mono font-semibold ${deltaColor}`}>{deltaText}</span>
+          )}
+
           {position.tier_state !== 'none' && (
             <span className="hidden sm:inline-flex text-[9px] font-mono bg-warning/10 text-warning px-1.5 py-0.5 rounded">
               {position.tier_state.toUpperCase()}
@@ -375,11 +463,11 @@ function PositionRow({ portfolioId, position }: { portfolioId: string; position:
         <div className="border-t border-border/40 px-4 py-3 bg-surface/60 space-y-3">
           <div className="flex flex-wrap items-end gap-3">
             <div className="w-24">
-              <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Weight %</label>
+              <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Target %</label>
               <input
                 type="number"
-                value={weight}
-                onChange={e => setWeight(e.target.value)}
+                value={targetWeight}
+                onChange={e => setTargetWeight(e.target.value)}
                 min={0}
                 max={100}
                 step={0.5}
@@ -425,6 +513,11 @@ function PositionRow({ portfolioId, position }: { portfolioId: string; position:
         <div className="border-t border-border/40 px-4 py-2 bg-surface/60">
           <p className="text-xs text-error">{error}</p>
         </div>
+      )}
+
+      {/* Action plan card */}
+      {actions.length > 0 && (
+        <ActionPlanCard ticker={position.ticker} actions={actions} onExecute={() => {}} onCancel={() => {}} isUpdating={false} />
       )}
     </div>
   )
