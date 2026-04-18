@@ -1,7 +1,6 @@
 'use client'
 
 import { usePortfolioPosition } from '@/lib/hooks/usePortfolio'
-import { formatWeight } from '@/lib/ownership-mapping'
 
 /**
  * PortfolioRolePanel — Section V: Portfolio Role.
@@ -41,7 +40,7 @@ export function PortfolioRolePanel({
 
   // Compute top-3 exposure
   const positions = portfolio.positions || []
-  const sorted = [...positions].sort((a, b) => b.current_weight - a.current_weight)
+  const sorted = [...positions].sort((a, b) => (b.allocation_pct ?? -1) - (a.allocation_pct ?? -1))
   const top3 = sorted.slice(0, 3)
   const isInTop3 = top3.some(p => p.ticker === ticker)
 
@@ -51,18 +50,18 @@ export function PortfolioRolePanel({
     : []
 
   // Role tag derivation
-  const roleTag = deriveRoleTag(position, portfolio.total_weight)
+  const roleTag = deriveRoleTag(position)
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <RoleTile
-          label="Portfolio Weight"
-          value={formatWeight(position.current_weight)}
+          label="Allocation"
+          value={position.allocation_pct !== null ? `${(position.allocation_pct * 100).toFixed(1)}%` : '—'}
         />
         <RoleTile
           label="Top 3 Exposure"
-          value={top3.map(p => `${p.ticker} ${formatWeight(p.current_weight)}`).join(', ')}
+          value={top3.map(p => `${p.ticker} ${p.allocation_pct !== null ? `${(p.allocation_pct * 100).toFixed(1)}%` : '—'}`).join(', ')}
           small
         />
         <RoleTile
@@ -79,7 +78,7 @@ export function PortfolioRolePanel({
       <div className="flex items-center gap-2 text-[11px]">
         <span className="text-text-tertiary">Rank:</span>
         <span className="font-mono font-semibold text-text-primary">
-          #{sorted.findIndex(p => p.ticker === ticker) + 1} of {positions.length}
+          #{sorted.findIndex(p => p.ticker === ticker) + 1} of {positions.length} by allocation
         </span>
         {isInTop3 && (
           <span className="text-[9px] font-semibold uppercase text-primary bg-primary/10 px-1.5 py-0.5 rounded">
@@ -108,10 +107,9 @@ function RoleTile({ label, value, small }: { label: string; value: string; small
 }
 
 function deriveRoleTag(
-  position: { current_weight: number; compounder_score: number | null; quarters_held: number },
-  totalWeight: number,
+  position: { allocation_pct: number | null; compounder_score: number | null; quarters_held: number },
 ): string {
-  const weight = position.current_weight
+  const weight = position.allocation_pct ?? 0
   const score = position.compounder_score ?? 0.5
   const quarters = position.quarters_held
 

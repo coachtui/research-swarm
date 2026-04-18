@@ -86,6 +86,7 @@ function ActionCard({
     executed: { label: 'Executed', className: 'bg-primary/10 text-primary' },
     ignored: { label: 'Ignored', className: 'bg-surface text-text-tertiary' },
     expired: { label: 'Expired', className: 'bg-surface text-text-tertiary line-through' },
+    cancelled: { label: 'Cancelled', className: 'bg-surface text-text-tertiary line-through' },
   }[action.status] || { label: action.status, className: 'bg-surface text-text-tertiary' }
 
   return (

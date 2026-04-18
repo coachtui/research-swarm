@@ -1,7 +1,7 @@
 'use client'
 
 import { usePortfolioPosition } from '@/lib/hooks/usePortfolio'
-import { mapToThesisState, formatWeight } from '@/lib/ownership-mapping'
+import { mapToThesisState } from '@/lib/ownership-mapping'
 import type { EngineAction, EngineActionType } from '@/types/api'
 
 const ACTION_LABELS: Record<EngineActionType, string> = {
@@ -102,7 +102,7 @@ export function OwnershipStatusHeader({
   const tierLabel = position ? (tierMap[position.tier_state] ?? position.tier_state) : '—'
 
   // ── Add Capacity (25% hard cap) ───────────────────────────────────────────
-  const addCapacity = position ? Math.max(0, 0.25 - position.current_weight) : null
+  const addCapacity = position ? Math.max(0, 0.25 - (position.allocation_pct ?? 0)) : null
 
   return (
     <div className="rounded-xl border border-border/60 bg-surface/30 overflow-hidden">
@@ -121,8 +121,8 @@ export function OwnershipStatusHeader({
         {position ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <ContextTile
-              label="Current Weight"
-              value={formatWeight(position.current_weight)}
+              label="Allocation"
+              value={position.allocation_pct !== null ? `${(position.allocation_pct * 100).toFixed(1)}%` : '—'}
               sublabel={
                 position.ownership_status === 'core_compounder' ? 'Core Compounder' :
                 position.ownership_status === 'disqualified'    ? 'Disqualified' :
@@ -140,7 +140,7 @@ export function OwnershipStatusHeader({
             />
             <ContextTile
               label="Add Capacity"
-              value={addCapacity !== null ? formatWeight(addCapacity) : '—'}
+              value={addCapacity !== null ? `${(addCapacity * 100).toFixed(1)}%` : '—'}
               sublabel="to 25% cap"
             />
           </div>

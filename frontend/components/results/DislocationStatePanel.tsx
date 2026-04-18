@@ -22,7 +22,7 @@ export function DislocationStatePanel({
   position?: {
     tier_state: string
     last_drawdown: number | null
-    current_weight: number
+    allocation_pct: number | null
   } | null
 }) {
   const drawdownPct = currentPrice && high52Week && high52Week > 0
@@ -41,7 +41,7 @@ export function DislocationStatePanel({
   ]
 
   const activeTier = position?.tier_state || 'none'
-  const currentWeight = position?.current_weight ?? 0
+  const currentWeight = position?.allocation_pct ?? 0
 
   // Guard: if rolling high is missing, tier adds can't be computed
   const rollingHighMissing = !high52Week
