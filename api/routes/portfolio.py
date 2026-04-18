@@ -114,6 +114,32 @@ def _action_response(action) -> ActionResponse:
     )
 
 
+_PRICE_STALENESS_SECONDS = 300  # 5 min — refresh anything older than this on read
+
+
+async def _maybe_refresh_prices(portfolio, user_id: str) -> None:
+    """Refresh positions that have no price or a stale lastPriceAt. No-op if all fresh."""
+    positions = portfolio.positions or []
+    if not positions:
+        return
+    now = datetime.now(timezone.utc)
+    needs_refresh = False
+    for pos in positions:
+        if pos.lastKnownPrice is None or pos.lastPriceAt is None:
+            needs_refresh = True
+            break
+        age = (now - pos.lastPriceAt).total_seconds()
+        if age > _PRICE_STALENESS_SECONDS:
+            needs_refresh = True
+            break
+    if not needs_refresh:
+        return
+    try:
+        await refresh_position_prices(portfolio.id, user_id)
+    except Exception as exc:
+        logger.warning("portfolio %s: price refresh failed: %s", portfolio.id, exc)
+
+
 async def _verify_portfolio_ownership(db, portfolio_id: str, user_id: str):
     """Fetch portfolio and verify it belongs to the user. Raises 404 if not found."""
     portfolio = await db.portfolio.find_unique(
@@ -164,22 +190,31 @@ async def create_portfolio(
 
 @router.get("/portfolio", response_model=PortfolioListResponse)
 async def list_portfolios(user: User = Depends(get_current_user)):
-    """List all portfolios for the current user."""
+    """List all portfolios for the current user. Refreshes stale prices inline."""
     db = await get_db()
     portfolios = await db.portfolio.find_many(
         where={"userId": user.id},
         include={"positions": True},
         order={"createdAt": "asc"},
     )
+    for p in portfolios:
+        await _maybe_refresh_prices(p, user.id)
+    refreshed = await db.portfolio.find_many(
+        where={"userId": user.id},
+        include={"positions": True},
+        order={"createdAt": "asc"},
+    )
     return PortfolioListResponse(
-        portfolios=[_portfolio_response(p) for p in portfolios]
+        portfolios=[_portfolio_response(p) for p in refreshed]
     )
 
 
 @router.get("/portfolio/{portfolio_id}", response_model=PortfolioResponse)
 async def get_portfolio(portfolio_id: str, user: User = Depends(get_current_user)):
-    """Get a single portfolio with all positions."""
+    """Get a single portfolio with all positions. Refreshes stale prices inline."""
     db = await get_db()
+    portfolio = await _verify_portfolio_ownership(db, portfolio_id, user.id)
+    await _maybe_refresh_prices(portfolio, user.id)
     portfolio = await _verify_portfolio_ownership(db, portfolio_id, user.id)
     return _portfolio_response(portfolio)
 
