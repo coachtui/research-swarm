@@ -142,7 +142,6 @@ function AddPositionForm({
   onDone: () => void
 }) {
   const [ticker, setTicker] = useState('')
-  const [targetWeight, setTargetWeight] = useState('')
   const [costBasis, setCostBasis] = useState('')
   const [shares, setShares] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -169,13 +168,9 @@ function AddPositionForm({
       setError('Cost basis must be a valid number')
       return
     }
-    const twParsed = targetWeight ? parseFloat(targetWeight) : NaN
-    const tw = !isNaN(twParsed) ? twParsed / 100 : undefined
-
     try {
-      await addPosition.mutateAsync({ portfolioId, ticker: t, shares: sh, costBasis: cb, targetWeight: tw })
+      await addPosition.mutateAsync({ portfolioId, ticker: t, shares: sh, costBasis: cb })
       setTicker('')
-      setTargetWeight('')
       setCostBasis('')
       setShares('')
       setError(null)
@@ -211,24 +206,11 @@ function AddPositionForm({
           />
         </div>
         <div className="w-28">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Cost Basis</label>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Cost / Share</label>
           <input
             type="text"
             value={costBasis}
             onChange={e => setCostBasis(e.target.value)}
-            placeholder="Optional"
-            className="w-full mt-1 px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-tertiary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-          />
-        </div>
-        <div className="w-24">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Target %</label>
-          <input
-            type="number"
-            value={targetWeight}
-            onChange={e => setTargetWeight(e.target.value)}
-            min={0}
-            max={100}
-            step={0.5}
             placeholder="Optional"
             className="w-full mt-1 px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text-primary placeholder:text-text-tertiary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
           />
