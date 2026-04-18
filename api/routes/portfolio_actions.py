@@ -26,8 +26,9 @@ async def execute_action(
 
     action = await db.portfolioaction.find_unique(
         where={"id": action_id},
+        include={"portfolio": True},
     )
-    if not action or action.userId != user.id:
+    if not action or action.portfolio.userId != user.id:
         raise HTTPException(status_code=404, detail="Action not found")
 
     if action.triggerCondition != "immediate":
@@ -45,7 +46,7 @@ async def execute_action(
     now = datetime.now(timezone.utc)
     await db.portfolioaction.update(
         where={"id": action_id},
-        data={"status": "executed", "updatedAt": now},
+        data={"status": "executed", "executedAt": now},
     )
 
     return {"success": True, "action_id": action_id, "status": "executed"}
@@ -61,20 +62,18 @@ async def cancel_action(
 
     action = await db.portfolioaction.find_unique(
         where={"id": action_id},
-        include={"children": True},
+        include={"children": True, "portfolio": True},
     )
-    if not action or action.userId != user.id:
+    if not action or action.portfolio.userId != user.id:
         raise HTTPException(status_code=404, detail="Action not found")
 
     if action.status == "cancelled":
         raise HTTPException(status_code=400, detail="Action is already cancelled")
 
-    now = datetime.now(timezone.utc)
-
     # Cancel parent
     await db.portfolioaction.update(
         where={"id": action_id},
-        data={"status": "cancelled", "updatedAt": now},
+        data={"status": "cancelled"},
     )
 
     # Cancel all children (application-layer cascade)
@@ -82,7 +81,7 @@ async def cancel_action(
     for child in children:
         await db.portfolioaction.update(
             where={"id": child.id},
-            data={"status": "cancelled", "updatedAt": now},
+            data={"status": "cancelled"},
         )
 
     total_cancelled = 1 + len(children)

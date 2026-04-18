@@ -28,7 +28,8 @@ def _make_action(
 ):
     action = MagicMock()
     action.id = action_id
-    action.userId = "user1"
+    action.portfolio = MagicMock()
+    action.portfolio.userId = "user1"
     action.triggerCondition = trigger_condition
     action.status = status
     action.children = children if children is not None else []
@@ -108,6 +109,22 @@ def test_execute_action_already_executed_rejected():
 
     assert resp.status_code == 400
     assert "executed" in resp.json()["detail"]
+
+
+def test_execute_action_already_cancelled_rejected():
+    user = _make_user()
+    action = _make_action(trigger_condition="immediate", status="cancelled")
+
+    mock_db = MagicMock()
+    mock_db.portfolioaction.find_unique = AsyncMock(return_value=action)
+
+    with patch("api.routes.portfolio_actions.get_db", new_callable=AsyncMock, return_value=mock_db):
+        app = _make_app(user)
+        client = TestClient(app)
+        resp = client.post("/api/actions/act1/execute")
+
+    assert resp.status_code == 400
+    assert "cancelled" in resp.json()["detail"]
 
 
 # ── POST /actions/{action_id}/cancel ─────────────────────────────────────────
