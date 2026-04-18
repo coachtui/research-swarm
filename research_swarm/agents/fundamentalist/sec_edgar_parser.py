@@ -8,6 +8,7 @@ import json
 import hashlib
 from typing import Tuple, Optional
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import SystemMessage, HumanMessage
 from research_swarm.logger import logger
 from research_swarm.config import settings
 from research_swarm.data.cache import cache
@@ -16,6 +17,49 @@ from research_swarm.agents.fundamentalist.models import FilingExtraction, DCFInp
 from research_swarm.agents.fundamentalist.prompts import (
     STRUCTURED_EXTRACTION_PROMPT,
     DCF_INPUTS_EXTRACTION_PROMPT
+)
+
+# Static instruction prefixes — cached across all tickers via Anthropic prompt caching.
+# Dynamic content (ticker, filing text) is placed in the HumanMessage so the static
+# prefix can be reused on cache hits.
+_STRUCTURED_EXTRACTION_SYSTEM = (
+    "You are extracting structured data from SEC filings.\n\n"
+    "**Task**: Extract the following information as JSON.\n\n"
+    "{\n"
+    '  "business_description": "<2-3 sentence summary of how the company makes money>",\n'
+    '  "risk_factors": ["<risk 1>", "<risk 2>", "<risk 3>", "<risk 4>", "<risk 5>"],\n'
+    '  "financial_metrics": {\n'
+    '    "revenue_millions": <float or null>,\n'
+    '    "gross_profit_millions": <float or null>,\n'
+    '    "operating_income_millions": <float or null>,\n'
+    '    "net_income_millions": <float or null>,\n'
+    '    "free_cash_flow_millions": <float or null>,\n'
+    '    "total_debt_millions": <float or null>,\n'
+    '    "cash_millions": <float or null>,\n'
+    '    "shares_outstanding_millions": <float or null>\n'
+    "  },\n"
+    '  "management_outlook": "<summary of management forward guidance>",\n'
+    '  "competitive_position": "<market position and key competitive advantages>",\n'
+    '  "growth_drivers": ["<driver 1>", "<driver 2>", "<driver 3>"]\n'
+    "}\n\n"
+    "Instructions: Extract exact values. Use null for missing metrics. Return ONLY valid JSON."
+)
+
+_DCF_INPUTS_EXTRACTION_SYSTEM = (
+    "You are extracting DCF valuation inputs from SEC filings.\n\n"
+    "Extract inputs needed to build a Discounted Cash Flow model. "
+    "Return ONLY a valid JSON object with these fields:\n\n"
+    "{\n"
+    '  "fcf_history": [<annual free cash flow in millions USD, oldest to newest, 3-5 years>],\n'
+    '  "revenue_growth_rate": <most recent YoY revenue growth as percentage>,\n'
+    '  "operating_margin_trend": "<expanding|stable|contracting>",\n'
+    '  "capex_as_pct_revenue": <capex as percentage of revenue>,\n'
+    '  "effective_tax_rate": <effective tax rate as percentage>,\n'
+    '  "total_debt": <total debt in millions USD>,\n'
+    '  "cash_and_equivalents": <cash and equivalents in millions USD>,\n'
+    '  "shares_outstanding": <diluted shares outstanding in millions>\n'
+    "}\n\n"
+    "Use null for any field not found in the filing."
 )
 
 MAX_FILING_LENGTH = 30000  # Truncate filing text for Haiku context
@@ -29,6 +73,7 @@ class EnhancedFilingParser:
             model="claude-haiku-4-5-20251001",
             api_key=settings.anthropic_api_key,
             temperature=0.0,
+            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
         )
         logger.info("EnhancedFilingParser initialized")
 
@@ -64,14 +109,27 @@ class EnhancedFilingParser:
         # Truncate filing text for context window
         truncated_text = filing_text[:MAX_FILING_LENGTH]
 
-        prompt = STRUCTURED_EXTRACTION_PROMPT.format(
-            filing_type=filing_type,
-            ticker=ticker,
-            filing_text=truncated_text
-        )
+        # Use structured messages so Anthropic can cache the static instruction prefix
+        # and the large filing text block independently.
+        messages = [
+            SystemMessage(content=[{
+                "type": "text",
+                "text": _STRUCTURED_EXTRACTION_SYSTEM,
+                "cache_control": {"type": "ephemeral"},
+            }]),
+            HumanMessage(content=[{
+                "type": "text",
+                "text": (
+                    f"Filing Type: {filing_type}\n"
+                    f"Company: {ticker}\n\n"
+                    f"Filing Text (truncated to ~30k chars):\n{truncated_text}"
+                ),
+                "cache_control": {"type": "ephemeral"},
+            }]),
+        ]
 
         try:
-            response = self.haiku.invoke(prompt)
+            response = self.haiku.invoke(messages)
             response_text = response.content.strip()
             tokens_used = extract_token_usage(response.response_metadata)
 
@@ -138,14 +196,25 @@ class EnhancedFilingParser:
                          "forward_pe", "dividend_yield", "ev_ebitda"]
             }, indent=2, default=str)
 
-        prompt = DCF_INPUTS_EXTRACTION_PROMPT.format(
-            ticker=ticker,
-            filing_text=truncated_text,
-            market_data=market_data_str
-        )
+        messages = [
+            SystemMessage(content=[{
+                "type": "text",
+                "text": _DCF_INPUTS_EXTRACTION_SYSTEM,
+                "cache_control": {"type": "ephemeral"},
+            }]),
+            HumanMessage(content=[{
+                "type": "text",
+                "text": (
+                    f"Company: {ticker}\n\n"
+                    f"Filing Text (truncated):\n{truncated_text}\n\n"
+                    f"Current Market Data:\n{market_data_str}"
+                ),
+                "cache_control": {"type": "ephemeral"},
+            }]),
+        ]
 
         try:
-            response = self.haiku.invoke(prompt)
+            response = self.haiku.invoke(messages)
             response_text = response.content.strip()
             tokens_used = extract_token_usage(response.response_metadata)
 

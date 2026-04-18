@@ -37,11 +37,14 @@ class ManagerAnalyzer:
 
     def __init__(self):
         """Initialize analyzer with LLM models."""
+        _cache_header = {"anthropic-beta": "prompt-caching-2024-07-31"}
+
         # Haiku for cost-effective score validation
         self.haiku = ChatAnthropic(
             model="claude-haiku-4-5-20251001",
             api_key=ANTHROPIC_API_KEY,
             temperature=0.0,
+            extra_headers=_cache_header,
         )
 
         # Sonnet for synthesis and thesis generation
@@ -49,6 +52,7 @@ class ManagerAnalyzer:
             model="claude-sonnet-4-6",
             api_key=ANTHROPIC_API_KEY,
             temperature=0.3,
+            extra_headers=_cache_header,
         )
 
         logger.info("ManagerAnalyzer initialized")

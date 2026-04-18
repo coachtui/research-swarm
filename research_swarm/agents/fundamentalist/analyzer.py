@@ -30,11 +30,14 @@ class FinancialAnalyzer:
 
     def __init__(self):
         """Initialize analyzer with LLM models."""
+        _cache_header = {"anthropic-beta": "prompt-caching-2024-07-31"}
+
         # Haiku for cost-effective extraction
         self.haiku = ChatAnthropic(
             model="claude-haiku-4-5-20251001",
             api_key=settings.anthropic_api_key,
             temperature=0.0,
+            extra_headers=_cache_header,
         )
 
         # Sonnet for deeper qualitative analysis
@@ -42,6 +45,7 @@ class FinancialAnalyzer:
             model="claude-sonnet-4-6",
             api_key=settings.anthropic_api_key,
             temperature=0.3,
+            extra_headers=_cache_header,
         )
 
         logger.info("FinancialAnalyzer initialized")
