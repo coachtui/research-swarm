@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { usePortfolio, useTriggerEngine } from '@/lib/hooks/usePortfolio'
-import { formatWeight } from '@/lib/ownership-mapping'
+
 import { Button } from '@/components/ui/button'
 import { RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
 import { canAccessFeature } from '@/lib/entitlements'
@@ -47,7 +47,7 @@ export function PortfolioOverview({
 
   const engineResult = triggerEngine.data as EngineResult | undefined
 
-  const sorted = [...portfolio.positions].sort((a, b) => b.current_weight - a.current_weight)
+  const sorted = [...portfolio.positions].sort((a, b) => (b.allocation_pct ?? -1) - (a.allocation_pct ?? -1))
   const top3 = sorted.slice(0, 3)
 
   // Ownership status counts
@@ -116,7 +116,7 @@ export function PortfolioOverview({
 
       {/* ── Summary tiles ────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SummaryTile label="Total Weight" value={formatWeight(portfolio.total_weight)} />
+        <SummaryTile label="Portfolio Value" value={portfolio.total_value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })} />
         <SummaryTile label="Positions" value={`${portfolio.position_count}`} />
         <SummaryTile
           label="Status"
@@ -150,12 +150,12 @@ export function PortfolioOverview({
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-mono font-semibold text-text-secondary">
-                    {formatWeight(pos.current_weight)}
+                    {pos.allocation_pct !== null ? `${(pos.allocation_pct * 100).toFixed(1)}%` : '—'}
                   </span>
                   <div className="w-16 h-1.5 bg-surface rounded-full overflow-hidden">
                     <div
                       className="h-full bg-primary rounded-full"
-                      style={{ width: `${Math.min((pos.current_weight / 0.25) * 100, 100)}%` }}
+                      style={{ width: `${Math.min(((pos.allocation_pct ?? 0) / 0.25) * 100, 100)}%` }}
                     />
                   </div>
                 </div>
