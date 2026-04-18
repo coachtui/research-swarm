@@ -115,3 +115,13 @@ class TestPickTopSignals:
     def test_handles_empty_list(self):
         result = pick_top_signals([], n=7)
         assert result == []
+
+    def test_fallback_sorted_by_screener_score(self):
+        signals = [
+            _make_signal("BUY1", verdict="buy", screener_score=5.0),
+            _make_signal("HOLD_HIGH", verdict="hold", screener_score=9.0),
+            _make_signal("HOLD_LOW", verdict="hold", screener_score=1.0),
+        ]
+        result = pick_top_signals(signals, n=3)
+        tickers = [s.ticker for s in result]
+        assert tickers.index("HOLD_HIGH") < tickers.index("HOLD_LOW")
