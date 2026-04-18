@@ -143,6 +143,18 @@ async def weekly_batch(ctx: Any, step: Any) -> Dict[str, Any]:
 
     summary = await step.run("store-signals", store_all_signals)
 
+    # ── Final step: fire batch/completed event for downstream functions ──────
+    async def fire_batch_event() -> None:
+        await step.send_event("batch-completed-event", {
+            "name": "batch/completed",
+            "data": {
+                "run_date": run_date.isoformat(),
+                "ticker_count": summary.get("stored", 0),
+            },
+        })
+
+    await step.run("fire-batch-completed", fire_batch_event)
+
     return {
         "status": "completed",
         "run_date": run_date.isoformat(),
