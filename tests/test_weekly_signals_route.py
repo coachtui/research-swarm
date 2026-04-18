@@ -1,7 +1,16 @@
 """Unit tests for weekly signals route business logic."""
+import sys
+import types
 import pytest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
+
+# Stub out prisma before any api.routes import triggers the Prisma client
+# (prisma generate hasn't been run in this environment, so the real client
+# raises RuntimeError on import).
+_prisma_stub = types.ModuleType("prisma")
+_prisma_stub.Prisma = MagicMock  # type: ignore[attr-defined]
+sys.modules.setdefault("prisma", _prisma_stub)
 
 from api.models.weekly_signals import WeeklySignalPublic, WeeklySignalFull
 
@@ -84,6 +93,7 @@ class TestIsStarterPlus:
     def test_free_tier_is_not_starter_plus(self):
         user = MagicMock()
         user.tier = "free"
+        user.is_admin = False
         assert _is_starter_plus(user) is False
 
     def test_starter_is_starter_plus(self):
