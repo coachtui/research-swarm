@@ -1,0 +1,28 @@
+{
+  "version": "1.0",
+  "description": "S&P 500 screener universe — updated quarterly",
+  "tickers": [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "BRK.B",
+    "UNH", "LLY", "JPM", "V", "XOM", "MA", "AVGO", "PG", "HD", "COST",
+    "MRK", "ABBV", "CVX", "KO", "PEP", "ADBE", "WMT", "BAC", "CRM",
+    "TMO", "ACN", "MCD", "CSCO", "NKE", "ABT", "TXN", "DHR", "NEE",
+    "PM", "LIN", "ORCL", "RTX", "MS", "AMGN", "INTU", "GS", "ISRG",
+    "CAT", "SYK", "AMAT", "BKNG", "PLD", "T", "MDT", "ADP", "GILD",
+    "BLK", "ADI", "LRCX", "DE", "NOW", "MDLZ", "REGN", "AMT", "PANW",
+    "VRTX", "C", "MMC", "SBUX", "TJX", "ETN", "ZTS", "BSX", "IBM",
+    "CB", "KLAC", "SNPS", "AXP", "CDNS", "CMG", "WM", "SLB", "MO",
+    "SO", "FIS", "NOC", "EOG", "PGR", "HCA", "DUK", "MCK", "GD", "ITW",
+    "EW", "MSI", "APH", "EMR", "NSC", "PSA", "CTAS", "USB", "ROP",
+    "FCX", "HUM", "F", "GM", "INTC", "AMD", "MU", "QCOM", "UBER",
+    "LYFT", "SNAP", "RBLX", "COIN", "HOOD", "PLTR", "SOFI", "RIVN",
+    "LCID", "NIO", "XPEV", "LI", "SHOP", "SQ", "PYPL", "DKNG", "MGM",
+    "WYNN", "LVS", "CZR", "NFLX", "DIS", "WBD", "PARA", "CMCSA",
+    "CHTR", "TMUS", "VZ", "AMC", "GE", "BA", "LMT", "RCL", "CCL",
+    "DAL", "UAL", "AAL", "NCLH", "MAR", "HLT", "H", "ABNB", "EXPE",
+    "PTON", "BYND", "MRNA", "BNTX", "PFE", "JNJ", "AZN", "NVO",
+    "DXCM", "IDXX", "ILMN", "BIIB", "ALGN", "IQV", "CNC",
+    "CVS", "CI", "ELV", "HIG", "ALL", "TRV", "MET", "PRU", "WFC",
+    "PNC", "SCHW", "ICE", "CME", "NDAQ", "MELI", "SE", "GRAB",
+    "BABA", "JD", "PDD", "TCEHY", "NTES", "BIDU", "TSM"
+  ]
+}
