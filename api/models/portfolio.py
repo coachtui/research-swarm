@@ -22,15 +22,19 @@ class CreatePortfolioRequest(BaseModel):
 
 class AddPositionRequest(BaseModel):
     ticker: str
-    weight: float = Field(ge=0.0, le=1.0, description="Position weight as fraction (0.0 – 1.0)")
+    shares: float = Field(ge=0.0, description="Number of shares held (0 for watch position)")
     cost_basis: Optional[float] = None
-    shares: Optional[float] = None
+    target_weight: Optional[float] = Field(None, ge=0.0, le=1.0, description="Target allocation as fraction")
 
 
 class UpdatePositionRequest(BaseModel):
-    weight: Optional[float] = Field(None, ge=0.0, le=1.0)
+    shares: Optional[float] = Field(None, ge=0.0)
     cost_basis: Optional[float] = None
-    shares: Optional[float] = None
+    target_weight: Optional[float] = Field(None, ge=0.0, le=1.0)
+
+
+class UpdateCashRequest(BaseModel):
+    amount: float = Field(ge=0.0, description="Cash balance in dollars")
 
 
 class MarkActionRequest(BaseModel):
@@ -46,9 +50,14 @@ class MarkActionRequest(BaseModel):
 
 class PositionResponse(BaseModel):
     ticker: str
-    current_weight: float
+    shares: float
     cost_basis: Optional[float]
-    shares: Optional[float]
+    last_known_price: Optional[float]
+    last_price_at: Optional[datetime]
+    allocation_pct: Optional[float]   # computed: shares * price / total, as percentage (0-100)
+    market_value: Optional[float]     # shares * last_known_price
+    target_weight: float              # user-set target as fraction (0.0-1.0)
+    engine_suggested_weight: Optional[float]
     tier_state: str
     thesis_state: str
     eligibility_state: str
@@ -63,12 +72,21 @@ class PositionResponse(BaseModel):
         from_attributes = True
 
 
+class PortfolioBreakdown(BaseModel):
+    total_value: float
+    cash_balance: float
+    cash_pct: float  # percentage (0-100)
+    positions: list[PositionResponse]
+
+
 class PortfolioResponse(BaseModel):
     id: str
     name: str
     mandate: str
     positions: list[PositionResponse]
-    total_weight: float
+    total_value: float
+    cash_balance: float
+    cash_pct: float
     position_count: int
     created_at: datetime
 
@@ -91,6 +109,9 @@ class ActionResponse(BaseModel):
     signal_snapshot: Optional[dict[str, Any]]
     trigger_cycle: Optional[str]
     engine_version: Optional[str]
+    trigger_price: Optional[float]
+    trigger_condition: Optional[str]
+    parent_action_id: Optional[str]
     created_at: datetime
     executed_at: Optional[datetime]
     expires_at: Optional[datetime]
@@ -103,3 +124,9 @@ class ActionFeedResponse(BaseModel):
     actions: list[ActionResponse]
     total: int
     pending_count: int
+
+
+class ActionChainResponse(BaseModel):
+    """A parent action with its child steps."""
+    parent: ActionResponse
+    children: list[ActionResponse]
