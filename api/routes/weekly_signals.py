@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.dependencies import get_optional_user
 from api.lib.db import get_db
@@ -153,7 +153,7 @@ async def get_leaderboard(
 
 
 @router.get("/weekly-signals/track-record", response_model=TrackRecordResponse)
-async def get_track_record(limit: int = 100):
+async def get_track_record(limit: int = Query(default=100, ge=1, le=500)):
     """
     Return all historical weekly verdicts grouped by run_date, newest first.
     Fully public — no auth required.
@@ -183,7 +183,7 @@ async def get_track_record(limit: int = 100):
     return TrackRecordResponse(weeks=weeks, total_weeks=len(weeks))
 
 
-@router.get("/weekly-signals/preview/{ticker}", response_model=WeeklySignalFull)
+@router.get("/weekly-signals/preview/{ticker}", response_model=WeeklySignalFull, response_model_exclude_none=True)
 async def get_weekly_preview(
     ticker: str,
     user: Optional[User] = Depends(get_optional_user),
