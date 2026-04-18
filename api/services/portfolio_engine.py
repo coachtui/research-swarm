@@ -327,8 +327,13 @@ async def _build_signals(
 # ── Position Conversion ─────────────────────────────────────────────────────
 
 
-def _to_engine_positions(db_positions) -> dict[str, EnginePosition]:
-    """Convert Prisma Position records to engine PortfolioPosition dataclass."""
+def _to_engine_positions(db_positions, weights_map: dict | None = None) -> dict[str, EnginePosition]:
+    """
+    Convert Prisma Position records to engine PortfolioPosition dataclass.
+
+    weights_map: ticker → computed allocation fraction (from shares × price / total).
+    Falls back to position.currentWeight if not provided (legacy behavior).
+    """
     result: dict[str, EnginePosition] = {}
     for pos in db_positions:
         add_tiers = set()
@@ -339,9 +344,11 @@ def _to_engine_positions(db_positions) -> dict[str, EnginePosition]:
             except (json.JSONDecodeError, ValueError, TypeError):
                 pass
 
+        weight = (weights_map or {}).get(pos.ticker, pos.currentWeight or 0.0)
+
         result[pos.ticker] = EnginePosition(
             ticker=pos.ticker,
-            weight=pos.currentWeight,
+            weight=weight,
             entry_date=pos.entryDate.date() if pos.entryDate else date.today(),
             entry_price=pos.costBasis or 0.0,
             quarters_held=pos.quartersHeld,
@@ -433,3 +440,173 @@ async def _update_position_states(
                 where={"id": position.id},
                 data={"thesisState": "intact", "ownershipStatus": "watch", "eligibilityState": "pending"},
             )
+
+
+# ── Signal-Driven Action Plans ──────────────────────────────────────────────
+
+_POSTURE_THRESHOLD = 0.02  # 2pp band before over/under target triggers action
+
+
+def _get_verdict_from_stock_result(stock_result) -> str:
+    """Extract verdict string from StockResult.fullOutput. Falls back to 'hold'."""
+    if stock_result is None:
+        return "hold"
+    full_output = stock_result.fullOutput
+    if isinstance(full_output, dict):
+        return full_output.get("verdict", "hold").lower()
+    return "hold"
+
+
+def _get_fair_value_from_stock_result(stock_result) -> Optional[float]:
+    """Extract fair value from fundamental_output.valuation.fair_value."""
+    if stock_result is None:
+        return None
+    fo = stock_result.fullOutput
+    if not isinstance(fo, dict):
+        return None
+    return fo.get("fundamental_output", {}).get("valuation", {}).get("fair_value")
+
+
+def _get_support_level_from_stock_result(stock_result) -> Optional[float]:
+    """Extract first support level from quant_output.technical_indicators.support_levels."""
+    if stock_result is None:
+        return None
+    fo = stock_result.fullOutput
+    if not isinstance(fo, dict):
+        return None
+    levels = (
+        fo.get("quant_output", {})
+        .get("technical_indicators", {})
+        .get("support_levels", [])
+    )
+    return float(levels[0]) if levels else None
+
+
+def classify_posture(position, current_alloc: float, stock_result) -> str:
+    """
+    Classify a position's rebalancing posture based on allocation and signals.
+
+    Returns one of: over_target_bearish | over_target_bullish | below_target_bullish |
+                    thesis_broken | watch_only | hold
+    """
+    if position.thesisState == "broken":
+        return "thesis_broken"
+
+    if (position.shares or 0.0) == 0.0 or position.ownershipStatus == "watch":
+        return "watch_only"
+
+    target = position.targetWeight or 0.0
+    verdict = _get_verdict_from_stock_result(stock_result)
+    over_target = current_alloc > target + _POSTURE_THRESHOLD
+    under_target = current_alloc < target - _POSTURE_THRESHOLD
+
+    if over_target and verdict == "avoid":
+        return "over_target_bearish"
+    if over_target:
+        return "over_target_bullish"
+    if under_target and verdict == "buy":
+        return "below_target_bullish"
+    return "hold"
+
+
+def generate_action_plan(
+    position,
+    stock_result,
+    current_alloc: float,
+    portfolio_id: str,
+) -> list[dict]:
+    """
+    Generate a conditional action plan for a position.
+
+    Returns a list of action dicts (not yet persisted). The first action in a ladder
+    has parentActionId=None; subsequent steps use the sentinel "__PARENT__"
+    which the caller replaces with the DB-assigned id of the first action.
+
+    Returns [] for hold posture (no action needed).
+    """
+    if stock_result is None:
+        return [{
+            "portfolioId": portfolio_id,
+            "ticker": position.ticker,
+            "actionType": "HOLD",
+            "weightDelta": 0.0,
+            "reasonCodes": ["no_analysis"],
+            "reasonText": "No recent analysis available — review position manually",
+            "triggerCondition": "immediate",
+            "triggerPrice": None,
+            "parentActionId": None,
+            "status": "pending",
+        }]
+
+    posture = classify_posture(position, current_alloc, stock_result)
+    price = position.lastKnownPrice or 0.0
+    fair_value = _get_fair_value_from_stock_result(stock_result)
+    support = _get_support_level_from_stock_result(stock_result)
+    target = position.targetWeight or 0.0
+
+    def _action(action_type, weight_delta, trigger_cond, trigger_price, reason_text, parent=None):
+        return {
+            "portfolioId": portfolio_id,
+            "ticker": position.ticker,
+            "actionType": action_type,
+            "weightDelta": round(weight_delta, 4),
+            "reasonCodes": [posture],
+            "reasonText": reason_text,
+            "triggerCondition": trigger_cond,
+            "triggerPrice": round(trigger_price, 2) if trigger_price else None,
+            "parentActionId": parent,
+            "status": "pending",
+        }
+
+    if posture == "hold":
+        return []
+
+    if posture == "thesis_broken":
+        return [_action(
+            "EXIT_THESIS", -current_alloc, "immediate", None,
+            "Thesis broken — exit position",
+        )]
+
+    if posture == "over_target_bearish":
+        excess = current_alloc - target
+        step = excess / 3.0
+        return [
+            _action("TRIM_EUPHORIA", -step, "price_above", price * 1.05,
+                    f"Over target ({current_alloc:.1%} vs {target:.1%}) with bearish signals — trim first tranche"),
+            _action("TRIM_EUPHORIA", -step, "price_above", price * 1.10,
+                    "Second trim if price continues higher", parent="__PARENT__"),
+            _action("TRIM_EUPHORIA", -step, "price_above", price * 1.15,
+                    "Final trim to target weight", parent="__PARENT__"),
+        ]
+
+    if posture == "over_target_bullish":
+        trim_target = fair_value if fair_value and fair_value > price else price * 1.20
+        excess = current_alloc - target
+        return [
+            _action("TRIM_CAP", -excess / 2.0, "price_above", trim_target * 0.95,
+                    f"Over target but signals bullish — ride position, trim 50% of excess near fair value"),
+            _action("TRIM_CAP", -excess / 2.0, "price_above", trim_target,
+                    "Trim remaining excess at fair value", parent="__PARENT__"),
+        ]
+
+    if posture == "below_target_bullish":
+        entry1 = support if support and support < price else price * 0.95
+        entry2 = entry1 * 0.95
+        gap = target - current_alloc
+        return [
+            _action("ADD_TIER_20", gap / 2.0, "price_below", entry1,
+                    f"Below target ({current_alloc:.1%} vs {target:.1%}) — add first tranche on pullback"),
+            _action("ADD_TIER_20", gap / 2.0, "price_below", entry2,
+                    "Add remaining gap on deeper pullback", parent="__PARENT__"),
+        ]
+
+    if posture == "watch_only":
+        entry = support if support and support < (fair_value or price) else price * 0.92
+        return [
+            _action("INITIATE", target / 2.0, "price_below", entry,
+                    f"Watch position — enter first half at pullback to {entry:.2f}"),
+            _action("ADD_TIER_20", target / 2.0, "price_below", entry * 0.95,
+                    "Add second half on deeper discount", parent="__PARENT__"),
+        ]
+
+    return []
