@@ -87,16 +87,16 @@ export function useAddPosition() {
     mutationFn: ({
       portfolioId,
       ticker,
-      weight,
-      costBasis,
       shares,
+      costBasis,
+      targetWeight,
     }: {
       portfolioId: string
       ticker: string
-      weight: number
+      shares: number
       costBasis?: number
-      shares?: number
-    }) => apiClient.addPosition(portfolioId, ticker, weight, costBasis, shares),
+      targetWeight?: number
+    }) => apiClient.addPosition(portfolioId, ticker, shares, costBasis, targetWeight),
     onSuccess: (_res, { portfolioId }) => {
       queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
       queryClient.invalidateQueries({ queryKey: ['portfolios'] })
@@ -117,7 +117,7 @@ export function useUpdatePosition() {
     }: {
       portfolioId: string
       ticker: string
-      data: { weight?: number; cost_basis?: number; shares?: number }
+      data: { target_weight?: number; cost_basis?: number; shares?: number }
     }) => apiClient.updatePosition(portfolioId, ticker, data),
     onSuccess: (_res, { portfolioId }) => {
       queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
@@ -162,6 +162,75 @@ export function useTriggerEngine() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['portfolio-actions'] })
       queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+}
+
+/**
+ * useRefreshPrices — mutation to refresh market prices for all positions.
+ */
+export function useRefreshPrices() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (portfolioId: string) => apiClient.refreshPrices(portfolioId),
+    onSuccess: (_res, portfolioId) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+}
+
+/**
+ * useCashBalance — mutation to update portfolio cash balance.
+ */
+export function useCashBalance() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ portfolioId, amount }: { portfolioId: string; amount: number }) =>
+      apiClient.updateCash(portfolioId, amount),
+    onSuccess: (_res, { portfolioId }) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
+      queryClient.invalidateQueries({ queryKey: ['portfolios'] })
+    },
+  })
+}
+
+/**
+ * useRebalance — mutation to trigger on-demand engine rebalance.
+ */
+export function useRebalance() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (portfolioId: string) => apiClient.rebalancePortfolio(portfolioId),
+    onSuccess: (_res, portfolioId) => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio-actions', portfolioId] })
+      queryClient.invalidateQueries({ queryKey: ['portfolio', portfolioId] })
+    },
+  })
+}
+
+/**
+ * useExecuteAction — mutation to execute a triggered action.
+ */
+export function useExecuteAction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (actionId: string) => apiClient.executeAction(actionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio-actions'] })
+    },
+  })
+}
+
+/**
+ * useCancelAction — mutation to cancel an action and its children.
+ */
+export function useCancelAction() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (actionId: string) => apiClient.cancelAction(actionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['portfolio-actions'] })
     },
   })
 }
