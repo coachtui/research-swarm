@@ -31,6 +31,11 @@ import type {
   PortfolioListResponse,
   ActionFeed,
   PortfolioIntelligence,
+  RefreshPricesResponse,
+  ExecuteActionResponse,
+  CancelActionResponse,
+  UpdateCashResponse,
+  ActionChainResponse,
 } from '@/types/api'
 import type {
   LeaderboardResponse,
@@ -424,14 +429,14 @@ class ApiClient {
     })
   }
 
-  async addPosition(portfolioId: string, ticker: string, weight: number, costBasis?: number, shares?: number): Promise<unknown> {
+  async addPosition(portfolioId: string, ticker: string, shares: number, costBasis?: number, targetWeight?: number): Promise<unknown> {
     return this.request(`/api/portfolio/${portfolioId}/positions`, {
       method: 'POST',
-      body: JSON.stringify({ ticker, weight, cost_basis: costBasis, shares }),
+      body: JSON.stringify({ ticker, shares, cost_basis: costBasis, target_weight: targetWeight }),
     })
   }
 
-  async updatePosition(portfolioId: string, ticker: string, data: { weight?: number; cost_basis?: number; shares?: number }): Promise<unknown> {
+  async updatePosition(portfolioId: string, ticker: string, data: { target_weight?: number; cost_basis?: number; shares?: number }): Promise<unknown> {
     return this.request(`/api/portfolio/${portfolioId}/positions/${ticker}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -464,6 +469,29 @@ class ApiClient {
 
   async getPortfolioIntelligence(portfolioId: string): Promise<PortfolioIntelligence> {
     return this.request(`/api/portfolio/${portfolioId}/intelligence`)
+  }
+
+  async refreshPrices(portfolioId: string): Promise<RefreshPricesResponse> {
+    return this.request(`/api/portfolio/${portfolioId}/refresh-prices`, { method: 'POST' })
+  }
+
+  async updateCash(portfolioId: string, amount: number): Promise<UpdateCashResponse> {
+    return this.request(`/api/portfolio/${portfolioId}/cash`, {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    })
+  }
+
+  async rebalancePortfolio(portfolioId: string): Promise<{ chains: ActionChainResponse[] }> {
+    return this.request(`/api/portfolio/${portfolioId}/rebalance`, { method: 'POST' })
+  }
+
+  async executeAction(actionId: string): Promise<ExecuteActionResponse> {
+    return this.request(`/api/actions/${actionId}/execute`, { method: 'POST' })
+  }
+
+  async cancelAction(actionId: string): Promise<CancelActionResponse> {
+    return this.request(`/api/actions/${actionId}/cancel`, { method: 'POST' })
   }
 
   // ── WeeklySignal endpoints ──────────────────────────────────────────────
