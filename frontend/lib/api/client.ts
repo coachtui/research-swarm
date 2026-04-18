@@ -32,6 +32,11 @@ import type {
   ActionFeed,
   PortfolioIntelligence,
 } from '@/types/api'
+import type {
+  LeaderboardResponse,
+  TrackRecordResponse,
+  WeeklySignalPublic,
+} from '@/types/weekly-signals'
 
 class ApiClient {
   private baseUrl: string
@@ -459,6 +464,26 @@ class ApiClient {
 
   async getPortfolioIntelligence(portfolioId: string): Promise<PortfolioIntelligence> {
     return this.request(`/api/portfolio/${portfolioId}/intelligence`)
+  }
+
+  // ── WeeklySignal endpoints ──────────────────────────────────────────────
+
+  async getLeaderboard(limit = 25): Promise<LeaderboardResponse> {
+    return this.request<LeaderboardResponse>(
+      `/api/weekly-signals/leaderboard?limit=${limit}`
+    )
+  }
+
+  async getTrackRecord(limit = 100): Promise<TrackRecordResponse> {
+    return this.request<TrackRecordResponse>(
+      `/api/weekly-signals/track-record?limit=${limit}`
+    )
+  }
+
+  async getWeeklyPreview(ticker: string): Promise<WeeklySignalPublic> {
+    return this.request<WeeklySignalPublic>(
+      `/api/weekly-signals/preview/${encodeURIComponent(ticker.toUpperCase())}`
+    )
   }
 }
 
