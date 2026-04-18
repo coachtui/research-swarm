@@ -557,7 +557,6 @@ model Portfolio {
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-
   cashBalance      Float     @default(0)    @map("cash_balance")
   cashUpdatedAt    DateTime? @map("cash_updated_at")
 
@@ -639,7 +638,7 @@ model PortfolioAction {
   expiresAt  DateTime? @map("expires_at")
 
   triggerPrice      Float?             @map("trigger_price")
-  triggerCondition  String?            @map("trigger_condition")
+  triggerCondition  String?            @map("trigger_condition")   // "price_above" | "price_below" | "catalyst_confirmed" | "immediate"
   parentActionId    String?            @map("parent_action_id")
   parent            PortfolioAction?   @relation("ActionChain", fields: [parentActionId], references: [id])
   children          PortfolioAction[]  @relation("ActionChain")
