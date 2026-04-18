@@ -193,7 +193,18 @@ async def run_portfolio_engine(
     signals_map, signals_list = await _build_signals(db, portfolio)
 
     # 3. Convert DB positions → engine positions
-    engine_positions = _to_engine_positions(portfolio.positions)
+    # Compute real allocation weights from shares × lastKnownPrice / total
+    # so the engine sees actual portfolio state, not the stale currentWeight field.
+    from api.services.allocation import compute_portfolio_total
+    cash = portfolio.cashBalance or 0.0
+    total_value = compute_portfolio_total(portfolio.positions, cash)
+    weights_map: dict[str, float] = {}
+    if total_value > 0:
+        for pos in portfolio.positions:
+            if pos.lastKnownPrice and pos.shares:
+                weights_map[pos.ticker] = (pos.shares * pos.lastKnownPrice) / total_value
+
+    engine_positions = _to_engine_positions(portfolio.positions, weights_map=weights_map)
 
     # 4. Run engine
     engine = CompounderEngine(config=OwnerConfig())
