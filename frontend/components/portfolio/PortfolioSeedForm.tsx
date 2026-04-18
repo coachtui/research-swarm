@@ -5,34 +5,33 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api/client'
 import { Button } from '@/components/ui/button'
 import { Plus, X } from 'lucide-react'
-import { formatWeight } from '@/lib/ownership-mapping'
 
 /**
  * PortfolioSeedForm — manual entry form for seeding portfolio positions.
  *
- * Creates portfolio on first position add. Shows running total weight.
+ * Creates portfolio on first position add. Allocation is computed automatically
+ * from shares × current price — no weight entry required.
  */
 export function PortfolioSeedForm() {
   const queryClient = useQueryClient()
   const [positions, setPositions] = useState<Array<{
     ticker: string
-    weight: number
+    shares: number
     costBasis: string
   }>>([])
   const [currentTicker, setCurrentTicker] = useState('')
-  const [currentWeight, setCurrentWeight] = useState(5)
+  const [currentShares, setCurrentShares] = useState('')
   const [currentCostBasis, setCurrentCostBasis] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const createPortfolio = useMutation({
     mutationFn: async () => {
-      // Create portfolio, then add all positions
       const portfolio = await apiClient.createPortfolio('Core', 'compounder')
       for (const pos of positions) {
         await apiClient.addPosition(
           portfolio.id,
           pos.ticker,
-          pos.weight / 100, // Convert % to fraction
+          pos.shares,
           pos.costBasis ? parseFloat(pos.costBasis) : undefined,
         )
       }
@@ -54,13 +53,14 @@ export function PortfolioSeedForm() {
       setError(`${ticker} already added`)
       return
     }
-    setPositions(prev => [...prev, {
-      ticker,
-      weight: currentWeight,
-      costBasis: currentCostBasis,
-    }])
+    const shares = parseFloat(currentShares)
+    if (!currentShares || isNaN(shares) || shares <= 0) {
+      setError('Shares is required and must be greater than 0')
+      return
+    }
+    setPositions(prev => [...prev, { ticker, shares, costBasis: currentCostBasis }])
     setCurrentTicker('')
-    setCurrentWeight(5)
+    setCurrentShares('')
     setCurrentCostBasis('')
     setError(null)
   }
@@ -69,14 +69,12 @@ export function PortfolioSeedForm() {
     setPositions(prev => prev.filter(p => p.ticker !== ticker))
   }
 
-  const totalWeight = positions.reduce((sum, p) => sum + p.weight, 0)
-
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <h3 className="text-lg font-semibold text-text-primary">Build Your Portfolio</h3>
         <p className="text-sm text-text-secondary">
-          Add your current holdings to start receiving engine-generated actions.
+          Add your current holdings. Allocation is computed automatically from your shares and current price.
         </p>
       </div>
 
@@ -94,19 +92,19 @@ export function PortfolioSeedForm() {
           />
         </div>
         <div className="w-24">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Weight %</label>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Shares</label>
           <input
             type="number"
-            value={currentWeight}
-            onChange={e => setCurrentWeight(Math.max(0, Math.min(25, Number(e.target.value))))}
+            value={currentShares}
+            onChange={e => setCurrentShares(e.target.value)}
             min={0}
-            max={25}
-            step={0.5}
+            step={1}
+            placeholder="Required"
             className="w-full mt-1 px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text-primary font-mono focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
         <div className="w-28">
-          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Cost Basis</label>
+          <label className="text-[10px] font-semibold uppercase tracking-wider text-text-tertiary">Cost / Share</label>
           <input
             type="text"
             value={currentCostBasis}
@@ -131,7 +129,7 @@ export function PortfolioSeedForm() {
             <div key={pos.ticker} className="flex items-center justify-between rounded-lg border border-border/60 bg-surface/30 px-4 py-2.5">
               <div className="flex items-center gap-3">
                 <span className="text-sm font-bold font-mono text-text-primary">{pos.ticker}</span>
-                <span className="text-xs font-mono text-text-secondary">{pos.weight.toFixed(1)}%</span>
+                <span className="text-xs font-mono text-text-secondary">{pos.shares} shares</span>
                 {pos.costBasis && (
                   <span className="text-[10px] text-text-tertiary">@ ${pos.costBasis}</span>
                 )}
@@ -142,10 +140,9 @@ export function PortfolioSeedForm() {
             </div>
           ))}
 
-          {/* Total + Create button */}
           <div className="flex items-center justify-between pt-2">
             <span className="text-xs text-text-tertiary">
-              {positions.length} position{positions.length > 1 ? 's' : ''} · Total: <span className="font-mono font-semibold text-text-primary">{formatWeight(totalWeight / 100)}</span>
+              {positions.length} position{positions.length > 1 ? 's' : ''} — allocation computed after creation
             </span>
             <Button
               onClick={() => createPortfolio.mutate()}
