@@ -10,6 +10,7 @@ import { UserButton, useUser } from '@clerk/nextjs'
 import { useEntitlements } from '@/lib/hooks/useEntitlements'
 
 const PUBLIC_NAV_LINKS = [
+  { href: '/leaderboard',   label: 'Leaderboard'  },
   { href: '/#how-it-works', label: 'How It Works' },
   { href: '/#pricing',      label: 'Pricing'      },
   { href: '/#faq',          label: 'FAQ'           },
@@ -17,7 +18,8 @@ const PUBLIC_NAV_LINKS = [
 
 const AUTH_NAV_LINKS = [
   { href: '/dashboard',     label: 'Dashboard'    },
-  ...PUBLIC_NAV_LINKS,
+  { href: '/leaderboard',   label: 'Leaderboard'  },
+  ...PUBLIC_NAV_LINKS.slice(1),
 ]
 
 /**
