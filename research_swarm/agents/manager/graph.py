@@ -954,7 +954,7 @@ def analyze_swarm(
 
         top_holdings = etf_data.get("top_holdings", [])
         top_holdings_summary = [
-            f"{h['symbol']} {h['weight_pct']}%" for h in top_holdings[:5]
+            f"{h.get('symbol', '?')} {h.get('weight_pct', 0)}%" for h in top_holdings[:5]
         ]
 
         return ETFManagerOutput(
@@ -965,7 +965,7 @@ def analyze_swarm(
             concentration_risk=etf_synthesis.get("concentration_risk", 5.0),
             sector_momentum=etf_synthesis.get("sector_momentum", 5.0),
             macro_alignment_score=etf_synthesis.get("macro_alignment_score", 5.0),
-            sentiment_score=final_state.get("news_hound_output", {}).get("sentiment_score", 5.0),
+            sentiment_score=final_state.get("news_hound_output", {}).get("sentiment_score") or 5.0,
             top_holdings_summary=top_holdings_summary if top_holdings_summary else ["No holdings data"],
             sector_breakdown=etf_data.get("sector_weights", {}),
             expense_ratio=etf_data.get("expense_ratio", 0.0),

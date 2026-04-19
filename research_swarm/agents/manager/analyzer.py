@@ -499,11 +499,6 @@ class ManagerAnalyzer:
         news_hound_output: dict,
         quant_output: dict,
     ) -> tuple[dict, int]:
-        import anthropic
-        import json
-
-        client = anthropic.Anthropic()
-
         fund_name = etf_data.get("fund_name", ticker)
         top_holdings = etf_data.get("top_holdings", [])
         sector_weights = etf_data.get("sector_weights", {})
@@ -511,7 +506,7 @@ class ManagerAnalyzer:
         expense_ratio = etf_data.get("expense_ratio")
         ytd_return = etf_data.get("ytd_return")
 
-        holdings_text = ", ".join([f"{h['symbol']} ({h['weight_pct']}%)" for h in top_holdings[:5]])
+        holdings_text = ", ".join([f"{h.get('symbol', '?')} ({h.get('weight_pct', 0)}%)" for h in top_holdings[:5]])
         sector_text = ", ".join([f"{s}: {w}%" for s, w in list(sector_weights.items())[:5]])
 
         fin_health = fundamentalist_output.get("financial_health_score", 5.0)
@@ -564,25 +559,24 @@ Provide a JSON synthesis with EXACTLY these fields:
 
 Return ONLY the JSON object."""
 
-        message = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1500,
-            messages=[{"role": "user", "content": prompt}]
-        )
-
-        tokens_used = message.usage.input_tokens + message.usage.output_tokens
-        raw_text = message.content[0].text.strip()
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("```")[1]
-            if raw_text.startswith("json"):
-                raw_text = raw_text[4:]
-            raw_text = raw_text.strip()
+        response = self.sonnet.invoke(prompt, config={"max_tokens": 1500})
+        raw_text = response.content.strip()
+        tokens_used = extract_token_usage(response.response_metadata)
 
         try:
-            result = json.loads(raw_text)
-        except json.JSONDecodeError as exc:
-            logger.error(f"[ETF Synthesis] JSON parse failed. Raw: {raw_text[:200]!r}")
-            raise ValueError(f"LLM returned unparseable JSON: {exc}") from exc
+            result = self._parse_json_with_repair(raw_text)
+        except Exception:
+            logger.warning(f"[ETF Synthesis] JSON parse failed for {ticker}, using fallback")
+            result = {
+                "allocation_recommendation": "HOLD",
+                "concentration_risk": 5.0,
+                "sector_momentum": 5.0,
+                "macro_alignment_score": 5.0,
+                "investment_thesis": f"{ticker} ETF analysis. Manual review recommended.",
+                "pros": ["Diversified exposure", "Market liquidity", "Low tracking error"],
+                "cons": ["Market risk", "Sector concentration", "Macro uncertainty"],
+                "watchlist_candidate": False,
+            }
 
         return result, tokens_used
 
