@@ -141,6 +141,14 @@ def test_link_conviction_failure_logs_exception(
     assert result["conviction_position"] is None
     assert any(
         rec["exception"] is not None
-        and "conviction boom" in (rec["exception"].value.args[0] if rec["exception"].value else "")
+        and "conviction boom" in str(rec["exception"].value)
         for rec in captured
     ), f"expected loguru record with exception info, got: {captured}"
+    assert any(
+        "conviction='Medium'" in rec["message"]
+        and "risk='Medium'" in rec["message"]
+        and "moat=6.0" in rec["message"]
+        and "rating='HOLD'" in rec["message"]
+        and "sizing_keys=['max_pct', 'recommended_pct']" in rec["message"]
+        for rec in captured
+    ), f"expected enriched context fields in log message, got: {[r['message'] for r in captured]}"
