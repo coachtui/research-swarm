@@ -251,7 +251,7 @@ def generate_action_plan(
             "status": "pending",
         }
         if snapshot is not None:
-            a["signalSnapshot"] = snapshot
+            a["signalSnapshot"] = json.dumps(snapshot)
         return a
 
     # ── No report available ──────────────────────────────────────────────────
