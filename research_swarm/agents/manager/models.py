@@ -5,7 +5,7 @@ These models ensure type safety and validation for the moat scoring
 and investment analysis synthesis.
 """
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 
 
 class MoatScoreBreakdown(BaseModel):
@@ -346,3 +346,47 @@ class ManagerOutput(BaseModel):
             self.is_watchlist_candidate = expected_watchlist
 
         return self
+
+
+class ETFManagerOutput(BaseModel):
+    """Final validated output from the Manager agent for ETF analysis."""
+
+    # Identification
+    ticker: str = Field(..., description="ETF ticker symbol")
+    fund_name: str = Field(..., description="Full fund name")
+    analysis_date: str = Field(default="", description="Date of analysis (YYYY-MM-DD)")
+
+    # Core recommendation
+    allocation_recommendation: Literal["BUY", "HOLD", "REDUCE"] = Field(
+        ..., description="Portfolio allocation recommendation"
+    )
+
+    # ETF-specific scores (0-10)
+    concentration_risk: float = Field(..., ge=0, le=10, description="Holdings concentration risk (higher = more concentrated)")
+    sector_momentum: float = Field(..., ge=0, le=10, description="Price and flow momentum score")
+    macro_alignment_score: float = Field(..., ge=0, le=10, description="How well current macro conditions favor this sector")
+    sentiment_score: float = Field(..., ge=0, le=10, description="News and analyst sentiment score")
+
+    # Holdings and composition
+    top_holdings_summary: List[str] = Field(..., description="Top 5 holdings with weight percentages")
+    sector_breakdown: Dict[str, float] = Field(..., description="Sector allocation percentages")
+
+    # Fund fundamentals
+    expense_ratio: float = Field(..., description="Annual expense ratio as a percentage (e.g., 0.0945 for 0.0945%)")
+    aum_billions: float = Field(..., description="Assets under management in billions USD")
+
+    # Qualitative analysis
+    pros: List[str] = Field(..., min_length=1, description="Investment positives")
+    cons: List[str] = Field(..., min_length=1, description="Investment risks and negatives")
+    investment_thesis: str = Field(..., min_length=50, description="Portfolio allocation recommendation narrative")
+
+    # Watchlist
+    watchlist_candidate: bool = Field(..., description="True if macro_alignment_score >= 7.5")
+
+    # Metadata
+    tokens_used: int = Field(default=0, ge=0, description="Total tokens used")
+    processing_time: float = Field(default=0.0, ge=0, description="Processing time in seconds")
+    cost_by_agent: Dict[str, float] = Field(
+        default_factory=lambda: {"fundamentalist": 0.0, "news_hound": 0.0, "quant": 0.0, "manager": 0.0},
+        description="Cost per agent in USD"
+    )
