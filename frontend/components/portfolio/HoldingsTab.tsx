@@ -332,13 +332,39 @@ function PositionRow({
     ? `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%`
     : null
 
+  // P&L
+  const pnlAmt = position.unrealized_gain_loss
+  const pnlPct = position.unrealized_gain_loss_pct
+  const pnlColor = pnlAmt === null ? '' : pnlAmt >= 0 ? 'text-success' : 'text-error'
+  const pnlText = pnlAmt !== null && pnlPct !== null
+    ? `${pnlAmt >= 0 ? '+' : ''}${(pnlPct * 100).toFixed(1)}% (${pnlAmt >= 0 ? '+' : ''}$${Math.abs(pnlAmt).toLocaleString('en-US', { maximumFractionDigits: 0 })})`
+    : null
+
+  // Signal line from pending actions
+  const pendingActions = actions.filter(a => a.status === 'pending')
+  const topAction = pendingActions[0]
+  const signalLine = (() => {
+    if (!topAction) return null
+    const t = topAction.action_type
+    if (t === 'INITIATE') return { text: 'Eligible · Entry conditions met', color: 'text-success' }
+    if (t === 'ADD_TIER_20' || t === 'ADD_TIER_30' || t === 'ADD_TIER_40' || t === 'ADD_TIER_50')
+      return { text: 'Room to add · Report supports building the position', color: 'text-success' }
+    if (t === 'TRIM_EUPHORIA') return { text: 'Elevated · Consider trimming into strength', color: 'text-warning' }
+    if (t === 'TRIM_CAP') return { text: 'Over conviction weight · Trim to cap', color: 'text-warning' }
+    if (t === 'TRIM_THESIS') return { text: 'Thesis integrity check · Reduce position', color: 'text-error' }
+    if (t === 'EXIT_THESIS') return { text: 'Thesis broken · Exit recommended', color: 'text-error' }
+    if (t === 'REPLACE') return { text: 'Replace · Better opportunity identified', color: 'text-primary' }
+    if (t === 'HOLD') return { text: 'At target · Hold', color: 'text-text-tertiary' }
+    return null
+  })()
+
   const stale = isPriceStale(position.last_price_at)
 
   return (
     <div className="rounded-lg border border-border/60 bg-surface/30 overflow-hidden">
       {/* Main row */}
       <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-wrap">
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold font-mono text-text-primary">{position.ticker}</span>
             <span className={`text-[9px] font-semibold uppercase tracking-wide ${ownershipColor}`}>
@@ -357,6 +383,11 @@ function PositionRow({
               ? position.market_value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
               : '—'}
           </span>
+
+          {/* P&L */}
+          {pnlText && (
+            <span className={`text-xs font-mono font-semibold ${pnlColor}`}>{pnlText}</span>
+          )}
 
           {/* Stale price badge */}
           {stale && (
@@ -439,6 +470,13 @@ function PositionRow({
           )}
         </div>
       </div>
+
+      {/* Signal line */}
+      {signalLine && !editing && (
+        <div className={`px-4 pb-2 text-[11px] font-medium ${signalLine.color}`}>
+          {signalLine.text}
+        </div>
+      )}
 
       {/* Inline edit form */}
       {editing && (

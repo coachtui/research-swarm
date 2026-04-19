@@ -1573,6 +1573,8 @@ export interface PortfolioPosition {
   compounder_score: number | null
   last_drawdown: number | null
   latest_run_id: string | null
+  unrealized_gain_loss: number | null
+  unrealized_gain_loss_pct: number | null
 }
 
 export type EngineActionType =

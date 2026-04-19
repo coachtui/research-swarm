@@ -54,11 +54,21 @@ router = APIRouter()
 
 def _position_response(pos, allocation_pct=None, market_value=None) -> PositionResponse:
     """Convert a Prisma Position record to PositionResponse."""
+    shares = pos.shares or 0.0
+    price = pos.lastKnownPrice
+    cost = pos.costBasis
+
+    unrealized_gain_loss: float | None = None
+    unrealized_gain_loss_pct: float | None = None
+    if shares > 0 and price is not None and cost is not None and cost > 0:
+        unrealized_gain_loss = (price - cost) * shares
+        unrealized_gain_loss_pct = (price - cost) / cost
+
     return PositionResponse(
         ticker=pos.ticker,
-        shares=pos.shares or 0.0,
-        cost_basis=pos.costBasis,
-        last_known_price=pos.lastKnownPrice,
+        shares=shares,
+        cost_basis=cost,
+        last_known_price=price,
         last_price_at=pos.lastPriceAt,
         allocation_pct=allocation_pct,
         market_value=market_value,
@@ -73,6 +83,8 @@ def _position_response(pos, allocation_pct=None, market_value=None) -> PositionR
         compounder_score=pos.compounderScore,
         last_drawdown=pos.lastDrawdown,
         latest_run_id=pos.latestRunId,
+        unrealized_gain_loss=unrealized_gain_loss,
+        unrealized_gain_loss_pct=unrealized_gain_loss_pct,
     )
 
 

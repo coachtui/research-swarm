@@ -580,9 +580,11 @@ async def _update_position_states(
     for pos in positions:
         update_data: dict = {}
 
-        # Write engineSuggestedWeight from report (always, if we have it)
+        # Write engineSuggestedWeight from report. Also sync targetWeight so the UI
+        # shows the PM's conviction target — user can manually override via edit modal.
         if pos.ticker in suggested_weights:
             update_data["engineSuggestedWeight"] = suggested_weights[pos.ticker]
+            update_data["targetWeight"] = suggested_weights[pos.ticker]
 
         if pos.ticker in thesis_breaks:
             update_data["thesisState"] = "at_risk"
