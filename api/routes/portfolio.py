@@ -250,7 +250,7 @@ async def add_position(
     price, price_at = await get_latest_price(ticker, user.id)
 
     latest_result = await db.stockresult.find_first(
-        where={"userId": user.id, "ticker": ticker, "status": "completed"},
+        where={"ticker": ticker, "status": "completed"},
         order={"createdAt": "desc"},
     )
 

@@ -290,13 +290,10 @@ async def _build_signals(
     tickers = [p.ticker for p in portfolio.positions]
 
     for ticker in tickers:
-        # Find most recent completed analysis
+        # Use the most recent completed analysis for this ticker across all users —
+        # the DB is a shared pool of research, not per-user private data.
         result = await db.stockresult.find_first(
-            where={
-                "userId": portfolio.userId,
-                "ticker": ticker,
-                "status": "completed",
-            },
+            where={"ticker": ticker, "status": "completed"},
             order={"createdAt": "desc"},
         )
         if not result or not result.fullOutput:

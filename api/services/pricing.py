@@ -63,17 +63,17 @@ def _fetch_yfinance_price(ticker: str) -> Optional[float]:
     return None
 
 
-async def get_latest_price(ticker: str, user_id: str) -> tuple[Optional[float], Optional[datetime]]:
+async def get_latest_price(ticker: str, user_id: str = "") -> tuple[Optional[float], Optional[datetime]]:
     """
     Return (price, as_of) for a ticker.
 
-    Tries StockResult first; falls back to a live yfinance quote so positions
-    added before any analysis has run still get an allocation %.
+    Reads the most recent completed StockResult across all users (shared research pool).
+    Falls back to a live yfinance quote when no analysis exists yet.
     Returns (None, None) only if both sources fail.
     """
     db = await get_db()
     result = await db.stockresult.find_first(
-        where={"userId": user_id, "ticker": ticker, "status": "completed"},
+        where={"ticker": ticker, "status": "completed"},
         order={"createdAt": "desc"},
     )
     if result:
@@ -90,7 +90,7 @@ async def get_latest_price(ticker: str, user_id: str) -> tuple[Optional[float], 
     return None, None
 
 
-async def refresh_position_prices(portfolio_id: str, user_id: str) -> tuple[int, int]:
+async def refresh_position_prices(portfolio_id: str, user_id: str = "") -> tuple[int, int]:
     """
     Update lastKnownPrice / lastPriceAt for all positions in a portfolio.
 
