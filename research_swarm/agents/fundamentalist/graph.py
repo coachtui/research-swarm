@@ -13,7 +13,13 @@ from research_swarm.agents.fundamentalist.state import FundamentalistState
 from research_swarm.agents.fundamentalist.parser import parser
 from research_swarm.agents.fundamentalist.analyzer import analyzer
 from research_swarm.agents.fundamentalist.scorer import scorer
-from research_swarm.agents.fundamentalist.models import FundamentalistOutput
+from research_swarm.agents.fundamentalist.models import (
+    FundamentalistOutput,
+    ScoreBreakdown,
+    BusinessModelScoreBreakdown,
+    FinancialMetricsOutput,
+    BusinessModelOutput,
+)
 from research_swarm.agents.fundamentalist.blended_valuation import blended_valuation_calculator
 from research_swarm.agents.fundamentalist.fair_value_calibrator import fair_value_calibrator
 
@@ -1295,6 +1301,158 @@ def build_fundamentalist_graph_ttm() -> StateGraph:
 
 
 # ============================================================================
+# ETF Analysis Function
+# ============================================================================
+
+def _analyze_etf_holdings(ticker: str, etf_context: dict) -> "FundamentalistOutput":
+    """
+    ETF-mode fundamentalist analysis: holdings composition + macro context.
+    Replaces SEC filing analysis when the ticker is an ETF.
+    """
+    import anthropic
+    import json
+
+    logger.info(f"[ETF Fundamentalist] Analyzing holdings and macro for {ticker}")
+    start_time = time.time()
+
+    client = anthropic.Anthropic()
+
+    fund_name = etf_context.get("fund_name", ticker)
+    top_holdings = etf_context.get("top_holdings", [])
+    sector_weights = etf_context.get("sector_weights", {})
+    aum_billions = etf_context.get("aum_billions")
+    expense_ratio = etf_context.get("expense_ratio")
+    ytd_return = etf_context.get("ytd_return")
+    three_y_return = etf_context.get("3y_return")
+    five_y_return = etf_context.get("5y_return")
+    w52_high = etf_context.get("52w_high")
+    w52_low = etf_context.get("52w_low")
+    current_price = etf_context.get("current_price")
+
+    holdings_text = "\n".join([
+        f"  {h.get('symbol', '')}: {h.get('weight_pct', 0)}%"
+        for h in top_holdings[:10]
+    ])
+    sector_text = "\n".join([
+        f"  {sector}: {weight}%"
+        for sector, weight in sector_weights.items()
+    ])
+
+    prompt = f"""You are a senior portfolio analyst at a high-level portfolio management firm.
+Analyze the following ETF for inclusion in a diversified institutional portfolio.
+
+ETF: {ticker} — {fund_name}
+AUM: ${aum_billions}B | Expense Ratio: {expense_ratio}% | Current Price: ${current_price}
+52-Week Range: ${w52_low} – ${w52_high}
+Returns: YTD {ytd_return}% | 3Y {three_y_return}% | 5Y {five_y_return}%
+
+TOP HOLDINGS:
+{holdings_text}
+
+SECTOR ALLOCATION:
+{sector_text}
+
+Provide a JSON analysis with EXACTLY these fields:
+{{
+  "financial_health_score": <float 0-10: macro alignment — how well current macro conditions favor this sector>,
+  "earnings_momentum_score": <float 0-10: fund flow momentum and trend strength>,
+  "valuation_score": <float 0-10: ETF premium/discount to NAV, expense ratio attractiveness>,
+  "concentration_risk_score": <float 0-10: higher = MORE diversified, lower = highly concentrated>,
+  "macro_alignment_notes": <string: 2-3 sentences on macro tailwinds/headwinds>,
+  "holdings_analysis": <string: 2-3 sentences on top holdings quality and concentration risk>,
+  "key_insights": [<3 string bullet points: investment positives>],
+  "risk_factors": [<3 string bullet points: investment risks>],
+  "confidence": <float 0-1>
+}}
+
+Return ONLY the JSON object, no markdown."""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1500,
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    tokens_used = message.usage.input_tokens + message.usage.output_tokens
+
+    raw_text = message.content[0].text.strip()
+    if raw_text.startswith("```"):
+        raw_text = raw_text.split("```")[1]
+        if raw_text.startswith("json"):
+            raw_text = raw_text[4:]
+        raw_text = raw_text.strip()
+
+    analysis = json.loads(raw_text)
+    processing_time = time.time() - start_time
+
+    # Map ETF scores to FundamentalistOutput fields.
+    # financial_health_score → macro alignment (maps to profitability in ScoreBreakdown)
+    # earnings_momentum_score → fund flow momentum
+    # valuation_score → ETF valuation attractiveness
+    # concentration_risk_score → balance sheet proxy (diversification)
+    financial_health_score = float(analysis["financial_health_score"])
+    earnings_momentum_score = float(analysis["earnings_momentum_score"])
+    valuation_score_val = float(analysis["valuation_score"])
+    concentration_score = float(analysis["concentration_risk_score"])
+
+    # Build ScoreBreakdown: map ETF dimensions to equity score fields
+    # profitability → macro alignment (financial_health_score)
+    # growth → earnings momentum
+    # balance_sheet → concentration/diversification
+    # cash_flow → valuation attractiveness
+    score_breakdown = ScoreBreakdown(
+        profitability=financial_health_score,
+        growth=earnings_momentum_score,
+        balance_sheet=concentration_score,
+        cash_flow=valuation_score_val,
+    )
+
+    # Business model breakdown: use diversification and macro alignment
+    business_model_score_breakdown = BusinessModelScoreBreakdown(
+        revenue_diversification=concentration_score,
+        competitive_moat=financial_health_score,
+    )
+
+    # Build qualitative analysis text from LLM output
+    key_insights = analysis.get("key_insights", [])
+    risk_factors = analysis.get("risk_factors", [])
+    financial_analysis = (
+        f"ETF Holdings & Macro Analysis — {ticker} ({fund_name})\n\n"
+        f"Macro Context: {analysis.get('macro_alignment_notes', '')}\n\n"
+        f"Holdings: {analysis.get('holdings_analysis', '')}\n\n"
+        f"Key Insights:\n" + "\n".join(f"• {i}" for i in key_insights) + "\n\n"
+        f"Risk Factors:\n" + "\n".join(f"• {r}" for r in risk_factors)
+    )
+
+    output = FundamentalistOutput(
+        ticker=ticker,
+        analysis_period=f"ETF Analysis — {fund_name}",
+        analysis_mode="etf",
+        financial_metrics=FinancialMetricsOutput(),
+        business_model_data=BusinessModelOutput(
+            moat_characteristics=[
+                f"Diversified ETF: {fund_name}",
+                f"AUM: ${aum_billions}B",
+                f"Expense Ratio: {expense_ratio}%",
+            ]
+        ),
+        financial_analysis=financial_analysis,
+        financial_health_score=score_breakdown.weighted_average(),
+        score_breakdown=score_breakdown,
+        business_model_moat_score=business_model_score_breakdown.weighted_average(),
+        business_model_score_breakdown=business_model_score_breakdown,
+        earnings_momentum_score=earnings_momentum_score,
+        valuation_score=valuation_score_val,
+        confidence=float(analysis.get("confidence", 0.7)),
+        tokens_used=tokens_used,
+        processing_time=processing_time,
+    )
+
+    logger.success(f"✓ ETF Fundamentalist complete: {ticker}")
+    return output
+
+
+# ============================================================================
 # Main Analysis Function
 # ============================================================================
 
@@ -1303,7 +1461,8 @@ def analyze_company(
     quarters: list = None,
     fiscal_year: int = None,
     mode: str = "ttm",
-    shared_swarm_data: dict = None  # NEW: Pre-fetched data from Manager
+    shared_swarm_data: dict = None,  # NEW: Pre-fetched data from Manager
+    etf_context: dict = None,
 ) -> FundamentalistOutput:
     """
     Analyze a company's financial health.
@@ -1314,6 +1473,8 @@ def analyze_company(
         fiscal_year: Fiscal year for annual mode (deprecated)
         mode: "ttm" or "annual" (default: "ttm")
         shared_swarm_data: Pre-fetched data bundle from Manager (NEW)
+        etf_context: ETF holdings/profile data from Manager (NEW). When provided,
+            bypasses SEC filing analysis and runs ETF holdings analysis instead.
 
     Returns:
         FundamentalistOutput with complete analysis
@@ -1321,6 +1482,9 @@ def analyze_company(
     Raises:
         ValueError: If analysis fails
     """
+    if etf_context is not None:
+        return _analyze_etf_holdings(ticker, etf_context)
+
     # Determine mode
     if fiscal_year is not None:
         mode = "annual"
