@@ -84,3 +84,63 @@ def test_logs_with_traceback_on_unexpected_exception(
         "synthetic failure" in (rec.exc_text or "") or "synthetic failure" in rec.message
         for rec in caplog.records
     )
+
+
+def test_link_conviction_failure_logs_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """link_conviction_to_position failures log a traceback via loguru.
+
+    This module uses loguru (not stdlib logging), so we attach a loguru sink
+    directly instead of relying on pytest's caplog. Loguru records carry
+    record["exception"] when emitted via logger.exception(...).
+    """
+    from research_swarm.logger import logger as loguru_logger
+    from research_swarm.reports.decision_intelligence_calculator import (
+        decision_intelligence_calculator,
+    )
+
+    def _boom(self, **kwargs):
+        raise ValueError("conviction boom")
+
+    monkeypatch.setattr(
+        type(decision_intelligence_calculator),
+        "link_conviction_to_position",
+        _boom,
+    )
+
+    captured: list[dict] = []
+
+    def _sink(message):
+        record = message.record
+        captured.append({
+            "level": record["level"].name,
+            "message": record["message"],
+            "exception": record["exception"],
+        })
+
+    sink_id = loguru_logger.add(_sink, level="ERROR")
+    try:
+        result = decision_intelligence_calculator.calculate_all(
+            current_price=100.0,
+            rating="HOLD",
+            risk_level="Medium",
+            moat_score=6.0,
+            conviction_level="Medium",
+            discount_to_target_pct=5.0,
+            entry_strategy={},
+            exit_plan={},
+            position_sizing={"recommended_pct": 5.0, "max_pct": 7.5},
+            price_targets={},
+            technical_indicators={},
+            signal_breakdown=None,
+        )
+    finally:
+        loguru_logger.remove(sink_id)
+
+    assert result["conviction_position"] is None
+    assert any(
+        rec["exception"] is not None
+        and "conviction boom" in (rec["exception"].value.args[0] if rec["exception"].value else "")
+        for rec in captured
+    ), f"expected loguru record with exception info, got: {captured}"
