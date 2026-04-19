@@ -101,7 +101,7 @@ export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
       {activePositions.length > 0 && (
         <div className="grid gap-2">
           {activePositions.map((pos) => {
-            const posActions = (feed?.actions ?? []).filter(a => a.ticker === pos.ticker)
+            const posActions = (feed?.actions ?? []).filter(a => a.ticker === pos.ticker && a.status === 'pending')
             return <PositionRow key={pos.ticker} portfolioId={portfolioId} position={pos} actions={posActions} />
           })}
         </div>
@@ -113,7 +113,7 @@ export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
           <div className="text-xs font-semibold uppercase tracking-wider text-text-tertiary pt-2">Watchlist</div>
           <div className="grid gap-2">
             {watchPositions.map((pos) => {
-              const posActions = (feed?.actions ?? []).filter(a => a.ticker === pos.ticker)
+              const posActions = (feed?.actions ?? []).filter(a => a.ticker === pos.ticker && a.status === 'pending')
               return <PositionRow key={pos.ticker} portfolioId={portfolioId} position={pos} actions={posActions} />
             })}
           </div>
@@ -323,10 +323,11 @@ function PositionRow({
     broken: 'text-error',
   }[position.thesis_state] || 'text-text-tertiary'
 
-  // Allocation vs target delta
+  // Allocation vs target delta — prefer engine_suggested_weight (PM conviction target)
   const allocationPct = position.allocation_pct !== null ? position.allocation_pct * 100 : null
-  const targetPct = position.target_weight * 100
-  const deltaPct = allocationPct !== null ? allocationPct - targetPct : null
+  const effectiveTarget = position.engine_suggested_weight ?? position.target_weight
+  const targetPct = effectiveTarget * 100
+  const deltaPct = allocationPct !== null && targetPct > 0 ? allocationPct - targetPct : null
   const deltaColor = deltaPct === null ? '' : deltaPct > 0 ? 'text-error' : 'text-success'
   const deltaText = deltaPct !== null
     ? `${deltaPct >= 0 ? '+' : ''}${deltaPct.toFixed(1)}%`
