@@ -56,6 +56,28 @@ def _parse_full_output(raw: Any, moat_score: float | None = None) -> dict:
 
     return fo
 
+
+def _moat_fallback_weight(moat_score: float | None) -> float | None:
+    """
+    Deterministic weight derivation from moat score alone.
+
+    Used when the DI enrichment pipeline fails to produce a conviction_position
+    with recommended_pct. Returns None for unknown / low-moat positions so the
+    engine does not override a user's deliberate 0% target.
+    """
+    if moat_score is None:
+        return None
+    if moat_score >= 8.5:
+        return 0.08
+    if moat_score >= 7.0:
+        return 0.06
+    if moat_score >= 5.0:
+        return 0.04
+    if moat_score >= 3.5:
+        return 0.02
+    return None
+
+
 ENGINE_VERSION = "4.0.0"
 
 
@@ -539,7 +561,8 @@ async def run_portfolio_engine(
         stock_result = results_map.get(pos.ticker)
         current_alloc = alloc_map.get(pos.ticker, 0.0)
 
-        # Extract engineSuggestedWeight from conviction_position.recommended_pct
+        # Extract engineSuggestedWeight from conviction_position.recommended_pct,
+        # falling back to moat-derived weight when DI is missing or incomplete.
         if stock_result and stock_result.fullOutput:
             fo = _parse_full_output(stock_result.fullOutput, stock_result.moatScore)
             di_block = fo.get("decision_intelligence") or {}
@@ -547,7 +570,28 @@ async def run_portfolio_engine(
             rec_pct = conv.get("recommended_pct")
             if rec_pct is not None:
                 suggested_weights[pos.ticker] = float(rec_pct) / 100.0
-                logger.info("Engine: %s suggested weight = %.1f%%", pos.ticker, float(rec_pct))
+                logger.info(
+                    "Engine: %s suggested weight = %.1f%% (source=DI)",
+                    pos.ticker,
+                    float(rec_pct),
+                )
+            else:
+                fallback = _moat_fallback_weight(stock_result.moatScore)
+                if fallback is not None:
+                    suggested_weights[pos.ticker] = fallback
+                    logger.info(
+                        "Engine: %s suggested weight = %.1f%% (source=moat_fallback, moat=%s)",
+                        pos.ticker,
+                        fallback * 100,
+                        stock_result.moatScore,
+                    )
+                else:
+                    logger.warning(
+                        "Engine: %s no suggested weight — no DI conviction and moat=%s "
+                        "(leaving targetWeight unchanged)",
+                        pos.ticker,
+                        stock_result.moatScore,
+                    )
 
         plan = generate_action_plan(pos, stock_result, current_alloc, portfolio_id)
 
