@@ -205,12 +205,9 @@ def test_fetch_swarm_data_node_uses_hybrid_provider_for_equity():
 
     mock_shared_data = {"price_data": {}, "is_foreign": False}
 
-    # Patch hybrid_provider where it's imported (inside the function)
-    with patch(
-        "research_swarm.data.data_provider_hybrid.hybrid_provider.get_complete_swarm_data",
-        return_value=mock_shared_data
-    ) as mock_hybrid:
+    with patch("research_swarm.data.data_provider_hybrid.hybrid_provider") as mock_hybrid:
+        mock_hybrid.get_complete_swarm_data.return_value = mock_shared_data
         result = fetch_swarm_data_node(state)
 
-    mock_hybrid.assert_called_once_with("NVDA", period="1y")
+    mock_hybrid.get_complete_swarm_data.assert_called_once_with("NVDA", period="1y")
     assert result["shared_swarm_data"] == mock_shared_data
