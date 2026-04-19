@@ -48,6 +48,20 @@ def extract_signal_from_full_output(
     quant = full_output.get("quant_output") or {}
     news = full_output.get("news_hound_output") or {}
 
+    # ── Report-level verdict and fair value — primary authority ──────────────
+    # verdict lives at the top level of fullOutput (set by decision_intelligence)
+    raw_verdict = (full_output.get("verdict") or "hold").lower()
+    # Normalise to the four values the engine understands
+    verdict = raw_verdict if raw_verdict in ("buy", "hold", "avoid", "sell") else "hold"
+
+    # fair_value from DCF in fundamentalist output
+    valuation = fund.get("valuation") or {}
+    fair_value = _safe_float(
+        valuation.get("fair_value")
+        or valuation.get("intrinsic_value")
+        or full_output.get("fair_value")
+    )
+
     # ── Financial metrics from fundamentalist ────────────────────────────────
     fm = fund.get("financial_metrics") or {}
 
@@ -107,6 +121,8 @@ def extract_signal_from_full_output(
         current_price=current_price,
         high_252d=high_252d,
         ma_200d=ma_200d,
+        verdict=verdict,
+        fair_value=fair_value,
     )
 
 

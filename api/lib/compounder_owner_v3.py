@@ -108,6 +108,9 @@ class SignalInput:
     current_price: float
     high_252d: Optional[float]       # 252-day high price
     ma_200d: Optional[float]         # 200-day moving average
+    # Report-level context — primary authority over mechanical rules
+    verdict: str = "hold"            # "buy" | "hold" | "avoid" | "sell"
+    fair_value: Optional[float] = None  # DCF fair value from report
 
 
 @dataclass
@@ -285,14 +288,21 @@ def compute_drawdown_adds(
 
         pos.last_drawdown = drawdown
 
-        # Fundamental validation gate (stricter than thesis break)
-        # Must have: rev growth >= 10% OR stable multi-quarter trend
-        # Must NOT have: structural deterioration
+        # Report verdict gates the add — don't buy more if analyst says avoid
+        verdict = (sig.verdict or "hold").lower()
+        if verdict in ("avoid", "sell"):
+            logger.info(
+                "%s: drawdown %.0f%% but report verdict is '%s' — skipping add",
+                ticker, drawdown * 100, verdict,
+            )
+            continue
+
+        # Fundamental validation gate — block adds on structural deterioration
         if _thesis_deteriorating(sig):
             continue
         rev = sig.revenue_growth_yoy
         if rev is not None and rev < 5.0 and sig.margin_trend == "contracting":
-            continue  # block add — fundamentals weakening
+            continue  # block add — fundamentals weakening despite drawdown
 
         # Apply each tier ONCE per cycle (cumulative)
         total_add = 0.0
@@ -303,12 +313,24 @@ def compute_drawdown_adds(
 
         if total_add > 0 and pos.weight < cfg.max_pos:
             target = min(pos.weight + total_add, cfg.max_pos)
+
+            # Build context-rich reason using report data
+            reason_parts = [f"Down {abs(drawdown):.0%} from 52-week high"]
+            if verdict == "buy":
+                reason_parts.append(f"report rates a BUY")
+            elif verdict == "hold":
+                reason_parts.append("report rates HOLD — thesis intact")
+            if sig.fair_value and sig.current_price > 0:
+                upside = (sig.fair_value / sig.current_price - 1) * 100
+                if upside > 0:
+                    reason_parts.append(f"{upside:.0f}% upside to fair value ${sig.fair_value:.0f}")
+
             actions.append(OwnerAction(
                 ticker=ticker,
                 action="ADD",
                 current_weight=pos.weight,
                 target_weight=target,
-                reason=f"Convex add: DD {drawdown:.0%}, +{total_add:.0%} (tiers: {len(pos.add_tiers_applied)})",
+                reason=f"Tier add: {', '.join(reason_parts)}. Adding +{total_add:.0%}.",
                 drawdown_pct=drawdown,
             ))
 
@@ -337,12 +359,21 @@ def compute_euphoria_trims(
         if (above_200dma >= cfg.euphoria_above_200dma
                 and pos.weight > cfg.euphoria_weight_threshold):
             target = max(pos.weight - cfg.euphoria_trim_pct, cfg.min_pos)
+
+            reason_parts = [f"Price is {above_200dma:.0%} above its 200-day average — historically extended"]
+            if sig.fair_value and sig.current_price > 0:
+                premium = (sig.current_price / sig.fair_value - 1) * 100
+                if premium > 0:
+                    reason_parts.append(f"trading {premium:.0f}% above report fair value ${sig.fair_value:.0f}")
+                else:
+                    reason_parts.append(f"still below fair value ${sig.fair_value:.0f} — trim lightly")
+
             actions.append(OwnerAction(
                 ticker=ticker,
                 action="TRIM",
                 current_weight=pos.weight,
                 target_weight=target,
-                reason=f"Price {above_200dma:.0%} above 200DMA, weight {pos.weight:.0%} > threshold",
+                reason=f"Trim into strength: {', '.join(reason_parts)}. Reduce by {cfg.euphoria_trim_pct:.0%}.",
             ))
 
     return actions
@@ -369,55 +400,95 @@ def compute_thesis_breaks(
     cfg: OwnerConfig,
 ) -> list[OwnerAction]:
     """
-    Full exit requires CONFIRMED thesis break — not single-quarter noise.
+    Exit requires a CONFIRMED thesis break that the report also acknowledges.
 
-    Three independent break conditions (any one triggers exit):
-      A) Growth Collapse: rev < 8% + negative revisions + margin contracting
-      B) Capital Destruction: ROIC < 12% (moat < 4) + margin deteriorating
-      C) Structural Break: moat collapse below 3.0 (severe)
+    The report verdict is the primary authority:
+    - If verdict is "buy" or "hold" → the analyst sees the same data and still
+      recommends holding. Do not exit on mechanical signals alone.
+    - If verdict is "avoid" or "sell" → the analyst agrees something is wrong.
+      Now check mechanical conditions as confirmation.
+    - Exception: moat < 3.0 is a structural break severe enough to override a
+      stale "hold" verdict.
 
-    Single-quarter slowdown is NOT a sell trigger.
+    Additional context gates:
+    - Already in a significant drawdown (< -20%): don't sell into weakness.
+      The time to exit was before the drawdown; selling now locks in losses.
+    - Price meaningfully below fair value (> 15% upside): report says undervalued,
+      don't exit even if metrics are soft.
     """
     actions = []
     for ticker, pos in positions.items():
         sig = signals_map.get(ticker)
         if sig is None:
-            # No completed analysis yet — hold, don't exit.
-            # User may have just added this position; run an analysis first.
             continue
 
-        # Condition A: Growth Collapse (requires 3 confirming signals)
+        verdict = sig.verdict.lower() if sig.verdict else "hold"
+        report_bearish = verdict in ("avoid", "sell")
+
+        # Mechanical break conditions
         rev = sig.revenue_growth_yoy
         growth_collapse = (
             rev is not None and rev < cfg.rev_growth_floor
             and not sig.eps_revision_positive
             and sig.margin_trend == "contracting"
         )
-
-        # Condition B: Capital Destruction (ROIC collapse + margin + leverage)
         capital_destruction = (
             sig.moat_score < 4.0
             and sig.margin_trend in ("contracting", "unknown")
-            and (sig.fcf_margin is not None and sig.fcf_margin < 0)
+            and sig.fcf_margin is not None and sig.fcf_margin < 0
         )
+        structural_break = sig.moat_score < 3.0  # severe — overrides verdict
 
-        # Condition C: Structural Break (severe moat collapse)
-        structural_break = sig.moat_score < 3.0
+        # No mechanical condition met → definitely hold
+        if not (growth_collapse or capital_destruction or structural_break):
+            continue
 
-        if growth_collapse or capital_destruction or structural_break:
-            reasons = []
-            if growth_collapse:
-                reasons.append(f"Growth collapse: rev {rev:.0f}% + neg revisions + margin contracting")
-            if capital_destruction:
-                reasons.append(f"Capital destruction: moat {sig.moat_score:.1f}, FCF margin {sig.fcf_margin:.0f}%")
-            if structural_break:
-                reasons.append(f"Structural break: moat {sig.moat_score:.1f} < 3.0")
+        # Structural break overrides everything — moat below 3 is unrecoverable
+        if not structural_break:
+            # Report still positive → analyst sees the same data and says hold/buy
+            if not report_bearish:
+                logger.info(
+                    "%s: mechanical break conditions met but report verdict is '%s' — holding",
+                    ticker, verdict,
+                )
+                continue
 
-            actions.append(OwnerAction(
-                ticker=ticker, action="SELL",
-                current_weight=pos.weight, target_weight=0.0,
-                reason="THESIS BREAK: " + "; ".join(reasons),
-            ))
+            # Already in a deep drawdown → selling now is locking in the loss.
+            # The right move was before the drawdown; now we hold or monitor.
+            if pos.last_drawdown < -0.20:
+                logger.info(
+                    "%s: break conditions met but already down %.0f%% — "
+                    "avoid selling into weakness, monitor instead",
+                    ticker, pos.last_drawdown * 100,
+                )
+                continue
+
+            # Price well below fair value → report says undervalued, hold
+            if (sig.fair_value and sig.current_price > 0
+                    and (sig.fair_value / sig.current_price - 1) > 0.15):
+                upside = sig.fair_value / sig.current_price - 1
+                logger.info(
+                    "%s: break conditions met but %.0f%% upside to fair value $%.0f — holding",
+                    ticker, upside * 100, sig.fair_value,
+                )
+                continue
+
+        # Build reason — explain what the report says, not just the metrics
+        reasons = []
+        if structural_break:
+            reasons.append(f"Moat score {sig.moat_score:.1f} — structural collapse (below 3.0)")
+        if growth_collapse:
+            reasons.append(f"Revenue growth {rev:.0f}%, negative analyst revisions, margins contracting")
+        if capital_destruction:
+            reasons.append(f"Moat {sig.moat_score:.1f}, FCF margin {sig.fcf_margin:.0f}% — capital destruction")
+
+        verdict_note = f"Report verdict: {verdict.upper()}" if report_bearish else "Report verdict overridden by structural break"
+
+        actions.append(OwnerAction(
+            ticker=ticker, action="SELL",
+            current_weight=pos.weight, target_weight=0.0,
+            reason=f"{verdict_note}. {'; '.join(reasons)}",
+        ))
 
     return actions
 

@@ -234,10 +234,11 @@ async def run_portfolio_engine(
         signal_snapshot = None
         if sig:
             signal_snapshot = {
+                "report_verdict": sig.verdict,
+                "fair_value": sig.fair_value,
                 "moat_score": sig.moat_score,
                 "current_price": sig.current_price,
                 "drawdown_pct": action.drawdown_pct,
-                "compounder_score": action.compounder_score,
                 "revenue_growth_yoy": sig.revenue_growth_yoy,
                 "margin_trend": sig.margin_trend,
                 "high_252d": sig.high_252d,
