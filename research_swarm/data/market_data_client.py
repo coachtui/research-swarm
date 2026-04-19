@@ -1112,6 +1112,94 @@ class MarketDataClient:
             pass
         return None
 
+    def get_etf_info(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch ETF-specific data: holdings, expense ratio, AUM, returns.
+
+        Cached for 1 day (ETF profile changes slowly intraday).
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_etf_info"
+
+        cached = cache.get("etf_profile", cache_key)
+        if cached:
+            logger.debug(f"Using cached ETF info for {ticker}")
+            return cached
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+
+            stock = yf.Ticker(ticker)
+            info = stock.info
+
+            if not info:
+                logger.warning(f"No ETF info returned for {ticker}")
+                return None
+
+            # AUM: totalAssets in raw dollars → billions
+            total_assets = info.get("totalAssets")
+            aum_billions = round(total_assets / 1_000_000_000, 2) if total_assets else None
+
+            # Expense ratio: annualReportExpenseRatio is a fraction (0.000945 = 0.0945%)
+            raw_expense = info.get("annualReportExpenseRatio") or info.get("annualExpenseRatio")
+            expense_ratio = round(raw_expense * 100, 4) if raw_expense else None
+
+            # Top holdings via funds_data
+            top_holdings = []
+            try:
+                holdings_data = stock.funds_data.top_holdings
+                if holdings_data is not None:
+                    for holding in holdings_data[:10]:
+                        if isinstance(holding, dict):
+                            top_holdings.append({
+                                "symbol": holding.get("symbol", ""),
+                                "name": holding.get("longName") or holding.get("holdingName", ""),
+                                "weight_pct": round(holding.get("holdingPercent", 0) * 100, 2),
+                            })
+            except Exception as e:
+                logger.warning(f"Could not fetch holdings for {ticker}: {e}")
+
+            # Sector weights via funds_data
+            sector_weights = {}
+            try:
+                sector_data = stock.funds_data.sector_weightings
+                if sector_data is not None:
+                    for sector_item in sector_data:
+                        if isinstance(sector_item, dict):
+                            name = sector_item.get("sector", "")
+                            weight = sector_item.get("exposure", 0)
+                            if name:
+                                sector_weights[name] = round(weight * 100, 2)
+            except Exception as e:
+                logger.warning(f"Could not fetch sector weights for {ticker}: {e}")
+
+            result = {
+                "ticker": ticker,
+                "fund_name": info.get("shortName") or info.get("longName", ticker),
+                "fund_family": info.get("fundFamily"),
+                "category": info.get("category"),
+                "aum_billions": aum_billions,
+                "expense_ratio": expense_ratio,
+                "nav_price": info.get("navPrice") or info.get("regularMarketPrice"),
+                "current_price": info.get("regularMarketPrice"),
+                "52w_high": info.get("fiftyTwoWeekHigh"),
+                "52w_low": info.get("fiftyTwoWeekLow"),
+                "ytd_return": round(info.get("ytdReturn", 0) * 100, 2) if info.get("ytdReturn") else None,
+                "1y_return": round(info.get("oneYearAverageReturn", 0) * 100, 2) if info.get("oneYearAverageReturn") else None,
+                "3y_return": round(info.get("threeYearAverageReturn", 0) * 100, 2) if info.get("threeYearAverageReturn") else None,
+                "5y_return": round(info.get("fiveYearAverageReturn", 0) * 100, 2) if info.get("fiveYearAverageReturn") else None,
+                "top_holdings": top_holdings,
+                "sector_weights": sector_weights,
+            }
+
+            cache.set("etf_profile", cache_key, result, ttl_days=1)
+            logger.info(f"Fetched ETF info for {ticker}: AUM=${aum_billions}B, {len(top_holdings)} holdings")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error fetching ETF info for {ticker}: {e}")
+            return None
+
 
 # Global instance
 market_data_client = MarketDataClient()

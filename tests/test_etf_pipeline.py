@@ -1,6 +1,8 @@
 import pytest
 from pydantic import ValidationError
 from research_swarm.agents.manager.models import ETFManagerOutput
+from unittest.mock import patch, MagicMock
+from research_swarm.data.market_data_client import MarketDataClient
 
 
 def test_etf_manager_output_valid():
@@ -69,3 +71,77 @@ def test_etf_manager_output_score_bounds():
             investment_thesis="thesis",
             watchlist_candidate=False,
         )
+
+
+def test_get_etf_info_returns_expected_fields():
+    from research_swarm.data import cache as data_cache
+    client = MarketDataClient()
+
+    mock_info = {
+        "shortName": "SPDR S&P 500 ETF Trust",
+        "totalAssets": 512_000_000_000,
+        "annualReportExpenseRatio": 0.000945,
+        "ytdReturn": 0.085,
+        "threeYearAverageReturn": 0.124,
+        "fiveYearAverageReturn": 0.142,
+        "fiftyTwoWeekHigh": 598.40,
+        "fiftyTwoWeekLow": 490.21,
+        "regularMarketPrice": 542.10,
+        "category": "Large Blend",
+        "fundFamily": "State Street",
+        "navPrice": 542.05,
+    }
+
+    mock_holdings = [
+        {"symbol": "AAPL", "holdingPercent": 0.072},
+        {"symbol": "MSFT", "holdingPercent": 0.068},
+        {"symbol": "NVDA", "holdingPercent": 0.051},
+        {"symbol": "AMZN", "holdingPercent": 0.039},
+        {"symbol": "GOOGL", "holdingPercent": 0.037},
+    ]
+
+    mock_ticker = MagicMock()
+    mock_ticker.info = mock_info
+    mock_ticker.funds_data = MagicMock()
+    mock_ticker.funds_data.top_holdings = mock_holdings
+    mock_ticker.funds_data.sector_weightings = []
+
+    with patch("yfinance.Ticker", return_value=mock_ticker), \
+         patch.object(data_cache, "get", return_value=None), \
+         patch.object(data_cache, "set"):
+        result = client.get_etf_info("SPY")
+
+    assert result is not None
+    assert result["fund_name"] == "SPDR S&P 500 ETF Trust"
+    assert result["aum_billions"] == pytest.approx(512.0, abs=1.0)
+    assert result["expense_ratio"] == pytest.approx(0.0945, abs=0.001)
+    assert len(result["top_holdings"]) == 5
+    assert result["top_holdings"][0]["symbol"] == "AAPL"
+    assert result["ytd_return"] == pytest.approx(8.5, abs=0.1)
+
+
+def test_get_etf_info_returns_none_on_empty_info():
+    from research_swarm.data import cache as data_cache
+    client = MarketDataClient()
+
+    mock_ticker = MagicMock()
+    mock_ticker.info = {}
+
+    with patch("yfinance.Ticker", return_value=mock_ticker), \
+         patch.object(data_cache, "get", return_value=None):
+        result = client.get_etf_info("FAKE")
+
+    assert result is None
+
+
+def test_get_etf_info_uses_cache():
+    from research_swarm.data import cache as data_cache
+    client = MarketDataClient()
+
+    cached_data = {"ticker": "SPY", "fund_name": "SPY ETF", "aum_billions": 500.0}
+
+    with patch.object(data_cache, "get", return_value=cached_data) as mock_cache_get:
+        result = client.get_etf_info("SPY")
+
+    assert result == cached_data
+    mock_cache_get.assert_called_once_with("etf_profile", "SPY_etf_info")
