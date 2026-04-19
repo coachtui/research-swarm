@@ -89,7 +89,8 @@ def call_fundamentalist_node(state: ManagerState) -> dict:
             ticker=state["ticker"],
             quarters=state.get("quarters"),
             fiscal_year=state.get("fiscal_year"),  # Backward compatibility
-            shared_swarm_data=state.get("shared_swarm_data")  # NEW: Pass pre-fetched data
+            shared_swarm_data=state.get("shared_swarm_data"),  # NEW: Pass pre-fetched data
+            etf_context=state["shared_swarm_data"].get("etf_data") if state.get("is_etf") else None,
         )
 
         logger.success(
@@ -128,7 +129,8 @@ def call_news_hound_node(state: ManagerState) -> dict:
         news_hound_output = analyze_company_news(
             ticker=state["ticker"],
             days_back=state["news_days_back"],
-            shared_swarm_data=state.get("shared_swarm_data")  # NEW: Pass pre-fetched data
+            shared_swarm_data=state.get("shared_swarm_data"),  # Pass pre-fetched data
+            etf_context=state["shared_swarm_data"].get("etf_data") if state.get("is_etf") else None,  # Pass ETF sector context if available
         )
 
         logger.success(

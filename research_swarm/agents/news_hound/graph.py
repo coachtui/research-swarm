@@ -946,14 +946,20 @@ def build_news_hound_graph() -> StateGraph:
 # Main Analysis Function
 # ============================================================================
 
-def analyze_company_news(ticker: str, days_back: int = 30, shared_swarm_data: dict = None) -> NewsHoundOutput:
+def analyze_company_news(
+    ticker: str,
+    days_back: int = 30,
+    shared_swarm_data: dict = None,
+    etf_context: dict = None,
+) -> NewsHoundOutput:
     """
-    Analyze news sentiment and catalysts for a company.
+    Analyze news sentiment and catalysts for a company or ETF.
 
     Args:
-        ticker: Stock ticker (e.g., "NVDA")
+        ticker: Stock ticker (e.g., "NVDA") or ETF symbol (e.g., "SPY")
         days_back: Number of days to look back (default 30)
-        shared_swarm_data: Pre-fetched data bundle from Manager (NEW)
+        shared_swarm_data: Pre-fetched data bundle from Manager
+        etf_context: Optional ETF context dict with fund_name and sector_weights (for ETF mode)
 
     Returns:
         NewsHoundOutput with complete analysis
@@ -964,6 +970,25 @@ def analyze_company_news(ticker: str, days_back: int = 30, shared_swarm_data: di
     logger.info(f"=== Analyzing news for {ticker} (last {days_back} days) ===")
 
     start_time = time.time()
+
+    # ETF mode: build sector context to enrich news analysis
+    etf_system_addendum = ""
+    if etf_context:
+        fund_name = etf_context.get("fund_name", ticker)
+        sector_weights = etf_context.get("sector_weights", {})
+        top_sectors = sorted(sector_weights.items(), key=lambda x: x[1], reverse=True)[:2]
+        sector_names = [s[0] for s in top_sectors]
+        etf_system_addendum = f"""
+
+IMPORTANT: You are analyzing an ETF ({ticker} — {fund_name}), not a single company.
+Focus on:
+- Sector-level macro events, policy changes, and rate environment impacts for sectors: {', '.join(sector_names)}
+- Fund flow trends for this ETF or sector
+- Earnings cycle momentum for the underlying sector
+- Regulatory or thematic tailwinds/headwinds for this sector
+Do NOT focus on individual company earnings unless it represents a major sector theme."""
+
+        logger.info(f"[ETF News Hound] Enriched with sector context: {sector_names}")
 
     # Initialize state
     initial_state: NewsHoundState = {
@@ -985,6 +1010,7 @@ def analyze_company_news(ticker: str, days_back: int = 30, shared_swarm_data: di
         "processing_time": None,
         "cost_estimate": None,
         "shared_swarm_data": shared_swarm_data,  # NEW: Pre-fetched data from Manager
+        "etf_system_addendum": etf_system_addendum,  # NEW: ETF sector context enrichment
     }
 
     # Build and run workflow

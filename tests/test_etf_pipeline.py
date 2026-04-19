@@ -187,6 +187,37 @@ def test_fetch_swarm_data_node_branches_on_is_etf():
     assert result.get("status") != "error"
 
 
+def test_analyze_company_routes_to_etf_holdings_when_etf_context_provided():
+    from research_swarm.agents.fundamentalist.graph import analyze_company
+
+    etf_context = {
+        "ticker": "SPY",
+        "fund_name": "SPDR S&P 500 ETF Trust",
+        "aum_billions": 512.3,
+        "expense_ratio": 0.0945,
+        "top_holdings": [{"symbol": "AAPL", "weight_pct": 7.2}],
+        "sector_weights": {"Technology": 31.2},
+        "ytd_return": 8.5,
+        "3y_return": 12.4,
+        "5y_return": 14.2,
+        "current_price": 542.10,
+        "52w_high": 598.40,
+        "52w_low": 490.21,
+    }
+
+    mock_output = MagicMock()
+    mock_output.financial_health_score = 7.5
+
+    with patch(
+        "research_swarm.agents.fundamentalist.graph._analyze_etf_holdings",
+        return_value=mock_output
+    ) as mock_etf_fn:
+        result = analyze_company(ticker="SPY", etf_context=etf_context)
+
+    mock_etf_fn.assert_called_once_with("SPY", etf_context)
+    assert result == mock_output
+
+
 def test_fetch_swarm_data_node_uses_hybrid_provider_for_equity():
     from research_swarm.agents.manager.graph import fetch_swarm_data_node
 
@@ -211,3 +242,12 @@ def test_fetch_swarm_data_node_uses_hybrid_provider_for_equity():
 
     mock_hybrid.get_complete_swarm_data.assert_called_once_with("NVDA", period="1y")
     assert result["shared_swarm_data"] == mock_shared_data
+
+
+def test_analyze_company_news_accepts_etf_context():
+    """Test that analyze_company_news accepts etf_context parameter."""
+    from research_swarm.agents.news_hound.graph import analyze_company_news
+    import inspect
+
+    sig = inspect.signature(analyze_company_news)
+    assert "etf_context" in sig.parameters, "analyze_company_news should accept etf_context param"

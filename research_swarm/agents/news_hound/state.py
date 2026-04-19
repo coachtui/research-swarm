@@ -20,6 +20,7 @@ class NewsHoundState(TypedDict, total=False):
 
     # Shared data layer (NEW: eliminates redundant API calls)
     shared_swarm_data: Optional[Dict[str, Any]]  # Pre-fetched data bundle from Manager
+    etf_system_addendum: Optional[str]  # ETF sector context enrichment for LLM prompts
 
     # Status tracking
     status: str  # Current workflow status: "initialized", "fetching", "filtering", "extracting", "analyzing", "scoring", "completed", "error"
