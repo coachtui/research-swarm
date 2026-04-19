@@ -150,3 +150,67 @@ def test_get_etf_info_uses_cache():
 
     assert result == cached_data
     mock_cache_get.assert_called_once_with("etf_profile", "SPY_etf_info")
+
+
+def test_fetch_swarm_data_node_branches_on_is_etf():
+    from research_swarm.agents.manager.graph import fetch_swarm_data_node
+
+    mock_etf_info = {
+        "ticker": "SPY",
+        "fund_name": "SPDR S&P 500 ETF",
+        "aum_billions": 512.3,
+        "expense_ratio": 0.0945,
+        "top_holdings": [{"symbol": "AAPL", "weight_pct": 7.2}],
+        "sector_weights": {"Technology": 31.2},
+    }
+
+    state = {
+        "ticker": "SPY",
+        "is_etf": True,
+        "status": "initialized",
+        "tokens_used": 0,
+        "node_timestamps": {},
+        "quarters": [],
+        "news_days_back": 30,
+        "analysis_date": "2026-04-19",
+        "analysis_period": "Current",
+        "etf_synthesis": None,
+    }
+
+    # Patch the imported market_data_client singleton instance
+    with patch("research_swarm.agents.manager.graph.market_data_client") as mock_client:
+        mock_client.get_etf_info.return_value = mock_etf_info
+        result = fetch_swarm_data_node(state)
+
+    assert result["shared_swarm_data"]["etf_data"] == mock_etf_info
+    assert result["shared_swarm_data"]["is_etf"] is True
+    assert result.get("status") != "error"
+
+
+def test_fetch_swarm_data_node_uses_hybrid_provider_for_equity():
+    from research_swarm.agents.manager.graph import fetch_swarm_data_node
+
+    state = {
+        "ticker": "NVDA",
+        "is_etf": False,
+        "status": "initialized",
+        "tokens_used": 0,
+        "node_timestamps": {},
+        "quarters": [],
+        "news_days_back": 30,
+        "analysis_date": "2026-04-19",
+        "analysis_period": "TTM",
+        "etf_synthesis": None,
+    }
+
+    mock_shared_data = {"price_data": {}, "is_foreign": False}
+
+    # Patch hybrid_provider where it's imported (inside the function)
+    with patch(
+        "research_swarm.data.data_provider_hybrid.hybrid_provider.get_complete_swarm_data",
+        return_value=mock_shared_data
+    ) as mock_hybrid:
+        result = fetch_swarm_data_node(state)
+
+    mock_hybrid.assert_called_once_with("NVDA", period="1y")
+    assert result["shared_swarm_data"] == mock_shared_data

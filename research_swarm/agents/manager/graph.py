@@ -14,6 +14,7 @@ from research_swarm.agents.fundamentalist import analyze_company, Fundamentalist
 from research_swarm.agents.news_hound import analyze_company_news, NewsHoundOutput
 from research_swarm.agents.quant import analyze_quant, QuantOutput
 from research_swarm.orchestration.cost_tracker import CostTracker
+from research_swarm.data.market_data_client import market_data_client
 
 from .state import ManagerState
 from .analyzer import ManagerAnalyzer
@@ -32,37 +33,35 @@ manager_scorer = ManagerScorer()
 # ============================================================================
 
 def fetch_swarm_data_node(state: ManagerState) -> ManagerState:
-    """
-    Node 0: Pre-fetch ALL data for all agents (NEW).
-
-    Eliminates redundant API calls by fetching all data once before agent execution.
-    This single fetch replaces ~15+ individual API calls across agents.
-
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with shared_swarm_data containing complete data bundle
-    """
-    from research_swarm.data.data_provider_hybrid import hybrid_provider
-
-    logger.info(f"[Node 0] Pre-fetching swarm data for {state['ticker']}")
+    """Node 0: Pre-fetch ALL data for all agents."""
+    is_etf = state.get("is_etf", False)
+    logger.info(f"[Node 0] Pre-fetching swarm data for {state['ticker']} (is_etf={is_etf})")
 
     state["status"] = "fetching_data"
     state["node_timestamps"] = {**state.get("node_timestamps", {}), "fetch_swarm_data": time.time()}
 
     try:
-        # Fetch complete data bundle for all agents
-        period = "1y"  # Historical data period for Quant agent
-        shared_data = hybrid_provider.get_complete_swarm_data(state["ticker"], period=period)
+        if is_etf:
+            # ETF path: fetch holdings, AUM, expense ratio, sector weights
+            etf_data = market_data_client.get_etf_info(state["ticker"])
+            if not etf_data:
+                raise ValueError(f"Could not fetch ETF info for {state['ticker']}")
 
-        # Store in state for agents to consume
-        state["shared_swarm_data"] = shared_data
-
-        logger.success(
-            f"✓ Swarm data fetched: {state['ticker']} "
-            f"(Foreign: {shared_data.get('is_foreign', False)})"
-        )
+            state["shared_swarm_data"] = {
+                "is_etf": True,
+                "etf_data": etf_data,
+            }
+            logger.success(f"✓ ETF data fetched: {state['ticker']} AUM=${etf_data.get('aum_billions')}B")
+        else:
+            # Equity path: existing hybrid provider fetch
+            from research_swarm.data.data_provider_hybrid import hybrid_provider
+            period = "1y"
+            shared_data = hybrid_provider.get_complete_swarm_data(state["ticker"], period=period)
+            state["shared_swarm_data"] = shared_data
+            logger.success(
+                f"✓ Swarm data fetched: {state['ticker']} "
+                f"(Foreign: {shared_data.get('is_foreign', False)})"
+            )
 
     except Exception as e:
         logger.error(f"Failed to fetch swarm data for {state['ticker']}: {e}")
