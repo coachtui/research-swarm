@@ -7,6 +7,7 @@ def test_etf_manager_output_valid():
     output = ETFManagerOutput(
         ticker="SPY",
         fund_name="SPDR S&P 500 ETF Trust",
+        analysis_date="2026-04-19",
         allocation_recommendation="BUY",
         concentration_risk=3.5,
         sector_momentum=7.2,
@@ -31,6 +32,7 @@ def test_etf_manager_output_invalid_recommendation():
         ETFManagerOutput(
             ticker="SPY",
             fund_name="SPDR S&P 500 ETF",
+            analysis_date="2026-04-19",
             allocation_recommendation="SELL",  # not a valid value
             concentration_risk=3.5,
             sector_momentum=7.2,
@@ -52,6 +54,7 @@ def test_etf_manager_output_score_bounds():
         ETFManagerOutput(
             ticker="QQQ",
             fund_name="Invesco QQQ",
+            analysis_date="2026-04-19",
             allocation_recommendation="HOLD",
             concentration_risk=11.0,  # > 10 — invalid
             sector_momentum=5.0,

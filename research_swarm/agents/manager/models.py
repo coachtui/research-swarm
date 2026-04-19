@@ -354,7 +354,7 @@ class ETFManagerOutput(BaseModel):
     # Identification
     ticker: str = Field(..., description="ETF ticker symbol")
     fund_name: str = Field(..., description="Full fund name")
-    analysis_date: str = Field(default="", description="Date of analysis (YYYY-MM-DD)")
+    analysis_date: str = Field(..., description="Date of analysis (YYYY-MM-DD)")
 
     # Core recommendation
     allocation_recommendation: Literal["BUY", "HOLD", "REDUCE"] = Field(
@@ -368,12 +368,12 @@ class ETFManagerOutput(BaseModel):
     sentiment_score: float = Field(..., ge=0, le=10, description="News and analyst sentiment score")
 
     # Holdings and composition
-    top_holdings_summary: List[str] = Field(..., description="Top 5 holdings with weight percentages")
+    top_holdings_summary: List[str] = Field(..., min_length=1, description="Top 5 holdings with weight percentages")
     sector_breakdown: Dict[str, float] = Field(..., description="Sector allocation percentages")
 
     # Fund fundamentals
-    expense_ratio: float = Field(..., description="Annual expense ratio as a percentage (e.g., 0.0945 for 0.0945%)")
-    aum_billions: float = Field(..., description="Assets under management in billions USD")
+    expense_ratio: float = Field(..., ge=0, description="Annual expense ratio as a percentage")
+    aum_billions: float = Field(..., ge=0, description="Assets under management in billions USD")
 
     # Qualitative analysis
     pros: List[str] = Field(..., min_length=1, description="Investment positives")
@@ -390,3 +390,32 @@ class ETFManagerOutput(BaseModel):
         default_factory=lambda: {"fundamentalist": 0.0, "news_hound": 0.0, "quant": 0.0, "manager": 0.0},
         description="Cost per agent in USD"
     )
+
+    @field_validator("pros", "cons")
+    @classmethod
+    def validate_list_items_not_empty(cls, v: List[str]) -> List[str]:
+        """Ensure all list items are non-empty strings."""
+        if not v:
+            raise ValueError("List cannot be empty")
+        for item in v:
+            if not item or not item.strip():
+                raise ValueError("List items cannot be empty strings")
+        return v
+
+    @model_validator(mode='after')
+    def validate_watchlist_threshold(self):
+        """
+        Ensure watchlist candidate flag matches the threshold.
+        Auto-correct flag if it doesn't match macro alignment score.
+        """
+        from research_swarm.logger import logger
+
+        expected = self.macro_alignment_score >= 7.5
+        if self.watchlist_candidate != expected:
+            logger.warning(
+                f"watchlist_candidate {self.watchlist_candidate} does not match "
+                f"macro_alignment_score {self.macro_alignment_score} (threshold >= 7.5). "
+                f"Auto-correcting to {expected}."
+            )
+            self.watchlist_candidate = expected
+        return self
