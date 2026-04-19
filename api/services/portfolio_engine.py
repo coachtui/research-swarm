@@ -234,7 +234,7 @@ def generate_action_plan(
     snapshot = _build_signal_snapshot(di, current_alloc)
 
     # ── Watch-only position (no shares held) ────────────────────────────────
-    is_watch = (position.shares or 0.0) == 0.0 or position.ownershipStatus == "watch"
+    is_watch = (position.shares or 0.0) == 0.0
 
     if is_watch:
         return _watch_only_plan(di, price, snapshot, _action)
@@ -508,10 +508,19 @@ async def run_portfolio_engine(
     # 6. Generate and persist actions per position
     actions_created = 0
     thesis_breaks: set[str] = set()
+    suggested_weights: dict[str, float] = {}  # ticker → engineSuggestedWeight (fraction)
 
     for pos in portfolio.positions:
         stock_result = results_map.get(pos.ticker)
         current_alloc = alloc_map.get(pos.ticker, 0.0)
+
+        # Extract engineSuggestedWeight from conviction_position.recommended_pct
+        if stock_result and isinstance(stock_result.fullOutput, dict):
+            di_block = stock_result.fullOutput.get("decision_intelligence") or {}
+            conv = di_block.get("conviction_position") or {}
+            rec_pct = conv.get("recommended_pct")
+            if rec_pct is not None:
+                suggested_weights[pos.ticker] = float(rec_pct) / 100.0
 
         plan = generate_action_plan(pos, stock_result, current_alloc, portfolio_id)
 
@@ -532,8 +541,10 @@ async def run_portfolio_engine(
             if action_dict["actionType"] == "TRIM_THESIS":
                 thesis_breaks.add(pos.ticker)
 
-    # 7. Update position thesis states
-    await _update_position_states(db, portfolio_id, portfolio.positions, thesis_breaks)
+    # 7. Update position thesis states + engineSuggestedWeight
+    await _update_position_states(
+        db, portfolio_id, portfolio.positions, thesis_breaks, suggested_weights
+    )
 
     return {
         "portfolio_id": portfolio_id,
@@ -554,25 +565,35 @@ async def _update_position_states(
     portfolio_id: str,
     positions,
     thesis_breaks: set[str],
+    suggested_weights: dict[str, float] | None = None,
 ) -> None:
     """
-    Update thesisState based on engine output.
+    Update thesisState and engineSuggestedWeight based on engine output.
 
-    Positions with a TRIM_THESIS action → 'at_risk'.
-    Positions without a thesis break (but with a report) → 'intact'.
-    Positions without a report → unchanged (don't auto-break on missing data).
+    - engineSuggestedWeight: set from report's conviction_position.recommended_pct
+    - Positions with a TRIM_THESIS action → thesisState = 'at_risk'
+    - Positions without a break (but with a report) → thesisState = 'intact'
+    - Positions without a report → unchanged (don't auto-break on missing data)
     """
+    suggested_weights = suggested_weights or {}
+
     for pos in positions:
+        update_data: dict = {}
+
+        # Write engineSuggestedWeight from report (always, if we have it)
+        if pos.ticker in suggested_weights:
+            update_data["engineSuggestedWeight"] = suggested_weights[pos.ticker]
+
         if pos.ticker in thesis_breaks:
-            await db.position.update(
-                where={"id": pos.id},
-                data={"thesisState": "at_risk"},
-            )
-        elif pos.thesisState in ("broken", "disqualified"):
+            update_data["thesisState"] = "at_risk"
+        elif pos.thesisState in ("broken", "disqualified", "at_risk"):
             # Auto-heal if no break fired this run
+            update_data["thesisState"] = "intact"
+
+        if update_data:
             await db.position.update(
                 where={"id": pos.id},
-                data={"thesisState": "intact", "ownershipStatus": "watch"},
+                data=update_data,
             )
 
 
