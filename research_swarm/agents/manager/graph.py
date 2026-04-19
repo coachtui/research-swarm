@@ -90,7 +90,7 @@ def call_fundamentalist_node(state: ManagerState) -> dict:
             quarters=state.get("quarters"),
             fiscal_year=state.get("fiscal_year"),  # Backward compatibility
             shared_swarm_data=state.get("shared_swarm_data"),  # NEW: Pass pre-fetched data
-            etf_context=state["shared_swarm_data"].get("etf_data") if state.get("is_etf") else None,
+            etf_context=state.get("shared_swarm_data", {}).get("etf_data") if state.get("is_etf") else None,
         )
 
         logger.success(
@@ -130,7 +130,7 @@ def call_news_hound_node(state: ManagerState) -> dict:
             ticker=state["ticker"],
             days_back=state["news_days_back"],
             shared_swarm_data=state.get("shared_swarm_data"),  # Pass pre-fetched data
-            etf_context=state["shared_swarm_data"].get("etf_data") if state.get("is_etf") else None,  # Pass ETF sector context if available
+            etf_context=state.get("shared_swarm_data", {}).get("etf_data") if state.get("is_etf") else None,  # Pass ETF sector context if available
         )
 
         logger.success(
@@ -185,7 +185,7 @@ def call_quant_node(state: ManagerState) -> dict:
             supply_chain_depth=0,  # Disable supply chain analysis
             fundamentalist_supply_chain=None,  # Don't pass supply chain data
             shared_swarm_data=state.get("shared_swarm_data"),  # NEW: Pass pre-fetched data
-            etf_context=state.get("shared_swarm_data", {}).get("etf_data") if state.get("shared_swarm_data") else None,  # NEW: Pass ETF context
+            etf_context=state.get("shared_swarm_data", {}).get("etf_data") if state.get("is_etf") else None,
         )
 
         logger.success(
