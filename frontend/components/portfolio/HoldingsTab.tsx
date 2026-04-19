@@ -41,8 +41,8 @@ export function HoldingsTab({ portfolioId }: { portfolioId: string }) {
     ? [...portfolio.positions].sort((a, b) => (b.allocation_pct ?? -1) - (a.allocation_pct ?? -1))
     : []
 
-  const activePositions = sorted.filter(p => p.ownership_status !== 'watch')
-  const watchPositions = sorted.filter(p => p.ownership_status === 'watch')
+  const activePositions = sorted.filter(p => (p.shares ?? 0) > 0)
+  const watchPositions = sorted.filter(p => (p.shares ?? 0) === 0)
 
   return (
     <div className="space-y-3">
