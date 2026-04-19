@@ -1382,7 +1382,11 @@ Return ONLY the JSON object, no markdown."""
             raw_text = raw_text[4:]
         raw_text = raw_text.strip()
 
-    analysis = json.loads(raw_text)
+    try:
+        analysis = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        logger.error(f"[ETF Fundamentalist] JSON parse failed for {ticker}. Raw: {raw_text[:200]!r}")
+        raise ValueError(f"LLM returned unparseable JSON: {exc}") from exc
     processing_time = time.time() - start_time
 
     # Map ETF scores to FundamentalistOutput fields.
@@ -1390,10 +1394,10 @@ Return ONLY the JSON object, no markdown."""
     # earnings_momentum_score → fund flow momentum
     # valuation_score → ETF valuation attractiveness
     # concentration_risk_score → balance sheet proxy (diversification)
-    financial_health_score = float(analysis["financial_health_score"])
-    earnings_momentum_score = float(analysis["earnings_momentum_score"])
-    valuation_score_val = float(analysis["valuation_score"])
-    concentration_score = float(analysis["concentration_risk_score"])
+    financial_health_score = float(analysis.get("financial_health_score", 5.0))
+    earnings_momentum_score = float(analysis.get("earnings_momentum_score", 5.0))
+    valuation_score_val = float(analysis.get("valuation_score", 5.0))
+    concentration_score = float(analysis.get("concentration_risk_score", 5.0))
 
     # Build ScoreBreakdown: map ETF dimensions to equity score fields
     # profitability → macro alignment (financial_health_score)
