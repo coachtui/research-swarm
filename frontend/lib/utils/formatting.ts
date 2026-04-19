@@ -141,7 +141,7 @@ export function truncate(text: string, maxLength: number): string {
  * Validate ticker format (1-10 uppercase letters)
  */
 export function isValidTicker(ticker: string): boolean {
-  return /^[A-Z]{1,10}$/.test(ticker)
+  return /^[A-Z]{1,5}([-.][A-Z]{1,2})?$/.test(ticker)
 }
 
 /**
