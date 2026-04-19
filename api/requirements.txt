@@ -15,4 +15,4 @@ python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 
 # Include all core research_swarm dependencies
--r requirements.txt
+-r ../requirements.txt
