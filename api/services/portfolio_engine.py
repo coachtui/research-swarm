@@ -29,16 +29,32 @@ from api.lib.db import get_db
 logger = logging.getLogger(__name__)
 
 
-def _parse_full_output(raw: Any) -> dict:
-    """Parse fullOutput — stored as a JSON string in the DB, not a dict."""
+def _parse_full_output(raw: Any, moat_score: float | None = None) -> dict:
+    """
+    Parse fullOutput from DB (stored as JSON string) and apply DI enrichment if needed.
+
+    decision_intelligence is computed on-the-fly in the runs endpoint but never
+    persisted. We re-apply the enrichment here so the engine can read conviction
+    weights, tranche plans, and thesis break conditions.
+    """
     if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
+        fo = raw
+    elif isinstance(raw, str):
         try:
-            return json.loads(raw)
+            fo = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
-            pass
-    return {}
+            return {}
+    else:
+        return {}
+
+    if not fo.get("decision_intelligence") and moat_score is not None:
+        try:
+            from api.lib.decision_intelligence import enrich_with_decision_intelligence
+            fo = enrich_with_decision_intelligence(fo, moat_score)
+        except Exception as exc:
+            logger.warning("DI enrichment failed in engine: %s", exc)
+
+    return fo
 
 ENGINE_VERSION = "4.0.0"
 
@@ -224,7 +240,7 @@ def generate_action_plan(
             reason_codes=["no_analysis"],
         )]
 
-    full_output = _parse_full_output(stock_result.fullOutput)
+    full_output = _parse_full_output(stock_result.fullOutput, stock_result.moatScore)
 
     # If the report has no decision_intelligence (very old format), fall back minimally
     di_block = full_output.get("decision_intelligence")
@@ -525,7 +541,7 @@ async def run_portfolio_engine(
 
         # Extract engineSuggestedWeight from conviction_position.recommended_pct
         if stock_result and stock_result.fullOutput:
-            fo = _parse_full_output(stock_result.fullOutput)
+            fo = _parse_full_output(stock_result.fullOutput, stock_result.moatScore)
             di_block = fo.get("decision_intelligence") or {}
             conv = di_block.get("conviction_position") or {}
             rec_pct = conv.get("recommended_pct")
@@ -622,13 +638,13 @@ def classify_posture(position, current_alloc: float, stock_result) -> str:
 
     Returns one of: watch_only | thesis_at_risk | over_cap | below_target | at_target | hold
     """
-    if (position.shares or 0.0) == 0.0 or position.ownershipStatus == "watch":
+    if (position.shares or 0.0) == 0.0:
         return "watch_only"
 
     if not stock_result or not stock_result.fullOutput:
         return "hold"
 
-    fo = _parse_full_output(stock_result.fullOutput)
+    fo = _parse_full_output(stock_result.fullOutput, stock_result.moatScore)
     di_block = fo.get("decision_intelligence")
     if not di_block:
         return "hold"
