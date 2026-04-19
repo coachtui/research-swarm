@@ -953,8 +953,13 @@ class DecisionIntelligenceCalculator:
                 moat_score=moat_score,
                 rating=rating,
             )
-        except Exception as e:
-            logger.warning(f"Conviction-position link failed: {e}")
+        except Exception:
+            logger.exception(
+                f"Conviction-position link failed "
+                f"(conviction={conviction_level!r}, risk={risk_level!r}, "
+                f"moat={moat_score!r}, rating={rating!r}, "
+                f"sizing_keys={sorted((position_sizing or {}).keys())})"
+            )
 
         return {
             "decision_framework": decision_framework,

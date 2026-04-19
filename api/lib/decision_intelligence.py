@@ -5,8 +5,11 @@ Computes strategy, price targets, rating/risk fallbacks, and DI sections
 from raw manager output — no DB migration needed.
 """
 
+import logging
 import math
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 # ─── Position sizing bucket lookup (mirrors api/routes/position_sizing.py) ────
 # Inlined here to avoid importing from a routes module.
@@ -374,6 +377,11 @@ def enrich_with_decision_intelligence(
         current_price = valuation_metrics.get("current_price", 0) if valuation_metrics else 0
 
         if not current_price or current_price <= 0:
+            logger.warning(
+                "DI enrichment skipped: current_price unusable (value=%r, moat=%s)",
+                current_price,
+                moat_score,
+            )
             return full_output
 
         # --- Fair value for regime detection (raw intrinsic value, pre-sanity-gate) ---
@@ -476,6 +484,14 @@ def enrich_with_decision_intelligence(
         )
 
         if not recommended_strategy:
+            logger.warning(
+                "DI enrichment skipped: recommended_strategy empty "
+                "(price=%s, rating=%s, risk=%s, moat=%s)",
+                current_price,
+                rating,
+                risk_level,
+                moat_score,
+            )
             return full_output
 
         # --- Decision intelligence ---
@@ -573,8 +589,9 @@ def enrich_with_decision_intelligence(
             "divergence_overlay": divergence_overlay,
         }
 
-    except Exception as e:
-        # Fail silently — DI is additive, not critical
-        print(f"Decision intelligence enrichment failed: {e}")
+    except Exception:
+        # DI is additive, not critical — but we need a traceback to debug
+        # silent failures downstream (engineSuggestedWeight / targetWeight = 0).
+        logger.exception("Decision intelligence enrichment failed")
 
     return full_output
