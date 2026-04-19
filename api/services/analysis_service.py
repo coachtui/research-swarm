@@ -14,7 +14,28 @@ import time
 # numpy, anthropic SDK, all sub-agents) which takes 15-40s to import cold.
 # Importing it at module level hangs uvicorn worker startup past Railway's 60s
 # healthcheck window, causing all healthcheck probes to return "service unavailable".
-# The lazy import below defers this cost to the first actual analysis request.
+#
+# EXCEPTION: market_data_client is imported at module level so that tests can patch
+# it via api.services.analysis_service.market_data_client.
+# analyze_swarm is defined as a module-level function (lazy-loading internally) so
+# tests can patch it via api.services.analysis_service.analyze_swarm.
+from research_swarm.data.market_data_client import MarketDataClient
+from research_swarm.agents.manager.models import ETFManagerOutput
+
+market_data_client = MarketDataClient()
+
+
+def analyze_swarm(*args, **kwargs):
+    """
+    Module-level wrapper around research_swarm analyze_swarm.
+
+    Defined here (not imported directly) so the name is stable and patchable
+    by tests via `api.services.analysis_service.analyze_swarm`, while still
+    deferring the heavy import to first call.
+    """
+    from research_swarm.agents.manager.graph import analyze_swarm as _analyze_swarm
+    return _analyze_swarm(*args, **kwargs)
+
 
 async def run_stock_analysis(
     ticker: str,
@@ -23,13 +44,13 @@ async def run_stock_analysis(
     user_id: str = None
 ) -> Dict[str, Any]:
     """
-    Run the full manager agent analysis for a single stock.
+    Run the full manager agent analysis for a single stock or ETF.
 
     This is the core function that Inngest will call.
     It wraps the existing analyze_swarm function.
 
     Args:
-        ticker: Stock ticker symbol (e.g., "NVDA")
+        ticker: Stock ticker symbol (e.g., "NVDA") or ETF ticker (e.g., "SPY")
         quarters: List of quarters for TTM analysis
         news_days_back: Days to look back for news
         user_id: User ID for multi-tenant isolation
@@ -41,25 +62,56 @@ async def run_stock_analysis(
     start_time = time.time()
 
     try:
-        # Lazy import — deferred from module level to avoid hanging worker startup.
-        from research_swarm.agents.manager.graph import analyze_swarm
+        # Detect ETF — cached 7 days, cheap call
+        loop = asyncio.get_event_loop()
+        company_info = await loop.run_in_executor(
+            None, market_data_client.get_company_info, ticker
+        )
+        is_etf = (company_info or {}).get("quote_type") == "ETF"
 
         # analyze_swarm is synchronous (~4 minutes). Run it in a thread pool
         # so the asyncio event loop stays free to serve health checks and other
         # requests during the long analysis — prevents Railway 503s.
-        loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
             lambda: analyze_swarm(
                 ticker=ticker,
                 quarters=quarters,
-                news_days_back=news_days_back
+                news_days_back=news_days_back,
+                is_etf=is_etf,
             )
         )
 
-        # Extract key metrics from result (ManagerOutput Pydantic model)
+        # Extract key metrics from result
         processing_time = time.time() - start_time
 
+        # ETF response shape
+        if isinstance(result, ETFManagerOutput):
+            return {
+                "ticker": ticker,
+                "status": "completed",
+                "instrument_type": "ETF",
+                "allocation_recommendation": result.allocation_recommendation,
+                "concentration_risk": result.concentration_risk,
+                "sector_momentum": result.sector_momentum,
+                "macro_alignment_score": result.macro_alignment_score,
+                "sentiment_score": result.sentiment_score,
+                "fund_name": result.fund_name,
+                "top_holdings_summary": result.top_holdings_summary,
+                "sector_breakdown": result.sector_breakdown,
+                "expense_ratio": result.expense_ratio,
+                "aum_billions": result.aum_billions,
+                "pros": result.pros,
+                "cons": result.cons,
+                "investment_thesis": result.investment_thesis,
+                "watchlist_candidate": result.watchlist_candidate,
+                "tokens_used": result.tokens_used,
+                "cost_usd": sum(result.cost_by_agent.values()) if result.cost_by_agent else 0.0,
+                "processing_time_seconds": processing_time,
+                "full_output": result.model_dump(),
+            }
+
+        # Equity response shape (existing)
         # Extract component scores from moat breakdown
         breakdown = result.moat_breakdown
 

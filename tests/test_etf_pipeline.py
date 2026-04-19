@@ -395,3 +395,49 @@ def test_analyze_swarm_returns_etf_output_when_is_etf():
     assert isinstance(result, ETFManagerOutput)
     assert result.allocation_recommendation == "BUY"
     assert result.ticker == "SPY"
+
+
+@pytest.mark.asyncio
+async def test_run_stock_analysis_detects_etf_and_passes_flag():
+    from api.services.analysis_service import run_stock_analysis
+    from research_swarm.agents.manager.models import ETFManagerOutput
+
+    mock_etf_output = ETFManagerOutput(
+        ticker="SPY",
+        fund_name="SPDR S&P 500 ETF Trust",
+        analysis_date="2026-04-19",
+        allocation_recommendation="BUY",
+        concentration_risk=3.5,
+        sector_momentum=7.5,
+        macro_alignment_score=7.8,
+        sentiment_score=6.5,
+        top_holdings_summary=["AAPL 7.2%", "MSFT 6.8%"],
+        sector_breakdown={"Technology": 31.2},
+        expense_ratio=0.0945,
+        aum_billions=512.3,
+        pros=["Diversified"],
+        cons=["Tech concentration"],
+        investment_thesis="SPY provides broad market exposure to the S&P 500 index at a low cost.",
+        watchlist_candidate=True,
+    )
+
+    with patch("api.services.analysis_service.market_data_client.get_company_info") as mock_info, \
+         patch("api.services.analysis_service.analyze_swarm", return_value=mock_etf_output) as mock_swarm:
+
+        mock_info.return_value = {"quote_type": "ETF", "name": "SPDR S&P 500 ETF Trust"}
+
+        result = await run_stock_analysis(ticker="SPY", quarters=["Q4_2024"])
+
+    # Verify is_etf=True was passed to analyze_swarm
+    mock_swarm.assert_called_once()
+    call_kwargs = mock_swarm.call_args
+    assert call_kwargs.kwargs.get("is_etf") is True or (
+        len(call_kwargs.args) >= 5 and call_kwargs.args[4] is True
+    )
+
+    # Verify ETF response shape
+    assert result["status"] == "completed"
+    assert result["allocation_recommendation"] == "BUY"
+    assert result["concentration_risk"] == 3.5
+    assert result["macro_alignment_score"] == 7.8
+    assert "moat_score" not in result  # ETF responses don't have equity fields
