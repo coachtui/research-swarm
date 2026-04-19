@@ -67,8 +67,8 @@ class PositionResponse(BaseModel):
     compounder_score: Optional[float]
     last_drawdown: Optional[float]
     latest_run_id: Optional[str]
-    unrealized_gain_loss: Optional[float]      # (lastKnownPrice - costBasis) * shares
-    unrealized_gain_loss_pct: Optional[float]  # (lastKnownPrice - costBasis) / costBasis
+    unrealized_gain_loss: Optional[float] = None      # (lastKnownPrice - costBasis) * shares
+    unrealized_gain_loss_pct: Optional[float] = None  # (lastKnownPrice - costBasis) / costBasis
 
     class Config:
         from_attributes = True

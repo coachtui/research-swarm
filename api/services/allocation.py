@@ -44,11 +44,20 @@ def compute_allocation_pct(position, total_value: float) -> Optional[float]:
 
 
 def _position_to_response(position, allocation_pct: Optional[float], market_value: Optional[float]) -> PositionResponse:
+    shares = position.shares or 0.0
+    price = position.lastKnownPrice
+    cost = position.costBasis
+    unrealized_gain_loss = None
+    unrealized_gain_loss_pct = None
+    if shares > 0 and price is not None and cost is not None and cost > 0:
+        unrealized_gain_loss = (price - cost) * shares
+        unrealized_gain_loss_pct = (price - cost) / cost
+
     return PositionResponse(
         ticker=position.ticker,
-        shares=position.shares or 0.0,
-        cost_basis=position.costBasis,
-        last_known_price=position.lastKnownPrice,
+        shares=shares,
+        cost_basis=cost,
+        last_known_price=price,
         last_price_at=position.lastPriceAt,
         allocation_pct=allocation_pct,
         market_value=market_value,
@@ -63,6 +72,8 @@ def _position_to_response(position, allocation_pct: Optional[float], market_valu
         compounder_score=position.compounderScore,
         last_drawdown=position.lastDrawdown,
         latest_run_id=position.latestRunId,
+        unrealized_gain_loss=unrealized_gain_loss,
+        unrealized_gain_loss_pct=unrealized_gain_loss_pct,
     )
 
 
