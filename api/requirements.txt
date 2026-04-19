@@ -33,6 +33,7 @@ requests==2.31.0
 aiohttp==3.9.0
 beautifulsoup4==4.12.3
 stripe>=8.0.0
+resend>=0.8.0
 
 # Utilities
 loguru==0.7.2
