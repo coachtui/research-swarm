@@ -790,12 +790,13 @@ def analyze_sentiment_node(state: NewsHoundState) -> NewsHoundState:
     articles = [NewsArticle(**art) for art in articles_filtered]
     catalysts = [CatalystEvent(**cat) for cat in catalyst_events]
 
-    # Perform sentiment analysis
+    # Perform sentiment analysis (inject ETF addendum if present)
     sentiment_text, tokens = analyzer.analyze_sentiment(
         articles,
         catalysts,
         state["ticker"],
-        state["days_back"]
+        state["days_back"],
+        system_addendum=state.get("etf_system_addendum", "")
     )
 
     state["sentiment_analysis"] = sentiment_text

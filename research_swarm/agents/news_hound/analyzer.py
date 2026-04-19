@@ -192,7 +192,8 @@ class NewsAnalyzer:
         articles: List[NewsArticle],
         catalyst_events: List[CatalystEvent],
         ticker: str,
-        days_back: int
+        days_back: int,
+        system_addendum: str = ""
     ) -> Tuple[str, int]:
         """
         Perform nuanced sentiment analysis on news coverage.
@@ -202,6 +203,7 @@ class NewsAnalyzer:
             catalyst_events: Detected catalyst events
             ticker: Stock ticker
             days_back: Number of days analyzed
+            system_addendum: Optional text appended to the system prompt (e.g. ETF context)
 
         Returns:
             Tuple of (sentiment analysis narrative, tokens_used)
@@ -226,6 +228,10 @@ class NewsAnalyzer:
             articles_text=articles_text,
             catalyst_events=catalysts_text
         )
+
+        # Inject ETF or other system-level addendum when provided
+        if system_addendum:
+            prompt = prompt + "\n\n" + system_addendum
 
         try:
             response = self.sonnet.invoke(prompt)

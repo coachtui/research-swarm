@@ -253,6 +253,58 @@ def test_analyze_company_news_accepts_etf_context():
     assert "etf_context" in sig.parameters, "analyze_company_news should accept etf_context param"
 
 
+def test_news_hound_etf_addendum_injected_into_prompt():
+    """
+    Verify that the etf_system_addendum built from etf_context is actually passed
+    to the LLM when analyze_sentiment_node calls analyzer.analyze_sentiment().
+
+    The test patches analyzer.analyze_sentiment and asserts that the call
+    includes the ETF-focused instruction text.
+    """
+    from research_swarm.agents.news_hound import analyzer as analyzer_module
+    from research_swarm.agents.news_hound.graph import analyze_sentiment_node
+    from research_swarm.agents.news_hound.models import NewsArticle
+
+    etf_addendum = (
+        "\n\nIMPORTANT: You are analyzing an ETF (SPY — SPDR S&P 500 ETF Trust), "
+        "not a single company.\nFocus on:\n- Sector-level macro events"
+    )
+
+    # Build a minimal article so the node doesn't short-circuit
+    article = NewsArticle(
+        title="ETF Inflows Hit Record",
+        source="Reuters",
+        url="https://reuters.com/etf",
+        published_at="2026-04-19T10:00:00Z",
+        description="Large cap ETF inflows surged this week.",
+    )
+
+    state = {
+        "ticker": "SPY",
+        "days_back": 30,
+        "status": "extracting",
+        "error": None,
+        "articles_filtered": [article.dict()],
+        "catalyst_events": [],
+        "tokens_used": 0,
+        "etf_system_addendum": etf_addendum,
+    }
+
+    captured_kwargs = {}
+
+    def fake_analyze_sentiment(articles, catalysts, ticker, days_back, system_addendum=""):
+        captured_kwargs["system_addendum"] = system_addendum
+        return "ETF sentiment analysis result.", 100
+
+    with patch.object(analyzer_module.analyzer, "analyze_sentiment", side_effect=fake_analyze_sentiment):
+        analyze_sentiment_node(state)
+
+    assert "system_addendum" in captured_kwargs, "analyze_sentiment was not called with system_addendum kwarg"
+    assert captured_kwargs["system_addendum"] == etf_addendum, (
+        f"Expected etf_system_addendum to be passed verbatim; got: {captured_kwargs['system_addendum']!r}"
+    )
+
+
 def test_analyze_quant_accepts_etf_context():
     """Test that analyze_quant accepts etf_context parameter."""
     from research_swarm.agents.quant.graph import analyze_quant
