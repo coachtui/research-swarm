@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 import re
 
-_TICKER_RE = re.compile(r'^[A-Z]{1,5}([-\.][A-Z]{1,2})?$')
+_TICKER_RE = re.compile(r'^[A-Z]{1,5}([-.][A-Z]{1,2})?$')
 
 class AnalyzeRequest(BaseModel):
     """
@@ -16,7 +16,7 @@ class AnalyzeRequest(BaseModel):
         ...,
         description="Stock ticker symbol (e.g., 'AAPL', 'MSFT')",
         min_length=1,
-        max_length=10,
+        max_length=8,
     )
 
     quarters: List[str] = Field(
