@@ -74,6 +74,7 @@ def test_etf_manager_output_score_bounds():
 
 
 def test_get_etf_info_returns_expected_fields():
+    import pandas as pd
     from research_swarm.data import cache as data_cache
     client = MarketDataClient()
 
@@ -84,6 +85,7 @@ def test_get_etf_info_returns_expected_fields():
         "ytdReturn": 0.085,
         "threeYearAverageReturn": 0.124,
         "fiveYearAverageReturn": 0.142,
+        "oneYearAverageReturn": 0.112,
         "fiftyTwoWeekHigh": 598.40,
         "fiftyTwoWeekLow": 490.21,
         "regularMarketPrice": 542.10,
@@ -92,19 +94,20 @@ def test_get_etf_info_returns_expected_fields():
         "navPrice": 542.05,
     }
 
-    mock_holdings = [
-        {"symbol": "AAPL", "holdingPercent": 0.072},
-        {"symbol": "MSFT", "holdingPercent": 0.068},
-        {"symbol": "NVDA", "holdingPercent": 0.051},
-        {"symbol": "AMZN", "holdingPercent": 0.039},
-        {"symbol": "GOOGL", "holdingPercent": 0.037},
-    ]
+    # Mock holdings as a DataFrame (what yfinance actually returns)
+    holdings_df = pd.DataFrame([
+        {"Symbol": "AAPL", "Name": "Apple Inc", "% Assets": 0.072},
+        {"Symbol": "MSFT", "Name": "Microsoft Corp", "% Assets": 0.068},
+        {"Symbol": "NVDA", "Name": "NVIDIA Corp", "% Assets": 0.051},
+        {"Symbol": "AMZN", "Name": "Amazon.com Inc", "% Assets": 0.039},
+        {"Symbol": "GOOGL", "Name": "Alphabet Inc", "% Assets": 0.037},
+    ])
 
     mock_ticker = MagicMock()
     mock_ticker.info = mock_info
     mock_ticker.funds_data = MagicMock()
-    mock_ticker.funds_data.top_holdings = mock_holdings
-    mock_ticker.funds_data.sector_weightings = []
+    mock_ticker.funds_data.top_holdings = holdings_df
+    mock_ticker.funds_data.sector_weightings = pd.DataFrame()  # empty
 
     with patch("yfinance.Ticker", return_value=mock_ticker), \
          patch.object(data_cache, "get", return_value=None), \
@@ -117,7 +120,9 @@ def test_get_etf_info_returns_expected_fields():
     assert result["expense_ratio"] == pytest.approx(0.0945, abs=0.001)
     assert len(result["top_holdings"]) == 5
     assert result["top_holdings"][0]["symbol"] == "AAPL"
+    assert result["top_holdings"][0]["weight_pct"] == pytest.approx(7.2, abs=0.1)
     assert result["ytd_return"] == pytest.approx(8.5, abs=0.1)
+    assert result["1y_return"] == pytest.approx(11.2, abs=0.1)
 
 
 def test_get_etf_info_returns_none_on_empty_info():

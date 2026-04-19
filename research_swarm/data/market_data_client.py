@@ -1147,29 +1147,43 @@ class MarketDataClient:
             # Top holdings via funds_data
             top_holdings = []
             try:
-                holdings_data = stock.funds_data.top_holdings
-                if holdings_data is not None:
-                    for holding in holdings_data[:10]:
-                        if isinstance(holding, dict):
-                            top_holdings.append({
-                                "symbol": holding.get("symbol", ""),
-                                "name": holding.get("longName") or holding.get("holdingName", ""),
-                                "weight_pct": round(holding.get("holdingPercent", 0) * 100, 2),
-                            })
+                holdings_df = stock.funds_data.top_holdings
+                if holdings_df is not None and not holdings_df.empty:
+                    # yfinance returns a DataFrame with columns like 'Symbol', 'Name', '% Assets'
+                    # Normalize column names to handle version differences
+                    col_map = {c.lower().replace(" ", "_").replace("%_", "pct_"): c for c in holdings_df.columns}
+                    symbol_col = col_map.get("symbol") or col_map.get("ticker")
+                    name_col = col_map.get("name") or col_map.get("holding_name")
+                    weight_col = col_map.get("pct_assets") or col_map.get("weight") or col_map.get("holdingpercent")
+
+                    for _, row in holdings_df.head(10).iterrows():
+                        symbol = row[symbol_col] if symbol_col else ""
+                        name = row[name_col] if name_col else ""
+                        weight_raw = row[weight_col] if weight_col else 0
+                        # weight may already be a percentage or a fraction — normalize
+                        weight_pct = float(weight_raw) * 100 if float(weight_raw) < 1 else float(weight_raw)
+                        top_holdings.append({
+                            "symbol": str(symbol),
+                            "name": str(name),
+                            "weight_pct": round(weight_pct, 2),
+                        })
             except Exception as e:
                 logger.warning(f"Could not fetch holdings for {ticker}: {e}")
 
             # Sector weights via funds_data
             sector_weights = {}
             try:
-                sector_data = stock.funds_data.sector_weightings
-                if sector_data is not None:
-                    for sector_item in sector_data:
-                        if isinstance(sector_item, dict):
-                            name = sector_item.get("sector", "")
-                            weight = sector_item.get("exposure", 0)
-                            if name:
-                                sector_weights[name] = round(weight * 100, 2)
+                sector_df = stock.funds_data.sector_weightings
+                if sector_df is not None and not sector_df.empty:
+                    # yfinance returns a DataFrame with sector names as index or column
+                    if hasattr(sector_df, 'iterrows'):
+                        for _, row in sector_df.iterrows():
+                            # columns vary by yfinance version
+                            sector_name = row.get("Sector") or row.get("sector") or str(row.name)
+                            exposure = row.get("Exposure") or row.get("exposure") or row.get("Weight") or 0
+                            exposure_pct = float(exposure) * 100 if float(exposure) < 1 else float(exposure)
+                            if sector_name:
+                                sector_weights[str(sector_name)] = round(exposure_pct, 2)
             except Exception as e:
                 logger.warning(f"Could not fetch sector weights for {ticker}: {e}")
 
