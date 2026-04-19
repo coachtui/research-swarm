@@ -17,6 +17,7 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -26,6 +27,18 @@ SIGNAL_MAX_AGE_DAYS = 90  # StockResults older than this are treated as "no sign
 from api.lib.db import get_db
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_full_output(raw: Any) -> dict:
+    """Parse fullOutput — stored as a JSON string in the DB, not a dict."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return {}
 
 ENGINE_VERSION = "4.0.0"
 
@@ -211,11 +224,7 @@ def generate_action_plan(
             reason_codes=["no_analysis"],
         )]
 
-    full_output = (
-        stock_result.fullOutput
-        if isinstance(stock_result.fullOutput, dict)
-        else {}
-    )
+    full_output = _parse_full_output(stock_result.fullOutput)
 
     # If the report has no decision_intelligence (very old format), fall back minimally
     di_block = full_output.get("decision_intelligence")
@@ -515,12 +524,14 @@ async def run_portfolio_engine(
         current_alloc = alloc_map.get(pos.ticker, 0.0)
 
         # Extract engineSuggestedWeight from conviction_position.recommended_pct
-        if stock_result and isinstance(stock_result.fullOutput, dict):
-            di_block = stock_result.fullOutput.get("decision_intelligence") or {}
+        if stock_result and stock_result.fullOutput:
+            fo = _parse_full_output(stock_result.fullOutput)
+            di_block = fo.get("decision_intelligence") or {}
             conv = di_block.get("conviction_position") or {}
             rec_pct = conv.get("recommended_pct")
             if rec_pct is not None:
                 suggested_weights[pos.ticker] = float(rec_pct) / 100.0
+                logger.info("Engine: %s suggested weight = %.1f%%", pos.ticker, float(rec_pct))
 
         plan = generate_action_plan(pos, stock_result, current_alloc, portfolio_id)
 
@@ -614,14 +625,15 @@ def classify_posture(position, current_alloc: float, stock_result) -> str:
     if (position.shares or 0.0) == 0.0 or position.ownershipStatus == "watch":
         return "watch_only"
 
-    if not stock_result or not isinstance(stock_result.fullOutput, dict):
+    if not stock_result or not stock_result.fullOutput:
         return "hold"
 
-    di_block = stock_result.fullOutput.get("decision_intelligence")
+    fo = _parse_full_output(stock_result.fullOutput)
+    di_block = fo.get("decision_intelligence")
     if not di_block:
         return "hold"
 
-    di = _extract_di_data(stock_result.fullOutput)
+    di = _extract_di_data(fo)
 
     if di["thesis_break_active"]:
         return "thesis_at_risk"
