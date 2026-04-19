@@ -757,6 +757,7 @@ def analyze_swarm(
     quarters: List[str] = None,
     fiscal_year: int = None,  # Deprecated - for backward compatibility
     news_days_back: int = 30,
+    is_etf: bool = False,
 ) -> ManagerOutput:
     """
     Perform full swarm analysis on a company.
@@ -770,6 +771,7 @@ def analyze_swarm(
         quarters: Quarters for TTM analysis (e.g., ["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"])
         fiscal_year: [Deprecated] Fiscal year for annual analysis (default None)
         news_days_back: Days to look back for news analysis (default 30)
+        is_etf: True when analyzing an ETF (routes to ETF pipeline) (default False)
 
     Returns:
         ManagerOutput with complete swarm analysis and moat score
@@ -802,6 +804,8 @@ def analyze_swarm(
         "fiscal_year": fiscal_year,  # Keep for backward compatibility
         "news_days_back": news_days_back,
         "analysis_date": analysis_date,
+        "is_etf": is_etf,
+        "etf_synthesis": None,
         "status": "initialized",
         "error": None,
         "fundamentalist_output": None,

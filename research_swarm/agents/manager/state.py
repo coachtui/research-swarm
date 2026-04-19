@@ -24,6 +24,10 @@ class ManagerState(TypedDict, total=False):
     # Shared data layer (NEW: eliminates redundant API calls)
     shared_swarm_data: Optional[Dict[str, Any]]  # Pre-fetched data bundle for all agents
 
+    # ETF mode flag — set by analysis_service when quoteType == "ETF"
+    is_etf: bool  # True when analyzing an ETF (routes to ETF pipeline)
+    etf_synthesis: Optional[Dict[str, Any]]  # ETF synthesis results (only set when is_etf=True)
+
     # Backward compatibility
     fiscal_year: Optional[int]  # Deprecated - for backward compatibility only
 
