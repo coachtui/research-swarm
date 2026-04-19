@@ -1,12 +1,13 @@
 """
-Portfolio Engine Service — runs the CompounderEngine against persisted portfolio state.
+Portfolio Engine Service — translates report decision intelligence into portfolio actions.
 
-Reads positions from DB → converts to engine data contracts → runs engine →
-writes PortfolioAction records back to DB → updates position state.
+Reads positions from DB → fetches latest StockResult per ticker → reads the report's
+decision_intelligence (tranche_plan, initiation_decision, conviction_position) →
+generates contextual action recommendations → writes PortfolioAction records to DB.
 
 Called by:
-  - Cron scheduler (monthly/quarterly/annual)
   - Manual trigger (POST /api/portfolio/{id}/engine/run)
+  - Rebalance endpoint
 
 Usage:
     from api.services.portfolio_engine import run_portfolio_engine
@@ -16,113 +17,23 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import logging
-from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
 SIGNAL_MAX_AGE_DAYS = 90  # StockResults older than this are treated as "no signal"
 
-from api.lib.compounder_owner_v3 import (
-    CompounderEngine,
-    OwnerAction,
-    OwnerConfig,
-    PortfolioPosition as EnginePosition,
-    SignalInput,
-)
 from api.lib.db import get_db
-from api.services.signal_extractor import extract_signal_from_full_output
 
 logger = logging.getLogger(__name__)
 
-ENGINE_VERSION = "3.1.0"
+ENGINE_VERSION = "4.0.0"
 
 
-# ── Action Type Mapping ─────────────────────────────────────────────────────
-
-
-def _map_action_type(action: OwnerAction) -> str:
-    """
-    Map engine OwnerAction to granular PortfolioAction type.
-
-    Engine produces: ADD, TRIM, SELL, BUY, HOLD
-    We refine to: INITIATE, ADD_TIER_20..50, TRIM_EUPHORIA, TRIM_CAP,
-                  EXIT_THESIS, REPLACE, HOLD
-    """
-    if action.action == "ADD":
-        dd = action.drawdown_pct
-        if dd is not None:
-            if dd <= -0.50:
-                return "ADD_TIER_50"
-            if dd <= -0.40:
-                return "ADD_TIER_40"
-            if dd <= -0.30:
-                return "ADD_TIER_30"
-            if dd <= -0.20:
-                return "ADD_TIER_20"
-        return "ADD_TIER_20"  # Default add if drawdown not tracked
-
-    if action.action == "TRIM":
-        # Distinguish euphoria trims from cap trims based on reason
-        if "200DMA" in (action.reason or ""):
-            return "TRIM_EUPHORIA"
-        return "TRIM_CAP"
-
-    if action.action == "SELL":
-        if "THESIS BREAK" in (action.reason or "").upper():
-            return "EXIT_THESIS"
-        if "Replaced by" in (action.reason or ""):
-            return "REPLACE"
-        return "EXIT_THESIS"  # Default sell = thesis break
-
-    if action.action == "BUY":
-        if "replaces" in (action.reason or "").lower():
-            return "REPLACE"
-        return "INITIATE"
-
-    return "HOLD"
-
-
-def _extract_reason_codes(action: OwnerAction) -> list[str]:
-    """Extract structured reason codes from OwnerAction."""
-    codes = []
-    reason = (action.reason or "").lower()
-
-    if "drawdown" in reason or "dd" in reason:
-        codes.append("drawdown")
-    if "thesis break" in reason or "thesis_break" in reason:
-        codes.append("thesis_break")
-    if "growth collapse" in reason:
-        codes.append("growth_collapse")
-    if "capital destruction" in reason:
-        codes.append("capital_destruction")
-    if "structural break" in reason:
-        codes.append("structural_break")
-    if "200dma" in reason or "euphoria" in reason:
-        codes.append("euphoria")
-    if "replaced" in reason or "replaces" in reason:
-        codes.append("replacement")
-    if "durable" in reason or "compounder" in reason:
-        codes.append("durable")
-    if "filling" in reason:
-        codes.append("slot_fill")
-
-    if action.drawdown_pct is not None:
-        dd = abs(action.drawdown_pct)
-        if dd >= 0.50:
-            codes.append("drawdown_50pct")
-        elif dd >= 0.40:
-            codes.append("drawdown_40pct")
-        elif dd >= 0.30:
-            codes.append("drawdown_30pct")
-        elif dd >= 0.20:
-            codes.append("drawdown_20pct")
-
-    return codes or ["engine_decision"]
+# ── Cycle Helpers ───────────────────────────────────────────────────────────
 
 
 def _compute_trigger_cycle(cycle_type: str) -> str:
-    """Generate a trigger cycle identifier like 'monthly_2026_03'."""
     now = datetime.now(timezone.utc)
     if cycle_type == "monthly":
         return f"monthly_{now.year}_{now.month:02d}"
@@ -135,22 +46,389 @@ def _compute_trigger_cycle(cycle_type: str) -> str:
 
 
 def _next_cycle_expiry(trigger_cycle: str) -> datetime:
-    """Actions expire at the start of the next cycle."""
     now = datetime.now(timezone.utc)
     if "monthly" in trigger_cycle:
-        # Expire at start of next month
         if now.month == 12:
             return datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
         return datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
     elif "quarterly" in trigger_cycle:
-        # Expire at start of next quarter
         quarter = (now.month - 1) // 3 + 1
         next_q_month = quarter * 3 + 1
         if next_q_month > 12:
             return datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
         return datetime(now.year, next_q_month, 1, tzinfo=timezone.utc)
-    # Annual: expire next Jan 1
     return datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
+
+
+# ── Report Data Extraction ──────────────────────────────────────────────────
+
+
+def _extract_di_data(full_output: dict) -> dict:
+    """
+    Pull the decision_intelligence block and its sub-components out of fullOutput.
+
+    Returns a flat dict with all the fields we need for action generation.
+    Returns None-safe values for all optional fields.
+    """
+    di = full_output.get("decision_intelligence") or {}
+    tranche = di.get("tranche_plan") or {}
+    init_dec = di.get("initiation_decision") or {}
+    conviction = di.get("conviction_position") or {}
+    dvrg = di.get("divergence_overlay") or {}
+    verdict = (full_output.get("verdict") or "hold").lower()
+
+    fund = full_output.get("fundamentalist_output") or {}
+    valuation = fund.get("valuation") or {}
+    fair_value_raw = (
+        valuation.get("fair_value")
+        or valuation.get("intrinsic_value")
+        or full_output.get("fair_value")
+    )
+    fair_value = float(fair_value_raw) if fair_value_raw else None
+
+    quant = full_output.get("quant_output") or {}
+    ti = quant.get("technical_indicators") or {}
+    ma = ti.get("moving_averages") or {}
+    report_price_raw = (
+        ma.get("current_price") or ti.get("current_price") or quant.get("current_price")
+    )
+    report_price = float(report_price_raw) if report_price_raw else None
+
+    return {
+        "tranche": tranche,
+        "init_dec": init_dec,
+        "conviction": conviction,
+        "dvrg": dvrg,
+        "verdict": verdict,
+        "fair_value": fair_value,
+        "report_price": report_price,
+        # Convenience extracts
+        "initiation_status": init_dec.get("status") or "WAIT",
+        "starter_pct": init_dec.get("starter_allocation_percent"),
+        "initiation_score": init_dec.get("initiation_score"),
+        "initiation_rationale": init_dec.get("rationale_summary"),
+        "required_entry_zone": init_dec.get("required_entry_zone") or [],
+        "max_pct": conviction.get("max_pct"),
+        "recommended_pct": conviction.get("recommended_pct"),
+        "stage": tranche.get("stage"),
+        "current_position_pct": tranche.get("current_position_pct"),
+        "thesis_break_active": tranche.get("thesis_break_active", False),
+        "thesis_break_conditions": tranche.get("thesis_break_conditions") or [],
+        "stage2_add_pct": tranche.get("stage2_add_pct"),
+        "stage3_add_pct": tranche.get("stage3_add_pct"),
+        "next_add_size_pct": tranche.get("next_add_size_pct"),
+        "next_add_trigger_conditions": tranche.get("next_add_trigger_conditions") or [],
+        "next_add_note": tranche.get("next_add_note") or "",
+        "dvrg_mode": dvrg.get("dvrg_mode"),
+        "divergence_score": dvrg.get("divergence_score"),
+        "divergence_phase": dvrg.get("divergence_phase"),
+    }
+
+
+def _build_signal_snapshot(di: dict, current_alloc: float) -> dict:
+    """Build the JSON snapshot stored on each PortfolioAction for UI display."""
+    active_breaks = [
+        c for c in di["thesis_break_conditions"] if c.get("active")
+    ]
+    snapshot: dict[str, Any] = {
+        "stage": di["stage"],
+        "initiation_status": di["initiation_status"],
+        "initiation_score": di["initiation_score"],
+        "initiation_rationale": di["initiation_rationale"],
+        "starter_allocation_pct": di["starter_pct"],
+        "max_position_pct": di["max_pct"],
+        "recommended_pct": di["recommended_pct"],
+        "current_position_pct": di["current_position_pct"],
+        "current_allocation_pct": round(current_alloc * 100, 2),
+        "thesis_break_active": di["thesis_break_active"],
+        "active_thesis_breaks": active_breaks,
+        "next_add_trigger_conditions": di["next_add_trigger_conditions"],
+        "next_add_note": di["next_add_note"],
+        "dvrg_mode": di["dvrg_mode"],
+        "divergence_score": di["divergence_score"],
+        "divergence_phase": di["divergence_phase"],
+        "report_verdict": di["verdict"],
+        "fair_value": di["fair_value"],
+    }
+    # Strip None values to keep the snapshot clean
+    return {k: v for k, v in snapshot.items() if v is not None}
+
+
+# ── Action Plan Generator ───────────────────────────────────────────────────
+
+
+def generate_action_plan(
+    position,
+    stock_result,
+    current_alloc: float,
+    portfolio_id: str,
+) -> list[dict]:
+    """
+    Generate a conditional action plan for a position by reading the report's
+    decision intelligence — tranche_plan, initiation_decision, conviction_position.
+
+    current_alloc: fraction (0.0–1.0) = shares × lastKnownPrice / total_portfolio_value.
+
+    Returns a list of action dicts (not yet persisted). Items with
+    parentActionId="__PARENT__" are children; the caller must replace that
+    sentinel with the DB-assigned id of the preceding action.
+
+    Returns [] when no action is warranted (hold at correct stage).
+    """
+    ticker = position.ticker
+
+    def _action(
+        action_type: str,
+        weight_delta: float,
+        trigger_cond: str,
+        trigger_price: Optional[float],
+        reason_text: str,
+        reason_codes: Optional[list[str]] = None,
+        parent: Optional[str] = None,
+        snapshot: Optional[dict] = None,
+    ) -> dict:
+        a: dict = {
+            "portfolioId": portfolio_id,
+            "ticker": ticker,
+            "actionType": action_type,
+            "weightDelta": round(weight_delta, 4),
+            "reasonCodes": reason_codes or [action_type.lower()],
+            "reasonText": reason_text,
+            "triggerCondition": trigger_cond,
+            "triggerPrice": round(trigger_price, 2) if trigger_price is not None else None,
+            "parentActionId": parent,
+            "status": "pending",
+        }
+        if snapshot is not None:
+            a["signalSnapshot"] = snapshot
+        return a
+
+    # ── No report available ──────────────────────────────────────────────────
+    if stock_result is None:
+        return [_action(
+            "HOLD", 0.0, "immediate", None,
+            "No recent analysis available — run a report on this ticker to get recommendations",
+            reason_codes=["no_analysis"],
+        )]
+
+    full_output = (
+        stock_result.fullOutput
+        if isinstance(stock_result.fullOutput, dict)
+        else {}
+    )
+
+    # If the report has no decision_intelligence (very old format), fall back minimally
+    di_block = full_output.get("decision_intelligence")
+    if not di_block:
+        verdict = (full_output.get("verdict") or "hold").lower()
+        if verdict in ("avoid", "sell") and current_alloc > 0.02:
+            return [_action(
+                "TRIM_CAP", -current_alloc / 2.0, "immediate", None,
+                f"Report verdict: {verdict.upper()} — consider reducing exposure. Run a fresh report for full analysis.",
+                reason_codes=["verdict_reduce"],
+            )]
+        return []
+
+    di = _extract_di_data(full_output)
+    price = position.lastKnownPrice or di["report_price"] or 0.0
+    snapshot = _build_signal_snapshot(di, current_alloc)
+
+    # ── Watch-only position (no shares held) ────────────────────────────────
+    is_watch = (position.shares or 0.0) == 0.0 or position.ownershipStatus == "watch"
+
+    if is_watch:
+        return _watch_only_plan(di, price, snapshot, _action)
+
+    # ── Has an existing position ────────────────────────────────────────────
+
+    # 1. Thesis integrity check — reduce position if break conditions firing
+    if di["thesis_break_active"]:
+        active_breaks = [c for c in di["thesis_break_conditions"] if c.get("active")]
+        break_labels = "; ".join(
+            f"{b['label']} ({b['current']} vs threshold {b['threshold']})"
+            for b in active_breaks
+        )
+        trim_amount = current_alloc * 0.5  # tranche framework: reduce by 50%
+        return [_action(
+            "TRIM_THESIS", -trim_amount, "immediate", None,
+            f"Integrity check: {break_labels}. Reducing by 50% until conditions improve.",
+            reason_codes=["thesis_break"],
+            snapshot=snapshot,
+        )]
+
+    max_pct = di["max_pct"]
+    max_frac = (max_pct / 100.0) if max_pct else 0.10  # default 10%
+
+    # 2. Above policy cap — trim to max
+    if current_alloc > max_frac + 0.02:
+        excess = current_alloc - max_frac
+        # Trim near fair value if above it, otherwise near current price +5%
+        fv = di["fair_value"]
+        trim_trigger = (fv * 0.98) if (fv and fv > price) else (price * 1.05 if price else None)
+        return [_action(
+            "TRIM_CAP", -excess, "price_above", trim_trigger,
+            f"Position at {current_alloc:.1%} exceeds policy cap of {max_pct:.0f}% — "
+            f"trim {excess:.1%} near fair value",
+            reason_codes=["cap_trim"],
+            snapshot=snapshot,
+        )]
+
+    # 3. Tranche-based add/hold logic
+    stage = di["stage"]
+    current_pos_pct = di["current_position_pct"]
+
+    # No tranche plan in this report (WATCHLIST/WAIT reports return tranche_plan=None)
+    if stage is None or current_pos_pct is None:
+        return _fallback_verdict_plan(di, current_alloc, price, snapshot, _action)
+
+    target_frac = current_pos_pct / 100.0
+
+    # Below current stage target — recommend adding to reach it
+    if current_alloc < target_frac - 0.01:
+        gap = target_frac - current_alloc
+        stage_note = f"Stage {stage} target is {target_frac:.1%}"
+        conditions = di["next_add_trigger_conditions"] if stage == 1 else []
+        unmet = [c for c in conditions if not c.get("met", False)]
+
+        if unmet:
+            unmet_text = "; ".join(c["label"] for c in unmet[:2])
+            return [_action(
+                "ADD_TIER_20", gap, "catalyst_confirmed", None,
+                f"{stage_note} — add {gap:.1%} when: {unmet_text}",
+                reason_codes=[f"add_stage{stage}"],
+                snapshot=snapshot,
+            )]
+        else:
+            # Conditions met — immediate add
+            return [_action(
+                "ADD_TIER_20", gap, "immediate", None,
+                f"{stage_note} — conditions met, add {gap:.1%} to reach stage target",
+                reason_codes=[f"add_stage{stage}"],
+                snapshot=snapshot,
+            )]
+
+    # At or above current stage target — show path to next stage (if not at max)
+    if stage < 3:
+        next_add_pct = di["next_add_size_pct"]
+        next_add_frac = (next_add_pct / 100.0) if next_add_pct else 0.0
+        next_conds = di["next_add_trigger_conditions"]
+        note = di["next_add_note"]
+
+        if next_add_frac > 0.005 and next_conds:
+            unmet = [c for c in next_conds if not c.get("met", False)]
+            met = [c for c in next_conds if c.get("met", False)]
+            unmet_text = "; ".join(c["label"] for c in unmet[:2]) if unmet else "all conditions met"
+            met_count = len(met)
+            total_count = len(next_conds)
+
+            # Determine trigger type from conditions
+            trigger_cond = "catalyst_confirmed"
+            trigger_price = None
+            for c in next_conds:
+                if "Price in lower valuation band" in c.get("label", "") and not c.get("met"):
+                    trigger_cond = "price_below"
+                    # Extract price from detail if available
+                    detail = c.get("detail", "")
+                    if "FV Low $" in detail:
+                        try:
+                            trigger_price = float(detail.split("FV Low $")[1].split()[0])
+                        except (ValueError, IndexError):
+                            pass
+                    break
+
+            return [_action(
+                "ADD_TIER_20", next_add_frac, trigger_cond, trigger_price,
+                f"Stage {stage + 1} add ({next_add_frac:.1%}): {note} · "
+                f"{met_count}/{total_count} conditions met · Waiting for: {unmet_text}",
+                reason_codes=[f"add_stage{stage + 1}"],
+                snapshot=snapshot,
+            )]
+
+    # Full position at max stage — hold
+    return []
+
+
+def _watch_only_plan(
+    di: dict,
+    price: float,
+    snapshot: dict,
+    _action,
+) -> list[dict]:
+    """Generate action plan for a watch-only (no shares) position."""
+    init_status = di["initiation_status"]
+    rationale = di["initiation_rationale"] or f"Report verdict: {di['verdict'].upper()}"
+
+    starter_pct = di["starter_pct"] or di["recommended_pct"] or 5.0
+    starter_frac = starter_pct / 100.0
+
+    entry_zone = di["required_entry_zone"]
+    entry_price = entry_zone[0] if entry_zone else (price * 0.95 if price else None)
+
+    if init_status == "INITIATE":
+        stage2_add_pct = di["stage2_add_pct"] or 0.0
+        stage2_frac = stage2_add_pct / 100.0
+        stage2_conds = di["next_add_trigger_conditions"]
+        note = di["next_add_note"]
+
+        actions = [_action(
+            "INITIATE", starter_frac, "immediate", None,
+            f"Report: INITIATE — {rationale}. Open starter position ({starter_pct:.1f}%).",
+            reason_codes=["initiate"],
+            snapshot=snapshot,
+        )]
+
+        if stage2_frac > 0.005 and stage2_conds:
+            cond_summary = "; ".join(c["label"] for c in stage2_conds[:2]) if stage2_conds else note
+            actions.append(_action(
+                "ADD_TIER_20", stage2_frac, "catalyst_confirmed", entry_price,
+                f"Stage 2 add ({stage2_frac:.1%}): {note} · {cond_summary}",
+                reason_codes=["add_stage2"],
+                parent="__PARENT__",
+            ))
+
+        return actions
+
+    if init_status == "WATCHLIST":
+        next_conds = di["next_add_trigger_conditions"]
+        cond_text = "; ".join(c["label"] for c in next_conds[:2]) if next_conds else "conditions improving"
+        return [_action(
+            "HOLD", 0.0, "catalyst_confirmed", entry_price,
+            f"Monitoring — {rationale}. Entry triggers: {cond_text}",
+            reason_codes=["watchlist"],
+            snapshot=snapshot,
+        )]
+
+    # WAIT
+    return [_action(
+        "HOLD", 0.0, "catalyst_confirmed", None,
+        f"Report says wait — {rationale}",
+        reason_codes=["wait"],
+        snapshot=snapshot,
+    )]
+
+
+def _fallback_verdict_plan(
+    di: dict,
+    current_alloc: float,
+    price: float,
+    snapshot: dict,
+    _action,
+) -> list[dict]:
+    """Fallback when tranche_plan is absent — use verdict + fair value."""
+    verdict = di["verdict"]
+    fv = di["fair_value"]
+    rationale = di["initiation_rationale"] or f"Report verdict: {verdict.upper()}"
+
+    if verdict in ("avoid", "sell") and current_alloc > 0.02:
+        trim_target = (fv * 0.98) if (fv and fv > price) else (price * 1.05 if price else None)
+        return [_action(
+            "TRIM_CAP", -current_alloc / 2.0, "immediate", trim_target,
+            f"Report verdict: {verdict.upper()} — {rationale}. Consider reducing exposure.",
+            reason_codes=["verdict_reduce"],
+            snapshot=snapshot,
+        )]
+
+    return []
 
 
 # ── Main Engine Entry Point ─────────────────────────────────────────────────
@@ -161,21 +439,20 @@ async def run_portfolio_engine(
     cycle_type: str,
 ) -> dict:
     """
-    Run the CompounderEngine for a single portfolio.
+    Run the portfolio engine for a single portfolio.
 
     Steps:
-      1. Load portfolio + positions from DB
-      2. Fetch latest signals for each position ticker from StockResult
-      3. Convert to engine data contracts (SignalInput, PortfolioPosition)
-      4. Run CompounderEngine.refresh()
+      1. Load portfolio + positions
+      2. Compute real allocation per position (shares × price / total)
+      3. Fetch latest StockResult per ticker
+      4. Generate action plan per position from report decision intelligence
       5. Expire previous pending actions
-      6. Write new PortfolioAction records
-      7. Update Position state fields
+      6. Write new PortfolioAction records (with parent-child chain)
+      7. Update position thesis states
       8. Return summary
     """
     db = await get_db()
 
-    # 1. Load portfolio + positions
     portfolio = await db.portfolio.find_unique(
         where={"id": portfolio_id},
         include={"positions": True},
@@ -191,192 +468,82 @@ async def run_portfolio_engine(
             "diagnostics": {"message": "No positions in portfolio"},
         }
 
-    # 2. Fetch latest signals for each ticker
-    signals_map, signals_list = await _build_signals(db, portfolio)
-
-    # 3. Convert DB positions → engine positions
-    # Compute real allocation weights from shares × lastKnownPrice / total
-    # so the engine sees actual portfolio state, not the stale currentWeight field.
+    # 2. Compute real allocation fractions
     from api.services.allocation import compute_portfolio_total
     cash = portfolio.cashBalance or 0.0
     total_value = compute_portfolio_total(portfolio.positions, cash)
-    weights_map: dict[str, float] = {}
+    alloc_map: dict[str, float] = {}
     if total_value > 0:
         for pos in portfolio.positions:
             if pos.lastKnownPrice and pos.shares:
-                weights_map[pos.ticker] = (pos.shares * pos.lastKnownPrice) / total_value
+                alloc_map[pos.ticker] = (pos.shares * pos.lastKnownPrice) / total_value
 
-    engine_positions = _to_engine_positions(portfolio.positions, weights_map=weights_map)
+    # 3. Fetch latest StockResult per ticker
+    results_map: dict[str, Any] = {}
+    for pos in portfolio.positions:
+        result = await db.stockresult.find_first(
+            where={"ticker": pos.ticker, "status": "completed"},
+            order={"createdAt": "desc"},
+        )
+        if not result or not result.fullOutput:
+            continue
+        age_days = (datetime.now(timezone.utc) - result.createdAt).days
+        if age_days > SIGNAL_MAX_AGE_DAYS:
+            logger.info(
+                "StockResult for %s is %d days old (> %d) — skipping",
+                pos.ticker, age_days, SIGNAL_MAX_AGE_DAYS,
+            )
+            continue
+        results_map[pos.ticker] = result
 
-    # 4. Run engine
-    engine = CompounderEngine(config=OwnerConfig())
-    is_quarterly = cycle_type in ("quarterly", "annual")
-    result = engine.refresh(
-        signals=signals_list,
-        current_positions=engine_positions,
-        is_quarterly=is_quarterly,
-    )
-
-    # 5. Expire previous pending actions
+    # 4 + 5. Expire old pending actions
     trigger_cycle = _compute_trigger_cycle(cycle_type)
+    expires_at = _next_cycle_expiry(trigger_cycle)
+
     await db.portfolioaction.update_many(
-        where={
-            "portfolioId": portfolio_id,
-            "status": "pending",
-        },
+        where={"portfolioId": portfolio_id, "status": "pending"},
         data={"status": "expired"},
     )
 
-    # 6. Write new PortfolioAction records
+    # 6. Generate and persist actions per position
     actions_created = 0
-    for action in result.actions:
-        sig = signals_map.get(action.ticker)
-        signal_snapshot = None
-        if sig:
-            signal_snapshot = {
-                "report_verdict": sig.verdict,
-                "fair_value": sig.fair_value,
-                "moat_score": sig.moat_score,
-                "current_price": sig.current_price,
-                "drawdown_pct": action.drawdown_pct,
-                "revenue_growth_yoy": sig.revenue_growth_yoy,
-                "margin_trend": sig.margin_trend,
-                "high_252d": sig.high_252d,
-                "ma_200d": sig.ma_200d,
-            }
+    thesis_breaks: set[str] = set()
 
-        action_data: dict = {
-            "portfolioId": portfolio_id,
-            "ticker": action.ticker,
-            "actionType": _map_action_type(action),
-            "weightDelta": action.target_weight - action.current_weight,
-            "reasonCodes": _extract_reason_codes(action),
-            "reasonText": action.reason,
-            "status": "pending",
-            "triggerCycle": trigger_cycle,
-            "engineVersion": ENGINE_VERSION,
-            "expiresAt": _next_cycle_expiry(trigger_cycle),
-        }
-        # Prisma rejects None for Json? fields — omit key entirely when no snapshot
-        if signal_snapshot is not None:
-            action_data["signalSnapshot"] = signal_snapshot
+    for pos in portfolio.positions:
+        stock_result = results_map.get(pos.ticker)
+        current_alloc = alloc_map.get(pos.ticker, 0.0)
 
-        await db.portfolioaction.create(data=action_data)
-        actions_created += 1
+        plan = generate_action_plan(pos, stock_result, current_alloc, portfolio_id)
 
-    # 7. Update position states
-    await _update_position_states(db, portfolio_id, result, signals_map, engine_positions)
+        parent_id: Optional[str] = None
+        for i, action_dict in enumerate(plan):
+            if action_dict.get("parentActionId") == "__PARENT__":
+                action_dict["parentActionId"] = parent_id
+
+            action_dict["triggerCycle"] = trigger_cycle
+            action_dict["engineVersion"] = ENGINE_VERSION
+            action_dict["expiresAt"] = expires_at
+
+            created = await db.portfolioaction.create(data=action_dict)
+            if i == 0:
+                parent_id = created.id
+            actions_created += 1
+
+            if action_dict["actionType"] == "TRIM_THESIS":
+                thesis_breaks.add(pos.ticker)
+
+    # 7. Update position thesis states
+    await _update_position_states(db, portfolio_id, portfolio.positions, thesis_breaks)
 
     return {
         "portfolio_id": portfolio_id,
         "cycle_type": cycle_type,
         "trigger_cycle": trigger_cycle,
         "actions_created": actions_created,
-        "diagnostics": result.diagnostics,
+        "positions_analyzed": len(portfolio.positions),
+        "with_reports": len(results_map),
+        "without_reports": len(portfolio.positions) - len(results_map),
     }
-
-
-# ── Signal Building ─────────────────────────────────────────────────────────
-
-
-async def _build_signals(
-    db, portfolio,
-) -> tuple[dict[str, SignalInput], list[SignalInput]]:
-    """
-    Fetch latest StockResult per position ticker and convert to SignalInput.
-
-    Returns (signals_map: {ticker: SignalInput}, signals_list: [SignalInput]).
-    """
-    signals_map: dict[str, SignalInput] = {}
-    tickers = [p.ticker for p in portfolio.positions]
-
-    for ticker in tickers:
-        # Use the most recent completed analysis for this ticker across all users —
-        # the DB is a shared pool of research, not per-user private data.
-        result = await db.stockresult.find_first(
-            where={"ticker": ticker, "status": "completed"},
-            order={"createdAt": "desc"},
-        )
-        if not result or not result.fullOutput:
-            logger.warning("No completed analysis for %s, skipping signal", ticker)
-            continue
-
-        # Ignore stale analyses for thesis-break decisions — old data causes false exits
-        result_age = (datetime.now(timezone.utc) - result.createdAt).days
-        if result_age > SIGNAL_MAX_AGE_DAYS:
-            logger.info(
-                "Signal for %s is %d days old (> %d) — treating as no signal to avoid stale exits",
-                ticker, result_age, SIGNAL_MAX_AGE_DAYS,
-            )
-            continue
-
-        full_output = result.fullOutput if isinstance(result.fullOutput, dict) else {}
-        if result.moatScore is None:
-            logger.warning(
-                "Null moatScore for %s (runId=%s) — skipping to avoid false EXIT_THESIS",
-                ticker,
-                getattr(result, "runId", "?"),
-            )
-            continue
-        moat_score = float(result.moatScore)
-        sector = result.sector or "Unknown"
-
-        # Get current price from quant output
-        quant = full_output.get("quant_output") or {}
-        ti = quant.get("technical_indicators") or {}
-        ma = ti.get("moving_averages") or {}
-        current_price = (
-            ma.get("current_price")
-            or ti.get("current_price")
-            or quant.get("current_price")
-            or 0.0
-        )
-
-        signal = extract_signal_from_full_output(
-            ticker=ticker,
-            full_output=full_output,
-            moat_score=moat_score,
-            sector=sector,
-            current_price=float(current_price),
-        )
-        signals_map[ticker] = signal
-
-    return signals_map, list(signals_map.values())
-
-
-# ── Position Conversion ─────────────────────────────────────────────────────
-
-
-def _to_engine_positions(db_positions, weights_map: dict | None = None) -> dict[str, EnginePosition]:
-    """
-    Convert Prisma Position records to engine PortfolioPosition dataclass.
-
-    weights_map: ticker → computed allocation fraction (from shares × price / total).
-    Falls back to position.currentWeight if not provided (legacy behavior).
-    """
-    result: dict[str, EnginePosition] = {}
-    for pos in db_positions:
-        add_tiers = set()
-        if pos.addTiersApplied:
-            try:
-                raw = pos.addTiersApplied if isinstance(pos.addTiersApplied, list) else json.loads(str(pos.addTiersApplied))
-                add_tiers = set(float(t) for t in raw)
-            except (json.JSONDecodeError, ValueError, TypeError):
-                pass
-
-        weight = (weights_map or {}).get(pos.ticker, pos.currentWeight or 0.0)
-
-        result[pos.ticker] = EnginePosition(
-            ticker=pos.ticker,
-            weight=weight,
-            entry_date=pos.entryDate.date() if pos.entryDate else date.today(),
-            entry_price=pos.costBasis or 0.0,
-            quarters_held=pos.quartersHeld,
-            compounder_score=pos.compounderScore or 0.0,
-            add_tiers_applied=add_tiers,
-            last_drawdown=pos.lastDrawdown or 0.0,
-        )
-    return result
 
 
 # ── Position State Update ───────────────────────────────────────────────────
@@ -385,248 +552,67 @@ def _to_engine_positions(db_positions, weights_map: dict | None = None) -> dict[
 async def _update_position_states(
     db,
     portfolio_id: str,
-    result,
-    signals_map: dict[str, SignalInput],
-    engine_positions: dict[str, EnginePosition],
+    positions,
+    thesis_breaks: set[str],
 ) -> None:
     """
-    Update Position records based on engine result.
+    Update thesisState based on engine output.
 
-    Updates: tierState, thesisState, lastDrawdown, addTiersApplied, compounderScore.
+    Positions with a TRIM_THESIS action → 'at_risk'.
+    Positions without a thesis break (but with a report) → 'intact'.
+    Positions without a report → unchanged (don't auto-break on missing data).
     """
-    for action in result.actions:
-        position = await db.position.find_first(
-            where={"portfolioId": portfolio_id, "ticker": action.ticker}
-        )
-        if not position:
-            continue
-
-        update_data: dict = {}
-
-        # Update drawdown state
-        ep = engine_positions.get(action.ticker)
-        if ep:
-            update_data["lastDrawdown"] = ep.last_drawdown
-            update_data["addTiersApplied"] = json.dumps(list(ep.add_tiers_applied))
-
-        # Update compounder score if available
-        if action.compounder_score is not None:
-            update_data["compounderScore"] = action.compounder_score
-
-        # Update tier state based on drawdown
-        if action.drawdown_pct is not None:
-            dd = action.drawdown_pct
-            if dd <= -0.50:
-                update_data["tierState"] = "t4_50"
-            elif dd <= -0.40:
-                update_data["tierState"] = "t3_40"
-            elif dd <= -0.30:
-                update_data["tierState"] = "t2_30"
-            elif dd <= -0.20:
-                update_data["tierState"] = "t1_20"
-            else:
-                update_data["tierState"] = "none"
-
-        # Update thesis state based on action type
-        action_type = _map_action_type(action)
-        if action_type == "EXIT_THESIS":
-            update_data["thesisState"] = "broken"
-            update_data["ownershipStatus"] = "disqualified"
-        elif action_type in ("ADD_TIER_20", "ADD_TIER_30", "ADD_TIER_40", "ADD_TIER_50", "INITIATE"):
-            update_data["thesisState"] = "intact"
-            update_data["eligibilityState"] = "eligible"
-            if position.quartersHeld >= 4:
-                update_data["ownershipStatus"] = "core_compounder"
-
-        if update_data:
+    for pos in positions:
+        if pos.ticker in thesis_breaks:
             await db.position.update(
-                where={"id": position.id},
-                data=update_data,
+                where={"id": pos.id},
+                data={"thesisState": "at_risk"},
             )
-
-    # Auto-heal positions that have no signal AND no engine action.
-    # These were skipped (no analysis data yet). If they were previously
-    # marked broken by a bad engine run (the old "no signal → EXIT" bug),
-    # reset them to intact/watch so the user isn't stuck in a broken state.
-    action_tickers = {a.ticker for a in result.actions}
-    for ticker in engine_positions:
-        if ticker in action_tickers or ticker in signals_map:
-            continue  # Has an action or a real signal — don't touch
-        position = await db.position.find_first(
-            where={"portfolioId": portfolio_id, "ticker": ticker}
-        )
-        if position and position.thesisState == "broken" and position.ownershipStatus == "disqualified":
+        elif pos.thesisState in ("broken", "disqualified"):
+            # Auto-heal if no break fired this run
             await db.position.update(
-                where={"id": position.id},
-                data={"thesisState": "intact", "ownershipStatus": "watch", "eligibilityState": "pending"},
+                where={"id": pos.id},
+                data={"thesisState": "intact", "ownershipStatus": "watch"},
             )
 
 
-# ── Signal-Driven Action Plans ──────────────────────────────────────────────
+# ── Signal-Driven Action Plans (public for rebalance endpoint) ──────────────
 
-_POSTURE_THRESHOLD = 0.02  # 2pp band before over/under target triggers action
-
-
-def _get_verdict_from_stock_result(stock_result) -> str:
-    """Extract verdict string from StockResult.fullOutput. Falls back to 'hold'."""
-    if stock_result is None:
-        return "hold"
-    full_output = stock_result.fullOutput
-    if isinstance(full_output, dict):
-        return full_output.get("verdict", "hold").lower()
-    return "hold"
-
-
-def _get_fair_value_from_stock_result(stock_result) -> Optional[float]:
-    """Extract fair value from fundamental_output.valuation.fair_value."""
-    if stock_result is None:
-        return None
-    fo = stock_result.fullOutput
-    if not isinstance(fo, dict):
-        return None
-    return fo.get("fundamental_output", {}).get("valuation", {}).get("fair_value")
-
-
-def _get_support_level_from_stock_result(stock_result) -> Optional[float]:
-    """Extract first support level from quant_output.technical_indicators.support_levels."""
-    if stock_result is None:
-        return None
-    fo = stock_result.fullOutput
-    if not isinstance(fo, dict):
-        return None
-    levels = (
-        fo.get("quant_output", {})
-        .get("technical_indicators", {})
-        .get("support_levels", [])
-    )
-    return float(levels[0]) if levels else None
+# Expose generate_action_plan at module level (already defined above).
+# Also expose the classify helper for the rebalance route to use directly.
 
 
 def classify_posture(position, current_alloc: float, stock_result) -> str:
     """
-    Classify a position's rebalancing posture based on allocation and signals.
+    Classify a position's posture for display purposes.
 
-    Returns one of: over_target_bearish | over_target_bullish | below_target_bullish |
-                    thesis_broken | watch_only | hold
+    Returns one of: watch_only | thesis_at_risk | over_cap | below_target | at_target | hold
     """
-    if position.thesisState == "broken":
-        return "thesis_broken"
-
     if (position.shares or 0.0) == 0.0 or position.ownershipStatus == "watch":
         return "watch_only"
 
-    target = position.targetWeight or 0.0
-    verdict = _get_verdict_from_stock_result(stock_result)
-    over_target = current_alloc > target + _POSTURE_THRESHOLD
-    under_target = current_alloc < target - _POSTURE_THRESHOLD
+    if not stock_result or not isinstance(stock_result.fullOutput, dict):
+        return "hold"
 
-    if over_target and verdict == "avoid":
-        return "over_target_bearish"
-    if over_target:
-        return "over_target_bullish"
-    if under_target and verdict == "buy":
-        return "below_target_bullish"
+    di_block = stock_result.fullOutput.get("decision_intelligence")
+    if not di_block:
+        return "hold"
+
+    di = _extract_di_data(stock_result.fullOutput)
+
+    if di["thesis_break_active"]:
+        return "thesis_at_risk"
+
+    max_pct = di["max_pct"]
+    if max_pct and current_alloc > (max_pct / 100.0) + 0.02:
+        return "over_cap"
+
+    current_pos_pct = di["current_position_pct"]
+    if current_pos_pct and current_alloc < (current_pos_pct / 100.0) - 0.01:
+        return "below_target"
+
+    stage = di["stage"]
+    if stage is not None and stage < 3:
+        return "at_target"
+
     return "hold"
-
-
-def generate_action_plan(
-    position,
-    stock_result,
-    current_alloc: float,
-    portfolio_id: str,
-) -> list[dict]:
-    """
-    Generate a conditional action plan for a position.
-
-    Returns a list of action dicts (not yet persisted). The first action in a ladder
-    has parentActionId=None; subsequent steps use the sentinel "__PARENT__"
-    which the caller replaces with the DB-assigned id of the first action.
-
-    Returns [] for hold posture (no action needed).
-    """
-    if stock_result is None:
-        return [{
-            "portfolioId": portfolio_id,
-            "ticker": position.ticker,
-            "actionType": "HOLD",
-            "weightDelta": 0.0,
-            "reasonCodes": ["no_analysis"],
-            "reasonText": "No recent analysis available — review position manually",
-            "triggerCondition": "immediate",
-            "triggerPrice": None,
-            "parentActionId": None,
-            "status": "pending",
-        }]
-
-    posture = classify_posture(position, current_alloc, stock_result)
-    price = position.lastKnownPrice or 0.0
-    fair_value = _get_fair_value_from_stock_result(stock_result)
-    support = _get_support_level_from_stock_result(stock_result)
-    target = position.targetWeight or 0.0
-
-    def _action(action_type, weight_delta, trigger_cond, trigger_price, reason_text, parent=None):
-        return {
-            "portfolioId": portfolio_id,
-            "ticker": position.ticker,
-            "actionType": action_type,
-            "weightDelta": round(weight_delta, 4),
-            "reasonCodes": [posture],
-            "reasonText": reason_text,
-            "triggerCondition": trigger_cond,
-            "triggerPrice": round(trigger_price, 2) if trigger_price else None,
-            "parentActionId": parent,
-            "status": "pending",
-        }
-
-    if posture == "hold":
-        return []
-
-    if posture == "thesis_broken":
-        return [_action(
-            "EXIT_THESIS", -current_alloc, "immediate", None,
-            "Thesis broken — exit position",
-        )]
-
-    if posture == "over_target_bearish":
-        excess = current_alloc - target
-        step = excess / 3.0
-        return [
-            _action("TRIM_EUPHORIA", -step, "price_above", price * 1.05,
-                    f"Over target ({current_alloc:.1%} vs {target:.1%}) with bearish signals — trim first tranche"),
-            _action("TRIM_EUPHORIA", -step, "price_above", price * 1.10,
-                    "Second trim if price continues higher", parent="__PARENT__"),
-            _action("TRIM_EUPHORIA", -step, "price_above", price * 1.15,
-                    "Final trim to target weight", parent="__PARENT__"),
-        ]
-
-    if posture == "over_target_bullish":
-        trim_target = fair_value if fair_value and fair_value > price else price * 1.20
-        excess = current_alloc - target
-        return [
-            _action("TRIM_CAP", -excess / 2.0, "price_above", trim_target * 0.95,
-                    f"Over target but signals bullish — ride position, trim 50% of excess near fair value"),
-            _action("TRIM_CAP", -excess / 2.0, "price_above", trim_target,
-                    "Trim remaining excess at fair value", parent="__PARENT__"),
-        ]
-
-    if posture == "below_target_bullish":
-        entry1 = support if support and support < price else price * 0.95
-        entry2 = entry1 * 0.95
-        gap = target - current_alloc
-        return [
-            _action("ADD_TIER_20", gap / 2.0, "price_below", entry1,
-                    f"Below target ({current_alloc:.1%} vs {target:.1%}) — add first tranche on pullback"),
-            _action("ADD_TIER_20", gap / 2.0, "price_below", entry2,
-                    "Add remaining gap on deeper pullback", parent="__PARENT__"),
-        ]
-
-    if posture == "watch_only":
-        entry = support if support and support < (fair_value or price) else price * 0.92
-        return [
-            _action("INITIATE", target / 2.0, "price_below", entry,
-                    f"Watch position — enter first half at pullback to {entry:.2f}"),
-            _action("ADD_TIER_20", target / 2.0, "price_below", entry * 0.95,
-                    "Add second half on deeper discount", parent="__PARENT__"),
-        ]
-
-    return []

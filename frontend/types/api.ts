@@ -1583,6 +1583,7 @@ export type EngineActionType =
   | 'ADD_TIER_50'
   | 'TRIM_EUPHORIA'
   | 'TRIM_CAP'
+  | 'TRIM_THESIS'
   | 'EXIT_THESIS'
   | 'REPLACE'
   | 'HOLD'
