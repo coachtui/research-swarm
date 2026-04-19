@@ -251,3 +251,12 @@ def test_analyze_company_news_accepts_etf_context():
 
     sig = inspect.signature(analyze_company_news)
     assert "etf_context" in sig.parameters, "analyze_company_news should accept etf_context param"
+
+
+def test_analyze_quant_accepts_etf_context():
+    """Test that analyze_quant accepts etf_context parameter."""
+    from research_swarm.agents.quant.graph import analyze_quant
+    import inspect
+
+    sig = inspect.signature(analyze_quant)
+    assert "etf_context" in sig.parameters, "analyze_quant should accept etf_context param"

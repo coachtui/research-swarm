@@ -95,10 +95,19 @@ def calculate_indicators_node(state: QuantState) -> QuantState:
     state["status"] = "calculating_indicators"
     state["node_timestamps"] = {**state.get("node_timestamps", {}), "calculate_indicators": time.time()}
 
+    # Determine benchmark override for ETF mode
+    benchmark_override = None
+    if state.get("etf_context"):
+        sector_weights = state["etf_context"].get("sector_weights", {})
+        top_sector = max(sector_weights, key=sector_weights.get) if sector_weights else ""
+        benchmark_override = "QQQ" if "Technology" in top_sector else "SPY"
+        logger.info(f"[ETF Quant] Using broad market benchmark: {benchmark_override}")
+
     # Calculate all indicators
     indicators = technical_analyzer.analyze_ticker(
         state["ticker"],
-        period=state.get("data_period", "1y")
+        period=state.get("data_period", "1y"),
+        benchmark_override=benchmark_override,
     )
 
     # Store in state as dict
@@ -405,7 +414,8 @@ def analyze_quant(
     ticker: str,
     supply_chain_depth: int = 2,
     fundamentalist_supply_chain: Optional[FundamentalistSupplyChain] = None,
-    shared_swarm_data: dict = None  # NEW: Pre-fetched data from Manager
+    shared_swarm_data: dict = None,  # NEW: Pre-fetched data from Manager
+    etf_context: dict = None,  # NEW: ETF-specific context for benchmark override
 ) -> QuantOutput:
     """
     Perform quantitative analysis on a company.
@@ -415,6 +425,7 @@ def analyze_quant(
         supply_chain_depth: Maximum supply chain tier depth (default 2)
         fundamentalist_supply_chain: Optional supply chain data from Fundamentalist agent
         shared_swarm_data: Pre-fetched data bundle from Manager (NEW)
+        etf_context: Optional ETF context for benchmark override (NEW)
 
     Returns:
         QuantOutput with complete quantitative analysis
@@ -457,6 +468,7 @@ def analyze_quant(
         "processing_time": None,
         "node_timestamps": {},
         "shared_swarm_data": shared_swarm_data,  # NEW: Pre-fetched data from Manager
+        "etf_context": etf_context,  # NEW: ETF-specific context for benchmark override
     }
 
     # Build and run workflow

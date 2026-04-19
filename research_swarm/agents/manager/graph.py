@@ -184,7 +184,8 @@ def call_quant_node(state: ManagerState) -> dict:
             ticker=state["ticker"],
             supply_chain_depth=0,  # Disable supply chain analysis
             fundamentalist_supply_chain=None,  # Don't pass supply chain data
-            shared_swarm_data=state.get("shared_swarm_data")  # NEW: Pass pre-fetched data
+            shared_swarm_data=state.get("shared_swarm_data"),  # NEW: Pass pre-fetched data
+            etf_context=state.get("shared_swarm_data", {}).get("etf_data") if state.get("shared_swarm_data") else None,  # NEW: Pass ETF context
         )
 
         logger.success(

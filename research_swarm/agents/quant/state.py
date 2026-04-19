@@ -22,6 +22,7 @@ class QuantState(TypedDict, total=False):
 
     # Shared data layer (NEW: eliminates redundant API calls)
     shared_swarm_data: Optional[Dict[str, Any]]  # Pre-fetched data bundle from Manager
+    etf_context: Optional[Dict[str, Any]]  # NEW: ETF-specific context for benchmark override
 
     # Status tracking
     status: str  # Current workflow status: "initialized", "fetching_data", "calculating_indicators", "building_graph", "analyzing", "scoring", "completed", "error"

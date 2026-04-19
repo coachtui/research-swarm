@@ -413,7 +413,8 @@ class TechnicalAnalyzer:
     def get_relative_strength(
         self,
         ticker: str,
-        df: pd.DataFrame
+        df: pd.DataFrame,
+        benchmark_override: str = None,
     ) -> RelativeStrength:
         """
         Calculate relative strength vs sector and market.
@@ -421,6 +422,7 @@ class TechnicalAnalyzer:
         Args:
             ticker: Stock ticker
             df: DataFrame with OHLCV data for the ticker
+            benchmark_override: Optional benchmark ETF override for ETF analysis (e.g., "QQQ" or "SPY")
 
         Returns:
             RelativeStrength model with comparative returns
@@ -431,8 +433,13 @@ class TechnicalAnalyzer:
             ticker_return_1m = self._calculate_return(prices, days=21)  # ~1 month
             ticker_return_3m = self._calculate_return(prices, days=63)  # ~3 months
 
-            # Get sector ETF
-            sector_etf = self.client.get_sector_etf(ticker)
+            # For ETFs, use benchmark override instead of sector ETF
+            if benchmark_override:
+                sector_etf = benchmark_override
+                logger.info(f"[ETF Quant] Using benchmark override: {sector_etf}")
+            else:
+                # Get sector ETF for normal stocks
+                sector_etf = self.client.get_sector_etf(ticker)
 
             # Get sector returns
             sector_return_1m = None
@@ -1362,7 +1369,8 @@ class TechnicalAnalyzer:
     def analyze_ticker(
         self,
         ticker: str,
-        period: str = "1y"
+        period: str = "1y",
+        benchmark_override: str = None,
     ) -> TechnicalIndicators:
         """
         Perform full technical analysis on a ticker.
@@ -1370,6 +1378,7 @@ class TechnicalAnalyzer:
         Args:
             ticker: Stock ticker symbol
             period: Data period (default "1y" for 1 year)
+            benchmark_override: Optional benchmark ETF override for ETF analysis (e.g., "QQQ" or "SPY")
 
         Returns:
             TechnicalIndicators model with all indicators
@@ -1387,7 +1396,7 @@ class TechnicalAnalyzer:
         moving_averages = self.get_moving_averages(ticker, df)
         rsi = self.get_rsi(ticker, df)
         volume = self.get_volume_analysis(ticker, df)
-        relative_strength = self.get_relative_strength(ticker, df)
+        relative_strength = self.get_relative_strength(ticker, df, benchmark_override=benchmark_override)
         macd = self.get_macd(ticker, df)
         bollinger_bands = self.get_bollinger_bands(ticker, df)
         stochastic = self.get_stochastic(ticker, df)
