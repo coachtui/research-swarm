@@ -19,7 +19,7 @@ from research_swarm.data.market_data_client import market_data_client
 from .state import ManagerState
 from .analyzer import ManagerAnalyzer
 from .scorer import ManagerScorer
-from .models import ManagerOutput, MoatScoreBreakdown
+from .models import ManagerOutput, MoatScoreBreakdown, ETFManagerOutput
 from .signal_divergence import calculate_signal_divergence
 
 
@@ -359,6 +359,25 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
     state["node_timestamps"] = {**state.get("node_timestamps", {}), "synthesize_findings": time.time()}
 
     try:
+        # ETF path: dedicated ETF synthesis
+        if state.get("is_etf"):
+            etf_data = state.get("shared_swarm_data", {}).get("etf_data", {})
+            synthesis, tokens = manager_analyzer.synthesize_etf_findings(
+                ticker=state["ticker"],
+                etf_data=etf_data,
+                fundamentalist_output=state.get("fundamentalist_output", {}),
+                news_hound_output=state.get("news_hound_output", {}),
+                quant_output=state.get("quant_output", {}),
+            )
+            state["synthesis_narrative"] = synthesis.get("investment_thesis", "")
+            state["key_insights"] = synthesis.get("pros", [])
+            state["risk_factors"] = synthesis.get("cons", [])
+            state["etf_synthesis"] = synthesis
+            state["tokens_used"] = state.get("tokens_used", 0) + tokens
+            logger.success(f"✓ ETF synthesis complete ({tokens} tokens)")
+            return state
+
+        # Equity path: existing code below, unchanged
         # NEW: Extract and deduplicate insights from all agents
         fund_output = state["fundamentalist_output"]
         news_output = state["news_hound_output"]
@@ -470,6 +489,18 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
     state["node_timestamps"] = {**state.get("node_timestamps", {}), "calculate_moat_score": time.time()}
 
     try:
+        # ETF path: use synthesis scores, skip equity moat formula
+        if state.get("is_etf"):
+            etf_synthesis = state.get("etf_synthesis", {})
+            state["moat_score"] = etf_synthesis.get("macro_alignment_score", 5.0)
+            state["is_watchlist_candidate"] = etf_synthesis.get("watchlist_candidate", False)
+            state["rating"] = etf_synthesis.get("allocation_recommendation", "HOLD")
+            state["rating_score"] = etf_synthesis.get("macro_alignment_score", 5.0) * 10
+            state["risk_level"] = "Medium"
+            state["confidence"] = 0.80
+            return state
+
+        # Equity path: existing code below, unchanged
         # Get component scores
         financial_health_score = state["financial_health_score"]
         sentiment_score = state["sentiment_score"]
@@ -618,6 +649,22 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
     state["node_timestamps"] = {**state.get("node_timestamps", {}), "generate_thesis": time.time()}
 
     try:
+        # ETF path: thesis already in synthesis, skip LLM call
+        if state.get("is_etf"):
+            state["investment_thesis"] = {
+                "company_overview": state.get("etf_synthesis", {}).get("investment_thesis", ""),
+                "recommendation_summary": state.get("rating", "HOLD"),
+                "investment_highlights": state.get("key_insights", [])[:3],
+                "valuation_signal_analysis": "",
+                "key_risks": state.get("risk_factors", [])[:3],
+                "entry_strategy": "",
+            }
+            state["recommendation"] = state.get("rating", "HOLD")
+            state["status"] = "completed"
+            logger.success(f"✓ ETF thesis assembled from synthesis")
+            return state
+
+        # Equity path: existing code below, unchanged
         # Get v2.0 component scores from fundamentalist
         fundamentalist_output = state.get("fundamentalist_output", {})
         earnings_momentum_score = fundamentalist_output.get("earnings_momentum_score", 5.0)
@@ -900,6 +947,38 @@ def analyze_swarm(
         tokens_out = int(manager_only_tokens * 0.7)
         cost_by_agent["manager"] = cost_tracker.calculate_cost(tokens_in, tokens_out, "sonnet")
 
+    # ETF path: assemble ETFManagerOutput from synthesis
+    if is_etf:
+        etf_data = final_state.get("shared_swarm_data", {}).get("etf_data", {})
+        etf_synthesis = final_state.get("etf_synthesis", {})
+
+        top_holdings = etf_data.get("top_holdings", [])
+        top_holdings_summary = [
+            f"{h['symbol']} {h['weight_pct']}%" for h in top_holdings[:5]
+        ]
+
+        return ETFManagerOutput(
+            ticker=final_state["ticker"],
+            fund_name=etf_data.get("fund_name", final_state["ticker"]),
+            analysis_date=datetime.now().strftime("%Y-%m-%d"),
+            allocation_recommendation=etf_synthesis.get("allocation_recommendation", "HOLD"),
+            concentration_risk=etf_synthesis.get("concentration_risk", 5.0),
+            sector_momentum=etf_synthesis.get("sector_momentum", 5.0),
+            macro_alignment_score=etf_synthesis.get("macro_alignment_score", 5.0),
+            sentiment_score=final_state.get("news_hound_output", {}).get("sentiment_score", 5.0),
+            top_holdings_summary=top_holdings_summary if top_holdings_summary else ["No holdings data"],
+            sector_breakdown=etf_data.get("sector_weights", {}),
+            expense_ratio=etf_data.get("expense_ratio", 0.0),
+            aum_billions=etf_data.get("aum_billions", 0.0),
+            pros=etf_synthesis.get("pros", ["Analysis in progress"]),
+            cons=etf_synthesis.get("cons", ["Analysis in progress"]),
+            investment_thesis=etf_synthesis.get("investment_thesis", "ETF analysis complete."),
+            watchlist_candidate=etf_synthesis.get("watchlist_candidate", False),
+            tokens_used=final_state.get("tokens_used", 0),
+            processing_time=processing_time,
+        )
+
+    # Equity path: existing ManagerOutput assembly below, unchanged
     # Extract VGM scores from fundamentalist_output
     vgm_scores = None
     if final_state.get("fundamentalist_output"):

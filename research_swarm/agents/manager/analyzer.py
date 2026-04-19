@@ -491,6 +491,101 @@ class ManagerAnalyzer:
                 },
             }, 0
 
+    def synthesize_etf_findings(
+        self,
+        ticker: str,
+        etf_data: dict,
+        fundamentalist_output: dict,
+        news_hound_output: dict,
+        quant_output: dict,
+    ) -> tuple[dict, int]:
+        import anthropic
+        import json
+
+        client = anthropic.Anthropic()
+
+        fund_name = etf_data.get("fund_name", ticker)
+        top_holdings = etf_data.get("top_holdings", [])
+        sector_weights = etf_data.get("sector_weights", {})
+        aum_billions = etf_data.get("aum_billions")
+        expense_ratio = etf_data.get("expense_ratio")
+        ytd_return = etf_data.get("ytd_return")
+
+        holdings_text = ", ".join([f"{h['symbol']} ({h['weight_pct']}%)" for h in top_holdings[:5]])
+        sector_text = ", ".join([f"{s}: {w}%" for s, w in list(sector_weights.items())[:5]])
+
+        fin_health = fundamentalist_output.get("financial_health_score", 5.0)
+        momentum = fundamentalist_output.get("earnings_momentum_score", 5.0)
+        valuation = fundamentalist_output.get("valuation_score", 5.0)
+        sentiment = news_hound_output.get("sentiment_score", 5.0)
+        technical = quant_output.get("technical_score", 5.0)
+
+        all_insights = (
+            fundamentalist_output.get("key_insights", []) +
+            news_hound_output.get("key_insights", []) +
+            quant_output.get("key_insights", [])
+        )
+        all_risks = (
+            fundamentalist_output.get("risk_factors", []) +
+            news_hound_output.get("risk_factors", []) +
+            quant_output.get("risk_factors", [])
+        )
+
+        prompt = f"""You are a senior portfolio manager at an institutional investment firm.
+Synthesize the following ETF analysis into a portfolio allocation recommendation.
+
+ETF: {ticker} — {fund_name}
+AUM: ${aum_billions}B | Expense Ratio: {expense_ratio}%
+YTD Return: {ytd_return}%
+Top Holdings: {holdings_text}
+Sector Exposure: {sector_text}
+
+AGENT SCORES:
+- Macro Alignment (Fundamentalist): {fin_health}/10
+- Flow/Momentum (Fundamentalist): {momentum}/10
+- Valuation: {valuation}/10
+- Sentiment: {sentiment}/10
+- Technical Strength: {technical}/10
+
+KEY POSITIVES: {all_insights[:5]}
+KEY RISKS: {all_risks[:5]}
+
+Provide a JSON synthesis with EXACTLY these fields:
+{{
+  "allocation_recommendation": "BUY" or "HOLD" or "REDUCE",
+  "concentration_risk": <float 0-10: higher = more concentrated/risky>,
+  "sector_momentum": <float 0-10: combining technical and flow signals>,
+  "macro_alignment_score": <float 0-10: broader macro fit>,
+  "investment_thesis": <string: 3-4 sentence portfolio allocation narrative>,
+  "pros": <list of exactly 3 strings>,
+  "cons": <list of exactly 3 strings>,
+  "watchlist_candidate": <bool: true if macro_alignment_score >= 7.5>
+}}
+
+Return ONLY the JSON object."""
+
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        tokens_used = message.usage.input_tokens + message.usage.output_tokens
+        raw_text = message.content[0].text.strip()
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("```")[1]
+            if raw_text.startswith("json"):
+                raw_text = raw_text[4:]
+            raw_text = raw_text.strip()
+
+        try:
+            result = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            logger.error(f"[ETF Synthesis] JSON parse failed. Raw: {raw_text[:200]!r}")
+            raise ValueError(f"LLM returned unparseable JSON: {exc}") from exc
+
+        return result, tokens_used
+
     # ========================================================================
     # Helper Methods
     # ========================================================================

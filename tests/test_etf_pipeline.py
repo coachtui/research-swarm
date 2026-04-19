@@ -312,3 +312,86 @@ def test_analyze_quant_accepts_etf_context():
 
     sig = inspect.signature(analyze_quant)
     assert "etf_context" in sig.parameters, "analyze_quant should accept etf_context param"
+
+
+def test_analyze_swarm_returns_etf_output_when_is_etf():
+    from research_swarm.agents.manager.graph import analyze_swarm
+    from research_swarm.agents.manager.models import ETFManagerOutput
+
+    mock_etf_data = {
+        "ticker": "SPY",
+        "fund_name": "SPDR S&P 500 ETF Trust",
+        "aum_billions": 512.3,
+        "expense_ratio": 0.0945,
+        "top_holdings": [{"symbol": "AAPL", "weight_pct": 7.2}],
+        "sector_weights": {"Technology": 31.2},
+        "ytd_return": 8.5,
+        "3y_return": 12.4,
+        "5y_return": 14.2,
+        "current_price": 542.10,
+        "52w_high": 598.40,
+        "52w_low": 490.21,
+    }
+
+    mock_fundamentalist = MagicMock()
+    mock_fundamentalist.financial_health_score = 7.5
+    mock_fundamentalist.earnings_momentum_score = 7.0
+    mock_fundamentalist.valuation_score = 6.5
+    mock_fundamentalist.dict.return_value = {
+        "financial_health_score": 7.5,
+        "earnings_momentum_score": 7.0,
+        "valuation_score": 6.5,
+        "key_insights": ["Strong momentum"],
+        "risk_factors": ["Tech concentration"],
+        "confidence": 0.8,
+        "tokens_used": 500,
+        "processing_time": 10.0,
+    }
+
+    mock_news = MagicMock()
+    mock_news.sentiment_score = 6.5
+    mock_news.dict.return_value = {
+        "sentiment_score": 6.5,
+        "key_insights": ["Positive sector flow"],
+        "risk_factors": ["Rate sensitivity"],
+        "confidence": 0.75,
+        "tokens_used": 400,
+        "processing_time": 8.0,
+    }
+
+    mock_quant = MagicMock()
+    mock_quant.technical_score = 7.2
+    mock_quant.dict.return_value = {
+        "technical_score": 7.2,
+        "key_insights": ["Above 200 SMA"],
+        "risk_factors": ["Overbought RSI"],
+        "confidence": 0.8,
+        "tokens_used": 300,
+        "processing_time": 5.0,
+    }
+
+    with patch("research_swarm.agents.manager.graph.market_data_client.get_etf_info", return_value=mock_etf_data), \
+         patch("research_swarm.agents.manager.graph.analyze_company", return_value=mock_fundamentalist), \
+         patch("research_swarm.agents.manager.graph.analyze_company_news", return_value=mock_news), \
+         patch("research_swarm.agents.manager.graph.analyze_quant", return_value=mock_quant), \
+         patch("research_swarm.agents.manager.graph.manager_analyzer.synthesize_etf_findings") as mock_synth:
+
+        mock_synth.return_value = (
+            {
+                "allocation_recommendation": "BUY",
+                "concentration_risk": 4.0,
+                "sector_momentum": 7.5,
+                "macro_alignment_score": 7.8,
+                "investment_thesis": "SPY offers diversified large-cap exposure with strong macro tailwinds.",
+                "pros": ["Broad diversification", "Low cost", "Strong momentum"],
+                "cons": ["Tech concentration", "Rate sensitivity", "High valuations"],
+                "watchlist_candidate": True,
+            },
+            800,
+        )
+
+        result = analyze_swarm(ticker="SPY", is_etf=True)
+
+    assert isinstance(result, ETFManagerOutput)
+    assert result.allocation_recommendation == "BUY"
+    assert result.ticker == "SPY"
