@@ -1,7 +1,7 @@
 """
 Signal Divergence Calculator for DVRG Manager Agent.
 
-Analyzes divergence between 7 key signals to identify contrarian opportunities:
+Analyzes divergence between 8 key signals to identify contrarian opportunities:
 1. News Sentiment - What the media is saying
 2. Earnings Revisions - What analysts expect
 3. Analyst Ratings - What Wall Street recommends
@@ -37,7 +37,7 @@ def calculate_signal_divergence(
         Signal breakdown dict with scores, interpretations, and divergence analysis
     """
     try:
-        # Extract the 7 signal scores with data availability flags
+        # Extract the 8 signal scores with data availability flags
         news_score, news_has_data = _extract_news_score(news_hound_output)
         earnings_score, earnings_has_data = _extract_earnings_score(news_hound_output)
         analyst_score, analyst_has_data = _extract_analyst_score(news_hound_output)
@@ -45,9 +45,10 @@ def calculate_signal_divergence(
         insider_score, insider_has_data = _extract_insider_score(news_hound_output)
         dark_pool_score, dark_pool_has_data = _extract_dark_pool_score(news_hound_output)
         tech_div_score, tech_div_has_data = _extract_technical_divergence_score(quant_output)
+        short_interest_score, short_interest_has_data = _extract_short_interest_score(news_hound_output)
 
-        all_scores = [news_score, earnings_score, analyst_score, institutional_score, insider_score, dark_pool_score, tech_div_score]
-        all_has_data = [news_has_data, earnings_has_data, analyst_has_data, institutional_has_data, insider_has_data, dark_pool_has_data, tech_div_has_data]
+        all_scores = [news_score, earnings_score, analyst_score, institutional_score, insider_score, dark_pool_score, tech_div_score, short_interest_score]
+        all_has_data = [news_has_data, earnings_has_data, analyst_has_data, institutional_has_data, insider_has_data, dark_pool_has_data, tech_div_has_data, short_interest_has_data]
 
         # P0: Calculate overall score using ONLY signals with confirmed data
         # Missing data ≠ Neutral — exclude rather than default to 5.0
@@ -113,7 +114,7 @@ def calculate_signal_divergence(
         )
 
         # P0: Divergence metric labeling — three distinct constructs, each labeled clearly
-        # 1. signal_spread (σ): standard deviation across all 7 signal scores
+        # 1. signal_spread (σ): standard deviation across all 8 signal scores
         #    Drives the headline has_divergence flag — measures disagreement breadth
         has_divergence, std_dev = _check_divergence(all_scores)
         signal_spread = round(std_dev, 2)
@@ -127,14 +128,15 @@ def calculate_signal_divergence(
         #    technical score — captures the value-vs-momentum divergence construct
         # (computed separately below in _check_component_divergence)
 
-        # Generate interpretations for all 7 signals
+        # Generate interpretations for all 8 signals
         news_interp = _interpret_score(news_score, "News Sentiment", news_has_data)
         earnings_interp = _interpret_score(earnings_score, "Earnings Revisions", earnings_has_data)
         analyst_interp = _interpret_score(analyst_score, "Analyst Ratings", analyst_has_data)
         institutional_interp = _interpret_score(institutional_score, "Institutional (Blended)", institutional_has_data)
         insider_interp = _interpret_score(insider_score, "Insider Activity", insider_has_data)
-        dark_pool_interp = _interpret_score(dark_pool_score, "Dark Pool Activity", dark_pool_has_data)  # NEW
-        tech_div_interp = _interpret_score(tech_div_score, "Technical Divergence", tech_div_has_data)  # NEW
+        dark_pool_interp = _interpret_score(dark_pool_score, "Dark Pool Activity", dark_pool_has_data)
+        tech_div_interp = _interpret_score(tech_div_score, "Technical Divergence", tech_div_has_data)
+        short_interest_interp = _interpret_score(short_interest_score, "Short Interest", short_interest_has_data)
 
         # Also check for component score divergence (Valuation vs Technical Strength gap)
         # This catches the case where sentiment signals are all neutral but component scores diverge
@@ -362,6 +364,7 @@ def calculate_signal_divergence(
             "insider_activity_summary": insider_activity_summary or None,
             "dark_pool_score": round(dark_pool_score, 1),
             "tech_divergence_score": round(tech_div_score, 1),
+            "short_interest_score": round(short_interest_score, 1),
             # Interpretations
             "news_interpretation": news_interp,
             "earnings_interpretation": earnings_interp,
@@ -370,6 +373,7 @@ def calculate_signal_divergence(
             "insider_interpretation": insider_interp,
             "dark_pool_interpretation": dark_pool_interp,
             "tech_divergence_interpretation": tech_div_interp,
+            "short_interest_interpretation": short_interest_interp,
             # Data availability flags
             "news_has_data": news_has_data,
             "earnings_has_data": earnings_has_data,
@@ -378,6 +382,7 @@ def calculate_signal_divergence(
             "insider_has_data": insider_has_data,
             "dark_pool_has_data": dark_pool_has_data,
             "tech_divergence_has_data": tech_div_has_data,
+            "short_interest_has_data": short_interest_has_data,
             # P0: Data integrity — score computed from confirmed signals only
             "valid_signal_count": valid_signal_count,
             "missing_signal_count": missing_signal_count,
@@ -396,7 +401,7 @@ def calculate_signal_divergence(
             # P1: RSI extreme condition flag
             "rsi_extreme_flag": rsi_extreme_flag,
             # P0: Divergence metric labeling — three clearly named constructs
-            # signal_spread (σ): standard deviation across all 7 signal scores — drives headline divergence
+            # signal_spread (σ): standard deviation across all 8 signal scores — drives headline divergence
             "signal_spread": signal_spread,
             "signal_spread_label": signal_spread_label,
             # component_gap: fundamentalist valuation score vs quant technical score gap
@@ -507,7 +512,7 @@ def calculate_signal_divergence(
         }
 
         logger.info(
-            f"Signal divergence calculated (7 signals): {alignment_status} "
+            f"Signal divergence calculated (8 signals): {alignment_status} "
             f"(σ={std_dev:.2f} [{signal_spread_label}], component_gap={component_gap:.1f} [{component_gap_label}])"
         )
         return signal_breakdown
@@ -790,6 +795,60 @@ def _extract_dark_pool_score(news_hound_output: Dict[str, Any]) -> Tuple[float, 
         base_score = min(base_score, 3.0)
 
     return base_score, has_data
+
+
+def _extract_short_interest_score(news_hound_output: Dict[str, Any]) -> Tuple[float, bool]:
+    """
+    Convert short interest data into a 0-10 divergence signal.
+
+    Scoring logic:
+    - Decreasing short interest (shorts covering) = bullish (7-8)
+    - Low short interest (<5% of float) = neutral/positive (6-7)
+    - High short interest (>20%) with high squeeze risk = contrarian watch (5-7, context dependent)
+    - High short interest (>20%) without squeeze risk = bearish (3-4)
+    - Increasing short interest = bearish (2-4)
+
+    Returns:
+        Tuple of (score, has_data)
+    """
+    si_data = news_hound_output.get("short_interest")
+    if not si_data or not isinstance(si_data, dict):
+        return 5.0, False
+
+    si_pct = si_data.get("short_interest_pct")
+    days_to_cover = si_data.get("days_to_cover")
+    trend = (si_data.get("short_interest_trend") or "stable").lower()
+    squeeze_risk = (si_data.get("squeeze_risk") or "low").lower()
+    short_sentiment = (si_data.get("short_sentiment") or "neutral").lower()
+
+    has_data = si_pct is not None
+
+    # Base score from trend direction (primary signal)
+    if "decreasing" in trend or "bullish" in short_sentiment:
+        base_score = 7.5
+    elif "increasing" in trend or "bearish" in short_sentiment:
+        base_score = 3.0
+    else:
+        base_score = 5.0
+
+    # Adjust for short interest level
+    if si_pct is not None:
+        if si_pct > 20.0:
+            if "high" in squeeze_risk:
+                # Heavy short + high squeeze risk = contrarian setup (shorts as fuel)
+                base_score = max(base_score, 5.5)
+            else:
+                # Heavy short without squeeze support = sustained bearish pressure
+                base_score = min(base_score, 3.5)
+        elif si_pct < 5.0:
+            # Low short interest → bears have largely given up
+            base_score = max(base_score, 6.0)
+
+    # Adjust for days to cover (squeeze potential)
+    if days_to_cover is not None and days_to_cover > 5.0 and "high" in squeeze_risk:
+        base_score = max(base_score, 5.5)
+
+    return round(min(10.0, max(0.0, base_score)), 1), has_data
 
 
 def _extract_rsi_extreme_flag(quant_output: Dict[str, Any]) -> Optional[Dict[str, Any]]:

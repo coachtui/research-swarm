@@ -53,8 +53,8 @@ def _valuation_gap_score(price_vs_intrinsic_pct: float) -> float:
 
 
 def _regime_score_from_status(status: str) -> float:
-    """INITIATE → 10, WATCHLIST → 5, WAIT → 1."""
-    return {"INITIATE": 10.0, "WATCHLIST": 5.0, "WAIT": 1.0}.get(status, 1.0)
+    """INITIATE → 9, WATCHLIST → 6.5, WAIT → 2.5. Smoothed to avoid cliff effects."""
+    return {"INITIATE": 9.0, "WATCHLIST": 6.5, "WAIT": 2.5}.get(status, 2.5)
 
 
 def _hhi(weights: list[float]) -> float:

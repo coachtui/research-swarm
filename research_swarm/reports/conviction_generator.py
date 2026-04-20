@@ -99,7 +99,7 @@ class ConvictionGenerator:
         points = 0
 
         # Moat score contribution
-        if moat_score >= 8.0:
+        if moat_score >= 7.0:
             points += 3
         elif moat_score >= 6.5:
             points += 2

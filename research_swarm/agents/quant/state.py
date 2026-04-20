@@ -54,7 +54,6 @@ class QuantState(TypedDict, total=False):
     technical_breakdown: Optional[Dict[str, float]]  # Technical score breakdown (trend, momentum, volume, RS)
     supply_chain_score: Optional[float]  # Overall supply chain score (0-10)
     supply_chain_breakdown: Optional[Dict[str, float]]  # Supply chain score breakdown
-    quant_score: Optional[float]  # Combined quant score (0-10)
     confidence: Optional[float]  # Confidence level (0-1)
 
     # Metadata

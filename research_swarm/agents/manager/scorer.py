@@ -74,13 +74,12 @@ class ManagerScorer:
         # Calculate weighted moat score
         moat_score = breakdown.weighted_average()
 
-        # Calculate confidence based on agent score consistency and agent confidences
+        # Calculate confidence based on agent score consistency (supply chain excluded)
         confidence = cls.assess_confidence(
             component_scores=[
                 financial_health_score,
                 sentiment_score,
                 technical_score,
-                supply_chain_score,
             ],
             agent_confidences={
                 "fundamentalist": fundamentalist_confidence,
@@ -108,7 +107,7 @@ class ManagerScorer:
         - Final confidence = base_confidence * variance_penalty
 
         Args:
-            component_scores: List of component scores [financial, sentiment, technical, supply_chain]
+            component_scores: List of component scores [financial, sentiment, technical, ...]
             agent_confidences: Dict of agent confidence levels
 
         Returns:

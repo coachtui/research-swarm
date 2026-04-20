@@ -23,10 +23,13 @@ class EarningsCalculator:
 
         Formula:
             momentum = (
-                estimate_revisions * 0.40 +  # PRIMARY SIGNAL
-                surprise_pattern * 0.35 +
-                analyst_sentiment * 0.25
+                estimate_revisions * 0.57 +  # PRIMARY SIGNAL
+                surprise_pattern * 0.43
             )
+
+        Analyst sentiment (ratings/price targets) is intentionally excluded here.
+        It is captured as a dedicated signal in the signal_divergence layer, where
+        it belongs. Counting it here AND in divergence double-weighted consensus errors.
 
         Args:
             earnings_data: Dict with keys:
@@ -42,16 +45,14 @@ class EarningsCalculator:
             logger.warning("No earnings data provided, returning neutral momentum")
             return self._neutral_momentum()
 
-        # Calculate 3 components
+        # Calculate 2 components
         revision_score = self._score_estimate_revisions(earnings_data)
         surprise_score = self._score_surprise_pattern(earnings_data)
-        sentiment_score = self._score_analyst_sentiment(earnings_data)
 
         # Weighted composite
         momentum_score = (
-            revision_score * 0.40 +
-            surprise_score * 0.35 +
-            sentiment_score * 0.25
+            revision_score * 0.57 +
+            surprise_score * 0.43
         )
 
         # Classify momentum
@@ -67,7 +68,6 @@ class EarningsCalculator:
             "classification": classification,
             "estimate_revision_score": round(revision_score, 1),
             "surprise_pattern_score": round(surprise_score, 1),
-            "analyst_sentiment_score": round(sentiment_score, 1)
         }
 
         logger.debug(f"Momentum breakdown: {breakdown}")
@@ -297,7 +297,6 @@ class EarningsCalculator:
             "classification": "Stable",
             "estimate_revision_score": 5.0,
             "surprise_pattern_score": 5.0,
-            "analyst_sentiment_score": 5.0
         }
 
 

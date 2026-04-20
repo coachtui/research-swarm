@@ -634,13 +634,6 @@ class QuantOutput(BaseModel):
         description="Supply chain score breakdown by component"
     )
 
-    # Combined score
-    quant_score: float = Field(
-        ...,
-        ge=0,
-        le=10,
-        description="Combined quant score (50% technical + 50% supply chain)"
-    )
     confidence: float = Field(
         ...,
         ge=0,
@@ -669,14 +662,6 @@ class QuantOutput(BaseModel):
             raise ValueError(
                 f"Supply chain score {self.supply_chain_score} does not match "
                 f"breakdown weighted average {expected_supply_chain:.2f}"
-            )
-
-        # Validate combined quant score
-        expected_quant = (self.technical_score + self.supply_chain_score) / 2
-        if abs(self.quant_score - expected_quant) > 0.1:
-            raise ValueError(
-                f"Quant score {self.quant_score} does not match "
-                f"average of technical and supply chain scores {expected_quant:.2f}"
             )
 
         return self

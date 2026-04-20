@@ -198,7 +198,7 @@ def call_quant_node(state: ManagerState) -> dict:
         return {
             "quant_output": quant_output.dict(),
             "technical_score": quant_output.technical_score,
-            "supply_chain_score": 0.0,  # Always 0 since supply chain is disabled
+            "supply_chain_score": quant_output.supply_chain_score,
         }
 
     except Exception as e:
@@ -405,6 +405,17 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
         if quant_output.get("risk_factors"):
             all_risks.extend(quant_output["risk_factors"])
 
+        # Business model ROIC/WACC divergence cross-check
+        roic_score = fund_output.get("roic_wacc_spread_score")
+        biz_moat_score = fund_output.get("business_model_moat_score")
+        if roic_score is not None and biz_moat_score is not None:
+            if roic_score > 7.0 and biz_moat_score < 4.0:
+                all_risks.append(
+                    "Quantitative moat evidence (ROIC/WACC spread) without qualitative moat narrative "
+                    f"(ROIC score {roic_score:.1f} vs business model score {biz_moat_score:.1f}) — "
+                    "may indicate a temporary competitive edge or financial engineering rather than durable moat."
+                )
+
         # Deduplicate insights and risks
         deduplicated_insights = manager_analyzer.deduplicate_insights(all_insights, max_results=5)
         deduplicated_risks = manager_analyzer.deduplicate_insights(all_risks, max_results=5)
@@ -502,7 +513,18 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
 
         # Equity path: existing code below, unchanged
         # Get component scores
-        financial_health_score = state["financial_health_score"]
+        raw_financial_health_score = state["financial_health_score"]
+
+        # Apply management quality as 15% modifier to financial health
+        news_hound_raw = state["news_hound_output"] or {}
+        mgmt_commentary = news_hound_raw.get("management_commentary") or {}
+        mgmt_quality_score = float(mgmt_commentary.get("management_quality_score") or 5.0)
+        financial_health_score = round(raw_financial_health_score * 0.85 + mgmt_quality_score * 0.15, 2)
+        logger.debug(
+            f"Financial health adjusted by management quality: "
+            f"{raw_financial_health_score:.2f} → {financial_health_score:.2f} (mgmt={mgmt_quality_score:.1f})"
+        )
+
         sentiment_score = state["sentiment_score"]
         technical_score = state["technical_score"]
 
@@ -587,20 +609,18 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
             moat_score, technical_score=technical_score
         )
 
-        # NEW v2.0: Determine risk level
+        # Determine risk level using quality formula inputs only (drop technical, add roic_wacc)
         import statistics
-        variance = statistics.variance(component_scores) if len(component_scores) > 1 else 0.0
-        component_scores_dict = {
+        risk_components = {
             "financial_health": financial_health_score,
             "sentiment": sentiment_score,
-            "technical": technical_score,
+            "earnings_momentum": earnings_momentum_score,
+            "valuation": valuation_score,
         }
-        if earnings_momentum_score is not None:
-            component_scores_dict["earnings_momentum"] = earnings_momentum_score
-        if valuation_score is not None:
-            component_scores_dict["valuation"] = valuation_score
-
-        risk_level = manager_scorer.determine_risk_level(component_scores_dict, variance)
+        if roic_wacc_spread_score is not None:
+            risk_components["roic_wacc_spread"] = roic_wacc_spread_score
+        risk_variance = statistics.variance(list(risk_components.values())) if len(risk_components) > 1 else 0.0
+        risk_level = manager_scorer.determine_risk_level(risk_components, risk_variance)
 
         # Update state
         state["moat_score"] = moat_score

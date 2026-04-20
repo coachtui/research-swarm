@@ -289,9 +289,6 @@ def score_quant_node(state: QuantState) -> QuantState:
     supply_chain_breakdown = supply_chain_scorer.score_supply_chain(supply_chain_graph)
     supply_chain_score = supply_chain_breakdown.weighted_average()
 
-    # Combined quant score (50/50 weight)
-    quant_score = (technical_score + supply_chain_score) / 2
-
     # Calculate confidence based on data availability
     confidence = _calculate_confidence(technical_indicators, supply_chain_graph)
 
@@ -300,13 +297,12 @@ def score_quant_node(state: QuantState) -> QuantState:
     state["technical_breakdown"] = technical_breakdown.dict()
     state["supply_chain_score"] = supply_chain_score
     state["supply_chain_breakdown"] = supply_chain_breakdown.dict()
-    state["quant_score"] = quant_score
     state["confidence"] = confidence
     state["status"] = "completed"
 
     logger.success(
         f"✓ Scoring complete: {state['ticker']} "
-        f"(Quant={quant_score:.2f}, Tech={technical_score:.2f}, SC={supply_chain_score:.2f})"
+        f"(Tech={technical_score:.2f}, SC={supply_chain_score:.2f})"
     )
 
     return state
@@ -463,7 +459,6 @@ def analyze_quant(
         "technical_breakdown": None,
         "supply_chain_score": None,
         "supply_chain_breakdown": None,
-        "quant_score": None,
         "confidence": None,
         "processing_time": None,
         "node_timestamps": {},
@@ -497,7 +492,6 @@ def analyze_quant(
         supply_chain_analysis=final_state["supply_chain_analysis"],
         supply_chain_score=final_state["supply_chain_score"],
         supply_chain_breakdown=SupplyChainScoreBreakdown(**final_state["supply_chain_breakdown"]),
-        quant_score=final_state["quant_score"],
         confidence=final_state["confidence"],
         tokens_used=final_state.get("tokens_used", 0),
         processing_time=processing_time
@@ -505,7 +499,7 @@ def analyze_quant(
 
     logger.success(
         f"=== Quant Analysis Complete: {ticker} "
-        f"(Score: {output.quant_score:.2f}, Time: {processing_time:.1f}s, Tokens: {output.tokens_used}) ==="
+        f"(Tech: {output.technical_score:.2f}, SC: {output.supply_chain_score:.2f}, Time: {processing_time:.1f}s, Tokens: {output.tokens_used}) ==="
     )
 
     return output
