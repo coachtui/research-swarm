@@ -14,6 +14,7 @@ import os
 from inngest.functions.analyze_stock import inngest, analyze_stock
 from inngest.functions.weekly_batch import weekly_batch
 from inngest.functions.send_teaser_digest import send_teaser_digest
+from inngest.functions.send_watchlist_alerts import send_watchlist_alerts
 
 # Create Flask app for Inngest HTTP handler
 app = Flask(__name__)
@@ -22,7 +23,7 @@ app = Flask(__name__)
 serve(
     app,
     inngest,
-    [analyze_stock, weekly_batch, send_teaser_digest],
+    [analyze_stock, weekly_batch, send_teaser_digest, send_watchlist_alerts],
     signing_key=os.getenv("INNGEST_SIGNING_KEY")
 )
 
