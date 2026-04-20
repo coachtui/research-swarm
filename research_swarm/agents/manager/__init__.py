@@ -9,11 +9,11 @@ The Manager agent is the top-level coordinator that:
 5. Identifies watchlist candidates (moat_score >= 8)
 """
 from .graph import analyze_swarm
-from .models import ManagerOutput, MoatScoreBreakdown, ETFManagerOutput
+from .models import ManagerOutput, QualityScoreBreakdown, ETFManagerOutput
 
 __all__ = [
     "analyze_swarm",
     "ManagerOutput",
-    "MoatScoreBreakdown",
+    "QualityScoreBreakdown",
     "ETFManagerOutput",
 ]

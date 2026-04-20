@@ -98,8 +98,11 @@ def calculate_signal_divergence(
 
         # P1: RSI extreme condition flag
         rsi_extreme_flag = _extract_rsi_extreme_flag(quant_output)
-        # RSI extreme reduces signal stability
-        if rsi_extreme_flag:
+        # RSI extreme at an extreme in an ALIGNED signal environment = noise risk (penalize).
+        # RSI extreme inside a DIVERGENT signal environment = confirmatory (leave alone).
+        # signal_spread is computed below, so use std_dev from all_scores as a proxy here.
+        _pre_spread_std = _stats.stdev(all_scores) if len(all_scores) >= 2 else 0.0
+        if rsi_extreme_flag and _pre_spread_std < 1.5:
             signal_stability = round(max(0.0, signal_stability - 1.5), 1)
 
         # P3: Signal stability label (pre-computed as local var — used in both dict and probability_construction_framework)

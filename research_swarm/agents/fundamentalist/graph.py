@@ -4,7 +4,7 @@ LangGraph workflow for the Fundamentalist agent.
 Orchestrates the analysis pipeline from 10-K fetching to health scoring.
 """
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 from research_swarm.logger import logger
 from research_swarm.data.sec_client import sec_client
@@ -27,6 +27,80 @@ from research_swarm.agents.fundamentalist.fair_value_calibrator import fair_valu
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+def _compute_roic_wacc_spread_score(
+    stock_info: Dict[str, Any],
+    dcf_inputs: Any,
+) -> Optional[float]:
+    """
+    Score ROIC-WACC spread on a 0-10 scale.
+
+    ROIC proxy: returnOnEquity (ROE) from yfinance — decimal (e.g. 0.15 = 15%).
+    WACC: derived from beta, market cap, debt, and tax rate using CAPM.
+
+    Spread thresholds (percentage points above/below cost of capital):
+      >=10%  → 9.5  Clear structural moat
+       7-10% → 8.5  Strong value creation
+       5-7%  → 7.5  Good economic profit
+       2-5%  → 6.0  Slight edge
+       0-2%  → 4.5  Breakeven — no moat
+      -3–0%  → 3.0  Mild value destruction
+      < -3%  → 1.5  Structural value destruction
+
+    +0.5 persistence bonus when margin trend is stable/expanding and spread > 2%.
+    """
+    roic = stock_info.get("returnOnEquity")
+    if roic is None:
+        return None
+
+    beta = (dcf_inputs.beta or stock_info.get("beta") or 1.0)
+    risk_free = dcf_inputs.risk_free_rate / 100.0
+    erp = dcf_inputs.equity_risk_premium / 100.0
+    tax_rate = (dcf_inputs.effective_tax_rate or 21.0) / 100.0
+
+    cost_of_equity = risk_free + beta * erp
+    cost_of_debt = risk_free + 0.02
+
+    debt = dcf_inputs.total_debt or 0
+    if dcf_inputs.market_cap_millions and dcf_inputs.market_cap_millions > 0:
+        equity = dcf_inputs.market_cap_millions * 1_000_000
+    else:
+        market_cap = stock_info.get("marketCap")
+        equity = market_cap if market_cap else max(debt * 3, 1_000_000_000)
+
+    total_capital = equity + debt
+    equity_weight = equity / total_capital
+    debt_weight = debt / total_capital
+
+    wacc = (equity_weight * cost_of_equity) + (debt_weight * cost_of_debt * (1 - tax_rate))
+    wacc = max(0.05, min(wacc, 0.20))
+
+    spread = roic - wacc
+
+    if spread >= 0.10:
+        score = 9.5
+    elif spread >= 0.07:
+        score = 8.5
+    elif spread >= 0.05:
+        score = 7.5
+    elif spread >= 0.02:
+        score = 6.0
+    elif spread >= 0.00:
+        score = 4.5
+    elif spread >= -0.03:
+        score = 3.0
+    else:
+        score = 1.5
+
+    if dcf_inputs.operating_margin_trend in ("stable", "expanding") and spread >= 0.02:
+        score = min(10.0, score + 0.5)
+
+    logger.info(
+        f"ROIC-WACC: ROE={roic*100:.1f}% WACC={wacc*100:.1f}% "
+        f"spread={spread*100:+.1f}% → score={score:.1f}/10"
+    )
+    return round(score, 1)
+
 
 def _fetch_earnings_data(ticker: str) -> Dict[str, Any]:
     """
@@ -1146,6 +1220,12 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                 else:
                     logger.warning(f"Skipping valuation: {'no current_price' if not fair_value_price else 'no valuation_metrics'}")
 
+                # v3.0: ROIC-WACC spread score (uses stock_info + dcf_inputs, independent of blended FV)
+                if stock_info:
+                    roic_wacc = _compute_roic_wacc_spread_score(stock_info, dcf_inputs)
+                    if roic_wacc is not None:
+                        state["roic_wacc_spread_score"] = roic_wacc
+
                 # Also extract structured filing data
                 filing_type = "10-K"
                 if state.get("is_foreign"):
@@ -1616,6 +1696,7 @@ def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: 
         analyst_consensus=analyst_consensus,
         earnings_momentum_score=final_state.get("earnings_momentum_score", 5.0),
         earnings_momentum_breakdown=final_state.get("earnings_momentum_breakdown"),
+        roic_wacc_spread_score=final_state.get("roic_wacc_spread_score"),
         valuation_score=final_state.get("valuation_score", 5.0),
         valuation_metrics=ValuationMetrics(**final_state["valuation_metrics"]) if final_state.get("valuation_metrics") else None,
         price_targets=PriceTargetScenarios(**final_state["price_targets"]) if final_state.get("price_targets") else None,

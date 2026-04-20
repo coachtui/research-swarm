@@ -5,31 +5,35 @@ Implements the weighted moat score calculation and confidence assessment.
 """
 import statistics
 from typing import Tuple, Dict
-from .models import MoatScoreBreakdown
+from .models import QualityScoreBreakdown
 
 
 class ManagerScorer:
     """
-    Handles moat score calculation and confidence assessment.
+    Handles quality score calculation and confidence assessment.
 
-    Moat Formula (from master-plan.md):
-    - Financial Health (Fundamentalist): 30%
-    - Sentiment/Catalysts (News Hound): 20%
-    - Technical Strength (Quant): 20%
-    - Supply Chain Position (Quant): 30%
+    Quality Score Formula (v3.0):
+    - ROIC/WACC Spread: 25% (when available)
+    - Financial Health: 25%
+    - Earnings Quality: 20%
+    - Valuation Discipline: 15%
+    - Sentiment/Catalysts: 10%
 
-    Watchlist Threshold: moat_score >= 8.0
+    Fallback weights (when ROIC/WACC not yet wired):
+    - Financial Health: 30%, Earnings Quality: 25%, Valuation: 25%, Sentiment: 20%
+
+    Watchlist Threshold: quality_score >= 7.0
     """
 
-    # Moat component weights
     WEIGHTS = {
-        "financial_health": 0.30,
-        "sentiment_catalysts": 0.20,
-        "technical_strength": 0.20,
-        "supply_chain_position": 0.30,
+        "roic_wacc_spread": 0.25,
+        "financial_health": 0.25,
+        "earnings_quality": 0.20,
+        "valuation": 0.15,
+        "sentiment_catalysts": 0.10,
     }
 
-    WATCHLIST_THRESHOLD = 8.0
+    WATCHLIST_THRESHOLD = 7.0
 
     @classmethod
     def calculate_moat_score(
@@ -41,31 +45,30 @@ class ManagerScorer:
         fundamentalist_confidence: float = 1.0,
         news_hound_confidence: float = 1.0,
         quant_confidence: float = 1.0,
-    ) -> Tuple[float, MoatScoreBreakdown, float]:
+    ) -> Tuple[float, QualityScoreBreakdown, float]:
         """
-        Calculate moat score using weighted formula.
+        Calculate quality score using weighted formula.
 
         Args:
             financial_health_score: Score from Fundamentalist (0-10)
             sentiment_score: Score from News Hound (0-10)
             technical_score: Score from Quant (0-10)
-            supply_chain_score: Score from Quant (0-10)
+            supply_chain_score: Ignored — supply chain removed from quality formula
             fundamentalist_confidence: Confidence from Fundamentalist (0-1)
             news_hound_confidence: Confidence from News Hound (0-1)
             quant_confidence: Confidence from Quant (0-1)
 
         Returns:
-            Tuple of (moat_score, breakdown, confidence):
-            - moat_score (float): Weighted moat score (0-10)
-            - breakdown (MoatScoreBreakdown): Component score breakdown
+            Tuple of (quality_score, breakdown, confidence):
+            - quality_score (float): Weighted quality score (0-10)
+            - breakdown (QualityScoreBreakdown): Component score breakdown
             - confidence (float): Overall confidence in the score (0-1)
         """
         # Create breakdown object
-        breakdown = MoatScoreBreakdown(
+        breakdown = QualityScoreBreakdown(
             financial_health=financial_health_score,
             sentiment_catalysts=sentiment_score,
             technical_strength=technical_score,
-            supply_chain_position=supply_chain_score,
         )
 
         # Calculate weighted moat score
@@ -161,14 +164,14 @@ class ManagerScorer:
         Returns:
             str: Interpretation of the score
         """
-        if moat_score >= 8.0:
-            return "Strong - Watchlist Candidate"
-        elif moat_score >= 6.0:
-            return "Moderate - Hold"
+        if moat_score >= 7.0:
+            return "High Quality - Watchlist Candidate"
+        elif moat_score >= 5.5:
+            return "Moderate Quality - Hold"
         elif moat_score >= 4.0:
-            return "Weak - Caution"
+            return "Below Average Quality - Caution"
         else:
-            return "Very Weak - Avoid"
+            return "Low Quality - Avoid"
 
     # Tier order for downgrade logic
     _TIER_ORDER = ["STRONG SELL", "SELL", "HOLD", "BUY", "STRONG BUY"]

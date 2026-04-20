@@ -19,7 +19,7 @@ from research_swarm.data.market_data_client import market_data_client
 from .state import ManagerState
 from .analyzer import ManagerAnalyzer
 from .scorer import ManagerScorer
-from .models import ManagerOutput, MoatScoreBreakdown, ETFManagerOutput
+from .models import ManagerOutput, QualityScoreBreakdown, ETFManagerOutput
 from .signal_divergence import calculate_signal_divergence
 
 
@@ -511,20 +511,22 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
         news_hound_confidence = state["news_hound_output"].get("confidence", 1.0)
         quant_confidence = state["quant_output"].get("confidence", 1.0)
 
-        # Get v2.0 scores (earnings momentum, valuation)
+        # Get v3.0 quality score components
         fundamentalist_output = state["fundamentalist_output"]
         earnings_momentum_score = fundamentalist_output.get("earnings_momentum_score")
         valuation_score = fundamentalist_output.get("valuation_score")
+        roic_wacc_spread_score = fundamentalist_output.get("roic_wacc_spread_score")  # Optional until wired
 
         if earnings_momentum_score is None or valuation_score is None:
             raise ValueError(
-                f"Missing required v2.0 components for {state['ticker']}: "
+                f"Missing required quality score components for {state['ticker']}: "
                 f"earnings_momentum={earnings_momentum_score}, valuation={valuation_score}"
             )
 
-        # Create moat breakdown using v2.0 formula
-        logger.info(f"Using v2.0 moat formula (Earnings Momentum + Valuation)")
-        breakdown = MoatScoreBreakdown(
+        roic_label = f"ROIC/WACC={roic_wacc_spread_score:.1f}" if roic_wacc_spread_score is not None else "ROIC/WACC=pending"
+        logger.info(f"Calculating quality score ({roic_label})")
+        breakdown = QualityScoreBreakdown(
+            roic_wacc_spread=roic_wacc_spread_score,
             earnings_momentum=earnings_momentum_score,
             financial_health=financial_health_score,
             valuation=valuation_score,
@@ -532,7 +534,7 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
             sentiment_catalysts=sentiment_score,
         )
 
-        # Calculate moat score
+        # Calculate quality score
         moat_score = breakdown.weighted_average()
 
         # Calculate confidence using all v2.0 components
@@ -610,8 +612,8 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
         state["risk_level"] = risk_level
 
         logger.success(
-            f"✓ Moat score calculated: {state['ticker']} "
-            f"(Score: {moat_score:.2f}, Watchlist: {is_watchlist}, Confidence: {confidence:.0%})"
+            f"✓ Quality score calculated: {state['ticker']} "
+            f"(Score: {moat_score:.2f}, Watchlist: {is_watchlist}, Confidence: {confidence:.0%}, {roic_label})"
         )
 
     except Exception as e:
@@ -1020,7 +1022,7 @@ def analyze_swarm(
         investment_thesis=final_state["investment_thesis"],
         strategic_catalysts=final_state.get("strategic_catalysts"),
         moat_score=final_state["moat_score"],
-        moat_breakdown=MoatScoreBreakdown(**final_state["moat_breakdown"]),
+        moat_breakdown=QualityScoreBreakdown(**final_state["moat_breakdown"]),
         confidence=final_state["confidence"],
         is_watchlist_candidate=final_state["is_watchlist_candidate"],
         signal_breakdown=final_state.get("signal_breakdown"),  # v2.0

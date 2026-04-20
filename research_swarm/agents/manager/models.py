@@ -8,31 +8,39 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Dict, Any, Optional, Literal
 
 
-class MoatScoreBreakdown(BaseModel):
+class QualityScoreBreakdown(BaseModel):
     """
-    Breakdown of the moat score components.
+    Breakdown of the quality score components.
 
-    NEW Moat score formula (v2.0):
-    - Earnings Momentum: 25%
-    - Financial Health: 25%
-    - Valuation: 20%
-    - Technical/Momentum: 15%
-    - Sentiment: 15%
+    Quality Score formula (v3.0):
+    - ROIC/WACC Spread: 25% (when available — economic value creation above cost of capital)
+    - Financial Health: 25% (profitability, balance sheet, FCF conversion)
+    - Earnings Quality: 20% (estimate revisions, EPS surprise history, margin stability)
+    - Valuation Discipline: 15% (P/E, FCF yield, PEG vs sector)
+    - Sentiment/Catalysts: 10% (news, analyst consensus)
 
-    LEGACY Moat score formula (v1.0 - deprecated):
-    - Financial Health: 25%
-    - Business Model Moat: 25%
-    - Sentiment/Catalysts: 15%
-    - Technical Strength: 15%
-    - Supply Chain Position: 20%
+    Fallback (when roic_wacc_spread is None):
+    - Financial Health: 30%, Earnings Quality: 25%, Valuation: 25%, Sentiment: 20%
+
+    Note: Technical strength is retained as a field for the manager's one-tier
+    downgrade override in determine_rating(), but does NOT contribute to the
+    quality score itself — it is a timing signal, not a quality indicator.
     """
 
-    # New v2.0 components (Optional for backward compatibility)
+    # v3.0 ROIC/WACC spread component (optional until data pipeline is wired)
+    roic_wacc_spread: Optional[float] = Field(
+        None,
+        ge=0,
+        le=10,
+        description="ROIC minus WACC spread score from Fundamentalist (0-10)"
+    )
+
+    # Core quality components
     earnings_momentum: Optional[float] = Field(
         None,
         ge=0,
         le=10,
-        description="Earnings momentum score from Fundamentalist (0-10)"
+        description="Earnings quality score from Fundamentalist (0-10)"
     )
     valuation: Optional[float] = Field(
         None,
@@ -40,8 +48,6 @@ class MoatScoreBreakdown(BaseModel):
         le=10,
         description="Valuation score from Fundamentalist (0-10)"
     )
-
-    # Shared components (present in both v1.0 and v2.0)
     financial_health: float = Field(
         ...,
         ge=0,
@@ -54,47 +60,50 @@ class MoatScoreBreakdown(BaseModel):
         le=10,
         description="Sentiment score from News Hound (0-10)"
     )
-    technical_strength: float = Field(
-        ...,
+
+    # Retained for technical override in determine_rating() — not in formula
+    technical_strength: Optional[float] = Field(
+        None,
         ge=0,
         le=10,
-        description="Technical/momentum score from Quant (0-10)"
+        description="Technical/momentum score from Quant (0-10) — override only"
     )
 
     def weighted_average(self) -> float:
         """
-        Calculate weighted average moat score using v2.0 formula.
+        Calculate weighted quality score.
 
-        Component Weights:
-        - Earnings Momentum: 25% (PRIMARY SIGNAL - estimate revisions)
-        - Financial Health: 25% (profitability, balance sheet, cash flow)
-        - Valuation: 20% (P/E, PEG, EV/EBITDA vs peers)
-        - Technical/Momentum: 15% (price trends, RSI, MACD)
-        - Sentiment/Catalysts: 15% (news, analyst consensus, smart money)
-
-        Note: Supply chain data is collected for informational context only
-        and does NOT affect the moat score calculation.
+        Uses v3.0 formula when roic_wacc_spread is available; falls back to
+        redistributed weights when it is not yet populated.
 
         Returns:
-            float: Moat score (0-10)
+            float: Quality score (0-10)
 
         Raises:
-            ValueError: If required v2.0 components are missing
+            ValueError: If required components are missing
         """
         if self.earnings_momentum is None or self.valuation is None:
             raise ValueError(
-                "MoatScoreBreakdown requires v2.0 components: "
-                "earnings_momentum and valuation must be provided. "
+                "QualityScoreBreakdown requires earnings_momentum and valuation. "
                 f"Got earnings_momentum={self.earnings_momentum}, valuation={self.valuation}"
             )
 
-        return (
-            self.earnings_momentum * 0.25 +
-            self.financial_health * 0.25 +
-            self.valuation * 0.20 +
-            self.technical_strength * 0.15 +
-            self.sentiment_catalysts * 0.15
-        )
+        if self.roic_wacc_spread is not None:
+            return (
+                self.roic_wacc_spread * 0.25 +
+                self.financial_health * 0.25 +
+                self.earnings_momentum * 0.20 +
+                self.valuation * 0.15 +
+                self.sentiment_catalysts * 0.10
+            )
+        else:
+            # Redistribute ROIC weight proportionally until data pipeline is wired
+            return (
+                self.financial_health * 0.30 +
+                self.earnings_momentum * 0.25 +
+                self.valuation * 0.25 +
+                self.sentiment_catalysts * 0.20
+            )
 
 
 class InvestmentThesisStructured(BaseModel):
@@ -188,14 +197,14 @@ class ManagerOutput(BaseModel):
         description="2-3 forward-looking strategic developments not yet reflected in financials (labeled as speculative)"
     )
 
-    # Moat scoring
+    # Quality scoring
     moat_score: float = Field(
         ...,
         ge=0,
         le=10,
-        description="Final moat score (0-10)"
+        description="Final quality score (0-10)"
     )
-    moat_breakdown: MoatScoreBreakdown = Field(
+    moat_breakdown: QualityScoreBreakdown = Field(
         ...,
         description="Breakdown of moat score by component"
     )

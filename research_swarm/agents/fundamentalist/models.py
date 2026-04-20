@@ -530,6 +530,14 @@ class FundamentalistOutput(BaseModel):
     earnings_estimates: Optional[Any] = Field(None, description="Earnings estimate revisions (EarningsEstimateRevision)")
     analyst_consensus: Optional[Any] = Field(None, description="Analyst ratings and price targets (AnalystConsensus)")
 
+    # v3.0: ROIC/WACC spread score — populated when blended valuation data available
+    roic_wacc_spread_score: Optional[float] = Field(
+        None,
+        ge=0,
+        le=10,
+        description="ROIC minus WACC spread scored 0-10 (None until data pipeline wired)"
+    )
+
     # NEW v2.0: Earnings momentum scoring
     earnings_momentum_score: float = Field(
         0.0,
