@@ -4,7 +4,7 @@ Sends score change alerts and other notifications to users.
 """
 
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 import resend
 
 # Configure Resend API key
@@ -204,3 +204,102 @@ async def send_weekly_digest(
     # TODO: Implement weekly digest template
     # This will be built in Phase 2
     return False, "Weekly digest not yet implemented"
+
+
+async def send_signal_alert(
+    user_email: str,
+    ticker: str,
+    events: list,  # list[AlertEvent] from alert_evaluator
+    run_id: Optional[str] = None,
+) -> Tuple[bool, str]:
+    """
+    Send a single email summarising all weekly-batch alert events for one ticker.
+
+    Args:
+        user_email: Recipient.
+        ticker: Stock ticker the events apply to.
+        events: List of AlertEvent from alert_evaluator.evaluate_signal_change.
+        run_id: Optional analysis run ID for the "View Full Analysis" link.
+
+    Returns:
+        (success, error_message)
+    """
+    if not resend.api_key:
+        return False, "RESEND_API_KEY not configured"
+    if not events:
+        return False, "no events supplied"
+
+    base_url = os.getenv("FRONTEND_URL", "https://dvrg.co")
+    cta_path = f"/results/{run_id}" if run_id else f"/preview/{ticker.lower()}"
+
+    def _render_event(e) -> str:
+        if e.kind == "verdict_flip":
+            return (
+                f"<li><strong>Verdict flipped</strong>: "
+                f"{str(e.prior_value).capitalize()} → "
+                f"<span style='color:#00B396'>"
+                f"{str(e.current_value).capitalize()}</span></li>"
+            )
+        if e.kind == "ev_change":
+            prior_pct = int(round(float(e.prior_value) * 100))
+            current_pct = int(round(float(e.current_value) * 100))
+            direction = "↑" if current_pct > prior_pct else "↓"
+            return (
+                f"<li><strong>EV probability {direction}</strong>: "
+                f"{prior_pct}% → {current_pct}%</li>"
+            )
+        # Unknown kind — render defensively rather than crash
+        return f"<li>{e.kind}: {e.prior_value} → {e.current_value}</li>"
+
+    event_list_html = "".join(_render_event(e) for e in events)
+    kinds = {e.kind for e in events}
+    if "verdict_flip" in kinds and "ev_change" in kinds:
+        subject = f"🔔 {ticker}: Verdict flipped & EV probability moved"
+    elif "verdict_flip" in kinds:
+        subject = f"🔔 {ticker}: Verdict flipped"
+    elif "ev_change" in kinds:
+        subject = f"🔔 {ticker}: EV probability moved"
+    else:
+        subject = f"🔔 {ticker}: Weekly alert"
+
+    html = f"""
+<!DOCTYPE html>
+<html>
+<body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+             max-width:600px;margin:0 auto;padding:24px;color:#333">
+  <div style="background:linear-gradient(135deg,#00D9B5,#00B396);
+              color:white;padding:24px;border-radius:8px 8px 0 0">
+    <h1 style="margin:0;font-size:22px">Weekly Alert — {ticker}</h1>
+    <p style="margin:6px 0 0;opacity:0.9">This week's batch moved a ticker on your watchlist.</p>
+  </div>
+  <div style="background:white;padding:24px;border:1px solid #e0e0e0;
+              border-top:none;border-radius:0 0 8px 8px">
+    <ul style="padding-left:20px;line-height:1.6">
+      {event_list_html}
+    </ul>
+    <p style="margin-top:24px">
+      <a href="{base_url}{cta_path}"
+         style="display:inline-block;background:#00D9B5;color:white;
+                padding:12px 22px;text-decoration:none;border-radius:6px;
+                font-weight:600">View Full Analysis →</a>
+    </p>
+    <p style="margin-top:24px;font-size:12px;color:#999">
+      You're receiving this because {ticker} is on your DVRG watchlist with
+      alerts enabled.
+      <a href="{base_url}/dashboard" style="color:#00D9B5">Manage alerts</a>
+    </p>
+  </div>
+</body>
+</html>
+"""
+
+    try:
+        resend.Emails.send({
+            "from": "DVRG Alerts <alerts@dvrg.co>",
+            "to": [user_email],
+            "subject": subject,
+            "html": html,
+        })
+        return True, ""
+    except Exception as e:
+        return False, str(e)
