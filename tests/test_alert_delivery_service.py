@@ -185,3 +185,46 @@ async def test_eligible_tiers_is_complete():
     assert "investor" in ELIGIBLE_TIERS
     assert "trader" in ELIGIBLE_TIERS
     assert "free" not in ELIGIBLE_TIERS
+
+
+@pytest.mark.asyncio
+async def test_multiple_watchers_each_get_email(run_date, db_with):
+    signals = [_signal()]
+    watchlists = [
+        _watchlist_row("u1", "AAPL", user_email="a@x.com"),
+        _watchlist_row("u2", "AAPL", user_email="b@x.com"),
+    ]
+    db = db_with(signals, watchlists)
+
+    with patch(
+        "api.services.alert_delivery_service.send_signal_alert",
+        new=AsyncMock(return_value=(True, "")),
+    ) as mock_send:
+        summary = await deliver_weekly_alerts(db=db, run_date=run_date)
+
+    assert summary["emails_sent"] == 2
+    assert mock_send.await_count == 2
+    sent_to = {call.kwargs["user_email"] for call in mock_send.await_args_list}
+    assert sent_to == {"a@x.com", "b@x.com"}
+    assert db.alerthistory.create.await_count == 2
+    logged_users = {
+        c.kwargs["data"]["userId"] for c in db.alerthistory.create.await_args_list
+    }
+    assert logged_users == {"u1", "u2"}
+
+
+@pytest.mark.asyncio
+async def test_alert_history_write_failure_does_not_break_delivery(run_date, db_with):
+    signals = [_signal()]
+    watchlists = [_watchlist_row("u1", "AAPL")]
+    db = db_with(signals, watchlists)
+    db.alerthistory.create = AsyncMock(side_effect=RuntimeError("db down"))
+
+    with patch(
+        "api.services.alert_delivery_service.send_signal_alert",
+        new=AsyncMock(return_value=(True, "")),
+    ):
+        summary = await deliver_weekly_alerts(db=db, run_date=run_date)
+
+    assert summary["emails_sent"] == 1
+    assert summary["emails_failed"] == 0
