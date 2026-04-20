@@ -4,8 +4,10 @@ Sends score change alerts and other notifications to users.
 """
 
 import os
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 import resend
+
+from api.services.alert_evaluator import AlertEvent
 
 # Configure Resend API key
 resend.api_key = os.getenv("RESEND_API_KEY", "")
@@ -209,7 +211,7 @@ async def send_weekly_digest(
 async def send_signal_alert(
     user_email: str,
     ticker: str,
-    events: list,  # list[AlertEvent] from alert_evaluator
+    events: List[AlertEvent],
     run_id: Optional[str] = None,
 ) -> Tuple[bool, str]:
     """

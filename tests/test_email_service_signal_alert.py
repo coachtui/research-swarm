@@ -79,6 +79,30 @@ async def test_combined_events_single_email():
 
 
 @pytest.mark.asyncio
+async def test_cta_url_uses_run_id_when_provided():
+    events = [AlertEvent(kind="verdict_flip", ticker="AAPL",
+                         prior_value="hold", current_value="buy")]
+    with patch("api.services.email_service.resend.Emails.send") as mock_send:
+        mock_send.return_value = {"id": "abc"}
+        await send_signal_alert("u@x.com", "AAPL", events, run_id="run-123")
+    html = mock_send.call_args[0][0]["html"]
+    assert "/results/run-123" in html
+    assert "/preview/" not in html
+
+
+@pytest.mark.asyncio
+async def test_cta_url_falls_back_to_preview_when_no_run_id():
+    events = [AlertEvent(kind="verdict_flip", ticker="AAPL",
+                         prior_value="hold", current_value="buy")]
+    with patch("api.services.email_service.resend.Emails.send") as mock_send:
+        mock_send.return_value = {"id": "abc"}
+        await send_signal_alert("u@x.com", "AAPL", events)
+    html = mock_send.call_args[0][0]["html"]
+    assert "/preview/aapl" in html
+    assert "/results/" not in html
+
+
+@pytest.mark.asyncio
 async def test_returns_false_on_resend_exception():
     events = [AlertEvent(kind="verdict_flip", ticker="AAPL",
                          prior_value="hold", current_value="buy")]
