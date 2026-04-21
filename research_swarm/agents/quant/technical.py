@@ -75,9 +75,9 @@ def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
     gains = delta.where(delta > 0, 0.0)
     losses = -delta.where(delta < 0, 0.0)
 
-    # Calculate average gain and loss using Wilder's smoothing
-    avg_gain = gains.rolling(window=period, min_periods=period).mean()
-    avg_loss = losses.rolling(window=period, min_periods=period).mean()
+    # Wilder's smoothing: seed with simple mean of first `period` values, then EMA with alpha=1/period
+    avg_gain = gains.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
+    avg_loss = losses.ewm(alpha=1 / period, adjust=False, min_periods=period).mean()
 
     # Calculate RS and RSI
     rs = avg_gain / avg_loss
