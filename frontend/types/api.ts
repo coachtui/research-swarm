@@ -635,7 +635,7 @@ export interface DivergenceOverlay {
 
 export interface ScoreComponent {
   /** Internal key for this component */
-  key: 'technical_patterns' | 'signal_breadth' | 'valuation_gap' | 'smart_money' | 'valuation_discount'
+  key: 'technical_divergence' | 'signal_breadth' | 'valuation_gap' | 'smart_money' | 'valuation_discount'
   /** Display label */
   label: string
   /** Component score 0–10 */

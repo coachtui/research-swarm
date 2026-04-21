@@ -95,15 +95,16 @@ def compute_divergence_overlay(
     _sm_avg  = sum(_sm_raw) / len(_sm_raw) if _sm_raw else None
     _pub_avg = sum(_pub_raw) / len(_pub_raw) if _pub_raw else None
 
-    # ── Component 1: Technical Patterns (RSI / MACD / Volume divergence)
-    # Practical range: 5.0 (no patterns = neutral) → 8.5 (3 bullish patterns)
-    # Zero when neutral — no patterns means no contribution to dislocation score.
+    # ── Component 1: Technical Divergence (RSI / MACD / Volume indicator divergence)
+    # Measures price-vs-indicator mismatches, not chart patterns or trend structure.
+    # Practical range: 5.0 (no divergence = neutral) → 8.5 (3 bullish divergences)
+    # Zero when neutral — no divergence means no contribution to dislocation score.
     _tech_active = tech_div_has_data and tech_div > 5.0
     tech_component = round(max(0.0, (tech_div - 5.0) / 3.5 * 10.0), 2) if _tech_active else 0.0
     _tech_label = (
         f"RSI/MACD/Volume — {tech_div:.1f}/10 bullish"
         if _tech_active else
-        ("No bullish patterns detected" if tech_div_has_data else "Data unavailable")
+        ("No bullish divergences detected" if tech_div_has_data else "Data unavailable")
     )
 
     # ── Component 2: Signal Breadth (σ of all 7 scores)
@@ -141,7 +142,7 @@ def compute_divergence_overlay(
 
     # Build scored components list for transparency output
     score_components: List[Dict[str, Any]] = [
-        {"key": "technical_patterns", "label": "Technical Patterns",  "score": tech_component,   "active": _tech_active,   "detail": _tech_label},
+        {"key": "technical_divergence", "label": "Technical Divergence",  "score": tech_component,   "active": _tech_active,   "detail": _tech_label},
         {"key": "signal_breadth",     "label": "Signal Breadth",      "score": spread_component, "active": _spread_active, "detail": _spread_label},
         {"key": "valuation_gap",      "label": "Valuation vs Tech",   "score": gap_component,    "active": _gap_active,    "detail": _gap_label},
         {"key": "smart_money",        "label": "Smart Money Gap",     "score": sm_component,     "active": _sm_active,     "detail": _sm_label},
