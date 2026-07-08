@@ -25,6 +25,7 @@
 
 - **Weekly, not daily, indicator computation.** The spec's daily cadence exists to serve position snapshots and stops, which don't exist until Phase 2. All indicators here derive from price history on demand, so the Sunday run computes everything fresh; a daily cron adds nothing yet (YAGNI). The daily job arrives in Phase 2 alongside positions.
 - **Breadth uses the 11 sector ETFs + RSP/SPY ratio, not the 191-stock universe, and omits new-highs/new-lows.** Fetching 191 histories weekly through yfinance rate limits is heavy; the ETF proxy is cheap and adequate for a regime input. Upgrade path noted in Task 4.
+- **No app-level failure-alert email in Phase 1.** The spec's "email the owner on failure" posture becomes load-bearing only when positions exist (Phase 2); Phase 1 failures surface via Inngest's failure notifications and the absence of the Sunday outlook email.
 
 ## File Map
 

@@ -8,8 +8,7 @@ Pipeline: fetch market history -> indicators (sector strength, breadth,
 regime) -> LLM strategist (with mechanical fallback) -> store MarketOutlook
 -> email the owner.
 
-Failure posture: OutlookDataError or any step failure results in NO outlook
-row for the week plus an alert email — never a partial/guessed outlook.
+Failure posture: OutlookDataError or any step failure results in NO outlook row for the week — never a partial/guessed outlook. Failures surface via Inngest's failure dashboard/notifications; an app-level failure-alert email is deferred to Phase 2.
 """
 from __future__ import annotations
 
@@ -42,7 +41,7 @@ def build_outlook_email_html(record: Dict[str, Any]) -> str:
         )
 
     conviction = record.get("conviction")
-    conviction_str = f"{int(conviction * 100)}%" if conviction is not None else "n/a"
+    conviction_str = f"{round(conviction * 100)}%" if conviction is not None else "n/a"
 
     rows = "".join(
         f"<tr><td>{r['rank_1m']}</td><td>{r['sector']} ({r['etf']})</td>"
