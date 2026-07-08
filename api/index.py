@@ -72,6 +72,7 @@ from api.routes import deployment as deployment_route
 from api.routes import portfolio as portfolio_route
 from api.routes import portfolio_actions as portfolio_actions_route
 from api.routes import weekly_signals as weekly_signals_route
+from api.routes import autopilot as autopilot_route
 from api.lib.db import connect_db, disconnect_db
 from api.services.cron_scheduler import start_scheduler, stop_scheduler
 
@@ -163,6 +164,7 @@ app.include_router(deployment_route.router, prefix="/api", tags=["Deployment"])
 app.include_router(portfolio_route.router, prefix="/api", tags=["Portfolio"])
 app.include_router(portfolio_actions_route.router, prefix="/api", tags=["Portfolio Actions"])
 app.include_router(weekly_signals_route.router, prefix="/api", tags=["Weekly Signals"])
+app.include_router(autopilot_route.router, prefix="/api", tags=["Autopilot"])
 app.include_router(webhook.router, prefix="/api/webhook", tags=["Webhooks"])
 
 # Root endpoint
