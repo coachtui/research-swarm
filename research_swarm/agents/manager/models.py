@@ -194,7 +194,7 @@ class ManagerOutput(BaseModel):
     )
     strategic_catalysts: Optional[List[Dict[str, str]]] = Field(
         None,
-        description="2-3 forward-looking strategic developments not yet reflected in financials (labeled as speculative)"
+        description="3-6 forward-looking strategic developments not yet reflected in financials (labeled as speculative)"
     )
 
     # Quality scoring

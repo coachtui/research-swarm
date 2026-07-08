@@ -47,12 +47,20 @@ class ManagerAnalyzer:
             extra_headers=_cache_header,
         )
 
-        # Sonnet for synthesis and thesis generation
+        # Sonnet for synthesis and thesis generation.
+        # Sonnet 5 rejects non-default sampling params (temperature 400s) and
+        # runs adaptive thinking by default when `thinking` is omitted, which
+        # would return list-shaped content and break the .content.strip()
+        # call sites below — so thinking is explicitly disabled.
+        # max_tokens must be set here: invoke(..., config={"max_tokens": N})
+        # at the call sites is a RunnableConfig and does not reach the API,
+        # so calls otherwise run at ChatAnthropic's 1024-token default.
         self.sonnet = ChatAnthropic(
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
             api_key=ANTHROPIC_API_KEY,
-            temperature=0.3,
+            max_tokens=8192,
             extra_headers=_cache_header,
+            thinking={"type": "disabled"},
         )
 
         logger.info("ManagerAnalyzer initialized")

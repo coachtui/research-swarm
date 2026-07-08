@@ -359,9 +359,10 @@ Write a structured, data-driven investment thesis organized into these sections:
 - Tactical guidance: Entry levels, catalysts to watch, position sizing
 - Define investor profile: Value/Growth/Momentum, time horizon, risk tolerance
 
-ADDITIONALLY, identify 2-3 **Strategic Catalysts** — forward-looking developments not yet reflected in current financials:
+ADDITIONALLY, identify 3-6 **Strategic Catalysts** — forward-looking developments not yet reflected in current financials. Cover the company's full announced pipeline, not just what appeared in recent news:
 - **Strategic investments/partnerships** that could unlock new revenue streams (e.g., Amazon's investment in Anthropic, potential IPO value creation)
 - **Emerging business lines approaching inflection** points (new product lines, geographic expansions, business model shifts)
+- **Announced-but-unlaunched initiatives** (pending acquisition integrations, product launches announced in prior quarters, regulatory approvals or expansions in progress)
 - **Competitive positioning shifts** (market share gains, new technology adoption, regulatory changes favoring the company)
 - Label these clearly as **forward-looking and speculative** — they represent potential upside but carry execution risk
 

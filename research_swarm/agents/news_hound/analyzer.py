@@ -907,6 +907,7 @@ Shares Outstanding: {fmt_shares(short_data.get('shares_outstanding'))}
             # Extract JSON from response
             json_text = self._extract_json(response_text)
             result = json.loads(json_text)
+            result = self._filter_past_catalysts(result, analysis_date)
 
             logger.info(f"✓ Upcoming catalysts analyzed ({tokens_used} tokens)")
             return result, tokens_used
@@ -921,6 +922,48 @@ Shares Outstanding: {fmt_shares(short_data.get('shares_outstanding'))}
                 "medium_term_catalysts": [],
                 "catalyst_density": "low"
             }, 0
+
+    @staticmethod
+    def _filter_past_catalysts(result: Dict[str, Any], analysis_date: str) -> Dict[str, Any]:
+        """Drop calendar entries dated before the analysis date.
+
+        The prompt instructs the model to only return future events, but stale
+        earnings-calendar cache entries can leak through (e.g. a Q1 earnings
+        date returned as "upcoming" in July). Entries whose dates don't parse
+        as YYYY-MM-DD (e.g. "2026-Q3") are kept.
+        """
+        from datetime import date
+
+        try:
+            cutoff = date.fromisoformat(str(analysis_date)[:10])
+        except ValueError:
+            return result
+
+        def is_future(value: Any) -> bool:
+            try:
+                return date.fromisoformat(str(value)[:10]) >= cutoff
+            except (TypeError, ValueError):
+                return True
+
+        catalysts = result.get("catalysts")
+        if isinstance(catalysts, list):
+            kept = [
+                c for c in catalysts
+                if not isinstance(c, dict) or is_future(c.get("event_date"))
+            ]
+            if len(kept) < len(catalysts):
+                logger.warning(
+                    f"Dropped {len(catalysts) - len(kept)} past-dated catalyst(s) from calendar"
+                )
+            result["catalysts"] = kept
+
+        next_earnings = result.get("next_earnings_date")
+        if next_earnings and not is_future(next_earnings):
+            logger.warning(f"next_earnings_date {next_earnings} is in the past — clearing")
+            result["next_earnings_date"] = None
+            result["earnings_confirmed"] = False
+
+        return result
 
     def analyze_management_commentary(
         self,

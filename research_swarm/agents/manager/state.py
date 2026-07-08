@@ -66,7 +66,7 @@ class ManagerState(TypedDict, total=False):
     # Investment thesis
     investment_thesis: Optional[str]  # One-paragraph investment thesis
     recommendation: Optional[str]  # BUY/HOLD/AVOID from investment thesis
-    strategic_catalysts: Optional[List[Dict[str, str]]]  # 2-3 forward-looking strategic developments
+    strategic_catalysts: Optional[List[Dict[str, str]]]  # 3-6 forward-looking strategic developments
 
     # v2.0 enhancements
     rating: Optional[str]  # 5-tier rating: STRONG BUY/BUY/HOLD/SELL/STRONG SELL
