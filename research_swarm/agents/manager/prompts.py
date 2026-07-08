@@ -366,6 +366,12 @@ ADDITIONALLY, identify 3-6 **Strategic Catalysts** — forward-looking developme
 - **Competitive positioning shifts** (market share gains, new technology adoption, regulatory changes favoring the company)
 - Label these clearly as **forward-looking and speculative** — they represent potential upside but carry execution risk
 
+**Integrate catalysts into the thesis — do not treat them as an appendix**:
+- Identify the strategic catalysts BEFORE writing the thesis sections, then weave them in
+- At least one `investment_highlights` entry must reference a forward-looking catalyst or growth vector (new business lines, expansion, product pipeline) — a thesis built only on current price action and component scores is incomplete
+- `entry_strategy` should reference the nearest dated catalyst (e.g. upcoming earnings) when one exists, since it changes entry timing
+- `company_overview` should reflect the company's full product surface area (launched and announced business lines), not just its legacy core business
+
 **Recommendation Alignment**:
 The model has already determined the authoritative rating: **{model_rating}**. Your `recommendation_summary` field MUST open with this exact word (BUY, HOLD, SELL, STRONG BUY, or STRONG SELL). You may add nuance around timing or conditions, but never contradict this rating. The rating reflects the model's weighted multi-factor assessment — your role is to explain WHY it deserves this rating, not to re-derive it independently.
 

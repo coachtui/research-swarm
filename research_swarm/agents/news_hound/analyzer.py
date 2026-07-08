@@ -914,13 +914,15 @@ Shares Outstanding: {fmt_shares(short_data.get('shares_outstanding'))}
 
         except Exception as e:
             logger.error(f"Error analyzing upcoming catalysts: {e}")
+            # Match the success-path schema so downstream consumers
+            # (catalyst calendar formatter, next-catalyst summary, frontend)
+            # never see a divergent shape.
             return {
-                "events": [],
+                "outlook": "Neutral",
+                "catalysts": [],
+                "catalyst_density": "low",
+                "earnings_confirmed": False,
                 "next_earnings_date": None,
-                "next_earnings_importance": "medium",
-                "near_term_catalysts": [],
-                "medium_term_catalysts": [],
-                "catalyst_density": "low"
             }, 0
 
     @staticmethod

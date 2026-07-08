@@ -410,14 +410,17 @@ class ManagerAnalyzer:
                 insider_signal = six_month.get("signal", "neutral")
             institutional_insider_summary = f"Institutional: {inst_trend}, Insider: {insider_signal}"
 
-            catalysts = news_hound_output.get("upcoming_catalysts", {})
-            if catalysts:
-                events = catalysts.get("events", [])
+            upcoming = news_hound_output.get("upcoming_catalysts", {})
+            if upcoming:
+                # Schema key is "catalysts"; "events" is the legacy error-fallback key
+                events = upcoming.get("catalysts") or upcoming.get("events") or []
                 if events:
                     next_event = events[0]
-                    date = next_event.get("date", "TBD")
-                    event_type = next_event.get("type", "unknown")
+                    date = next_event.get("event_date") or next_event.get("date", "TBD")
+                    event_type = next_event.get("event_type") or next_event.get("type", "unknown")
                     next_catalyst = f"{event_type} on {date}"
+                elif upcoming.get("next_earnings_date"):
+                    next_catalyst = f"Earnings on {upcoming['next_earnings_date']}"
 
         if quant_output:
             indicators = quant_output.get("technical_indicators", {})
@@ -971,20 +974,23 @@ Return ONLY the JSON object."""
 
     def _format_catalyst_calendar(self, output: Dict[str, Any]) -> str:
         """Format upcoming catalysts calendar."""
-        catalysts = output.get("upcoming_catalysts", {})
-        if not catalysts or not catalysts.get("events"):
+        upcoming = output.get("upcoming_catalysts", {})
+        # Schema key is "catalysts"; "events" is the legacy error-fallback key
+        events = upcoming.get("catalysts") or upcoming.get("events") or []
+        if not events:
             return "No upcoming catalysts identified"
 
-        events = catalysts["events"][:5]  # Next 5 events
-        density = catalysts.get("catalyst_density", "low")
-        outlook = catalysts.get("outlook", "neutral")
+        density = upcoming.get("catalyst_density", "low")
+        outlook = upcoming.get("outlook", "neutral")
 
         lines = []
-        for event in events:
-            date = event.get("date", "TBD")
-            event_type = event.get("type", "unknown")
-            expected_impact = event.get("expected_impact", "low")
-            lines.append(f"• {date}: {event_type} ({expected_impact} impact)")
+        for event in events[:5]:
+            date = event.get("event_date") or event.get("date", "TBD")
+            event_type = event.get("event_type") or event.get("type", "unknown")
+            impact = event.get("potential_impact") or event.get("expected_impact", "low")
+            direction = event.get("impact_direction", "")
+            direction_str = f", {direction}" if direction else ""
+            lines.append(f"• {date}: {event_type} ({impact} impact{direction_str})")
 
         lines.insert(0, f"Catalyst Density: {density.upper()}, Outlook: {outlook.upper()}\n")
         return "\n".join(lines)
