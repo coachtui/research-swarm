@@ -16,6 +16,7 @@ import { DeploymentDriversPanel } from '@/components/results/DeploymentDriversPa
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
 import { ThesisDriversPanel } from '@/components/results/ThesisDriversPanel'
 import { InvestmentThesisPanel } from '@/components/results/InvestmentThesisPanel'
+import { StrategicCatalystsPanel } from '@/components/results/StrategicCatalystsPanel'
 import { DislocationStatePanel } from '@/components/results/DislocationStatePanel'
 import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
 import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
@@ -372,6 +373,28 @@ export function ResultsContent({
               sublabel="Company overview · Highlights · Key risks · Entry context"
             >
               <InvestmentThesisPanel thesis={full_output.investment_thesis} />
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION IV.b — CATALYSTS & GROWTH VECTORS  (collapsed by default)
+              Upcoming dated events · Forward-looking strategic catalysts
+              ══════════════════════════════════════════════════════════════════ */}
+          {((full_output?.strategic_catalysts?.length ?? 0) > 0 ||
+            (full_output?.news_hound_output?.upcoming_catalysts?.catalysts?.length ?? 0) > 0) && (
+            <CollapsibleSection
+              title="Catalysts & Growth Vectors"
+              sublabel="Upcoming events · Forward-looking strategic catalysts"
+              badge={
+                (full_output?.strategic_catalysts?.length ?? 0) > 0
+                  ? `${full_output.strategic_catalysts!.length} identified`
+                  : undefined
+              }
+            >
+              <StrategicCatalystsPanel
+                catalysts={full_output?.strategic_catalysts}
+                upcoming={full_output?.news_hound_output?.upcoming_catalysts}
+              />
             </CollapsibleSection>
           )}
 
