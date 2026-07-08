@@ -384,30 +384,25 @@ class ManagerAnalyzer:
                     avg_price_target = f"${target:.2f} ({upside:+.1f}%)"
 
         if news_hound_output:
-            revisions = news_hound_output.get("earnings_estimate_revisions", {})
-            if revisions:
-                ninety_day = revisions.get("ninety_day_activity", {})
-                trend = ninety_day.get("trend", "neutral")
-                earnings_signal = trend.upper()
+            # Schema key is "earnings_estimates" (flat), not "earnings_estimate_revisions"
+            est = news_hound_output.get("earnings_estimates") or news_hound_output.get("earnings_estimate_revisions") or {}
+            if est:
+                direction = est.get("net_revision_direction") or est.get("momentum") or "neutral"
+                earnings_signal = str(direction).upper()
 
             consensus = news_hound_output.get("analyst_consensus", {})
             if consensus and (not avg_price_target or avg_price_target == "N/A"):
-                targets = consensus.get("price_targets", {})
-                avg = targets.get("average", 0)
-                upside = targets.get("upside_to_average", 0)
+                avg = consensus.get("avg_price_target") or 0
+                upside = consensus.get("target_upside_pct")
                 if avg > 0:
-                    avg_price_target = f"${avg:.2f} ({upside:+.1f}%)"
+                    upside_str = f" ({upside:+.1f}%)" if upside is not None else ""
+                    avg_price_target = f"${avg:.2f}{upside_str}"
 
+            # institutional_activity is flat; insider data lives under "insider_activity"
             inst = news_hound_output.get("institutional_activity", {})
-            insider = news_hound_output.get("insider_trading", {})
-            inst_trend = "neutral"
-            insider_signal = "neutral"
-            if inst:
-                activity = inst.get("recent_activity", {})
-                inst_trend = activity.get("trend", "neutral")
-            if insider:
-                six_month = insider.get("six_month_activity", {})
-                insider_signal = six_month.get("signal", "neutral")
+            insider = news_hound_output.get("insider_activity") or news_hound_output.get("insider_trading") or {}
+            inst_trend = inst.get("trend") or "neutral"
+            insider_signal = insider.get("insider_sentiment") or "neutral"
             institutional_insider_summary = f"Institutional: {inst_trend}, Insider: {insider_signal}"
 
             upcoming = news_hound_output.get("upcoming_catalysts", {})
@@ -846,24 +841,34 @@ Return ONLY the JSON object."""
 
     def _format_earnings_revisions(self, output: Dict[str, Any]) -> str:
         """Format earnings estimate revisions (primary signal)."""
-        revisions = output.get("earnings_estimate_revisions", {})
-        if not revisions:
+        # Schema key is "earnings_estimates"; "earnings_estimate_revisions" is legacy
+        est = output.get("earnings_estimates") or output.get("earnings_estimate_revisions") or {}
+        if not est:
             return "Earnings revisions not available"
 
-        ninety_day = revisions.get("ninety_day_activity", {})
-        surprise_hist = revisions.get("surprise_history", [])
-
         lines = []
-        if ninety_day:
-            up = ninety_day.get("upgrades") or 0
-            down = ninety_day.get("downgrades") or 0
-            net = ninety_day.get("net_revisions") or 0
-            trend = ninety_day.get("trend", "neutral")
-            lines.append(f"90-Day Activity: {up} upgrades, {down} downgrades (net: {net:+d}) - {trend.upper()}")
+        up = est.get("upward_revisions")
+        down = est.get("downward_revisions")
+        if up is not None or down is not None:
+            direction = est.get("net_revision_direction", "Neutral")
+            momentum = est.get("momentum", "N/A")
+            lines.append(f"Revisions: {up or 0} up / {down or 0} down - {str(direction).upper()} (momentum: {momentum})")
 
-        if surprise_hist:
-            avg_surprise = sum([s.get("surprise_pct") or 0 for s in surprise_hist[:4]]) / min(4, len(surprise_hist))
-            lines.append(f"Avg Surprise (4Q): {avg_surprise:+.1f}%")
+        coverage = est.get("analyst_coverage")
+        if coverage:
+            dispersion = est.get("estimate_dispersion", "N/A")
+            lines.append(f"Coverage: {coverage} analysts, estimate dispersion: {dispersion}")
+
+        cur_eps = est.get("current_fy_eps")
+        next_eps = est.get("next_fy_eps")
+        if cur_eps and next_eps:
+            growth = est.get("next_year_growth_pct")
+            growth_str = f" ({growth:+.1f}% next-year growth)" if growth is not None else ""
+            lines.append(f"EPS Estimates: current FY ${cur_eps:.2f} → next FY ${next_eps:.2f}{growth_str}")
+
+        avg_surprise = est.get("avg_surprise_pct")
+        if avg_surprise is not None:
+            lines.append(f"Avg Surprise (4Q): {avg_surprise:+.1f}% ({est.get('beat_pattern', 'N/A')})")
 
         return "\n".join(lines) if lines else "Limited data"
 
@@ -873,25 +878,34 @@ Return ONLY the JSON object."""
         if not consensus:
             return "Analyst consensus not available"
 
-        ratings = consensus.get("ratings_distribution", {})
-        targets = consensus.get("price_targets", {})
-
+        # Schema is flat: strong_buy/buy/hold/sell counts + avg_price_target etc.
         lines = []
-        if ratings:
-            total = ratings.get("total_analysts", 0)
-            strong_buy = ratings.get("strong_buy", 0)
-            buy = ratings.get("buy", 0)
-            hold = ratings.get("hold", 0)
-            sell = ratings.get("sell", 0)
-            consensus_rating = ratings.get("consensus_rating", "hold")
-            lines.append(f"Ratings ({total} analysts): {strong_buy} StrongBuy, {buy} Buy, {hold} Hold, {sell} Sell - Consensus: {consensus_rating.upper()}")
+        rating = consensus.get("consensus_rating")
+        strong_buy = consensus.get("strong_buy") or 0
+        buy = consensus.get("buy") or 0
+        hold = consensus.get("hold") or 0
+        sell = (consensus.get("sell") or 0) + (consensus.get("strong_sell") or 0)
+        total = strong_buy + buy + hold + sell
+        if total > 0 or rating:
+            lines.append(
+                f"Ratings ({total} analysts): {strong_buy} StrongBuy, {buy} Buy, {hold} Hold, "
+                f"{sell} Sell - Consensus: {str(rating or 'hold').upper()}"
+            )
 
-        if targets:
-            avg = targets.get("average") or 0
-            high = targets.get("high") or 0
-            low = targets.get("low") or 0
-            upside = targets.get("upside_to_average") or 0
-            lines.append(f"Price Targets: Avg ${avg:.2f} ({upside:+.1f}%), Range: ${low:.2f}-${high:.2f}")
+        avg = consensus.get("avg_price_target")
+        if avg:
+            upside = consensus.get("target_upside_pct")
+            low = consensus.get("low_price_target")
+            high = consensus.get("high_price_target")
+            upside_str = f" ({upside:+.1f}% vs current)" if upside is not None else ""
+            range_str = f", Range: ${low:.2f}-${high:.2f}" if low and high else ""
+            lines.append(f"Price Targets: Avg ${avg:.2f}{upside_str}{range_str}")
+
+        momentum = consensus.get("rating_momentum")
+        upgrades = consensus.get("upgrades")
+        downgrades = consensus.get("downgrades")
+        if momentum or upgrades is not None or downgrades is not None:
+            lines.append(f"Rating Momentum: {momentum or 'N/A'} ({upgrades or 0} upgrades / {downgrades or 0} downgrades recently)")
 
         return "\n".join(lines) if lines else "Limited data"
 
@@ -901,63 +915,81 @@ Return ONLY the JSON object."""
         if not inst:
             return "Institutional activity not available"
 
-        activity = inst.get("recent_activity", {})
-        ownership = inst.get("ownership_summary", {})
-
+        # Schema is flat: trend/qoq_change_pct/top_holders/notable_activity etc.
         lines = []
-        if activity:
-            net_shares = activity.get("net_shares_change", 0)
-            trend = activity.get("trend", "neutral")
-            lines.append(f"Recent Activity: {trend.upper()} (net shares: {net_shares:+,.0f})")
+        trend = inst.get("trend")
+        if trend:
+            qoq = inst.get("qoq_change_pct")
+            sentiment = inst.get("institutional_sentiment")
+            qoq_str = f" ({qoq:+.1f}% QoQ)" if qoq is not None else ""
+            sent_str = f", sentiment: {sentiment}" if sentiment else ""
+            lines.append(f"Recent Activity: {str(trend).upper()}{qoq_str}{sent_str}")
 
-        if ownership:
-            total_pct = ownership.get("total_institutional_pct") or 0
-            top_holders = ownership.get("top_5_holders", [])
-            lines.append(f"Ownership: {total_pct:.1f}% institutional")
-            if top_holders:
-                top_3 = ", ".join([f"{h.get('name', 'N/A')} ({h.get('pct_held') or 0:.1f}%)" for h in top_holders[:3]])
-                lines.append(f"Top Holders: {top_3}")
+        own_pct = inst.get("institutional_ownership_pct")
+        if own_pct is not None:
+            lines.append(f"Ownership: {own_pct:.1f}% institutional ({inst.get('num_holders', '?')} tracked holders)")
+
+        top_holders = inst.get("top_holders") or []
+        if top_holders:
+            top_3 = ", ".join(
+                f"{h.get('name', 'N/A')} ({(h.get('ownership_pct') or h.get('pct_held') or 0):.1f}%)"
+                for h in top_holders[:3]
+            )
+            lines.append(f"Top Holders: {top_3}")
+
+        for note in (inst.get("notable_activity") or [])[:3]:
+            lines.append(f"• {note}")
 
         return "\n".join(lines) if lines else "Limited data"
 
     def _format_insider_activity(self, output: Dict[str, Any]) -> str:
         """Format insider trading activity."""
-        insider = output.get("insider_trading", {})
+        # Schema key is "insider_activity"; "insider_trading" is legacy
+        insider = output.get("insider_activity") or output.get("insider_trading") or {}
         if not insider:
             return "Insider activity not available"
+        if insider.get("has_data") is False:
+            return "No recent insider transactions on record"
 
-        six_month = insider.get("six_month_activity", {})
-
-        if not six_month:
-            return "No recent insider activity"
-
-        buys = six_month.get("total_buys", 0)
-        sells = six_month.get("total_sells", 0)
-        net_value = six_month.get("net_value_change") or 0
-        signal = six_month.get("signal", "neutral")
-
-        return f"6-Month Activity: {buys} buys, {sells} sells (net: ${net_value/1e6:.1f}M) - {signal.upper()}"
+        buys = insider.get("buy_transactions") or 0
+        sells = insider.get("sell_transactions") or 0
+        net_value = insider.get("net_value_usd") or 0
+        sentiment = insider.get("insider_sentiment", "neutral")
+        score = insider.get("insider_score")
+        score_str = f", score {score:.1f}/10" if score is not None else ""
+        return (
+            f"Recent Activity: {buys} buys, {sells} sells (net: ${net_value/1e6:+.1f}M) "
+            f"- {str(sentiment).upper()}{score_str}"
+        )
 
     def _format_management_quality(self, output: Dict[str, Any]) -> str:
         """Format management quality assessment."""
-        mgmt = output.get("management_quality", {})
+        # Schema key is "management_commentary"; "management_quality" is legacy
+        mgmt = output.get("management_commentary") or output.get("management_quality") or {}
         if not mgmt:
             return "Management quality not available"
 
-        tone = mgmt.get("overall_tone_score") or 5.0
-        guidance = mgmt.get("guidance_track_record", {})
-        capital_alloc = mgmt.get("capital_allocation_score") or 5.0
-        overall = mgmt.get("overall_assessment", "neutral")
-
         lines = []
-        lines.append(f"Overall Tone: {tone:.1f}/10")
-        if guidance:
-            accuracy = guidance.get("accuracy", "mixed")
-            lines.append(f"Guidance Track Record: {accuracy}")
-        lines.append(f"Capital Allocation: {capital_alloc:.1f}/10")
-        lines.append(f"Assessment: {overall.upper()}")
+        tone = mgmt.get("tone_assessment")
+        if tone:
+            lines.append(f"Tone: {tone} (data confidence: {mgmt.get('confidence', 'N/A')})")
 
-        return "\n".join(lines)
+        guidance = mgmt.get("guidance_reliability")
+        if guidance:
+            lines.append(f"Guidance Reliability: {guidance}")
+
+        score = mgmt.get("management_quality_score")
+        if score is not None:
+            lines.append(
+                f"Management Quality: {score:.1f}/10, "
+                f"Capital Allocation: {mgmt.get('capital_allocation_quality', 'N/A')}"
+            )
+
+        if mgmt.get("has_red_flags"):
+            flags = mgmt.get("red_flag_language") or []
+            lines.append(f"RED FLAGS: {'; '.join(map(str, flags[:3])) or 'detected'}")
+
+        return "\n".join(lines) if lines else "Management quality not available"
 
     def _format_short_interest(self, output: Dict[str, Any]) -> str:
         """Format short interest and squeeze risk."""
@@ -965,12 +997,18 @@ Return ONLY the JSON object."""
         if not short:
             return "Short interest not available"
 
-        current_pct = short.get("current_short_pct") or 0
-        trend = short.get("trend", "stable")
+        # Schema keys are short_interest_pct / short_interest_trend
+        current_pct = short.get("short_interest_pct") or short.get("current_short_pct") or 0
+        trend = short.get("short_interest_trend") or short.get("trend") or "stable"
         squeeze_risk = short.get("squeeze_risk", "low")
         days_to_cover = short.get("days_to_cover") or 0
+        mom = short.get("mom_change_pct")
+        mom_str = f" (MoM {mom:+.1f}%)" if mom is not None else ""
 
-        return f"Short Interest: {current_pct:.1f}% of float, {days_to_cover:.1f} days to cover - {trend.upper()} trend, {squeeze_risk.upper()} squeeze risk"
+        return (
+            f"Short Interest: {current_pct:.1f}% of float{mom_str}, {days_to_cover:.1f} days to cover "
+            f"- {str(trend).upper()} trend, {str(squeeze_risk).upper()} squeeze risk"
+        )
 
     def _format_catalyst_calendar(self, output: Dict[str, Any]) -> str:
         """Format upcoming catalysts calendar."""
