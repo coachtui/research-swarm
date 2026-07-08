@@ -884,3 +884,29 @@ model UsageRecord {
   @@index([userId])
   @@map("usage_records")
 }
+
+// ── Autopilot execution layer (docs/superpowers/specs/2026-07-08-execution-layer-design.md) ──
+// Written/read ONLY by the execution/ package. The research flow never touches this.
+model MarketOutlook {
+  id                 String   @id @default(cuid())
+  runDate            DateTime // Sunday the outlook was generated (UTC)
+
+  // Regime
+  regime             String   // final call: "risk_on" | "neutral" | "risk_off"
+  regimeMechanical   String   // pure-indicator call before strategist override
+  strategistOverride Boolean  @default(false)
+  strategistStatus   String   @default("ok") // "ok" | "fallback"
+  conviction         Float?   // strategist conviction 0.0–1.0
+
+  // Indicators (JSON snapshots so the outlook is fully self-describing)
+  sectorRankings     Json     // list of {etf, sector, rs_1m, rs_3m, rs_6m, rank_1m, rank_3m, rank_6m, rank_change, score}
+  rotationFlags      Json     // list of {etf, sector, direction, rank_change}
+  breadth            Json     // {pct_above_200dma, equal_weight_trend_3m}
+
+  // Narrative
+  reasoning          String?  // strategist's written reasoning
+
+  createdAt          DateTime @default(now())
+
+  @@index([runDate])
+}
