@@ -22,6 +22,7 @@ from api.services.quota_service import (
     check_ticker_cooldown,
     check_concurrent_limit,
 )
+from api.services.relevance_service import find_reusable_run
 
 router = APIRouter()
 
@@ -159,6 +160,30 @@ async def analyze_stock(
                 estimated_time_minutes=0,
                 created_at=datetime.utcnow(),
                 result=None,
+            )
+
+    # Longer-horizon reuse: if the user's most recent analysis of this ticker
+    # is still materially current (no earnings since, price within band, no
+    # new 8-Ks), serve it without consuming a credit. Runs before the quota
+    # and cooldown checks so a reused report never charges or blocks.
+    if not user.is_admin and not request.force_fresh:
+        reuse = await find_reusable_run(user.id, request.ticker)
+        if reuse:
+            print(
+                f"♻️  Reusing run {reuse['run_id']} for {request.ticker} "
+                f"(still relevant, from {reuse['analysis_date']})"
+            )
+            return AnalyzeResponse(
+                job_id=reuse["run_id"],
+                run_id=reuse["run_id"],
+                ticker=request.ticker,
+                status=JobStatus.COMPLETED,
+                estimated_time_minutes=0,
+                created_at=datetime.utcnow(),
+                result=None,
+                reused=True,
+                reused_analysis_date=reuse["analysis_date"],
+                reuse_checks=reuse["checks"],
             )
 
     # Quota / credit check — admins bypass, free uses lifetime credits, paid uses monthly quota

@@ -205,7 +205,18 @@ export function TickerSearchForm() {
       queryClient.invalidateQueries({ queryKey: ['quota'] })
       queryClient.invalidateQueries({ queryKey: ['entitlements'] })
 
-      router.push(`/results/${response.run_id}`)
+      if (response.reused && response.reused_analysis_date) {
+        // Prior still-relevant report served — no credit consumed. Pass the
+        // context so the results page can show the reuse banner.
+        const params = new URLSearchParams({
+          reused: '1',
+          as_of: response.reused_analysis_date,
+          ticker: response.ticker,
+        })
+        router.push(`/results/${response.run_id}?${params.toString()}`)
+      } else {
+        router.push(`/results/${response.run_id}`)
+      }
     } catch (error: any) {
       if (error?.status === 402) {
         const reason = detectPaywallReason(error?.message || '')

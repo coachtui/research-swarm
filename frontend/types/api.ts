@@ -4,6 +4,8 @@ export interface AnalyzeRequest {
   ticker: string
   quarters?: string[]
   news_days_back?: number
+  /** Skip reuse of a prior still-relevant analysis and always run fresh. */
+  force_fresh?: boolean
 }
 
 export interface AnalyzeResponse {
@@ -14,6 +16,12 @@ export interface AnalyzeResponse {
   estimated_time_minutes: number
   created_at: string
   result?: StockResult
+  /** True when a prior still-relevant analysis was served instead of running fresh. */
+  reused?: boolean
+  /** Analysis date (YYYY-MM-DD) of the reused report. */
+  reused_analysis_date?: string | null
+  /** Relevance checks that justified the reuse (age, price move, filings). */
+  reuse_checks?: Record<string, unknown> | null
 }
 
 export interface InvestmentThesisStructured {

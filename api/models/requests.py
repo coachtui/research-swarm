@@ -33,6 +33,11 @@ class AnalyzeRequest(BaseModel):
         le=90,
     )
 
+    force_fresh: bool = Field(
+        default=False,
+        description="Skip reuse of a prior still-relevant analysis and always run fresh",
+    )
+
     @field_validator('ticker')
     @classmethod
     def ticker_uppercase(cls, v: str) -> str:

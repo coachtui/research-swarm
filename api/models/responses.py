@@ -27,6 +27,9 @@ class AnalyzeResponse(BaseModel):
     created_at: datetime = Field(..., description="Job creation timestamp")
     websocket_url: Optional[str] = Field(None, description="WebSocket URL for real-time updates (Phase 2)")
     result: Optional[Dict[str, Any]] = Field(None, description="Full analysis results (when completed)")
+    reused: bool = Field(default=False, description="True when a prior still-relevant analysis was served instead of running fresh")
+    reused_analysis_date: Optional[str] = Field(None, description="Analysis date (YYYY-MM-DD) of the reused report")
+    reuse_checks: Optional[Dict[str, Any]] = Field(None, description="Relevance checks that justified the reuse (age, price move, filings)")
 
     class Config:
         json_schema_extra = {
