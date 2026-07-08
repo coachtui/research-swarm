@@ -19,6 +19,7 @@ import type {
   CostSummary,
   RevenueTimeSeries,
   UserInfo,
+  MarketOutlookResponse,
   EntitlementsResponse,
   DeploymentUpdateResponse,
   EligibilityStressTestResponse,
@@ -353,6 +354,10 @@ class ApiClient {
 
   async getAdminRevenue(): Promise<RevenueTimeSeries> {
     return this.request('/api/admin/revenue')
+  }
+
+  async getMarketOutlook(): Promise<MarketOutlookResponse> {
+    return this.request('/api/autopilot/outlook')
   }
 
   // Stripe subscription methods
