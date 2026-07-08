@@ -82,3 +82,58 @@ def test_parse_rejects_bad_regime():
 def test_parse_rejects_non_json():
     with pytest.raises(StrategistParseError):
         parse_strategist_response("I think markets look good.")
+
+
+from unittest.mock import MagicMock, patch
+
+from execution.strategist.agent import fetch_macro_headlines, run_strategist
+
+
+def _llm_returning(content: str) -> MagicMock:
+    llm = MagicMock()
+    llm.invoke.return_value = MagicMock(content=content)
+    return llm
+
+
+def test_run_strategist_ok_path():
+    with patch("execution.strategist.agent._build_llm", return_value=_llm_returning(VALID_RESPONSE)):
+        result = run_strategist(PAYLOAD)
+    assert result["status"] == "ok"
+    assert result["regime_proposal"] == "risk_on"
+    assert result["conviction"] == 0.7
+
+
+def test_run_strategist_falls_back_on_unparseable_output():
+    with patch("execution.strategist.agent._build_llm", return_value=_llm_returning("markets look fine")):
+        result = run_strategist(PAYLOAD)
+    assert result["status"] == "fallback"
+    assert result["regime_proposal"] == PAYLOAD["regime_mechanical"]
+    assert result["conviction"] is None
+
+
+def test_run_strategist_falls_back_on_llm_exception():
+    llm = MagicMock()
+    llm.invoke.side_effect = RuntimeError("api down")
+    with patch("execution.strategist.agent._build_llm", return_value=llm):
+        result = run_strategist(PAYLOAD)
+    assert result["status"] == "fallback"
+    assert "api down" in result["reasoning"]
+
+
+def test_fetch_macro_headlines_returns_empty_on_error():
+    with patch("execution.strategist.agent.requests.get", side_effect=RuntimeError("net down")):
+        assert fetch_macro_headlines() == []
+
+
+def test_fetch_macro_headlines_parses_titles():
+    fake = MagicMock()
+    fake.json.return_value = {"articles": [{"title": "Fed cuts rates"}, {"title": "Oil rallies"}]}
+    fake.raise_for_status.return_value = None
+    with patch("execution.strategist.agent.requests.get", return_value=fake), \
+         patch("execution.strategist.agent._news_api_key", return_value="k"):
+        assert fetch_macro_headlines(limit=2) == ["Fed cuts rates", "Oil rallies"]
+
+
+def test_fetch_macro_headlines_empty_without_api_key():
+    with patch("execution.strategist.agent._news_api_key", return_value=""):
+        assert fetch_macro_headlines() == []
