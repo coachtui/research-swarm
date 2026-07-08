@@ -51,9 +51,12 @@ class NewsClient:
                 - author: Article author (if available)
         """
         ticker = ticker.upper()
-        cache_key = f"{ticker}_news_{days_back}d"
+        # Key includes today's date so a run never reads articles fetched on an
+        # earlier day (which would silently miss the news in between), while
+        # repeat runs on the same day still share one API call.
+        today = datetime.now().strftime("%Y-%m-%d")
+        cache_key = f"{ticker}_news_{days_back}d_{today}"
 
-        # Check cache (7-day TTL to reduce API costs)
         cached = cache.get("news", cache_key)
         if cached:
             logger.info(f"Using cached news for {ticker} ({len(cached)} articles)")
@@ -113,8 +116,9 @@ class NewsClient:
 
             logger.success(f"✓ Fetched {len(processed_articles)} articles for {ticker}")
 
-            # Cache for 7 days
-            cache.set("news", cache_key, processed_articles, ttl_days=7)
+            # Date-keyed entries are never read after their day passes; short
+            # TTL just keeps the cache from accumulating dead entries.
+            cache.set("news", cache_key, processed_articles, ttl_days=2)
 
             return processed_articles
 
