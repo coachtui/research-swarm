@@ -137,3 +137,10 @@ def test_fetch_macro_headlines_parses_titles():
 def test_fetch_macro_headlines_empty_without_api_key():
     with patch("execution.strategist.agent._news_api_key", return_value=""):
         assert fetch_macro_headlines() == []
+
+
+def test_run_strategist_never_raises_on_malformed_payload():
+    with patch("execution.strategist.agent._build_llm", return_value=_llm_returning(VALID_RESPONSE)):
+        result = run_strategist({})  # missing every key
+    assert result["status"] == "fallback"
+    assert result["regime_proposal"] == "neutral"

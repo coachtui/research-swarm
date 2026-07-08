@@ -75,7 +75,7 @@ def fetch_macro_headlines(days_back: int = 7, limit: int = 10) -> List[str]:
 def _fallback(payload: Dict[str, Any], reason: str) -> Dict[str, Any]:
     return {
         "status": "fallback",
-        "regime_proposal": payload["regime_mechanical"],
+        "regime_proposal": payload.get("regime_mechanical", "neutral"),
         "conviction": None,
         "sector_comments": {},
         "rotation_calls": [],
@@ -84,8 +84,8 @@ def _fallback(payload: Dict[str, Any], reason: str) -> Dict[str, Any]:
 
 
 def run_strategist(payload: Dict[str, Any]) -> Dict[str, Any]:
-    prompt = build_strategist_prompt(payload)
     try:
+        prompt = build_strategist_prompt(payload)
         response = _build_llm().invoke(prompt)
         parsed = parse_strategist_response(response.content)
         return {"status": "ok", **parsed}
