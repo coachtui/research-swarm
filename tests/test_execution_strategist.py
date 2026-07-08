@@ -58,6 +58,15 @@ def test_parse_extracts_json_from_surrounding_prose():
     assert parse_strategist_response(text)["regime_proposal"] == "risk_on"
 
 
+def test_parse_prefers_fenced_block_over_stray_braces():
+    text = (
+        "Note the 60% level {a key breadth threshold} matters here.\n"
+        "```json\n" + VALID_RESPONSE + "\n```\n"
+        "Also {another stray} comment."
+    )
+    assert parse_strategist_response(text)["regime_proposal"] == "risk_on"
+
+
 def test_parse_clamps_conviction_and_defaults_optional_fields():
     text = json.dumps({"regime_proposal": "neutral", "conviction": 1.7, "reasoning": "x"})
     result = parse_strategist_response(text)

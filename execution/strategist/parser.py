@@ -1,5 +1,6 @@
 """Parse and validate the strategist's JSON response."""
 import json
+import re
 from typing import Any, Dict
 
 from execution.indicators.regime import REGIME_ORDER
@@ -10,11 +11,16 @@ class StrategistParseError(Exception):
 
 
 def parse_strategist_response(text: str) -> Dict[str, Any]:
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
-        raise StrategistParseError("no JSON object found in strategist response")
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fenced:
+        candidate = fenced.group(1)
+    else:
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            raise StrategistParseError("no JSON object found in strategist response")
+        candidate = text[start : end + 1]
     try:
-        raw = json.loads(text[start : end + 1])
+        raw = json.loads(candidate)
     except json.JSONDecodeError as e:
         raise StrategistParseError(f"invalid JSON: {e}") from e
 
