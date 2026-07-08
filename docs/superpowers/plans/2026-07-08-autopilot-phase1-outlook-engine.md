@@ -1692,6 +1692,41 @@ git commit -m "feat(autopilot): weekly market outlook Inngest cron with owner em
 
 ---
 
+### Task 10: Admin API endpoint for the latest outlook
+
+Added after Task 9 by owner decision: email delivery is dormant (Resend never configured); the outlook surfaces in-app instead, admin-only for now, tier gating to follow later ("flag flip").
+
+**Files:**
+- Create: `api/routes/autopilot.py`
+- Modify: `api/index.py` (import + `app.include_router(autopilot.router, prefix="/api", tags=["Autopilot"])` beside the existing routers)
+- Test: `tests/test_autopilot_routes.py`
+
+**Interfaces:**
+- Consumes: `get_latest_outlook(db)` (Task 8), `require_admin` from `api/dependencies.py`, `get_db` from `api/lib/db.py`.
+- Produces: `GET /api/autopilot/outlook` (admin-gated). Response model `MarketOutlookResponse` (pydantic): `id: str, run_date: datetime, regime: str, regime_mechanical: str, strategist_override: bool, strategist_status: str, conviction: Optional[float], sector_rankings: List[dict], rotation_flags: List[dict], breadth: dict, reasoning: Optional[str]`. Returns 404 with detail "No outlook available yet" when the table is empty. A pure helper `outlook_row_to_response(row) -> MarketOutlookResponse` does the field mapping (camelCase prisma row → snake_case response) so serialization is unit-testable without FastAPI.
+- Follow `api/routes/admin.py` conventions (APIRouter, pydantic response models, `Depends(require_admin)`, `get_db` usage as in that file).
+- Tests: unit-test `outlook_row_to_response` with a fake row object; endpoint tests via FastAPI dependency overrides (override `require_admin` and `get_db`) covering 200-with-data and 404-empty. No real DB, no real auth.
+- Commit: `feat(autopilot): admin API endpoint for latest market outlook`
+
+### Task 11: Market Outlook tab on the admin page
+
+**Files:**
+- Create: `frontend/components/autopilot/MarketOutlookPanel.tsx`
+- Modify: `frontend/lib/hooks/useAdmin.ts` (add `useMarketOutlook` query hook + `outlook` query key), `frontend/lib/api/client.ts` (add `getMarketOutlook()` method), `frontend/types/api.ts` (add `MarketOutlookResponse` type matching Task 10's response model), `frontend/app/admin/page.tsx` (add an "Outlook" tab rendering the panel)
+- Verify: `npx tsc --noEmit` in `frontend/` passes.
+
+**Interfaces:**
+- Consumes: `GET /api/autopilot/outlook` (Task 10).
+- Panel renders, using the existing semantic Tailwind tokens and Card/Tabs components already imported by `app/admin/page.tsx`:
+  - Regime as a prominent badge (risk_on → success token, neutral → warning, risk_off → error), with mechanical regime + override note when `strategist_override` is true, and a "fallback" warning line when `strategist_status !== "ok"`.
+  - Conviction as a percentage ("n/a" when null).
+  - Sector rankings table: rank, sector (ETF), 1m/3m ranks, rank change (signed, colored by sign), score.
+  - Rotation flags list ("rotation into/out of X") and breadth line (pct above 200dma, RSP/SPY 3m trend).
+  - Strategist reasoning as a paragraph; `run_date` as "Week of <date>".
+  - Empty state for 404: "No outlook yet — first one generates Sunday night."
+- Loading/error handling mirrors the other admin tabs (react-query `isLoading` / `error`).
+- Commit: `feat(autopilot): market outlook tab on admin dashboard`
+
 ## Verification checklist (after all tasks)
 
 - [ ] `python3 -m pytest tests/ -q` — zero new failures.
