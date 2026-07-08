@@ -233,7 +233,12 @@ function ScoreBreakdown({
   components: ScoreComponent[]
   coverage?: number
 }) {
-  const activeCount = components.filter(c => c.active).length
+  const visibleComponents = components.filter(c => c.active || c.detail !== 'Fair value unavailable')
+  const activeCount = visibleComponents.filter(c => c.active).length
+  // Backend coverage counts all components including any hidden here, so its
+  // denominator disagrees with the visible counter (e.g. "4/4 active (80%
+  // coverage)") — only show it when nothing was filtered out.
+  const showCoverage = coverage !== undefined && visibleComponents.length === components.length
 
   return (
     <div className="rounded-lg border border-border/40 bg-surface-elevated/40 px-3 py-3 space-y-2.5">
@@ -243,8 +248,8 @@ function ScoreBreakdown({
           Score Components
         </p>
         <span className="text-[10px] text-text-tertiary font-mono">
-          {activeCount}/{components.length} active
-          {coverage !== undefined && (
+          {activeCount}/{visibleComponents.length} active
+          {showCoverage && (
             <span className="ml-1 text-text-tertiary">({coverage}% coverage)</span>
           )}
         </span>
@@ -252,7 +257,7 @@ function ScoreBreakdown({
 
       {/* Component rows */}
       <div className="space-y-1.5">
-        {components.map(c => (
+        {visibleComponents.map(c => (
           <ScoreComponentRow key={c.key} component={c} />
         ))}
       </div>

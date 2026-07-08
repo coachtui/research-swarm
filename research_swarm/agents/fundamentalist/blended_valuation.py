@@ -227,7 +227,8 @@ class BlendedValuationCalculator:
         fair_value_mid = self._blend_estimates(fv_pe, fv_ev_ebitda, fv_dcf, pe_weight, ev_weight, dcf_weight)
 
         if fair_value_mid is None:
-            logger.warning(f"Insufficient data for blended valuation of {ticker}")
+            failed = [m for m, v in [("P/E", fv_pe), ("EV/EBITDA", fv_ev_ebitda), ("DCF", fv_dcf)] if v is None or v <= 0]
+            logger.warning(f"Fair value unavailable for {ticker} — all methods failed: {', '.join(failed)}")
             return None
 
         # Part 3: Capital efficiency quality modifier
