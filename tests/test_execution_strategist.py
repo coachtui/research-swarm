@@ -51,12 +51,15 @@ def test_prompt_isolated_from_sleeve_a_extended_signals():
                                     "rank_3m": 4, "rank_6m": 5, "rank_change": 3,
                                     "score": 0.033}]},
         "size_style": {"tag": "small_caps_leading"},
+        "themes": {"rankings": [{"theme": "Photonics", "score": 0.02}]},
     }
     extended_prompt = build_strategist_prompt(payload_with_extended)
 
     assert base_prompt == extended_prompt
     assert "industry" not in extended_prompt
     assert "size_style" not in extended_prompt
+    assert "themes" not in extended_prompt
+    assert "Photonics" not in extended_prompt
 
 
 VALID_RESPONSE = json.dumps({

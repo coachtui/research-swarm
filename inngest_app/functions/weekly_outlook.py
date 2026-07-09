@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -184,11 +184,49 @@ def _register_inngest_function():
             # Control-group contract: the strategist must never see the
             # Sleeve-A-only extended signals (its override feeds the shared regime).
             payload = {k: v for k, v in indicators.items()
-                       if k not in ("industry", "size_style")}
+                       if k not in ("industry", "size_style", "themes")}
             payload["macro_headlines"] = fetch_macro_headlines()
             return run_strategist(payload)
 
         strategist = await step.run("run-strategist", strategist_step)
+
+        # Step 2.5: theme rankings (Phase 3B — Sleeve-A-only; degrades to None)
+        # Deliberately runs AFTER the strategist step — structurally impossible
+        # for the LLM to see theme data.
+        async def compute_theme_rankings() -> "Optional[Dict[str, Any]]":
+            from api.lib.db import get_db  # noqa: PLC0415
+            from execution.alerts import send_failure_alert  # noqa: PLC0415
+            from execution.constants import BENCHMARK  # noqa: PLC0415
+            from execution.indicators.theme_strength import rank_themes  # noqa: PLC0415
+            from execution.market_data import (  # noqa: PLC0415
+                fetch_closes_batch, fetch_history_for,
+            )
+            try:
+                db = await get_db()
+                rows = await db.themebasket.find_many(
+                    where={"status": "active"}, include={"constituents": True})
+                themes = [{
+                    "slug": r.slug, "name": r.name, "confidence": r.confidence,
+                    "tickers": [c.ticker for c in (r.constituents or [])
+                                if c.status == "active"],
+                } for r in rows]
+                themes = [t for t in themes if t["tickers"]]
+                if not themes:
+                    return None  # pre-first-discovery state: seeds have no constituents
+                all_tickers = sorted({t for th in themes for t in th["tickers"]})
+                closes = fetch_closes_batch(all_tickers)
+                spy = fetch_history_for([BENCHMARK]).get(BENCHMARK)
+                if spy is None:
+                    raise RuntimeError("SPY history unavailable for theme pass")
+                return rank_themes(themes, closes, spy)
+            except Exception as exc:
+                logger.exception("Outlook theme pass failed")
+                await send_failure_alert(
+                    "Outlook theme pass failed", f"{type(exc).__name__}: {exc}",
+                    source="weekly_market_outlook")
+                return None
+
+        themes_result = await step.run("compute-theme-rankings", compute_theme_rankings)
 
         # Step 3: store
         async def store() -> Dict[str, Any]:
@@ -196,7 +234,8 @@ def _register_inngest_function():
             from execution.outlook_service import (  # noqa: PLC0415
                 build_outlook_record, store_outlook,
             )
-            record = build_outlook_record(run_date, indicators, strategist)
+            record = build_outlook_record(
+                run_date, {**indicators, "themes": themes_result}, strategist)
             row = await store_outlook(await get_db(), record)
             logger.info("MarketOutlook stored: %s regime=%s", row.id, record["regime"])
             return {"id": row.id, **{k: v for k, v in record.items() if k != "runDate"},

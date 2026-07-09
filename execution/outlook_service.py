@@ -30,6 +30,7 @@ def build_outlook_record(
         "breadth": indicators["breadth"],
         "industryRankings": indicators.get("industry"),
         "sizeStyle": indicators.get("size_style"),
+        "themeRankings": indicators.get("themes"),
         "reasoning": strategist["reasoning"],
     }
 
@@ -39,7 +40,7 @@ async def store_outlook(db, record: Dict[str, Any]) -> Any:
 
     data = dict(record)
     for field in ("sectorRankings", "rotationFlags", "breadth",
-                  "industryRankings", "sizeStyle"):
+                  "industryRankings", "sizeStyle", "themeRankings"):
         if data.get(field) is None:
             data.pop(field, None)
         else:
