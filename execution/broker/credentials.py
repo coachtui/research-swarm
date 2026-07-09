@@ -27,7 +27,10 @@ def encrypt_secret(plaintext: str) -> str:
 
 
 def decrypt_secret(ciphertext: str) -> str:
-    return _fernet().decrypt(ciphertext.encode()).decode()
+    try:
+        return _fernet().decrypt(ciphertext.encode()).decode()
+    except Exception as exc:
+        raise CredentialsError("invalid ciphertext") from exc
 
 
 async def get_active_alpaca_account(db) -> Optional[Any]:
@@ -52,6 +55,6 @@ async def upsert_alpaca_account(db, user_id: str, api_key: str, api_secret: str)
         },
         data={
             "create": {"userId": user_id, "provider": "alpaca", "mode": "paper", **payload},
-            "update": payload,
+            "update": dict(payload),
         },
     )

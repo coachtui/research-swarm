@@ -31,6 +31,10 @@ class TestEncryptDecrypt:
         with pytest.raises(CredentialsError):
             encrypt_secret("PKTEST123")
 
+    def test_invalid_ciphertext_raises_credentials_error(self, fernet_env):
+        with pytest.raises(CredentialsError):
+            decrypt_secret("not-a-valid-token")
+
 
 class TestDbEdge:
     @pytest.mark.asyncio
