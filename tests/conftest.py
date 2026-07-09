@@ -1,11 +1,38 @@
 """Shared test fixtures for Research Swarm test suite."""
 
 import asyncio
+import sys
+import types
 import pytest
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
+
+
+# ============================================================================
+# Prisma stub (loaded before any test module, so it wins the sys.modules race)
+# ============================================================================
+#
+# Several test files (test_allocation.py, test_autopilot_routes.py,
+# test_portfolio_actions_route.py, test_portfolio_actions_execute_cancel.py,
+# test_weekly_signals_route.py, test_portfolio_engine_plans.py,
+# test_pricing.py) each install their own `prisma` stub via
+# `sys.modules.setdefault("prisma", ...)` at import time (prisma generate
+# hasn't been run in this environment, so the real Prisma client can't be
+# constructed). That stub only exposes `Prisma`, not `Json`. Three
+# production modules defer `from prisma import Json` to call time
+# (execution/outlook_service.py, execution/sleeve_service.py,
+# api/services/weekly_signal_service.py) — whichever incomplete stub gets
+# collected first "wins" for the rest of the pytest session and breaks that
+# import for every test collected afterwards, regardless of file. Since
+# conftest.py always loads before any test module in this directory, install
+# a complete-enough stub here first so every consumer sees the same object.
+if "prisma" not in sys.modules:
+    _prisma_stub = types.ModuleType("prisma")
+    _prisma_stub.Prisma = MagicMock  # type: ignore[attr-defined]
+    _prisma_stub.Json = MagicMock  # type: ignore[attr-defined]
+    sys.modules["prisma"] = _prisma_stub
 
 
 # ============================================================================
