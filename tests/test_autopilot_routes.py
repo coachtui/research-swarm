@@ -255,6 +255,8 @@ class TestGetEngineReportsEndpoint:
         assert [row["id"] for row in data] == ["r2", "r1"]
         _, kwargs = mock_db.enginereport.find_many.call_args
         assert kwargs["order"] == {"createdAt": "desc"}
+        # Neither type nor severity supplied → empty where dict collapses to None
+        assert kwargs["where"] is None
 
     def test_passes_type_and_severity_filters_into_where(self):
         app = _make_app()
@@ -292,6 +294,23 @@ class TestGetEngineReportsEndpoint:
         assert resp.status_code == 200
         _, kwargs = mock_db.enginereport.find_many.call_args
         assert kwargs["take"] == 200
+
+    def test_clamps_take_to_min_1(self):
+        app = _make_app()
+        app.dependency_overrides[require_admin] = lambda: MagicMock(is_admin=True)
+
+        mock_db = MagicMock()
+        mock_db.enginereport.find_many = AsyncMock(return_value=[])
+
+        with patch(
+            "api.routes.autopilot.get_db", new_callable=AsyncMock, return_value=mock_db
+        ):
+            client = TestClient(app)
+            resp = client.get("/api/autopilot/reports", params={"limit": 0})
+
+        assert resp.status_code == 200
+        _, kwargs = mock_db.enginereport.find_many.call_args
+        assert kwargs["take"] == 1
 
 # ── Phase 2: broker link / status / resume ──────────────────────────────────
 
