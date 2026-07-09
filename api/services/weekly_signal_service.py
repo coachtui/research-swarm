@@ -23,6 +23,44 @@ def _first_n_sentences(text: str, n: int = 2) -> str:
     return " ".join(sentences[:n])
 
 
+def _as_str(value: Any) -> Optional[str]:
+    """value if it is a non-empty string, else None."""
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _as_float(value: Any) -> Optional[float]:
+    """value coerced to float, else None (bools rejected)."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _nested(result: Dict[str, Any], *path: str) -> Any:
+    """Walk nested dicts defensively; None on any missing/mistyped hop."""
+    node: Any = result
+    for key in path:
+        if not isinstance(node, dict):
+            return None
+        node = node.get(key)
+    return node
+
+
+# rating (live manager schema) → WeeklySignal verdict
+_RATING_TO_VERDICT = {
+    "BUY": "buy",
+    "STRONG BUY": "buy",
+    "HOLD": "hold",
+    "SELL": "avoid",
+    "STRONG SELL": "avoid",
+    "AVOID": "avoid",
+}
+
+
 def extract_signals_from_result(
     result: Dict[str, Any],
     ticker: str,
@@ -32,29 +70,78 @@ def extract_signals_from_result(
 
     Returns None if the result has status != 'completed'.
 
-    Key names were confirmed by inspecting real analysis output (Task 5 Step 1).
-    Update these keys if the analysis engine output schema changes.
+    Supports both the legacy flat schema (verdict/fair_value/... — kept as the
+    canonical contract and always preferred when present) and the live manager
+    schema verified against stored full_output on 2026-07-08 (rating,
+    fair_value_calibration, signal_breakdown, synthesis_narrative,
+    strategic_catalysts). Every field is defensively coerced so future schema
+    drift degrades to null columns instead of raising mid-batch.
     """
     if result.get("status") != "completed":
         return None
 
-    verdict = result.get("verdict")
-    fair_value = result.get("fair_value")
-    current_price = result.get("current_price")
-    ev_probability = result.get("ev_probability")
-    stop_loss_probability = result.get("stop_probability") or result.get("stop_loss_probability")
-    insider_score = result.get("insider_score")
-    dark_pool_score = result.get("dark_pool_score")
-    sentiment_score = result.get("sentiment_score")
-    investment_thesis = result.get("investment_thesis") or ""
-    catalyst_summary = result.get("catalyst_summary")
-    position_size_rec = result.get("position_size") or result.get("position_size_recommendation")
+    rating = _as_str(result.get("rating"))
+    verdict = _as_str(result.get("verdict")) or (
+        _RATING_TO_VERDICT.get(rating.upper()) if rating else None
+    )
+
+    fair_value = _as_float(result.get("fair_value")) or _as_float(
+        _nested(result, "fair_value_calibration", "internal_fair_value")
+    )
+    current_price = _as_float(result.get("current_price"))
+    ev_probability = _as_float(result.get("ev_probability"))
+
+    stop_loss_probability = _as_float(
+        result.get("stop_probability")
+    ) or _as_float(result.get("stop_loss_probability"))
+    if stop_loss_probability is None:
+        stop_pct = _as_float(
+            _nested(result, "signal_breakdown", "stop_probability",
+                    "effective_stop_probability_pct")
+        )
+        if stop_pct is not None:
+            stop_loss_probability = round(stop_pct / 100.0, 4)
+
+    insider_score = _as_float(result.get("insider_score")) or _as_float(
+        _nested(result, "signal_breakdown", "insider_score")
+    )
+    dark_pool_score = _as_float(result.get("dark_pool_score")) or _as_float(
+        _nested(result, "signal_breakdown", "dark_pool_score")
+    )
+    sentiment_score = _as_float(result.get("sentiment_score")) or _as_float(
+        _nested(result, "signal_breakdown", "news_score")
+    )
+
+    synthesis_source = (
+        _as_str(result.get("investment_thesis"))          # legacy: prose string
+        or _as_str(result.get("synthesis_narrative"))
+        or _as_str(_nested(result, "investment_thesis", "recommendation_summary"))
+    )
+    synthesis_summary = (
+        _first_n_sentences(synthesis_source, n=2) if synthesis_source else None
+    )
+
+    catalyst_summary = _as_str(result.get("catalyst_summary"))
+    if catalyst_summary is None:
+        catalysts = result.get("strategic_catalysts")
+        if isinstance(catalysts, list):
+            titles = [
+                _as_str(c.get("title")) if isinstance(c, dict) else _as_str(c)
+                for c in catalysts[:3]
+            ]
+            titles = [t for t in titles if t]
+            catalyst_summary = "; ".join(titles) if titles else None
+
+    position_size_rec = (
+        _as_str(result.get("position_size"))
+        or _as_str(result.get("position_size_recommendation"))
+        or _as_str(_nested(result, "signal_breakdown", "portfolio_action",
+                           "sizing_guidance"))
+    )
 
     fair_value_gap_pct = None  # type: Optional[float]
-    if fair_value is not None and current_price and current_price != 0:
+    if fair_value is not None and current_price:
         fair_value_gap_pct = round((fair_value - current_price) / current_price * 100, 2)
-
-    synthesis_summary = _first_n_sentences(investment_thesis, n=2) if investment_thesis else None
 
     return {
         "verdict": verdict,
@@ -228,14 +315,27 @@ class WeeklySignalService:
         if signals is None:
             logger.info("Not upgrading %s — analysis did not complete", ticker)
             return False
-        await self._db.weeklysignal.update(
-            where={"ticker_runDate": {"ticker": ticker, "runDate": run_date}},
-            data={
+
+        # The live manager schema carries no current_price; the quant row's
+        # market-data price is authoritative. Only overwrite when the result
+        # has one, and backfill the fair-value gap from the row's price.
+        current_price = signals.get("currentPrice")
+        fair_value_gap_pct = signals.get("fair_value_gap_pct")
+        if fair_value_gap_pct is None and signals.get("fairValue") is not None:
+            row = await self._db.weeklysignal.find_unique(
+                where={"ticker_runDate": {"ticker": ticker, "runDate": run_date}}
+            )
+            row_price = getattr(row, "currentPrice", None) if row else None
+            if row_price:
+                fair_value_gap_pct = round(
+                    (signals["fairValue"] - row_price) / row_price * 100, 2
+                )
+
+        data = {
                 "tier": "full",
                 "verdict": signals.get("verdict"),
-                "currentPrice": signals.get("currentPrice"),
                 "fairValue": signals.get("fairValue"),
-                "fairValueGapPct": signals.get("fair_value_gap_pct"),
+                "fairValueGapPct": fair_value_gap_pct,
                 "evProbability": signals.get("ev_probability"),
                 "stopLossProbability": signals.get("stop_loss_probability"),
                 "insiderScore": signals.get("insiderScore"),
@@ -246,7 +346,12 @@ class WeeklySignalService:
                 "positionSizeRec": signals.get("positionSizeRec"),
                 "escalationScore": escalation_score,
                 "escalationReasons": Json(escalation_reasons),
-            },
+        }
+        if current_price is not None:
+            data["currentPrice"] = current_price
+        await self._db.weeklysignal.update(
+            where={"ticker_runDate": {"ticker": ticker, "runDate": run_date}},
+            data=data,
         )
         logger.info("Upgraded %s to full (verdict=%s)", ticker, signals.get("verdict"))
         return True

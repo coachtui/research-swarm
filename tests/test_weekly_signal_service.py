@@ -273,3 +273,141 @@ class TestFindFreshResult:
         db = _mock_db()
         db.stockresult.find_first = AsyncMock(return_value=MagicMock(fullOutput=None))
         assert await WeeklySignalService(db=db).find_fresh_result("AAPL") is None
+
+
+# ── Live manager schema (2026-07, verified against stored NVDA full_output) ──
+
+LIVE_RESULT = {
+    "status": "completed",
+    "ticker": "NVDA",
+    "rating": "BUY",
+    "rating_score": 7.2,
+    "synthesis_narrative": "NVDA remains the dominant AI compute franchise. "
+                           "Sovereign AI partnerships add a new demand leg. "
+                           "Valuation is undemanding relative to growth.",
+    "investment_thesis": {
+        "key_risks": ["Technical breakdown risk"],
+        "entry_strategy": "Scale in below $200",
+        "company_overview": "NVIDIA designs GPUs.",
+        "investment_highlights": ["AI leadership"],
+        "recommendation_summary": "Buy on weakness. Thesis intact.",
+        "valuation_signal_analysis": "Fair value above spot.",
+    },
+    "fair_value_calibration": {
+        "internal_fair_value": 211.22,
+        "consensus_target": 301.62,
+    },
+    "signal_breakdown": {
+        "insider_score": 5.0,
+        "dark_pool_score": 3.0,
+        "news_score": 7.8,
+        "stop_probability": {
+            "effective_stop_probability_pct": 24.0,
+            "base_stop_risk_pct": 25.0,
+        },
+        "portfolio_action": {
+            "sizing_guidance": "Maintain existing position at 0.90x weight.",
+            "allocation_bias": "Hold",
+        },
+    },
+    "strategic_catalysts": [
+        {"title": "Sovereign AI Partnership Expansion", "category": "Strategic Investment"},
+        {"title": "AWS/Blackwell Hyperscaler Integration", "category": "Competitive Positioning"},
+        {"title": "$20B Investment-Grade Bond Offering", "category": "Strategic Investment"},
+        {"title": "Fourth Catalyst Beyond The Cap", "category": "Other"},
+    ],
+}
+
+
+class TestExtractSignalsFromLiveSchema:
+    def test_verdict_from_rating(self):
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["verdict"] == "buy"
+
+    def test_sell_and_avoid_ratings_map_to_avoid(self):
+        for rating in ("SELL", "AVOID", "Strong Sell"):
+            result = dict(LIVE_RESULT, rating=rating)
+            assert extract_signals_from_result(result, ticker="X")["verdict"] == "avoid"
+
+    def test_fair_value_from_calibration(self):
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["fairValue"] == 211.22
+
+    def test_stop_probability_from_effective_pct(self):
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["stop_loss_probability"] == 0.24
+
+    def test_activity_scores_from_signal_breakdown(self):
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["insiderScore"] == 5.0
+        assert signals["darkPoolScore"] == 3.0
+        assert signals["sentimentScore"] == 7.8
+
+    def test_synthesis_from_narrative_first_two_sentences(self):
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["synthesis_summary"] == (
+            "NVDA remains the dominant AI compute franchise. "
+            "Sovereign AI partnerships add a new demand leg."
+        )
+
+    def test_synthesis_falls_back_to_recommendation_summary(self):
+        result = dict(LIVE_RESULT)
+        result.pop("synthesis_narrative")
+        signals = extract_signals_from_result(result, ticker="NVDA")
+        assert signals["synthesis_summary"] == "Buy on weakness. Thesis intact."
+
+    def test_catalysts_join_first_three_titles(self):
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["catalystSummary"] == (
+            "Sovereign AI Partnership Expansion; "
+            "AWS/Blackwell Hyperscaler Integration; "
+            "$20B Investment-Grade Bond Offering"
+        )
+
+    def test_position_size_from_portfolio_action(self):
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["positionSizeRec"] == "Maintain existing position at 0.90x weight."
+
+    def test_ev_probability_absent_stays_none(self):
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["ev_probability"] is None
+
+    def test_current_price_absent_stays_none(self):
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["currentPrice"] is None
+
+    def test_dict_fields_never_raise_strip_errors(self):
+        # Regression: 2026-07-08 production failure — every field defensively coerced
+        hostile = {"status": "completed", "rating": {"nested": "dict"},
+                   "investment_thesis": {"unexpected": "shape"},
+                   "signal_breakdown": "not-a-dict",
+                   "strategic_catalysts": "not-a-list",
+                   "fair_value_calibration": None}
+        signals = extract_signals_from_result(hostile, ticker="X")
+        assert signals is not None
+        assert signals["verdict"] is None
+        assert signals["synthesis_summary"] is None
+
+    def test_old_schema_keys_still_win(self):
+        merged = dict(LIVE_RESULT, verdict="hold", fair_value=99.0)
+        signals = extract_signals_from_result(merged, ticker="X")
+        assert signals["verdict"] == "hold"
+        assert signals["fairValue"] == 99.0
+
+
+class TestUpgradePreservesQuantPrice:
+    @pytest.mark.asyncio
+    async def test_missing_current_price_not_clobbered_and_gap_computed(self):
+        db = _mock_db()
+        db.weeklysignal.find_unique = AsyncMock(
+            return_value=MagicMock(currentPrice=190.0)
+        )
+        service = WeeklySignalService(db=db)
+        ok = await service.upgrade_to_full(
+            ticker="NVDA", run_date=RUN_DATE, result=LIVE_RESULT,
+            escalation_score=3.5, escalation_reasons=["outlook_sector"])
+        assert ok is True
+        data = db.weeklysignal.update.call_args.kwargs["data"]
+        assert "currentPrice" not in data  # quant row's market price preserved
+        # gap computed from quant row's price: (211.22-190)/190*100 ≈ 11.17
+        assert abs(data["fairValueGapPct"] - 11.17) < 0.01

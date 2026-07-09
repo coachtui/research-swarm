@@ -300,18 +300,36 @@ def _register_inngest_function():
         if swarm_list:
             batch_user_id = _get_batch_user_id()
             for d in swarm_list:
-                async def analyze_one(dd: Dict[str, Any] = d) -> str:
+                # Analyze (paid) and persist (free) are SEPARATE steps: the
+                # paid result is memoized once it succeeds, so a persistence
+                # bug can never re-run the analysis on retry (2026-07-08
+                # incident: schema-drift crash in persist double-billed every
+                # swarm ticker when both lived in one step).
+                async def analyze_one(dd: Dict[str, Any] = d) -> Dict[str, Any]:
                     logger.info("Batch analyzing %s", dd["ticker"])
-                    result = await run_stock_analysis(
+                    return await run_stock_analysis(
                         ticker=dd["ticker"],
                         quarters=_QUARTERS,
                         news_days_back=_NEWS_DAYS_BACK,
                         user_id=batch_user_id,
                     )
+
+                try:
+                    result = await step.run(
+                        f"analyze-{d['ticker'].lower()}", analyze_one
+                    )
+                except Exception as e:  # noqa: BLE001 — one ticker must not sink the run
+                    logger.error("Analyze step failed permanently for %s: %s", d["ticker"], e)
+                    outcomes[d["ticker"]] = "step_failed"
+                    continue
+
+                async def persist_one(
+                    dd: Dict[str, Any] = d, res: Dict[str, Any] = result
+                ) -> str:
                     db = await get_db()
                     service = WeeklySignalService(db=db)
                     ok = await service.upgrade_to_full(
-                        ticker=dd["ticker"], run_date=run_date, result=result,
+                        ticker=dd["ticker"], run_date=run_date, result=res,
                         escalation_score=dd["score"],
                         escalation_reasons=dd["reasons"],
                     )
@@ -319,10 +337,10 @@ def _register_inngest_function():
 
                 try:
                     outcomes[d["ticker"]] = await step.run(
-                        f"analyze-{d['ticker'].lower()}", analyze_one
+                        f"persist-{d['ticker'].lower()}", persist_one
                     )
                 except Exception as e:  # noqa: BLE001 — one ticker must not sink the run
-                    logger.error("Analyze step failed permanently for %s: %s", d["ticker"], e)
+                    logger.error("Persist step failed permanently for %s: %s", d["ticker"], e)
                     outcomes[d["ticker"]] = "step_failed"
 
         # ── Final step: fire batch/completed for (dormant) downstream fns ────
