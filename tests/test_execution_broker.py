@@ -88,3 +88,19 @@ class TestOrders:
         assert result.status == "timeout"
         assert result.filled_qty == 0.0
         assert result.filled_avg_price is None
+        fake.cancel_order_by_id.assert_called_once()
+
+    def test_timeout_cancel_races_late_fill(self, monkeypatch):
+        fake = MagicMock()
+        fake.submit_order.return_value = _fake_order(status="accepted")
+        fake.get_order_by_id.side_effect = [
+            _fake_order(status="accepted", filled_qty="0", filled_avg_price=None),
+            _fake_order(status="filled", filled_qty="2", filled_avg_price="101.5"),
+        ]
+        monkeypatch.setattr("execution.broker.alpaca_client._FILL_TIMEOUT_S", 0)
+        result = _bare_client(fake).submit_market_buy_notional("XLK", 100)
+        assert result.status == "filled"
+        assert result.filled_qty == 2.0
+        assert result.filled_avg_price == 101.5
+        fake.cancel_order_by_id.assert_called_once()
+        assert fake.get_order_by_id.call_count == 2

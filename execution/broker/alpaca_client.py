@@ -70,6 +70,17 @@ class AlpacaPaperClient:
         )
         return self._wait_for_fill(order.id)
 
+    def _to_result(self, order, status: str) -> BrokerOrderResult:
+        price = order.filled_avg_price
+        return BrokerOrderResult(
+            order_id=str(order.id),
+            symbol=order.symbol,
+            side=_enum_str(order.side),
+            status=status,
+            filled_qty=float(order.filled_qty or 0),
+            filled_avg_price=float(price) if price else None,
+        )
+
     def _wait_for_fill(self, order_id) -> BrokerOrderResult:
         """Poll until terminal status or timeout. Paper market orders fill
         near-instantly in regular hours; timeout is a safety valve, and a
@@ -78,16 +89,20 @@ class AlpacaPaperClient:
         while True:
             order = self._client.get_order_by_id(order_id)
             status = _enum_str(order.status)
-            timed_out = time.monotonic() >= deadline
-            if status in _TERMINAL_STATUSES or timed_out:
-                price = order.filled_avg_price
-                return BrokerOrderResult(
-                    order_id=str(order.id),
-                    symbol=order.symbol,
-                    side=_enum_str(order.side),
-                    status=status if status in _TERMINAL_STATUSES else "timeout",
-                    filled_qty=float(order.filled_qty or 0),
-                    filled_avg_price=float(price) if price else None,
+            if status in _TERMINAL_STATUSES:
+                return self._to_result(order, status)
+            if time.monotonic() >= deadline:
+                # Cancel the still-working DAY order so a late fill can't
+                # silently drift the cash ledger. The cancel can race a fill —
+                # re-fetch once and report whichever won.
+                try:
+                    self._client.cancel_order_by_id(order_id)
+                except Exception:
+                    pass  # already filled/canceled — the re-fetch tells us
+                order = self._client.get_order_by_id(order_id)
+                status = _enum_str(order.status)
+                return self._to_result(
+                    order, status if status in _TERMINAL_STATUSES else "timeout"
                 )
             time.sleep(1.0)
 
