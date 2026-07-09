@@ -66,3 +66,41 @@ def test_confidence_clamped_to_unit_interval():
            '"thesis": "t", "confidence": 1.7, "constituents": []}]}')
     out = parse_monthly_response(raw)
     assert out["themes"][0]["confidence"] == 1.0
+
+
+def test_bool_confidence_rejected():
+    # bool is an int subclass — must NOT coerce to 1.0; theme is skipped.
+    raw = ('{"themes": [{"slug": "chips", "name": "Chips", "action": "keep", '
+           '"thesis": "t", "confidence": true, "constituents": []}]}')
+    out = parse_monthly_response(raw)
+    assert out["themes"] == []
+    assert len(out["skipped"]) == 1
+    assert "confidence" in out["skipped"][0]
+
+
+def test_non_dict_metadata_coerced_to_empty():
+    # Non-dict metadata is not a required field — theme survives with {}.
+    raw = ('{"themes": [{"slug": "chips", "name": "Chips", "action": "keep", '
+           '"thesis": "t", "confidence": 0.5, "metadata": "not a dict", '
+           '"constituents": []}]}')
+    out = parse_monthly_response(raw)
+    assert [t["slug"] for t in out["themes"]] == ["chips"]
+    assert out["themes"][0]["metadata"] == {}
+    assert out["skipped"] == []
+
+
+def test_multiple_fences_first_wins():
+    # Documents current extraction behavior: with two ```json fences,
+    # the FIRST fence is parsed. Any change to _extract_json shows up here.
+    raw = """Draft:
+```json
+{"themes": []}
+```
+Final:
+```json
+{"themes": [{"slug": "chips", "name": "Chips", "action": "keep",
+ "thesis": "t", "confidence": 0.5, "constituents": []}]}
+```"""
+    out = parse_monthly_response(raw)
+    assert out["themes"] == []
+    assert out["skipped"] == []
