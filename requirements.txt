@@ -55,3 +55,4 @@ mangum>=0.17.0
 uvicorn[standard]>=0.27.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
+resend>=0.7.0

@@ -99,8 +99,6 @@ def _register_inngest_function():
         retries=1,
     )
     async def weekly_market_outlook(ctx: "inngest_sdk.Context") -> Dict[str, Any]:
-        import resend  # noqa: PLC0415
-
         step = ctx.step  # steps live on ctx in the current SDK
 
         run_date = datetime.now(timezone.utc)
@@ -162,6 +160,7 @@ def _register_inngest_function():
             if not owner_email:
                 logger.warning("OWNER_EMAIL not set — skipping outlook email")
                 return {"status": "skipped"}
+            import resend  # noqa: PLC0415 — only needed when email is actually enabled
             record = dict(stored)
             record["runDate"] = datetime.fromisoformat(record["runDate"])
             resend.api_key = os.getenv("RESEND_API_KEY", "")
