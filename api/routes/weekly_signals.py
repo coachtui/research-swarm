@@ -117,7 +117,9 @@ async def get_leaderboard(
     db = await get_db()
 
     # Find the most recent run_date
-    latest = await db.weeklysignal.find_first(order={"runDate": "desc"})
+    latest = await db.weeklysignal.find_first(
+        where={"tier": "full"}, order={"runDate": "desc"}
+    )
     if not latest:
         return LeaderboardResponse(
             run_date=None,
@@ -133,7 +135,7 @@ async def get_leaderboard(
     row_limit = min(limit, 25) if is_full else 3
 
     signals = await db.weeklysignal.find_many(
-        where={"runDate": run_date},
+        where={"runDate": run_date, "tier": "full"},
         order={"screenerScore": "desc"},
         take=row_limit,
     )
@@ -161,6 +163,7 @@ async def get_track_record(limit: int = Query(default=100, ge=1, le=500)):
     db = await get_db()
 
     signals = await db.weeklysignal.find_many(
+        where={"tier": "full"},
         order={"runDate": "desc"},
         take=limit,
     )
@@ -197,7 +200,7 @@ async def get_weekly_preview(
     db = await get_db()
 
     signal = await db.weeklysignal.find_first(
-        where={"ticker": ticker.upper()},
+        where={"ticker": ticker.upper(), "tier": "full"},
         order={"runDate": "desc"},
     )
 

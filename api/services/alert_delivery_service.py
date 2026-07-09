@@ -47,7 +47,7 @@ async def deliver_weekly_alerts(
     Returns a summary dict with counters.
     """
     signals = await db.weeklysignal.find_many(
-        where={"runDate": run_date},
+        where={"runDate": run_date, "tier": "full"},
     )
     logger.info("Alert delivery: %d signals for run_date=%s",
                 len(signals), run_date.isoformat())
