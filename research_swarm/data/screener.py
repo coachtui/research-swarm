@@ -98,11 +98,11 @@ class StockScreener:
                 now = datetime.now(timezone.utc)
                 future_dates = [
                     d for d in earnings_df.index
-                    if d > now
+                    if hasattr(d, "tzinfo") and d > now
                 ]
                 past_dates = [
                     d for d in earnings_df.index
-                    if d <= now
+                    if hasattr(d, "tzinfo") and d <= now
                 ]
                 if future_dates:
                     next_earnings = min(future_dates)
