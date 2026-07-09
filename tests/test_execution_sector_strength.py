@@ -80,3 +80,24 @@ def test_detect_rotations_flags_direction():
     ]
     flags = detect_rotations(rankings, min_rank_gain=3)
     assert {f["etf"]: f["direction"] for f in flags} == {"XLE": "into", "XLK": "out_of"}
+
+
+def test_industry_and_size_style_constants_shape():
+    from execution.constants import (
+        INDUSTRY_ETFS,
+        INDUSTRY_ROTATION_MIN_RANK_GAIN,
+        MIN_INDUSTRIES_REQUIRED,
+        SCORE_WEIGHTS,
+        SIZE_STYLE_ETFS,
+        SIZE_STYLE_RS_THRESHOLD,
+    )
+
+    assert len(INDUSTRY_ETFS) == 19
+    assert INDUSTRY_ETFS["XBI"] == "Biotech"
+    assert INDUSTRY_ETFS["SMH"] == "Semiconductors"
+    assert not set(INDUSTRY_ETFS) & set(SECTOR_ETFS)  # no overlap with sectors
+    assert SIZE_STYLE_ETFS == {"IWM": "small_cap", "MDY": "mid_cap"}
+    assert SCORE_WEIGHTS == {"1m": 0.5, "3m": 0.3, "6m": 0.2}
+    assert INDUSTRY_ROTATION_MIN_RANK_GAIN == 5
+    assert MIN_INDUSTRIES_REQUIRED == 15
+    assert SIZE_STYLE_RS_THRESHOLD == 0.01
