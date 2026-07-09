@@ -137,3 +137,139 @@ class TestWeeklySignalService:
             market_context=market_context,
         )
         mock_db.weeklysignal.create.assert_not_called()
+
+
+def _mock_db():
+    db = MagicMock()
+    db.weeklysignal.find_first = AsyncMock(return_value=None)
+    db.weeklysignal.upsert = AsyncMock()
+    db.weeklysignal.update = AsyncMock()
+    db.stockresult.find_first = AsyncMock(return_value=None)
+    return db
+
+
+RUN_DATE = datetime(2026, 7, 13, tzinfo=timezone.utc)
+MC = None  # Will be created per-test
+
+
+class TestGetPriorContext:
+    @pytest.mark.asyncio
+    async def test_splits_any_tier_score_from_full_tier_verdict(self):
+        from api.services.market_context_service import MarketContext
+        db = _mock_db()
+        prior_any = MagicMock(screenerScore=4.0)
+        prior_full = MagicMock(verdict="buy", evProbability=0.7)
+        db.weeklysignal.find_first = AsyncMock(side_effect=[prior_any, prior_full])
+        service = WeeklySignalService(db=db)
+        ctx = await service.get_prior_context("AAPL", before=RUN_DATE)
+        assert ctx == {
+            "prior_screener_score": 4.0,
+            "prior_verdict": "buy",
+            "prior_ev_probability": 0.7,
+        }
+        # second lookup must exclude verdict-less quant rows
+        _, second_call = db.weeklysignal.find_first.call_args_list
+        assert second_call.kwargs["where"]["verdict"] == {"not": None}
+
+    @pytest.mark.asyncio
+    async def test_no_history_returns_nones(self):
+        service = WeeklySignalService(db=_mock_db())
+        ctx = await service.get_prior_context("AAPL", before=RUN_DATE)
+        assert ctx == {
+            "prior_screener_score": None,
+            "prior_verdict": None,
+            "prior_ev_probability": None,
+        }
+
+
+class TestStoreQuantSnapshot:
+    @pytest.mark.asyncio
+    async def test_upserts_quant_row_with_continuity(self):
+        from api.services.market_context_service import MarketContext
+        db = _mock_db()
+        MC = MarketContext(es_change_pct=1.0, nq_change_pct=2.0, dow_change_pct=0.5)
+        service = WeeklySignalService(db=db)
+        await service.store_quant_snapshot(
+            ticker="AAPL", run_date=RUN_DATE, screener_score=5.5,
+            current_price=175.2,
+            quant_signals={"has_insider_buying": True},
+            market_context=MC,
+            prior_ctx={"prior_screener_score": 2.0, "prior_verdict": "buy",
+                       "prior_ev_probability": 0.7},
+        )
+        kwargs = db.weeklysignal.upsert.call_args.kwargs
+        assert kwargs["where"] == {
+            "ticker_runDate": {"ticker": "AAPL", "runDate": RUN_DATE}
+        }
+        create = kwargs["data"]["create"]
+        assert create["tier"] == "quant"
+        assert create["verdict"] is None
+        assert create["screenerScore"] == 5.5
+        assert create["currentPrice"] == 175.2
+        assert create["priorVerdict"] == "buy"
+        assert create["priorEvProbability"] == 0.7
+        assert create["esChangePct"] == 1.0
+
+
+class TestRecordEscalation:
+    @pytest.mark.asyncio
+    async def test_updates_row_with_score_and_reasons(self):
+        db = _mock_db()
+        service = WeeklySignalService(db=db)
+        await service.record_escalation(
+            ticker="AAPL", run_date=RUN_DATE, score=5.5, reasons=["prior_buy"])
+        kwargs = db.weeklysignal.update.call_args.kwargs
+        assert kwargs["where"] == {
+            "ticker_runDate": {"ticker": "AAPL", "runDate": RUN_DATE}
+        }
+        assert kwargs["data"]["escalationScore"] == 5.5
+
+
+class TestUpgradeToFull:
+    @pytest.mark.asyncio
+    async def test_completed_result_updates_row_to_full(self):
+        db = _mock_db()
+        service = WeeklySignalService(db=db)
+        ok = await service.upgrade_to_full(
+            ticker="AAPL", run_date=RUN_DATE, result=SAMPLE_RESULT,
+            escalation_score=5.5, escalation_reasons=["prior_buy"])
+        assert ok is True
+        kwargs = db.weeklysignal.update.call_args.kwargs
+        data = kwargs["data"]
+        assert data["tier"] == "full"
+        assert data["verdict"] == "buy"
+        assert data["fairValue"] == 213.50
+        assert data["escalationScore"] == 5.5
+
+    @pytest.mark.asyncio
+    async def test_failed_result_returns_false_without_update(self):
+        db = _mock_db()
+        service = WeeklySignalService(db=db)
+        ok = await service.upgrade_to_full(
+            ticker="AAPL", run_date=RUN_DATE, result={"status": "failed"},
+            escalation_score=5.5, escalation_reasons=[])
+        assert ok is False
+        db.weeklysignal.update.assert_not_awaited()
+
+
+class TestFindFreshResult:
+    @pytest.mark.asyncio
+    async def test_returns_full_output_with_status_defaulted(self):
+        db = _mock_db()
+        row = MagicMock(fullOutput={"verdict": "buy"})
+        db.stockresult.find_first = AsyncMock(return_value=row)
+        service = WeeklySignalService(db=db)
+        result = await service.find_fresh_result("AAPL")
+        assert result == {"verdict": "buy", "status": "completed"}
+        where = db.stockresult.find_first.call_args.kwargs["where"]
+        assert where["ticker"] == "AAPL"
+        assert where["status"] == "completed"
+        assert "gte" in where["createdAt"]
+
+    @pytest.mark.asyncio
+    async def test_no_row_or_empty_output_returns_none(self):
+        service = WeeklySignalService(db=_mock_db())
+        assert await service.find_fresh_result("AAPL") is None
+        db = _mock_db()
+        db.stockresult.find_first = AsyncMock(return_value=MagicMock(fullOutput=None))
+        assert await WeeklySignalService(db=db).find_fresh_result("AAPL") is None

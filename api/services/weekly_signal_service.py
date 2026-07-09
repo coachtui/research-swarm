@@ -3,10 +3,16 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
-from typing import Any, Dict, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
 from api.services.market_context_service import MarketContext
+
+try:
+    from prisma import Json
+except Exception:  # prisma client not generated in this environment (e.g. local venv)
+    def Json(value):  # type: ignore[misc]
+        return value
 
 logger = logging.getLogger(__name__)
 
@@ -134,3 +140,137 @@ class WeeklySignalService:
             logger.info("Stored WeeklySignal for %s (verdict=%s)", ticker, signals.get("verdict"))
         except Exception as e:
             logger.error("Failed to store WeeklySignal for %s: %s", ticker, e)
+
+    async def _get_prior_full_signal(
+        self, ticker: str, before: datetime
+    ) -> Optional[Any]:
+        """Most recent row that carries a verdict — the continuity source.
+        Quant rows have verdict=None and must not blank out priorVerdict."""
+        try:
+            return await self._db.weeklysignal.find_first(
+                where={
+                    "ticker": ticker,
+                    "runDate": {"lt": before},
+                    "verdict": {"not": None},
+                },
+                order={"runDate": "desc"},
+            )
+        except Exception as e:
+            logger.warning("Could not fetch prior full signal for %s: %s", ticker, e)
+            return None
+
+    async def get_prior_context(self, ticker: str, before: datetime) -> Dict[str, Any]:
+        """Prior-week context for continuity and divergence detection."""
+        prior_any = await self._get_prior_week_signal(ticker, before=before)
+        prior_full = await self._get_prior_full_signal(ticker, before=before)
+        return {
+            "prior_screener_score": prior_any.screenerScore if prior_any else None,
+            "prior_verdict": prior_full.verdict if prior_full else None,
+            "prior_ev_probability": prior_full.evProbability if prior_full else None,
+        }
+
+    async def store_quant_snapshot(
+        self,
+        *,
+        ticker: str,
+        run_date: datetime,
+        screener_score: float,
+        current_price: Optional[float],
+        quant_signals: Dict[str, Any],
+        market_context: MarketContext,
+        prior_ctx: Dict[str, Any],
+    ) -> None:
+        """Upsert a free (no-LLM) tier="quant" WeeklySignal row."""
+        data = {
+            "ticker": ticker,
+            "runDate": run_date,
+            "tier": "quant",
+            "verdict": None,
+            "currentPrice": current_price,
+            "screenerScore": screener_score,
+            "quantSignals": Json(quant_signals),
+            "esChangePct": market_context.es_change_pct,
+            "nqChangePct": market_context.nq_change_pct,
+            "dowChangePct": market_context.dow_change_pct,
+            "priorVerdict": prior_ctx.get("prior_verdict"),
+            "priorEvProbability": prior_ctx.get("prior_ev_probability"),
+        }
+        await self._db.weeklysignal.upsert(
+            where={"ticker_runDate": {"ticker": ticker, "runDate": run_date}},
+            data={"create": data, "update": {k: v for k, v in data.items()
+                                             if k not in ("ticker", "runDate")}},
+        )
+
+    async def record_escalation(
+        self, *, ticker: str, run_date: datetime, score: float, reasons: List[str]
+    ) -> None:
+        """Stamp the escalation audit trail on an existing row."""
+        try:
+            await self._db.weeklysignal.update(
+                where={"ticker_runDate": {"ticker": ticker, "runDate": run_date}},
+                data={"escalationScore": score, "escalationReasons": Json(reasons)},
+            )
+        except Exception as e:
+            logger.warning("Could not record escalation for %s: %s", ticker, e)
+
+    async def upgrade_to_full(
+        self,
+        *,
+        ticker: str,
+        run_date: datetime,
+        result: Dict[str, Any],
+        escalation_score: float,
+        escalation_reasons: List[str],
+    ) -> bool:
+        """Upgrade a quant row in place with full-analysis fields.
+        Returns False (row stays tier="quant") if the result is unusable."""
+        signals = extract_signals_from_result(result, ticker=ticker)
+        if signals is None:
+            logger.info("Not upgrading %s — analysis did not complete", ticker)
+            return False
+        await self._db.weeklysignal.update(
+            where={"ticker_runDate": {"ticker": ticker, "runDate": run_date}},
+            data={
+                "tier": "full",
+                "verdict": signals.get("verdict"),
+                "currentPrice": signals.get("currentPrice"),
+                "fairValue": signals.get("fairValue"),
+                "fairValueGapPct": signals.get("fair_value_gap_pct"),
+                "evProbability": signals.get("ev_probability"),
+                "stopLossProbability": signals.get("stop_loss_probability"),
+                "insiderScore": signals.get("insiderScore"),
+                "darkPoolScore": signals.get("darkPoolScore"),
+                "sentimentScore": signals.get("sentimentScore"),
+                "synthesisSummary": signals.get("synthesis_summary"),
+                "catalystSummary": signals.get("catalystSummary"),
+                "positionSizeRec": signals.get("positionSizeRec"),
+                "escalationScore": escalation_score,
+                "escalationReasons": Json(escalation_reasons),
+            },
+        )
+        logger.info("Upgraded %s to full (verdict=%s)", ticker, signals.get("verdict"))
+        return True
+
+    async def find_fresh_result(
+        self, ticker: str, max_age_days: int = 7
+    ) -> Optional[Dict[str, Any]]:
+        """Most recent completed user analysis within max_age_days, as a result
+        dict compatible with extract_signals_from_result. None if absent."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        try:
+            row = await self._db.stockresult.find_first(
+                where={
+                    "ticker": ticker,
+                    "status": "completed",
+                    "createdAt": {"gte": cutoff},
+                },
+                order={"createdAt": "desc"},
+            )
+        except Exception as e:
+            logger.warning("Fresh-result lookup failed for %s: %s", ticker, e)
+            return None
+        if row is None or not row.fullOutput:
+            return None
+        result = dict(row.fullOutput)
+        result.setdefault("status", "completed")
+        return result

@@ -1057,6 +1057,8 @@ git commit -m "feat(signals): quant snapshots, tier upgrades, prior context, fre
 
 ### Task 6: Rewrite weekly_batch.py and register it
 
+> **Amendment (2026-07-08, review finding):** the code block below has a defect fixed in commit `31cfb5f` — both `await step.run(...)` calls in the reuse and analyze loops must be wrapped in `try/except Exception` (recording `outcomes[ticker] = "step_failed"`) so one ticker's permanently failed step cannot abort the remaining tickers and the `batch/completed` event. inngest-py's control-flow interrupts extend `BaseException`, so `except Exception` is safe. The unused `Optional` import is also removed. The shipped file is authoritative.
+
 **Files:**
 - Modify: `inngest_app/functions/weekly_batch.py` (full rewrite of the function body; keep the guarded-registration skeleton)
 - Modify: `inngest_app/index.py`
