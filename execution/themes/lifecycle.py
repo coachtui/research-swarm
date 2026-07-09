@@ -183,6 +183,7 @@ async def apply_actions(db, actions: List[Dict], source: str) -> Dict[str, int]:
                 await write_report("theme_retired", "warning", source,
                                    f"theme retired: {act['slug']}",
                                    {"slug": act["slug"], "reason": act["reason"]}, db=db)
+                reports += 1
 
             elif act["kind"] == "activate_theme":
                 theme = await db.themebasket.upsert(
@@ -219,10 +220,15 @@ async def apply_actions(db, actions: List[Dict], source: str) -> Dict[str, int]:
                                           "confidence": c["confidence"]}
                                          for c in act["constituents"]]},
                     db=db)
+                reports += 1
 
             elif act["kind"] == "update_theme":
                 theme = await db.themebasket.find_unique(where={"slug": act["slug"]})
                 if theme is None:
+                    await write_report("engine_failure", "warning", source,
+                                       f"update_theme target missing: {act['slug']}",
+                                       {"slug": act["slug"]}, db=db)
+                    reports += 1
                     continue
                 update_data = {"lastReasonedAt": now}
                 if act.get("thesis") is not None:
@@ -246,27 +252,39 @@ async def apply_actions(db, actions: List[Dict], source: str) -> Dict[str, int]:
                     await db.themeconstituent.update_many(
                         where={"themeId": theme.id, "ticker": ticker},
                         data={"status": "removed", "removedAt": now})
-                if act.get("add") or act.get("remove"):
+                added = [{"ticker": c["ticker"], "exposure": c["exposure"],
+                          "confidence": c["confidence"]} for c in act.get("add", [])]
+                if act.get("thesis") is not None:
+                    # monthly keep: the basket row was refreshed even with no
+                    # membership diff — always journal (the owner's veto surface)
+                    await write_report(
+                        "theme_proposal", "info", source,
+                        f"theme updated: {act['slug']}",
+                        {"slug": act["slug"], "thesis": act["thesis"],
+                         "confidence": act["confidence"],
+                         "added": added, "removed": act.get("remove", [])},
+                        db=db)
+                    reports += 1
+                elif act.get("add") or act.get("remove"):
                     await write_report(
                         "membership_change", "info", source,
                         f"membership change: {act['slug']} "
                         f"(+{len(act.get('add', []))}/-{len(act.get('remove', []))})",
-                        {"slug": act["slug"],
-                         "added": [{"ticker": c["ticker"], "exposure": c["exposure"],
-                                    "confidence": c["confidence"]} for c in act.get("add", [])],
+                        {"slug": act["slug"], "added": added,
                          "removed": act.get("remove", [])},
                         db=db)
+                    reports += 1
 
             applied += 1
-            reports += 1
         except Exception:
             logger.exception("apply_actions: %s failed for %s", act.get("kind"), act.get("slug"))
             await write_report("engine_failure", "critical", source,
                                f"failed to apply {act.get('kind')} for {act.get('slug')}",
                                {"action": {k: v for k, v in act.items() if k != "constituents"}},
                                db=db)
+            reports += 1
     return {"applied": applied, "reports": reports}
 
 
 def source_kind(source: str) -> str:
-    return "delta" if "delta" in source else "reasoning"
+    return {"theme_delta_weekly": "delta"}.get(source, "reasoning")

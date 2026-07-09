@@ -1,7 +1,12 @@
 """Lifecycle rules: caps, dethrone, activation floor, delta gate."""
 import pytest
 
-from execution.themes.lifecycle import plan_delta_actions, plan_monthly_actions
+from execution.themes import lifecycle
+from execution.themes.lifecycle import (
+    apply_actions,
+    plan_delta_actions,
+    plan_monthly_actions,
+)
 
 VALID = {"adv": 5e6, "market_cap": 5e8, "price": 20.0, "validated_at": "2026-07-09T00:00:00Z"}
 
@@ -122,3 +127,106 @@ def test_delta_above_threshold_applies_and_respects_cap():
 def test_delta_for_unknown_theme_rejected():
     plan = plan_delta_actions([], [{"slug": "ghost", "add": [], "remove": []}], {})
     assert plan["actions"] == []
+
+
+def test_delta_remove_below_threshold_is_journal_only():
+    current = [_current("photonics", tickers=("LASR",))]
+    deltas = [{"slug": "photonics", "add": [],
+               "remove": [{"ticker": "LASR", "confidence": 0.6, "reason": "weak"}]}]
+    plan = plan_delta_actions(current, deltas, {})
+    assert plan["actions"][0]["kind"] == "journal_only"
+    assert plan["rejected"] == []
+
+
+def test_delta_remove_above_threshold_applies():
+    current = [_current("photonics", tickers=("LASR", "VIAV"))]
+    deltas = [{"slug": "photonics", "add": [],
+               "remove": [{"ticker": "LASR", "confidence": 0.9, "reason": "thesis broken"}]}]
+    plan = plan_delta_actions(current, deltas, {})
+    act = plan["actions"][0]
+    assert act["kind"] == "update_theme"
+    assert act["remove"] == ["LASR"]
+
+
+def test_delta_remove_non_constituent_rejected():
+    current = [_current("photonics", tickers=("LASR",))]
+    deltas = [{"slug": "photonics", "add": [],
+               "remove": [{"ticker": "GHOST", "confidence": 0.9, "reason": "r"}]}]
+    plan = plan_delta_actions(current, deltas, {})
+    assert plan["actions"] == []
+    assert any("GHOST" in r for r in plan["rejected"])
+
+
+# ── apply_actions (stub db) ──────────────────────────────────────────────────
+
+class _Rec:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+class _StubTable:
+    def __init__(self, find_unique_result=None):
+        self.calls = []
+        self._find_unique_result = find_unique_result
+
+    async def update(self, **kw):
+        self.calls.append(("update", kw))
+
+    async def update_many(self, **kw):
+        self.calls.append(("update_many", kw))
+
+    async def upsert(self, **kw):
+        self.calls.append(("upsert", kw))
+        return _Rec(id="th1")
+
+    async def find_unique(self, **kw):
+        self.calls.append(("find_unique", kw))
+        return self._find_unique_result
+
+
+class _StubDb:
+    def __init__(self, theme=None):
+        self.themebasket = _StubTable(find_unique_result=theme)
+        self.themeconstituent = _StubTable()
+
+
+@pytest.fixture
+def reports(monkeypatch):
+    recorded = []
+
+    async def _fake_write_report(report_type, severity, source, title, body, db=None):
+        recorded.append({"type": report_type, "severity": severity,
+                         "title": title, "body": body})
+
+    monkeypatch.setattr(lifecycle, "write_report", _fake_write_report)
+    return recorded
+
+
+@pytest.mark.asyncio
+async def test_apply_keep_no_diff_mutates_and_journals(reports):
+    db = _StubDb(theme=_Rec(id="th1"))
+    act = {"kind": "update_theme", "slug": "photonics", "thesis": "t",
+           "confidence": 0.8, "metadata": {}, "add": [], "remove": []}
+    out = await apply_actions(db, [act], "theme_discovery_monthly")
+    assert any(c[0] == "update" for c in db.themebasket.calls)  # DB was mutated
+    assert out == {"applied": 1, "reports": 1}
+    assert reports[0]["type"] == "theme_proposal"
+    assert reports[0]["title"] == "theme updated: photonics"
+
+
+@pytest.mark.asyncio
+async def test_apply_update_missing_slug_journals_and_batch_continues(reports):
+    db = _StubDb(theme=None)
+    acts = [
+        {"kind": "update_theme", "slug": "ghost", "thesis": None,
+         "confidence": None, "metadata": None, "add": [], "remove": []},
+        {"kind": "retire_theme", "slug": "photonics", "reason": "r"},
+    ]
+    out = await apply_actions(db, acts, "theme_discovery_monthly")
+    missing = [r for r in reports if r["type"] == "engine_failure"]
+    assert missing and missing[0]["severity"] == "warning"
+    assert missing[0]["title"] == "update_theme target missing: ghost"
+    # the following valid action still applied
+    assert out["applied"] == 1
+    assert out["reports"] == 2  # missing-target report + theme_retired report
+    assert any(c[0] == "update" for c in db.themebasket.calls)
