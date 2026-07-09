@@ -28,6 +28,8 @@ def build_outlook_record(
         "sectorRankings": indicators["rankings"],
         "rotationFlags": indicators["rotations"],
         "breadth": indicators["breadth"],
+        "industryRankings": indicators.get("industry"),
+        "sizeStyle": indicators.get("size_style"),
         "reasoning": strategist["reasoning"],
     }
 
@@ -36,8 +38,10 @@ async def store_outlook(db, record: Dict[str, Any]) -> Any:
     from prisma import Json  # runtime-only dependency
 
     data = dict(record)
-    for field in ("sectorRankings", "rotationFlags", "breadth"):
-        data[field] = Json(data[field])
+    for field in ("sectorRankings", "rotationFlags", "breadth",
+                  "industryRankings", "sizeStyle"):
+        if data.get(field) is not None:
+            data[field] = Json(data[field])
     return await db.marketoutlook.create(data=data)
 
 
