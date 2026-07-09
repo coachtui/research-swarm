@@ -88,16 +88,20 @@ def build_outlook_email_html(record: Dict[str, Any]) -> str:
 # runtime (same pattern as send_teaser_digest.py).
 
 def _register_inngest_function():
+    import inngest as inngest_sdk  # noqa: PLC0415 — pip SDK (module-level Trigger* classes)
+
     from inngest_app.client import inngest_client  # noqa: PLC0415
 
     @inngest_client.create_function(
         fn_id="weekly-market-outlook",
-        trigger=inngest_client.trigger.cron(cron="0 20 * * 0"),  # Sunday 20:00 UTC
+        trigger=inngest_sdk.TriggerCron(cron="0 20 * * 0"),  # Sunday 20:00 UTC
         name="Weekly Market Outlook",
         retries=1,
     )
-    async def weekly_market_outlook(ctx: Any, step: Any) -> Dict[str, Any]:
+    async def weekly_market_outlook(ctx: "inngest_sdk.Context") -> Dict[str, Any]:
         import resend  # noqa: PLC0415
+
+        step = ctx.step  # steps live on ctx in the current SDK
 
         run_date = datetime.now(timezone.utc)
 

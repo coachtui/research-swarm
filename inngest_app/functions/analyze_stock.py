@@ -16,15 +16,18 @@ from typing import Dict, Any
 
 
 def _register_inngest_function():
+    import inngest as inngest_sdk  # noqa: PLC0415 — pip SDK (module-level Trigger* classes)
+
     from inngest_app.client import inngest_client  # noqa: PLC0415
 
     @inngest_client.create_function(
         fn_id="analyze-stock",
-        trigger=inngest_client.trigger.event(event="analyze_stock"),
+        trigger=inngest_sdk.TriggerEvent(event="analyze_stock"),
         retries=3,
         name="Analyze Single Stock"
     )
-    async def analyze_stock(ctx, step):
+    async def analyze_stock(ctx: "inngest_sdk.Context"):
+        step = ctx.step  # steps live on ctx in the current SDK
         """
         Long-running function to analyze a single stock.
 

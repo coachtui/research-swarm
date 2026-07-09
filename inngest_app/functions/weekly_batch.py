@@ -37,6 +37,8 @@ def _get_batch_user_id() -> str:
 def _register_inngest_function():
     """Register the Inngest function. Called at module load only when the
     inngest client is importable (i.e. not during unit-test collection)."""
+    import inngest as inngest_sdk  # noqa: PLC0415 — pip SDK (module-level Trigger* classes)
+
     from inngest_app.client import inngest_client  # noqa: PLC0415
 
     if inngest_client is None:
@@ -52,11 +54,12 @@ def _register_inngest_function():
 
     @inngest_client.create_function(
         fn_id="weekly-batch",
-        trigger=inngest_client.trigger.cron(cron="0 3 * * 1"),  # Monday 03:00 UTC = Sunday 11 PM ET
+        trigger=inngest_sdk.TriggerCron(cron="0 3 * * 1"),  # Monday 03:00 UTC = Sunday 11 PM ET
         name="Weekly Batch Analysis",
         retries=1,
     )
-    async def weekly_batch(ctx: Any, step: Any) -> Dict[str, Any]:
+    async def weekly_batch(ctx: "inngest_sdk.Context") -> Dict[str, Any]:
+        step = ctx.step  # steps live on ctx in the current SDK
         """
         Full weekly analysis pipeline.
 

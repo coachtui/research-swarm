@@ -121,15 +121,18 @@ def _build_email_html(blurbs: List[str], run_date: str, ticker_count: int) -> st
 def _register_inngest_function():
     """Register the Inngest function. Called at module load only when the
     inngest client is importable (i.e. not during unit-test collection)."""
+    import inngest as inngest_sdk  # noqa: PLC0415 — pip SDK (module-level Trigger* classes)
+
     from inngest_app.client import inngest_client  # noqa: PLC0415
 
     @inngest_client.create_function(
         fn_id="send-teaser-digest",
-        trigger=inngest_client.trigger.event(event="batch/completed"),
+        trigger=inngest_sdk.TriggerEvent(event="batch/completed"),
         name="Send Teaser Digest",
         retries=2,
     )
-    async def send_teaser_digest(ctx: Any, step: Any) -> Dict[str, Any]:
+    async def send_teaser_digest(ctx: "inngest_sdk.Context") -> Dict[str, Any]:
+        step = ctx.step  # steps live on ctx in the current SDK
         """
         Send the owner a digest of 7 ready-to-post social blurbs after each batch.
 
