@@ -91,4 +91,4 @@ CREATE UNIQUE INDEX "SleeveSnapshot_snapshotDate_sleeve_key" ON "SleeveSnapshot"
 CREATE UNIQUE INDEX "SleeveState_sleeve_key" ON "SleeveState"("sleeve");
 
 -- AddForeignKey
-ALTER TABLE "LinkedBrokerAccount" ADD CONSTRAINT "LinkedBrokerAccount_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "LinkedBrokerAccount" ADD CONSTRAINT "LinkedBrokerAccount_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
