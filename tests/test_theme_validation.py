@@ -6,6 +6,20 @@ import pandas as pd
 import pytest
 
 
+class FakeFastInfo:
+    def __init__(self, mcap):
+        self._mcap = mcap
+
+    def __getitem__(self, key):
+        if key in ("market_cap", "marketCap"):
+            return self._mcap
+        raise KeyError(key)
+
+    def get(self, key, default=None):
+        # real FastInfo.get only recognizes camelCase keys
+        return self._mcap if key == "marketCap" else default
+
+
 def _install_yf_stub(monkeypatch, hist=None, mcap=None, raise_on_init=False):
     stub = types.ModuleType("yfinance")
 
@@ -13,7 +27,7 @@ def _install_yf_stub(monkeypatch, hist=None, mcap=None, raise_on_init=False):
         def __init__(self, symbol):
             if raise_on_init:
                 raise RuntimeError("no such ticker")
-            self.fast_info = {"market_cap": mcap}
+            self.fast_info = FakeFastInfo(mcap)
 
         def history(self, period):
             return hist
@@ -47,6 +61,14 @@ def test_empty_history_fails(monkeypatch):
     _install_yf_stub(monkeypatch, hist=pd.DataFrame(), mcap=2_000_000_000)
     from execution.themes.validation import validate_ticker
     assert validate_ticker("XXXX") is None
+
+
+def test_missing_volume_column_fails(monkeypatch):
+    idx = pd.date_range("2026-03-01", periods=70, freq="B")
+    close_only = pd.DataFrame({"Close": [50.0] * 70}, index=idx)
+    _install_yf_stub(monkeypatch, hist=close_only, mcap=2_000_000_000)
+    from execution.themes.validation import validate_ticker
+    assert validate_ticker("NOVOL") is None
 
 
 def test_low_adv_fails(monkeypatch):

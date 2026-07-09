@@ -38,7 +38,14 @@ def validate_ticker(ticker: str) -> Optional[Dict]:
         try:
             fast = getattr(t, "fast_info", None)
             if fast is not None:
-                mcap = fast.get("market_cap") if hasattr(fast, "get") else getattr(fast, "market_cap", None)
+                try:
+                    mcap = fast["market_cap"]  # FastInfo __getitem__ accepts snake+camel; dicts too
+                except Exception:
+                    mcap = None
+                if not mcap and hasattr(fast, "get"):
+                    mcap = fast.get("marketCap")  # FastInfo.get only honors camelCase
+                if not mcap:
+                    mcap = getattr(fast, "market_cap", None)
         except Exception:
             mcap = None
         if not mcap:
