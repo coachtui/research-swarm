@@ -108,6 +108,36 @@ def compute_extended_signals(closes_extra) -> "tuple[Dict[str, Any], list]":
     return out, failures
 
 
+async def compute_theme_rankings_payload(db) -> "Optional[Dict[str, Any]]":
+    """Fetch active themes and rank their synthetic baskets (Phase 3B).
+
+    Returns None in the pre-first-discovery state (no themes with active
+    constituents). Raises on real failures — the caller owns degrade+alert.
+    """
+    from execution.constants import BENCHMARK  # noqa: PLC0415
+    from execution.indicators.theme_strength import rank_themes  # noqa: PLC0415
+    from execution.market_data import (  # noqa: PLC0415
+        fetch_closes_batch, fetch_history_for,
+    )
+
+    rows = await db.themebasket.find_many(
+        where={"status": "active"}, include={"constituents": True})
+    themes = [{
+        "slug": r.slug, "name": r.name, "confidence": r.confidence,
+        "tickers": [c.ticker for c in (r.constituents or [])
+                    if c.status == "active"],
+    } for r in rows]
+    themes = [t for t in themes if t["tickers"]]
+    if not themes:
+        return None  # pre-first-discovery state: seeds have no constituents
+    all_tickers = sorted({t for th in themes for t in th["tickers"]})
+    closes = fetch_closes_batch(all_tickers)
+    spy = fetch_history_for([BENCHMARK]).get(BENCHMARK)
+    if spy is None:
+        raise RuntimeError("SPY history unavailable for theme pass")
+    return rank_themes(themes, closes, spy)
+
+
 # ── Inngest function ─────────────────────────────────────────────────────────
 # Guarded registration so pure helpers are unit-testable without the inngest
 # runtime (same pattern as send_teaser_digest.py).
@@ -192,38 +222,23 @@ def _register_inngest_function():
 
         # Step 2.5: theme rankings (Phase 3B — Sleeve-A-only; degrades to None)
         # Deliberately runs AFTER the strategist step — structurally impossible
-        # for the LLM to see theme data.
+        # for the LLM to see theme data. All imports live inside the try so
+        # even an ImportError degrades instead of killing the outlook.
         async def compute_theme_rankings() -> "Optional[Dict[str, Any]]":
-            from api.lib.db import get_db  # noqa: PLC0415
-            from execution.alerts import send_failure_alert  # noqa: PLC0415
-            from execution.constants import BENCHMARK  # noqa: PLC0415
-            from execution.indicators.theme_strength import rank_themes  # noqa: PLC0415
-            from execution.market_data import (  # noqa: PLC0415
-                fetch_closes_batch, fetch_history_for,
-            )
             try:
-                db = await get_db()
-                rows = await db.themebasket.find_many(
-                    where={"status": "active"}, include={"constituents": True})
-                themes = [{
-                    "slug": r.slug, "name": r.name, "confidence": r.confidence,
-                    "tickers": [c.ticker for c in (r.constituents or [])
-                                if c.status == "active"],
-                } for r in rows]
-                themes = [t for t in themes if t["tickers"]]
-                if not themes:
-                    return None  # pre-first-discovery state: seeds have no constituents
-                all_tickers = sorted({t for th in themes for t in th["tickers"]})
-                closes = fetch_closes_batch(all_tickers)
-                spy = fetch_history_for([BENCHMARK]).get(BENCHMARK)
-                if spy is None:
-                    raise RuntimeError("SPY history unavailable for theme pass")
-                return rank_themes(themes, closes, spy)
+                from api.lib.db import get_db  # noqa: PLC0415
+                return await compute_theme_rankings_payload(await get_db())
             except Exception as exc:
                 logger.exception("Outlook theme pass failed")
-                await send_failure_alert(
-                    "Outlook theme pass failed", f"{type(exc).__name__}: {exc}",
-                    source="weekly_market_outlook")
+                try:
+                    from execution.alerts import send_failure_alert  # noqa: PLC0415
+                    await send_failure_alert(
+                        "Outlook theme pass failed", f"{type(exc).__name__}: {exc}",
+                        source="weekly_market_outlook")
+                except Exception:
+                    # Journaling is best-effort — never let the alert path
+                    # break the degrade-to-None contract.
+                    logger.exception("Failed to journal theme-pass alert")
                 return None
 
         themes_result = await step.run("compute-theme-rankings", compute_theme_rankings)
