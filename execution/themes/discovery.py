@@ -6,7 +6,7 @@ re-bill the reasoning call (tiered-batch lesson).
 """
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from execution.constants import (
     THEME_REASONING_MODEL,

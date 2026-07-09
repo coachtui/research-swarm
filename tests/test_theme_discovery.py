@@ -57,7 +57,22 @@ class _Themes:
         self._rows = rows
 
     async def find_many(self, **kwargs):
-        return self._rows
+        where = kwargs.get("where") or {}
+        status = where.get("status")
+        if status is None:
+            return self._rows
+        return [r for r in self._rows if r.status == status]
+
+
+class _Row:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+
+def _theme_row(slug, status="active", constituents=()):
+    return _Row(slug=slug, name=slug.upper(), status=status, origin="engine",
+                thesis="t", confidence=0.8,
+                constituents=[_Row(**c) for c in constituents])
 
 
 @pytest.mark.asyncio
@@ -88,3 +103,74 @@ async def test_apply_monthly_journals_skips_and_applies(monkeypatch):
     assert summary["applied"] == 1
     assert any(t == "validation_failure" for t, _ in reports)  # skips journaled
     assert planned["actions"][0]["kind"] == "activate_theme"
+
+
+DELTA_RAW = ('{"themes": [{"slug": "gas-turbines", '
+             '"add": [{"ticker": "NEWGT", "exposure": "x", "confidence": 0.9}], '
+             '"remove": [{"ticker": "OLDGT", "reason": "lost exposure", "confidence": 0.8}]}]}')
+
+
+def test_parse_and_validate_delta(monkeypatch):
+    monkeypatch.setattr(delta_mod, "validate_tickers",
+                        lambda tickers: {t: VALID for t in tickers})
+    bundle = delta_mod.parse_and_validate_delta(DELTA_RAW)
+    assert len(bundle["deltas"]) == 1
+    delta = bundle["deltas"][0]
+    assert delta["slug"] == "gas-turbines"
+    assert [c["ticker"] for c in delta["add"]] == ["NEWGT"]
+    assert [c["ticker"] for c in delta["remove"]] == ["OLDGT"]
+    # only ADDs are validated — removes never hit yfinance
+    assert set(bundle["validation"]) == {"NEWGT"}
+    assert bundle["skipped"] == []
+
+
+@pytest.mark.asyncio
+async def test_apply_delta_journals_problems_and_applies(monkeypatch):
+    reports, planned = [], {}
+
+    async def fake_write_report(t, sev, src, title, body, db=None):
+        reports.append((t, src, title))
+        return "rep"
+
+    async def fake_apply_actions(db, actions, source):
+        planned["actions"] = actions
+        planned["source"] = source
+        return {"applied": len(actions), "reports": len(actions)}
+
+    monkeypatch.setattr(delta_mod, "write_report", fake_write_report)
+    monkeypatch.setattr(delta_mod, "apply_actions", fake_apply_actions)
+
+    class Db:
+        themebasket = _Themes([_theme_row("gas-turbines", constituents=[
+            {"ticker": "OLDGT", "exposure": "x", "confidence": 0.9, "status": "active"}])])
+
+    bundle = {"deltas": [{"slug": "gas-turbines",
+                          "add": [{"ticker": "NEWGT", "exposure": "x", "confidence": 0.9}],
+                          "remove": []}],
+              "validation": {"NEWGT": VALID},
+              "skipped": ["bad"]}
+    summary = await delta_mod.apply_delta(Db(), bundle)
+    assert summary["applied"] == 1
+    assert summary["rejected"] == 1
+    action = planned["actions"][0]
+    assert action["kind"] == "update_theme"
+    assert [c["ticker"] for c in action["add"]] == ["NEWGT"]
+    assert planned["source"] == "theme_delta_weekly"
+    assert any(t == "validation_failure" and src == "theme_delta_weekly"
+               for t, src, _ in reports)
+
+
+@pytest.mark.asyncio
+async def test_gather_delta_context_active_only():
+    class Db:
+        themebasket = _Themes([
+            _theme_row("gas-turbines", constituents=[
+                {"ticker": "TGT1", "exposure": "x", "confidence": 0.9, "status": "active"},
+                {"ticker": "TGT2", "exposure": "x", "confidence": 0.9, "status": "removed"}]),
+            _theme_row("old-theme", status="retired", constituents=[
+                {"ticker": "TGT3", "exposure": "x", "confidence": 0.9, "status": "active"}]),
+        ])
+
+    context = await delta_mod.gather_delta_context(Db())
+    assert [t["slug"] for t in context["active_themes"]] == ["gas-turbines"]
+    assert [c["ticker"] for c in context["active_themes"][0]["constituents"]] == ["TGT1"]

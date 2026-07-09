@@ -18,7 +18,7 @@ SOURCE = "theme_delta_weekly"
 async def gather_delta_context(db) -> Dict[str, Any]:
     themes = await _current_theme_state(db, include_retired=False)
     active = [{**t, "constituents": [c for c in t["constituents"] if c["status"] == "active"]}
-              for t in themes if t["status"] == "active"]
+              for t in themes]
     return {"active_themes": active}
 
 
