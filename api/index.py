@@ -167,19 +167,32 @@ app.include_router(weekly_signals_route.router, prefix="/api", tags=["Weekly Sig
 app.include_router(autopilot_route.router, prefix="/api", tags=["Autopilot"])
 app.include_router(webhook.router, prefix="/api/webhook", tags=["Webhooks"])
 
-# ── Inngest handler mount (guarded) ──────────────────────────────────────────
+# ── Inngest handler mount (guarded, opt-in per host) ─────────────────────────
 # Serves registered Inngest functions at /api/inngest (SDK default path).
 # Wrapped so a missing/broken inngest SDK can never take down the API.
+# Vercel installs the SDK transitively (requirements-vercel.txt ->
+# requirements.txt), so SDK presence alone must not trigger the mount:
+# only the cron host (Railway) sets INNGEST_SIGNING_KEY.
 try:
     import inngest.fast_api  # pip SDK (the local package is inngest_app)
 
-    from inngest_app.index import ACTIVE_FUNCTIONS, inngest_client
+    from inngest_app.index import (
+        ACTIVE_FUNCTIONS,
+        inngest_client,
+        should_mount_inngest,
+    )
 
-    if inngest_client is not None and ACTIVE_FUNCTIONS:
+    _inngest_signing_key = os.getenv("INNGEST_SIGNING_KEY")
+    if should_mount_inngest(_inngest_signing_key, inngest_client, ACTIVE_FUNCTIONS):
         inngest.fast_api.serve(app, inngest_client, ACTIVE_FUNCTIONS)
         _startup_logger.info(
             "Inngest handler mounted at /api/inngest with %d function(s)",
             len(ACTIVE_FUNCTIONS),
+        )
+    elif not _inngest_signing_key:
+        _startup_logger.info(
+            "INNGEST_SIGNING_KEY not set — Inngest handler not mounted "
+            "(set it on the cron host, e.g. Railway)"
         )
     else:
         _startup_logger.warning(

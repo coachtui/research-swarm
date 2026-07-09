@@ -70,3 +70,35 @@ def test_registry_exports_expected_names():
     registry = importlib.import_module("inngest_app.index")
     assert hasattr(registry, "inngest_client")
     assert hasattr(registry, "ACTIVE_FUNCTIONS")
+    assert hasattr(registry, "should_mount_inngest")
+
+
+def test_should_mount_inngest_gate():
+    """The mount is opt-in per host via INNGEST_SIGNING_KEY.
+
+    Vercel installs the inngest SDK transitively (requirements-vercel.txt ->
+    requirements.txt), so SDK availability alone must NOT mount the handler;
+    only the cron host (Railway) sets INNGEST_SIGNING_KEY. api/index.py calls
+    this pure function before serve() — it cannot be exercised at runtime
+    locally (api.index is unimportable under py3.9 due to a pre-existing
+    `str | None` annotation in api/routes/auth.py), so the decision logic
+    lives here where it IS unit-testable.
+    """
+    from inngest_app.index import should_mount_inngest
+
+    client = object()
+    fns = [object()]
+
+    # No signing key -> never mount (regardless of SDK/client/functions).
+    assert should_mount_inngest(None, client, fns) is False
+    assert should_mount_inngest("", client, fns) is False
+
+    # Key set but client unavailable (SDK absent) -> no mount.
+    assert should_mount_inngest("signkey-abc", None, fns) is False
+
+    # Key set, client ok, but nothing registered -> no mount.
+    assert should_mount_inngest("signkey-abc", client, []) is False
+    assert should_mount_inngest("signkey-abc", client, None) is False
+
+    # All present -> mount.
+    assert should_mount_inngest("signkey-abc", client, fns) is True
