@@ -88,11 +88,11 @@ def build_outlook_email_html(record: Dict[str, Any]) -> str:
 # runtime (same pattern as send_teaser_digest.py).
 
 def _register_inngest_function():
-    from inngest.functions.analyze_stock import inngest  # noqa: PLC0415
+    from inngest_app.client import inngest_client  # noqa: PLC0415
 
-    @inngest.create_function(
+    @inngest_client.create_function(
         fn_id="weekly-market-outlook",
-        trigger=inngest.trigger.cron(cron="0 20 * * 0"),  # Sunday 20:00 UTC
+        trigger=inngest_client.trigger.cron(cron="0 20 * * 0"),  # Sunday 20:00 UTC
         name="Weekly Market Outlook",
         retries=1,
     )

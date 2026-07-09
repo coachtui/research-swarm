@@ -167,6 +167,32 @@ app.include_router(weekly_signals_route.router, prefix="/api", tags=["Weekly Sig
 app.include_router(autopilot_route.router, prefix="/api", tags=["Autopilot"])
 app.include_router(webhook.router, prefix="/api/webhook", tags=["Webhooks"])
 
+# ── Inngest handler mount (guarded) ──────────────────────────────────────────
+# Serves registered Inngest functions at /api/inngest (SDK default path).
+# Wrapped so a missing/broken inngest SDK can never take down the API.
+try:
+    import inngest.fast_api  # pip SDK (the local package is inngest_app)
+
+    from inngest_app.index import ACTIVE_FUNCTIONS, inngest_client
+
+    if inngest_client is not None and ACTIVE_FUNCTIONS:
+        inngest.fast_api.serve(app, inngest_client, ACTIVE_FUNCTIONS)
+        _startup_logger.info(
+            "Inngest handler mounted at /api/inngest with %d function(s)",
+            len(ACTIVE_FUNCTIONS),
+        )
+    else:
+        _startup_logger.warning(
+            "Inngest handler NOT mounted (client=%s, active_functions=%d)",
+            "ok" if inngest_client is not None else "unavailable",
+            len(ACTIVE_FUNCTIONS) if ACTIVE_FUNCTIONS else 0,
+        )
+except Exception as _inngest_exc:  # pragma: no cover — env-dependent
+    _startup_logger.warning(
+        "Inngest handler NOT mounted — SDK unavailable or serve failed: %s",
+        _inngest_exc,
+    )
+
 # Root endpoint
 @app.get("/")
 async def root():

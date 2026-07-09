@@ -3,7 +3,7 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from inngest.functions.send_teaser_digest import (
+from inngest_app.functions.send_teaser_digest import (
     format_teaser_blurb,
     pick_top_signals,
 )

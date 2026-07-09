@@ -1,7 +1,7 @@
-"""Tests for the pure email helper in inngest/functions/weekly_outlook.py."""
+"""Tests for the pure email helper in inngest_app/functions/weekly_outlook.py."""
 from datetime import datetime, timezone
 
-from inngest.functions.weekly_outlook import build_outlook_email_html
+from inngest_app.functions.weekly_outlook import build_outlook_email_html
 
 RECORD = {
     "runDate": datetime(2026, 7, 12, tzinfo=timezone.utc),
