@@ -16,11 +16,14 @@ const SEVERITY_DOT: Record<EngineReportEntry['severity'], string> = {
 
 function EntryRow({ entry }: { entry: EngineReportEntry }) {
   const [open, setOpen] = useState(false)
+  const bodyId = `journal-body-${entry.id}`
   return (
     <div className="py-2 border-b border-hairline last:border-b-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-controls={bodyId}
         className="flex w-full items-center gap-2 text-left text-sm"
       >
         <span className={`h-2 w-2 rounded-full shrink-0 ${SEVERITY_DOT[entry.severity]}`} />
@@ -31,7 +34,10 @@ function EntryRow({ entry }: { entry: EngineReportEntry }) {
         </span>
       </button>
       {open && (
-        <pre className="mt-2 max-h-64 overflow-auto rounded bg-surface-elevated p-3 text-xs text-text-secondary">
+        <pre
+          id={bodyId}
+          className="mt-2 max-h-64 overflow-auto rounded bg-surface-elevated p-3 text-xs text-text-secondary"
+        >
           {JSON.stringify(entry.body, null, 2)}
         </pre>
       )}
