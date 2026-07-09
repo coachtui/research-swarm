@@ -9,6 +9,7 @@ import { AdminCostSummary } from '@/components/admin/AdminCostSummary'
 import { AdminUserTable } from '@/components/admin/AdminUserTable'
 import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
 import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
+import { MarketOutlookPanel } from '@/components/autopilot/MarketOutlookPanel'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
 import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
@@ -90,6 +91,7 @@ function AdminContent() {
           <TabsList>
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
             <TabsTrigger value="revenue">Revenue</TabsTrigger>
+            <TabsTrigger value="outlook">Outlook</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="analyses">Analyses</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
@@ -106,6 +108,10 @@ function AdminContent() {
 
           <TabsContent value="revenue">
             <AdminRevenueCharts />
+          </TabsContent>
+
+          <TabsContent value="outlook">
+            <MarketOutlookPanel />
           </TabsContent>
 
           <TabsContent value="users">

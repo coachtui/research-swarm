@@ -1,0 +1,159 @@
+<h2>Leaderboard Layout</h2>
+<p class="subtitle">How should the weekly batch rankings be presented? Pick the layout that feels right.</p>
+
+<div class="cards">
+
+  <!-- Option A: Dense Table -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:16px;background:#0d1425;border-radius:8px;font-family:monospace">
+      <div style="display:flex;gap:8px;margin-bottom:8px;font-size:10px;color:#7684AC;border-bottom:1px solid #1C2842;padding-bottom:6px">
+        <span style="width:48px">#</span>
+        <span style="flex:1">TICKER</span>
+        <span style="width:56px">VERDICT</span>
+        <span style="width:56px">FV GAP</span>
+        <span style="width:48px">EV%</span>
+        <span style="width:48px">INSIDER</span>
+      </div>
+      <div style="font-size:11px;color:#E9ECF8">
+        <div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #111827">
+          <span style="width:48px;color:#7684AC">1</span>
+          <span style="flex:1;font-weight:600">NVDA</span>
+          <span style="width:56px;color:#00D9B5">BUY</span>
+          <span style="width:56px">+18.2%</span>
+          <span style="width:48px">72%</span>
+          <span style="width:48px">8.1</span>
+        </div>
+        <div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #111827">
+          <span style="width:48px;color:#7684AC">2</span>
+          <span style="flex:1;font-weight:600">AAPL</span>
+          <span style="width:56px;color:#00D9B5">BUY</span>
+          <span style="width:56px">+11.4%</span>
+          <span style="width:48px">68%</span>
+          <span style="width:48px">6.4</span>
+        </div>
+        <div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #111827">
+          <span style="width:48px;color:#7684AC">3</span>
+          <span style="flex:1;font-weight:600">MSFT</span>
+          <span style="width:56px;color:#F59E0B">HOLD</span>
+          <span style="width:56px">+4.1%</span>
+          <span style="width:48px">54%</span>
+          <span style="width:48px">3.2</span>
+        </div>
+        <div style="display:flex;gap:8px;padding:5px 0;border-bottom:1px solid #111827;filter:blur(4px)">
+          <span style="width:48px;color:#7684AC">4</span>
+          <span style="flex:1;font-weight:600">████</span>
+          <span style="width:56px">███</span>
+          <span style="width:56px">█████</span>
+          <span style="width:48px">██%</span>
+          <span style="width:48px">█.█</span>
+        </div>
+        <div style="display:flex;gap:8px;padding:5px 0;filter:blur(4px)">
+          <span style="width:48px;color:#7684AC">5</span>
+          <span style="flex:1;font-weight:600">████</span>
+          <span style="width:56px">███</span>
+          <span style="width:56px">█████</span>
+          <span style="width:48px">██%</span>
+          <span style="width:48px">█.█</span>
+        </div>
+      </div>
+      <div style="margin-top:10px;text-align:center;font-size:9px;color:#00D9B5;border:1px solid #00D9B5;border-radius:4px;padding:4px">Upgrade to see full rankings →</div>
+    </div>
+    <div class="card-body">
+      <h3>A — Dense Table</h3>
+      <p>Screener-style. All signals at a glance, sortable columns. Rows 4+ blurred for free users. Familiar to anyone who's used Finviz or a Bloomberg terminal.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Card Grid -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#0d1425;border-radius:8px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="background:#101828;border-radius:6px;padding:10px;border:1px solid #1C2842">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:14px;font-weight:700;color:#E9ECF8">NVDA</span>
+            <span style="font-size:10px;background:#00D9B520;color:#00D9B5;padding:2px 6px;border-radius:4px">BUY</span>
+          </div>
+          <div style="font-size:10px;color:#7684AC">Fair value gap</div>
+          <div style="font-size:13px;color:#00D9B5;font-weight:600">+18.2%</div>
+          <div style="margin-top:4px;font-size:10px;color:#7684AC">EV Probability</div>
+          <div style="font-size:13px;color:#E9ECF8">72%</div>
+        </div>
+        <div style="background:#101828;border-radius:6px;padding:10px;border:1px solid #1C2842">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:14px;font-weight:700;color:#E9ECF8">AAPL</span>
+            <span style="font-size:10px;background:#00D9B520;color:#00D9B5;padding:2px 6px;border-radius:4px">BUY</span>
+          </div>
+          <div style="font-size:10px;color:#7684AC">Fair value gap</div>
+          <div style="font-size:13px;color:#00D9B5;font-weight:600">+11.4%</div>
+          <div style="margin-top:4px;font-size:10px;color:#7684AC">EV Probability</div>
+          <div style="font-size:13px;color:#E9ECF8">68%</div>
+        </div>
+        <div style="background:#101828;border-radius:6px;padding:10px;border:1px solid #1C2842;filter:blur(5px)">
+          <div style="font-size:14px;font-weight:700;color:#E9ECF8">████</div>
+          <div style="margin-top:6px;font-size:10px;color:#7684AC">Fair value gap</div>
+          <div style="font-size:13px;color:#00D9B5">+██.█%</div>
+        </div>
+        <div style="background:#101828;border-radius:6px;padding:10px;border:1px solid #1C2842;filter:blur(5px)">
+          <div style="font-size:14px;font-weight:700;color:#E9ECF8">████</div>
+          <div style="margin-top:6px;font-size:10px;color:#7684AC">Fair value gap</div>
+          <div style="font-size:13px;color:#00D9B5">+██.█%</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Card Grid</h3>
+      <p>Each ticker gets a card. Scannable at a glance. Less data-dense — best when mobile is a priority. Cards 3+ blurred for free users.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Ranked List (Recommended) -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding:12px;background:#0d1425;border-radius:8px">
+      <div style="font-size:9px;color:#7684AC;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Lens: Largest Fair Value Gap ▾</div>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <div style="background:#101828;border-radius:6px;padding:8px 10px;border:1px solid #1C2842;display:flex;align-items:center;gap:10px">
+          <span style="font-size:11px;color:#7684AC;width:14px">1</span>
+          <span style="font-size:13px;font-weight:700;color:#E9ECF8;width:36px">NVDA</span>
+          <span style="font-size:10px;background:#00D9B520;color:#00D9B5;padding:1px 5px;border-radius:3px">BUY</span>
+          <span style="flex:1;font-size:10px;color:#7684AC;line-height:1.3">Data center capex accelerating. TSMC capacity constraints easing in Q3.</span>
+          <span style="font-size:11px;color:#00D9B5;font-weight:600;white-space:nowrap">+18.2%</span>
+        </div>
+        <div style="background:#101828;border-radius:6px;padding:8px 10px;border:1px solid #1C2842;display:flex;align-items:center;gap:10px">
+          <span style="font-size:11px;color:#7684AC;width:14px">2</span>
+          <span style="font-size:13px;font-weight:700;color:#E9ECF8;width:36px">AAPL</span>
+          <span style="font-size:10px;background:#00D9B520;color:#00D9B5;padding:1px 5px;border-radius:3px">BUY</span>
+          <span style="flex:1;font-size:10px;color:#7684AC;line-height:1.3">Services segment growing faster than hardware. Buyback program accelerating.</span>
+          <span style="font-size:11px;color:#00D9B5;font-weight:600;white-space:nowrap">+11.4%</span>
+        </div>
+        <div style="background:#101828;border-radius:6px;padding:8px 10px;border:1px solid #1C2842;display:flex;align-items:center;gap:10px;position:relative;overflow:hidden">
+          <span style="font-size:11px;color:#7684AC;width:14px">3</span>
+          <span style="font-size:13px;font-weight:700;color:#E9ECF8;width:36px">MSFT</span>
+          <span style="font-size:10px;background:#F59E0B20;color:#F59E0B;padding:1px 5px;border-radius:3px">HOLD</span>
+          <span style="flex:1;font-size:10px;color:#7684AC"></span>
+          <span style="font-size:11px;color:#F59E0B;font-weight:600">+4.1%</span>
+        </div>
+        <div style="background:#101828;border-radius:6px;padding:8px 10px;border:1px solid #1C2842;filter:blur(3.5px);display:flex;align-items:center;gap:10px">
+          <span style="font-size:11px;color:#7684AC;width:14px">4</span>
+          <span style="font-size:13px;font-weight:700;color:#E9ECF8;width:36px">████</span>
+          <span style="font-size:10px;background:#00D9B520;color:#00D9B5;padding:1px 5px;border-radius:3px">BUY</span>
+          <span style="flex:1;font-size:10px;color:#7684AC">████████████ ███████████████████</span>
+          <span style="font-size:11px;color:#00D9B5;font-weight:600">+██.█%</span>
+        </div>
+        <div style="background:#101828;border-radius:6px;padding:8px 10px;border:1px solid #1C2842;filter:blur(3.5px);display:flex;align-items:center;gap:10px">
+          <span style="font-size:11px;color:#7684AC;width:14px">5</span>
+          <span style="font-size:13px;font-weight:700;color:#E9ECF8;width:36px">████</span>
+          <span style="font-size:10px;background:#EF444420;color:#EF4444;padding:1px 5px;border-radius:3px">AVOID</span>
+          <span style="flex:1;font-size:10px;color:#7684AC">████████████ ██████ ████████</span>
+          <span style="font-size:11px;color:#EF4444;font-weight:600">-██.█%</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Ranked List ⭐ Recommended</h3>
+      <p>Ranked rows with rank #, ticker, verdict badge, one-line thesis snippet, and the lens metric. Sortable by lens dropdown. Rows 4+ blurred for free users. Shows more context per ticker than a table, more tickers than cards.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px;font-size:12px">Free tier sees the top 3 rows with blurred signals; rows 4+ are blurred completely. Paid users see all 25 rows with all signals.</p>

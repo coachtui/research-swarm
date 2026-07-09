@@ -1,0 +1,2 @@
+{"type":"server-started","port":52144,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:52144","screen_dir":"/Users/tui/research-swarm/.superpowers/brainstorm/72884-1776537927/content","state_dir":"/Users/tui/research-swarm/.superpowers/brainstorm/72884-1776537927/state"}
+{"type":"server-stopped","reason":"idle timeout"}

@@ -7,6 +7,7 @@ import type {
   UpdateTierRequest,
   CostSummary,
   RevenueTimeSeries,
+  MarketOutlookResponse,
 } from '@/types/api'
 
 // Query keys
@@ -17,6 +18,7 @@ export const adminKeys = {
   revenue: () => [...adminKeys.all, 'revenue'] as const,
   users: (limit?: number, offset?: number) => [...adminKeys.all, 'users', limit, offset] as const,
   analyses: (limit?: number, ticker?: string) => [...adminKeys.all, 'analyses', limit, ticker] as const,
+  outlook: () => [...adminKeys.all, 'outlook'] as const,
 }
 
 /**
@@ -71,6 +73,18 @@ export function useAdminAnalyses(limit = 100, ticker?: string) {
     queryKey: adminKeys.analyses(limit, ticker),
     queryFn: () => apiClient.getAdminAnalyses(limit, ticker),
     staleTime: 1000 * 60 * 2, // 2 minutes
+  })
+}
+
+/**
+ * Fetch the latest autopilot market outlook (404 until the first weekly run lands)
+ */
+export function useMarketOutlook() {
+  return useQuery({
+    queryKey: adminKeys.outlook(),
+    queryFn: () => apiClient.getMarketOutlook(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: (failureCount, error) => (error as any)?.status === 404 ? false : failureCount < 1,
   })
 }
 

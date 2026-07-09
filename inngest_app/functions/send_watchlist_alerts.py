@@ -17,11 +17,11 @@ logger = logging.getLogger(__name__)
 def _register_inngest_function():
     """Register the Inngest function. Called at module load only when the
     inngest client is importable (i.e. not during unit-test collection)."""
-    from inngest.functions.analyze_stock import inngest  # noqa: PLC0415
+    from inngest_app.client import inngest_client  # noqa: PLC0415
 
-    @inngest.create_function(
+    @inngest_client.create_function(
         fn_id="send-watchlist-alerts",
-        trigger=inngest.trigger.event(event="batch/completed"),
+        trigger=inngest_client.trigger.event(event="batch/completed"),
         name="Send Watchlist Alerts",
         retries=2,
     )

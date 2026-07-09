@@ -1,0 +1,91 @@
+<h2>Gated Preview Page Layout</h2>
+<p class="subtitle">A cold visitor arrives from a teaser link. What do they see? Pick the approach that best balances hook vs. gate.</p>
+
+<div class="cards">
+
+  <!-- Option A: Minimal teaser + hard gate -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d1425;border-radius:8px;padding:14px;font-size:11px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <span style="font-size:18px;font-weight:800;color:#E9ECF8">NVDA</span>
+        <span style="background:#00D9B520;color:#00D9B5;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">BUY</span>
+        <span style="color:#7684AC;font-size:10px;margin-left:auto">Apr 13, 2026</span>
+      </div>
+      <p style="color:#E9ECF8;font-size:12px;line-height:1.5;margin-bottom:12px">
+        "Data center capex is accelerating faster than consensus expects. TSMC capacity constraints easing in Q3 removes the key supply risk."
+      </p>
+      <div style="background:#101828;border-radius:6px;padding:10px;border:1px solid #00D9B540;text-align:center">
+        <div style="color:#7684AC;font-size:10px;margin-bottom:4px">Full analysis includes</div>
+        <div style="color:#E9ECF8;font-size:11px">EV probability · Stop-loss risk · Position sizing · Full thesis</div>
+        <div style="margin-top:8px;background:#00D9B5;color:#0d1425;font-size:11px;font-weight:700;padding:6px 14px;border-radius:4px;display:inline-block">Start free trial →</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Minimal teaser + hard gate</h3>
+      <p>Show just the verdict and synthesis quote. Everything else is behind the CTA. Clean and fast, but may feel too thin for a cold visitor.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Signal preview with blur gate (Recommended) -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d1425;border-radius:8px;padding:14px;font-size:11px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:18px;font-weight:800;color:#E9ECF8">NVDA</span>
+        <span style="background:#00D9B520;color:#00D9B5;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600">BUY</span>
+        <span style="color:#7684AC;font-size:10px;margin-left:auto">Apr 13, 2026 · ES +1.2% NQ +2.3%</span>
+      </div>
+      <p style="color:#E9ECF8;font-size:11px;line-height:1.5;margin-bottom:10px;border-left:2px solid #00D9B5;padding-left:8px">
+        "Data center capex is accelerating faster than consensus expects. TSMC capacity constraints easing in Q3 removes the key supply risk."
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">
+        <div style="background:#101828;border-radius:5px;padding:6px;text-align:center">
+          <div style="font-size:9px;color:#7684AC">Fair value gap</div>
+          <div style="font-size:13px;color:#00D9B5;font-weight:700">+18.2%</div>
+        </div>
+        <div style="background:#101828;border-radius:5px;padding:6px;text-align:center;position:relative">
+          <div style="font-size:9px;color:#7684AC">EV probability</div>
+          <div style="font-size:13px;color:#E9ECF8;font-weight:700;filter:blur(4px)">72%</div>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+            <span style="font-size:9px;color:#00D9B5">🔒 Starter+</span>
+          </div>
+        </div>
+        <div style="background:#101828;border-radius:5px;padding:6px;text-align:center;position:relative">
+          <div style="font-size:9px;color:#7684AC">Stop-loss risk</div>
+          <div style="font-size:13px;color:#E9ECF8;font-weight:700;filter:blur(4px)">12%</div>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+            <span style="font-size:9px;color:#00D9B5">🔒 Starter+</span>
+          </div>
+        </div>
+      </div>
+      <div style="background:#101828;border-radius:5px;padding:6px;filter:blur(3px);font-size:10px;color:#7684AC;margin-bottom:8px;height:28px"></div>
+      <div style="text-align:center;background:#00D9B5;color:#0d1425;font-size:11px;font-weight:700;padding:6px;border-radius:4px">Unlock full analysis — from $19.99/mo →</div>
+    </div>
+    <div class="card-body">
+      <h3>B — Signal preview with blur gate ⭐ Recommended</h3>
+      <p>Show verdict, synthesis quote, and fair value gap freely. EV probability and stop risk are visible but blurred. Full thesis and signals gate to Starter+. Visitor sees exactly what they're missing.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Full report preview, scrolled blur -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#0d1425;border-radius:8px;padding:14px;font-size:11px;overflow:hidden;max-height:180px;position:relative">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:16px;font-weight:800;color:#E9ECF8">NVDA</span>
+        <span style="background:#00D9B520;color:#00D9B5;padding:2px 6px;border-radius:4px;font-size:9px">BUY</span>
+      </div>
+      <p style="color:#E9ECF8;font-size:10px;line-height:1.4;margin-bottom:6px">"Data center capex accelerating. TSMC constraints easing Q3."</p>
+      <div style="font-size:9px;color:#7684AC;margin-bottom:4px">Fair value gap: <span style="color:#00D9B5">+18.2%</span> · Insider score: <span style="color:#E9ECF8">8.1/10</span></div>
+      <div style="font-size:10px;color:#7684AC;line-height:1.5">EV probability: ████ · Stop risk: ████ · Position size: ████████</div>
+      <div style="font-size:10px;color:#7684AC;line-height:1.5;margin-top:4px">Investment thesis ████████████████████████████████████</div>
+      <!-- Fade + gate -->
+      <div style="position:absolute;bottom:0;left:0;right:0;height:100px;background:linear-gradient(transparent, #0d1425);display:flex;align-items:flex-end;justify-content:center;padding-bottom:10px">
+        <span style="background:#00D9B5;color:#0d1425;font-size:10px;font-weight:700;padding:5px 12px;border-radius:4px">Continue reading →</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Scroll-fade gate</h3>
+      <p>Show the top portion of the full report, then fade to black with a "continue reading" CTA. Familiar pattern (Medium paywall). More context, but less obvious what's behind the gate.</p>
+    </div>
+  </div>
+
+</div>

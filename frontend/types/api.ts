@@ -1057,6 +1057,47 @@ export interface UserInfo {
   is_admin: boolean
 }
 
+// ─── Autopilot market outlook (admin) ─────────────────────────────────────
+
+export interface SectorRanking {
+  etf: string
+  sector: string
+  rs_1m: number
+  rs_3m: number
+  rs_6m: number
+  rank_1m: number
+  rank_3m: number
+  rank_6m: number
+  rank_change: number
+  score: number
+}
+
+export interface RotationFlag {
+  etf: string
+  sector: string
+  direction: 'into' | 'out_of'
+  rank_change: number
+}
+
+export interface OutlookBreadth {
+  pct_above_200dma: number | null
+  equal_weight_trend_3m: number | null
+}
+
+export interface MarketOutlookResponse {
+  id: string
+  run_date: string
+  regime: string
+  regime_mechanical: string
+  strategist_override: boolean
+  strategist_status: string
+  conviction: number | null
+  sector_rankings: SectorRanking[]
+  rotation_flags: RotationFlag[]
+  breadth: OutlookBreadth
+  reasoning: string | null
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
