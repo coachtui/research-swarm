@@ -1,24 +1,32 @@
 """
-Weekly batch pipeline: screener → full analysis → signal storage.
+Tiered weekly batch: screener → quant snapshots → escalation → capped swarm.
 
-Fires every Monday 03:00 UTC (Sunday 11:00 PM ET).
-Each ticker is analyzed in a separate Inngest step, giving each up to
-15 minutes of execution time. The function is fully durable — if it
-restarts, already-completed steps are not re-executed.
+Fires Monday 03:00 UTC (Sunday 11 PM ET), 7 hours after the Sunday 20:00 UTC
+MarketOutlook cron, so a fresh outlook exists.
 
-DORMANT — not part of ACTIVE_FUNCTIONS (see inngest_app/index.py) until the
-tiered-batch redesign lands (separate plan).
+Funnel (docs/superpowers/specs/2026-07-08-tiered-batch-design.md):
+  191 names, free screener
+    → top BATCH_MAX_CANDIDATES ∪ watchlisted: free quant rows (tier="quant")
+    → weighted escalation scoring (free)
+    → ≤ BATCH_MAX_SWARM_RUNS paid swarm analyses (rows upgraded to "full").
+Fresh user reports (<7d) are reused at zero cost and consume no cap slot.
+Failed swarm slots are NOT refunded — runs stay deterministic and bounded.
 """
 from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-_MAX_CANDIDATES = int(os.getenv("BATCH_MAX_CANDIDATES", "25"))
+_MAX_CANDIDATES = int(os.getenv("BATCH_MAX_CANDIDATES", "20"))
+_MAX_SWARM_RUNS = int(os.getenv("BATCH_MAX_SWARM_RUNS", "5"))
+_ESCALATION_THRESHOLD = float(os.getenv("BATCH_ESCALATION_THRESHOLD", "2.0"))
+_OUTLOOK_MAX_AGE_DAYS = 8
+_FRESH_REPORT_MAX_AGE_DAYS = 7
+_TOP_SECTORS = 3
 _QUARTERS = ["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"]
 _NEWS_DAYS_BACK = 30
 
@@ -48,6 +56,11 @@ def _register_inngest_function():
     from api.services.analysis_service import run_stock_analysis  # noqa: PLC0415
     from api.services.market_context_service import MarketContextService  # noqa: PLC0415
     from api.services.weekly_signal_service import WeeklySignalService  # noqa: PLC0415
+    from research_swarm.data.escalation import (  # noqa: PLC0415
+        EscalationCandidate,
+        EscalationContext,
+        select_escalations,
+    )
     from research_swarm.data.market_data_client import MarketDataClient  # noqa: PLC0415
     from research_swarm.data.openinsider_client import OpenInsiderClient  # noqa: PLC0415
     from research_swarm.data.screener import StockScreener  # noqa: PLC0415
@@ -55,113 +68,242 @@ def _register_inngest_function():
     @inngest_client.create_function(
         fn_id="weekly-batch",
         trigger=inngest_sdk.TriggerCron(cron="0 3 * * 1"),  # Monday 03:00 UTC = Sunday 11 PM ET
-        name="Weekly Batch Analysis",
+        name="Weekly Batch Analysis (Tiered)",
         retries=1,
     )
     async def weekly_batch(ctx: "inngest_sdk.Context") -> Dict[str, Any]:
         step = ctx.step  # steps live on ctx in the current SDK
-        """
-        Full weekly analysis pipeline.
 
-        Steps:
-          1. Run Stage 1 screener — selects top tickers from universe
-          2. Fetch market context (ES/NQ/DOW)
-          3. Analyze each selected ticker (one step per ticker)
-          4. Store all signals in WeeklySignal table
-        """
         run_date = datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
 
-        # ── Step 1: Screen the universe ──────────────────────────────────────
-        async def run_screener() -> List[str]:
-            market_client = MarketDataClient()
-            insider_client = OpenInsiderClient()
+        # ── Step 1: latest market outlook → favored sectors ─────────────────
+        async def load_outlook() -> Dict[str, Any]:
+            db = await get_db()
+            outlook = await db.marketoutlook.find_first(order={"runDate": "desc"})
+            if outlook is None:
+                logger.warning("No MarketOutlook row — outlook trigger disabled")
+                return {"favored_sectors": [], "outlook_run_date": None}
+            age = datetime.now(timezone.utc) - outlook.runDate.replace(
+                tzinfo=timezone.utc
+            )
+            if age > timedelta(days=_OUTLOOK_MAX_AGE_DAYS):
+                logger.warning(
+                    "MarketOutlook is %s old — outlook trigger disabled", age
+                )
+                return {"favored_sectors": [], "outlook_run_date": None}
+            rankings = sorted(
+                outlook.sectorRankings, key=lambda r: r["score"], reverse=True
+            )
+            favored = [r["sector"] for r in rankings[:_TOP_SECTORS]]
+            return {
+                "favored_sectors": favored,
+                "outlook_run_date": outlook.runDate.isoformat(),
+            }
+
+        outlook: Dict[str, Any] = await step.run("load-outlook", load_outlook)
+
+        # ── Step 2: screen all 191 names; advance top N ∪ watchlisted ────────
+        async def run_screener() -> List[Dict[str, Any]]:
             screener = StockScreener(
-                market_client=market_client,
-                insider_client=insider_client,
+                market_client=MarketDataClient(),
+                insider_client=OpenInsiderClient(),
             )
             universe = StockScreener.load_universe()
-            candidates = screener.screen(universe, max_candidates=_MAX_CANDIDATES)
-            logger.info("Screener selected %d candidates: %s", len(candidates), candidates)
-            return candidates
+            scored = screener.screen_all(universe)
 
-        candidates: List[str] = await step.run("screen-universe", run_screener)
+            db = await get_db()
+            wl_rows = await db.watchlist.find_many(distinct=["ticker"])
+            watchlisted = {w.ticker.upper() for w in wl_rows}
+
+            top = scored[:_MAX_CANDIDATES]
+            top_tickers = {st.ticker for st in top}
+            extra = [
+                st for st in scored
+                if st.ticker in watchlisted and st.ticker not in top_tickers
+            ]
+            advancing = top + extra
+            sector_map = StockScreener.load_sector_map()
+            logger.info(
+                "Screener advancing %d tickers (%d watchlist extras)",
+                len(advancing), len(extra),
+            )
+            return [
+                {
+                    "ticker": st.ticker,
+                    "score": st.score,
+                    "sector": sector_map.get(st.ticker),
+                    "on_watchlist": st.ticker in watchlisted,
+                    "has_insider_buying": st.signals.has_insider_buying,
+                    "weekly_price_change_pct": st.signals.weekly_price_change_pct,
+                    "days_to_earnings": st.signals.days_to_earnings,
+                    "days_since_earnings": st.signals.days_since_earnings,
+                }
+                for st in advancing
+            ]
+
+        candidates: List[Dict[str, Any]] = await step.run(
+            "screen-universe", run_screener
+        )
 
         if not candidates:
             logger.error("Screener returned no candidates — aborting batch")
             return {"status": "aborted", "reason": "empty_candidates"}
 
-        # ── Step 2: Market context ───────────────────────────────────────────
-        async def fetch_market_context() -> Dict[str, Any]:
-            market_client = MarketDataClient()
-            service = MarketContextService(market_client=market_client)
-            ctx = service.get_context()
-            return ctx.to_dict()
-
-        market_ctx_dict: Dict[str, Any] = await step.run(
-            "fetch-market-context", fetch_market_context
-        )
-
-        # ── Steps 3+N: Analyze each ticker ────────────────────────────────────
-        results: Dict[str, Any] = {}
-        batch_user_id = _get_batch_user_id()
-
-        for rank, ticker in enumerate(candidates):
-            async def analyze_one(t: str = ticker) -> Dict[str, Any]:
-                logger.info("Batch analyzing %s", t)
-                return await run_stock_analysis(
-                    ticker=t,
-                    quarters=_QUARTERS,
-                    news_days_back=_NEWS_DAYS_BACK,
-                    user_id=batch_user_id,
-                )
-
-            result = await step.run(f"analyze-{ticker.lower()}", analyze_one)
-            results[ticker] = {"result": result, "rank": rank}
-
-        # ── Final step: Extract and store signals ────────────────────────────
-        async def store_all_signals() -> Dict[str, int]:
-            from api.services.market_context_service import MarketContext
-
-            market_context = MarketContext(
-                es_change_pct=market_ctx_dict.get("es_change_pct"),
-                nq_change_pct=market_ctx_dict.get("nq_change_pct"),
-                dow_change_pct=market_ctx_dict.get("dow_change_pct"),
-            )
-
+        # ── Step 3: free quant snapshots (tier="quant") ──────────────────────
+        async def write_quant_snapshots() -> Dict[str, Any]:
             db = await get_db()
-            signal_service = WeeklySignalService(db=db)
-            stored = 0
-            failed = 0
+            service = WeeklySignalService(db=db)
+            market_client = MarketDataClient()
+            market_context = MarketContextService(
+                market_client=market_client
+            ).get_context()
 
-            for ticker, data in results.items():
+            priors: Dict[str, Dict[str, Any]] = {}
+            stored = failed = 0
+            for c in candidates:
                 try:
-                    screener_score = float(_MAX_CANDIDATES - data["rank"])
-                    await signal_service.store_signal(
-                        ticker=ticker,
-                        result=data["result"],
+                    prior_ctx = await service.get_prior_context(
+                        c["ticker"], before=run_date
+                    )
+                    priors[c["ticker"]] = prior_ctx
+                    await service.store_quant_snapshot(
+                        ticker=c["ticker"],
                         run_date=run_date,
-                        screener_score=screener_score,
+                        screener_score=c["score"],
+                        current_price=market_client.get_current_price(c["ticker"]),
+                        quant_signals={
+                            "has_insider_buying": c["has_insider_buying"],
+                            "weekly_price_change_pct": c["weekly_price_change_pct"],
+                            "days_to_earnings": c["days_to_earnings"],
+                            "days_since_earnings": c["days_since_earnings"],
+                            "on_watchlist": c["on_watchlist"],
+                        },
                         market_context=market_context,
+                        prior_ctx=prior_ctx,
                     )
                     stored += 1
                 except Exception as e:
-                    logger.error("Failed to store signal for %s: %s", ticker, e)
+                    logger.error("Quant snapshot failed for %s: %s", c["ticker"], e)
                     failed += 1
+            return {"stored": stored, "failed": failed, "priors": priors}
 
-            logger.info("Weekly batch complete: stored=%d failed=%d", stored, failed)
-            return {"stored": stored, "failed": failed}
+        quant: Dict[str, Any] = await step.run(
+            "quant-snapshots", write_quant_snapshots
+        )
 
-        summary = await step.run("store-signals", store_all_signals)
+        # ── Step 4: weighted escalation (free) ───────────────────────────────
+        async def compute_escalation() -> List[Dict[str, Any]]:
+            db = await get_db()
+            service = WeeklySignalService(db=db)
+            context = EscalationContext(
+                favored_sectors=frozenset(outlook["favored_sectors"])
+            )
+            escalation_candidates = []
+            for c in candidates:
+                prior = quant["priors"].get(c["ticker"], {})
+                fresh = await service.find_fresh_result(
+                    c["ticker"], max_age_days=_FRESH_REPORT_MAX_AGE_DAYS
+                )
+                escalation_candidates.append(
+                    EscalationCandidate(
+                        ticker=c["ticker"],
+                        screener_score=c["score"],
+                        sector=c.get("sector"),
+                        prior_screener_score=prior.get("prior_screener_score"),
+                        prior_verdict=prior.get("prior_verdict"),
+                        days_since_earnings=c.get("days_since_earnings"),
+                        on_watchlist=c.get("on_watchlist", False),
+                        has_fresh_report=fresh is not None,
+                    )
+                )
+            decisions = select_escalations(
+                escalation_candidates,
+                context,
+                cap=_MAX_SWARM_RUNS,
+                threshold=_ESCALATION_THRESHOLD,
+            )
+            for d in decisions:
+                await service.record_escalation(
+                    ticker=d.ticker, run_date=run_date,
+                    score=d.score, reasons=d.reasons,
+                )
+            logger.info(
+                "Escalation: %d swarm, %d reuse, %d hold",
+                sum(1 for d in decisions if d.action == "swarm"),
+                sum(1 for d in decisions if d.action == "reuse"),
+                sum(1 for d in decisions if d.action == "hold"),
+            )
+            return [
+                {"ticker": d.ticker, "score": d.score,
+                 "reasons": d.reasons, "action": d.action}
+                for d in decisions
+            ]
 
-        # ── Final step: fire batch/completed event for downstream functions ───
+        decisions: List[Dict[str, Any]] = await step.run(
+            "compute-escalation", compute_escalation
+        )
+
+        reuse_list = [d for d in decisions if d["action"] == "reuse"]
+        swarm_list = [d for d in decisions if d["action"] == "swarm"]
+        outcomes: Dict[str, str] = {}
+
+        # ── Steps 5a: zero-cost reuse of fresh user reports ──────────────────
+        for d in reuse_list:
+            async def reuse_one(dd: Dict[str, Any] = d) -> str:
+                db = await get_db()
+                service = WeeklySignalService(db=db)
+                result = await service.find_fresh_result(
+                    dd["ticker"], max_age_days=_FRESH_REPORT_MAX_AGE_DAYS
+                )
+                if result is None:  # report aged out / vanished — stay quant
+                    return "reuse_missing"
+                ok = await service.upgrade_to_full(
+                    ticker=dd["ticker"], run_date=run_date, result=result,
+                    escalation_score=dd["score"],
+                    escalation_reasons=dd["reasons"],
+                )
+                return "reused" if ok else "reuse_unusable"
+
+            outcomes[d["ticker"]] = await step.run(
+                f"reuse-{d['ticker'].lower()}", reuse_one
+            )
+
+        # ── Steps 5b: paid swarm analyses (the ONLY paid stage) ──────────────
+        if swarm_list:
+            batch_user_id = _get_batch_user_id()
+            for d in swarm_list:
+                async def analyze_one(dd: Dict[str, Any] = d) -> str:
+                    logger.info("Batch analyzing %s", dd["ticker"])
+                    result = await run_stock_analysis(
+                        ticker=dd["ticker"],
+                        quarters=_QUARTERS,
+                        news_days_back=_NEWS_DAYS_BACK,
+                        user_id=batch_user_id,
+                    )
+                    db = await get_db()
+                    service = WeeklySignalService(db=db)
+                    ok = await service.upgrade_to_full(
+                        ticker=dd["ticker"], run_date=run_date, result=result,
+                        escalation_score=dd["score"],
+                        escalation_reasons=dd["reasons"],
+                    )
+                    return "full" if ok else "analysis_failed"
+
+                outcomes[d["ticker"]] = await step.run(
+                    f"analyze-{d['ticker'].lower()}", analyze_one
+                )
+
+        # ── Final step: fire batch/completed for (dormant) downstream fns ────
         async def fire_batch_event() -> None:
             await step.send_event("batch-completed-event", {
                 "name": "batch/completed",
                 "data": {
                     "run_date": run_date.isoformat(),
-                    "ticker_count": summary.get("stored", 0),
+                    "ticker_count": sum(
+                        1 for v in outcomes.values() if v in ("full", "reused")
+                    ),
                 },
             })
 
@@ -170,8 +312,12 @@ def _register_inngest_function():
         return {
             "status": "completed",
             "run_date": run_date.isoformat(),
-            "candidates": candidates,
-            **summary,
+            "candidates": len(candidates),
+            "quant_stored": quant["stored"],
+            "quant_failed": quant["failed"],
+            "swarm": len(swarm_list),
+            "reused": len(reuse_list),
+            "outcomes": outcomes,
         }
 
     return weekly_batch

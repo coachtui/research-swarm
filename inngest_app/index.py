@@ -6,10 +6,10 @@ functions the FastAPI app (api/index.py) mounts at /api/inngest via
 `inngest.fast_api.serve`. There is no standalone HTTP handler here anymore —
 the old Flask app was never served by any process.
 
-Owner decision (2026-07-08): register ONLY weekly_market_outlook for now.
-The dormant functions below stay unregistered until the tiered-batch
-redesign lands (see docs/superpowers/plans/2026-04-19-weekly-batch-alerts.md
-and the forthcoming tiered-batch plan).
+Owner decision (2026-07-08): register weekly_market_outlook and the tiered
+weekly_batch (docs/superpowers/specs/2026-07-08-tiered-batch-design.md). The
+remaining dormant functions below stay unregistered until they consume
+tiered batch data (see docs/superpowers/plans/2026-04-19-weekly-batch-alerts.md).
 
 Hosting decision (2026-07-08 review): Vercel installs the inngest SDK
 transitively (requirements-vercel.txt -> requirements.txt), so the SDK being
@@ -22,10 +22,10 @@ from __future__ import annotations
 from typing import Any, List, Optional
 
 from inngest_app.client import inngest_client
+from inngest_app.functions.weekly_batch import weekly_batch
 from inngest_app.functions.weekly_outlook import weekly_market_outlook
 
-# Dormant roster — intentionally NOT registered (tiered-batch redesign pending):
-# from inngest_app.functions.weekly_batch import weekly_batch
+# Dormant roster — intentionally NOT registered (need real batch data first):
 # from inngest_app.functions.send_teaser_digest import send_teaser_digest
 # from inngest_app.functions.send_watchlist_alerts import send_watchlist_alerts
 # from inngest_app.functions.analyze_stock import analyze_stock
@@ -34,7 +34,7 @@ from inngest_app.functions.weekly_outlook import weekly_market_outlook
 # registration in each module), so filter Nones to keep this list safe to
 # pass to serve() in any environment.
 ACTIVE_FUNCTIONS = [
-    fn for fn in [weekly_market_outlook] if fn is not None
+    fn for fn in [weekly_market_outlook, weekly_batch] if fn is not None
 ]
 
 
