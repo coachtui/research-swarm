@@ -1727,6 +1727,26 @@ Added after Task 9 by owner decision: email delivery is dormant (Resend never co
 - Loading/error handling mirrors the other admin tabs (react-query `isLoading` / `error`).
 - Commit: `feat(autopilot): market outlook tab on admin dashboard`
 
+### Task 12: Inngest repair — make the cron infrastructure actually work
+
+Investigation findings (2026-07-08): the Inngest integration has never functioned. (a) The pip `inngest` SDK is only in requirements-api.txt but Railway installs requirements.txt; (b) the local `inngest/` package shadows the pip SDK, so `from inngest import Inngest` can never import the real SDK from repo context — every function module's try/except guard silently sets its function to None; (c) nothing serves `inngest/index.py` (Railway runs only `uvicorn api.index:app`). Consequence: zero WeeklySignal rows ever. Owner decision: repair now, register ONLY `weekly_market_outlook` (pennies/week); leave weekly_batch/digest/alerts functions unregistered until the tiered-batch redesign lands (separate plan).
+
+**Files:**
+- Rename: `inngest/` → `inngest_app/` (git mv; all files inside), so the pip SDK is importable
+- Modify: all internal imports `inngest.functions.*` → `inngest_app.functions.*` (functions modules, tests/test_weekly_outlook_email.py, any other references — grep for `inngest.functions` and `from inngest import`)
+- Replace: `inngest_app/index.py` — delete the Flask handler; new module exposing `inngest_client` (moved from analyze_stock.py or re-exported) and `ACTIVE_FUNCTIONS = [weekly_market_outlook]` plus a commented-out roster of the dormant functions (weekly_batch, send_teaser_digest, send_watchlist_alerts, analyze_stock) with a note pointing at the tiered-batch plan
+- Modify: `api/index.py` — guarded mount: `import inngest.fast_api` + `serve(app, inngest_client, ACTIVE_FUNCTIONS)` (default path /api/inngest), wrapped in try/except with a logged warning so a missing SDK never breaks the API
+- Modify: `requirements.txt` — add `inngest>=0.3.0` (same floor as requirements-api.txt). Flask stays untouched elsewhere; the Flask handler is gone
+- Test: update existing test imports; add `tests/test_inngest_mount.py` asserting (1) `inngest_app.functions.weekly_outlook` imports without the SDK and exposes the pure email helper, (2) `ACTIVE_FUNCTIONS` contains only the outlook function or Nones-filtered equivalent when SDK absent
+
+**Verification:**
+- `python3 -m pytest tests/test_weekly_outlook_email.py tests/test_inngest_mount.py -v` passes; full execution-test set still green
+- `grep -rn "from inngest import\|inngest.functions" --include=*.py . | grep -v inngest_app | grep -v ".venv"` returns only pip-SDK usages inside guarded blocks
+- Note in the report: weekly_batch.py's module-top `@inngest.create_function` decorator (unguarded) — importing it without the SDK raises; ensure nothing in ACTIVE import path pulls it in when SDK is absent
+- Commit: `fix(autopilot): repair Inngest integration — unshadow SDK, mount handler in FastAPI, register outlook only`
+
+**Post-merge owner steps (cannot be done from code):** set `INNGEST_SIGNING_KEY`/`INNGEST_EVENT_KEY` in Railway env; in the Inngest Cloud dashboard, sync the app at `https://<railway-domain>/api/inngest`; confirm the `weekly-market-outlook` function appears with the Sunday 20:00 UTC schedule.
+
 ## Verification checklist (after all tasks)
 
 - [ ] `python3 -m pytest tests/ -q` — zero new failures.
