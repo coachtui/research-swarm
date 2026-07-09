@@ -27,12 +27,16 @@ from datetime import datetime
 # collected first "wins" for the rest of the pytest session and breaks that
 # import for every test collected afterwards, regardless of file. Since
 # conftest.py always loads before any test module in this directory, install
-# a complete-enough stub here first so every consumer sees the same object.
-if "prisma" not in sys.modules:
-    _prisma_stub = types.ModuleType("prisma")
-    _prisma_stub.Prisma = MagicMock  # type: ignore[attr-defined]
-    _prisma_stub.Json = MagicMock  # type: ignore[attr-defined]
-    sys.modules["prisma"] = _prisma_stub
+# a complete-enough stub here first so every consumer sees the same object — but only
+# when the real client is not importable (never mask a real, generated prisma package).
+try:
+    from prisma import Json, Prisma  # noqa: F401 — real generated client importable; never mask it
+except Exception:
+    if "prisma" not in sys.modules:
+        _prisma_stub = types.ModuleType("prisma")
+        _prisma_stub.Prisma = MagicMock  # type: ignore[attr-defined]
+        _prisma_stub.Json = MagicMock  # type: ignore[attr-defined]
+        sys.modules["prisma"] = _prisma_stub
 
 
 # ============================================================================
