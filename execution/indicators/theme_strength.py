@@ -63,6 +63,11 @@ def _score_history(
                 truncated[key] = s
             elif len(s) > offset:
                 truncated[key] = s.iloc[:-offset]
+        # Unreachable today (SPY must be >=127 points for label_map to be
+        # non-empty and the max offset is 55), but keep the invariant local
+        # instead of depending on that distant precondition.
+        if BENCHMARK not in truncated:
+            continue
         rel = compute_relative_strength(truncated, etf_map=label_map)
         if not rel:
             continue

@@ -1,7 +1,6 @@
 """Equal-weight synthetic basket index + RS ranking + sparkline history."""
 import numpy as np
 import pandas as pd
-import pytest
 
 from execution.indicators.theme_strength import build_theme_index, rank_themes
 
@@ -65,6 +64,19 @@ def test_history_has_12_weekly_points_with_ranks():
     assert len(hot) == 12
     assert hot[-1]["weeks_ago"] == 0
     assert all(p["rank"] == 1 for p in hot)  # hot dominates every week
+
+
+def test_short_spy_sends_all_themes_to_missing():
+    # Constituents are index-eligible (200 pts) so the <5 branch doesn't fire;
+    # SPY under the RS window (127 pts) makes compute_relative_strength drop
+    # everything, so the slug falls out of rel -> "insufficient index history".
+    spy = _series(0.001, days=100)
+    closes = {f"H{i}": _series(0.003) for i in range(5)}
+    out = rank_themes([_theme("hot", [f"H{i}" for i in range(5)])], closes, spy)
+    assert out["rankings"] == []
+    assert out["missing"] == [
+        {"slug": "hot", "reason": "insufficient index history"}]
+    assert out["history"] == {}
 
 
 def test_missing_ticker_series_tolerated():
