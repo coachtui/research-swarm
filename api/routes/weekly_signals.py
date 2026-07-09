@@ -115,6 +115,7 @@ async def get_leaderboard(
     Starter+ / admin: up to 25 rows, full signal fields.
     """
     db = await get_db()
+    is_full = _is_starter_plus(user)
 
     # Find the most recent run_date
     latest = await db.weeklysignal.find_first(
@@ -128,10 +129,10 @@ async def get_leaderboard(
             ),
             rows=[],
             total=0,
+            is_full_view=is_full,
         )
 
     run_date = latest.runDate
-    is_full = _is_starter_plus(user)
     row_limit = min(limit, 25) if is_full else 3
 
     signals = await db.weeklysignal.find_many(
@@ -151,6 +152,7 @@ async def get_leaderboard(
         ),
         rows=rows,
         total=len(rows),
+        is_full_view=is_full,
     )
 
 

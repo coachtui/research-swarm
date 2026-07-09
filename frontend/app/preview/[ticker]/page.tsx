@@ -66,7 +66,7 @@ function SignalCard({
 export default function WeeklyPreviewPage() {
   const params = useParams()
   const ticker = (params?.ticker as string ?? '').toUpperCase()
-  const { isSignedIn } = useUser()
+  const { isSignedIn, isLoaded } = useUser()
   const { data: ents } = useEntitlements()
 
   const [signal, setSignal] = useState<WeeklySignalPublic | null>(null)
@@ -77,6 +77,7 @@ export default function WeeklyPreviewPage() {
   const full = signal as WeeklySignalFull | null
 
   useEffect(() => {
+    if (!isLoaded) return
     if (!ticker) return
     apiClient.getWeeklyPreview(ticker)
       .then(setSignal)
@@ -84,7 +85,7 @@ export default function WeeklyPreviewPage() {
         if (e?.status === 404) setNotFound(true)
         else setError(true)
       })
-  }, [ticker])
+  }, [ticker, isLoaded])
 
   if (notFound) {
     return (

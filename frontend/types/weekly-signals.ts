@@ -37,6 +37,7 @@ export interface LeaderboardResponse {
   market_context: MarketContext
   rows: WeeklySignalPublic[]
   total: number
+  is_full_view?: boolean
 }
 
 export interface TrackRecordStats {

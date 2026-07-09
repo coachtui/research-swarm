@@ -88,16 +88,19 @@ function formatRunDate(dateStr: string | null): string {
 }
 
 export default function LeaderboardPage() {
-  const { isSignedIn } = useUser()
+  const { isSignedIn, isLoaded } = useUser()
   const [data, setData] = useState<LeaderboardResponse | null>(null)
   const [lens, setLens] = useState<Lens>('fair_value_gap')
   const [error, setError] = useState(false)
 
   useEffect(() => {
+    // Wait for Clerk before fetching — an early fetch goes out without the
+    // session token and the API correctly serves the anonymous 3-row view.
+    if (!isLoaded) return
     apiClient.getLeaderboard(25)
       .then(setData)
       .catch(() => setError(true))
-  }, [])
+  }, [isLoaded])
 
   if (error) {
     return (
@@ -119,7 +122,7 @@ export default function LeaderboardPage() {
   const mc = market_context
 
   const sorted = [...rows].sort((a, b) => getLensValue(b, lens) - getLensValue(a, lens))
-  const isFullData = total > 3
+  const isFullData = data.is_full_view ?? total > 3
 
   return (
     <div className="container mx-auto px-4 py-10 max-w-3xl">
@@ -197,7 +200,7 @@ export default function LeaderboardPage() {
               <div className="flex items-center justify-center gap-2 bg-accent/5 border border-accent/20
                               rounded-lg px-4 py-3 text-sm">
                 <span className="text-text-secondary">
-                  {isSignedIn ? 'Upgrade to Starter to see all 25 picks' : 'Sign in to see all 25 picks'}
+                  {isSignedIn ? 'Upgrade to Starter to see the full list' : 'Sign in to see the full list'}
                 </span>
                 <Link
                   href={isSignedIn ? '/#pricing' : '/sign-in'}

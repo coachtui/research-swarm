@@ -50,6 +50,7 @@ class LeaderboardResponse(BaseModel):
     market_context: MarketContextOut
     rows: List[WeeklySignalPublic]  # WeeklySignalFull is a subtype — valid here
     total: int
+    is_full_view: bool = False  # True when the caller got the starter+/admin shape
 
 
 class TrackRecordStats(BaseModel):
