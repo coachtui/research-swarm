@@ -57,6 +57,7 @@ model User {
   entitlement      Entitlement?
   freeReportCredit FreeReportCredit?
   portfolios       Portfolio[]
+  linkedBrokerAccounts LinkedBrokerAccount[]
 
   @@index([email])
   @@index([clerkId])
@@ -916,4 +917,78 @@ model MarketOutlook {
   createdAt          DateTime @default(now())
 
   @@index([runDate])
+}
+
+// ── Autopilot execution layer (Phase 2) ─────────────────────────────────────
+// Nothing in the research flow reads or writes these tables.
+
+model LinkedBrokerAccount {
+  id                 String    @id @default(cuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider           String    @default("alpaca")
+  mode               String    @default("paper") // "paper" | "live" (live out of scope v1)
+  apiKeyEncrypted    String    // Fernet ciphertext — key lives in BROKER_KEY_ENCRYPTION_KEY env
+  apiSecretEncrypted String
+  status             String    @default("active") // "active" | "error" | "revoked"
+  lastVerifiedAt     DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([userId, provider, mode])
+}
+
+model EngineTrade {
+  id            String   @id @default(cuid())
+  sleeve        String   // "A" | "B"
+  symbol        String
+  side          String   // "buy" | "sell"
+  qty           Float
+  notional      Float?   // requested notional (buys)
+  fillPrice     Float?
+  brokerOrderId String?
+  status        String   // "filled" | "canceled" | "rejected" | "expired" | "timeout"
+  journal       Json     // decision journal: outlook snapshot, weights, guardrail notes
+  createdAt     DateTime @default(now())
+
+  @@index([sleeve, createdAt])
+}
+
+model EnginePosition {
+  id            String   @id @default(cuid())
+  sleeve        String
+  symbol        String
+  qty           Float
+  avgEntryPrice Float
+  thesis        Json     // opening journal (outlook id, regime, weight)
+  openedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([sleeve, symbol])
+}
+
+model SleeveSnapshot {
+  id             String   @id @default(cuid())
+  snapshotDate   DateTime // UTC calendar date of the snapshot
+  sleeve         String
+  equity         Float    // cashBalance + positionsValue
+  cash           Float
+  positionsValue Float
+  spyClose       Float    // benchmark close for the same date
+  createdAt      DateTime @default(now())
+
+  @@unique([snapshotDate, sleeve])
+}
+
+model SleeveState {
+  id                String   @id @default(cuid())
+  sleeve            String   @unique // "A" | "B"
+  status            String   @default("active") // "active" | "halted" (circuit breaker) | "frozen" (reconciliation mismatch)
+  statusReason      String?
+  cashBalance       Float    // sleeve-internal cash ledger (one broker account, per-sleeve books)
+  inceptionDate     DateTime
+  inceptionEquity   Float
+  inceptionSpyClose Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
