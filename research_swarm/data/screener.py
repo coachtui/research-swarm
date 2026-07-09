@@ -5,7 +5,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,14 @@ class StockScreener:
         with open(_UNIVERSE_PATH) as f:
             data = json.load(f)
         return [str(t).upper().strip() for t in data["tickers"]]
+
+    @staticmethod
+    def load_sector_map() -> Dict[str, str]:
+        """Uppercase ticker → SPDR sector name (matches MarketOutlook
+        sectorRankings 'sector' values). Tickers without annotation are absent."""
+        with open(_UNIVERSE_PATH) as f:
+            data = json.load(f)
+        return {str(t).upper(): s for t, s in data.get("sectors", {}).items()}
 
     def _collect_signals(self, ticker: str) -> ScreenerSignals:
         """Collect cheap signals for a single ticker. Never raises."""

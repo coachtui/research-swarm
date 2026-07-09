@@ -176,3 +176,22 @@ class TestScreenAll:
         universe = [f"T{i}" for i in range(40)]
         result = screener.screen_all(universe, max_workers=8)
         assert sorted(st.ticker for st in result) == sorted(universe)
+
+
+class TestSectorMap:
+    def test_load_sector_map_returns_spdr_sectors(self):
+        sector_map = StockScreener.load_sector_map()
+        # coverage: the vast majority of the 191-name universe is annotated
+        assert len(sector_map) >= 170
+        assert sector_map["AAPL"] == "Technology"
+        valid = {
+            "Technology", "Energy", "Financials", "Health Care", "Industrials",
+            "Consumer Discretionary", "Consumer Staples", "Utilities",
+            "Materials", "Real Estate", "Communication Services",
+        }
+        assert set(sector_map.values()) <= valid
+
+    def test_load_universe_shape_unchanged(self):
+        universe = StockScreener.load_universe()
+        assert len(universe) == 191
+        assert all(isinstance(t, str) for t in universe)
