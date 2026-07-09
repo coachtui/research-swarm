@@ -40,7 +40,9 @@ async def store_outlook(db, record: Dict[str, Any]) -> Any:
     data = dict(record)
     for field in ("sectorRankings", "rotationFlags", "breadth",
                   "industryRankings", "sizeStyle"):
-        if data.get(field) is not None:
+        if data.get(field) is None:
+            data.pop(field, None)
+        else:
             data[field] = Json(data[field])
     return await db.marketoutlook.create(data=data)
 

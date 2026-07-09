@@ -115,5 +115,5 @@ async def test_store_outlook_wraps_extended_json_only_when_present():
     db.marketoutlook.create.reset_mock()
     await store_outlook(db, build_outlook_record(RUN_DATE, INDICATORS, STRATEGIST_OK))
     data = db.marketoutlook.create.call_args.kwargs["data"]
-    assert data["industryRankings"] is None
-    assert data["sizeStyle"] is None
+    assert "industryRankings" not in data
+    assert "sizeStyle" not in data
