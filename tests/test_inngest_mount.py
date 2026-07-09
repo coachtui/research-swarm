@@ -5,8 +5,9 @@ These tests must pass in BOTH environments:
 - SDK absent (local py3.9 / unit-test env): every module still imports;
   guarded registration leaves each function object as None and
   ACTIVE_FUNCTIONS filters the Nones out.
-- SDK present (Railway): ACTIVE_FUNCTIONS contains exactly the
-  weekly_market_outlook function.
+- SDK present (Railway): ACTIVE_FUNCTIONS contains exactly the registered
+  functions that materialized (weekly_market_outlook always; weekly_batch
+  when its own deps, e.g. prisma, are also importable).
 """
 import importlib
 
@@ -56,10 +57,23 @@ def test_active_functions_roster():
     assert isinstance(registry.ACTIVE_FUNCTIONS, list)
     assert None not in registry.ACTIVE_FUNCTIONS
 
+    # The roster is derived, not hardcoded: each function object is None
+    # when its guarded registration failed (missing SDK, missing prisma,
+    # ...), so the expected roster is whichever of the registered functions
+    # actually materialized — in registration order.
+    batch_mod = importlib.import_module("inngest_app.functions.weekly_batch")
+    outlook_mod = importlib.import_module("inngest_app.functions.weekly_outlook")
+    expected = [
+        fn
+        for fn in [outlook_mod.weekly_market_outlook, batch_mod.weekly_batch]
+        if fn is not None
+    ]
+    assert registry.ACTIVE_FUNCTIONS == expected
+
     if _sdk_available():
-        # Only the weekly outlook function is registered (owner decision:
-        # dormant functions wait for the tiered-batch redesign).
-        assert len(registry.ACTIVE_FUNCTIONS) == 1
+        # SDK present: at minimum the outlook function registers (it has no
+        # extra deps); weekly_batch additionally needs prisma et al.
+        assert outlook_mod.weekly_market_outlook is not None
         assert registry.inngest_client is not None
     else:
         assert registry.ACTIVE_FUNCTIONS == []
