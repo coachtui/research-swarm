@@ -151,9 +151,13 @@ def _register_inngest_function():
 
             # Phase 3A: extended passes — downstream of the sector pipeline,
             # degrade to None + alert, never block the outlook.
-            closes_extra = fetch_history_for(list(INDUSTRY_ETFS) + list(SIZE_STYLE_ETFS))
-            if BENCHMARK in closes:
-                closes_extra[BENCHMARK] = closes[BENCHMARK]
+            try:
+                closes_extra = fetch_history_for(list(INDUSTRY_ETFS) + list(SIZE_STYLE_ETFS))
+                if BENCHMARK in closes:
+                    closes_extra[BENCHMARK] = closes[BENCHMARK]
+            except Exception:
+                logger.exception("Extended-signal fetch failed")
+                closes_extra = {}
             extended = compute_extended_signals(closes_extra, send_failure_alert)
 
             return {
