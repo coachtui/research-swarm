@@ -49,3 +49,25 @@ def test_missing_vix_and_rsp_tolerated():
         closes = fetch_market_history()
     assert "^VIX" not in closes and "RSP" not in closes
     assert "SPY" in closes
+
+
+def test_fetch_history_for_returns_only_available_tickers():
+    from execution.market_data import fetch_history_for
+
+    def fake(ticker, period="1y"):
+        return None if ticker == "XBI" else _df()
+
+    with patch("execution.market_data.MarketDataClient") as MockClient:
+        MockClient.return_value.get_historical_data.side_effect = fake
+        closes = fetch_history_for(["XBI", "SMH", "IWM"])
+
+    assert set(closes) == {"SMH", "IWM"}
+    assert isinstance(closes["SMH"], pd.Series)
+
+
+def test_fetch_history_for_never_raises_on_all_missing():
+    from execution.market_data import fetch_history_for
+
+    with patch("execution.market_data.MarketDataClient") as MockClient:
+        MockClient.return_value.get_historical_data.return_value = None
+        assert fetch_history_for(["XBI", "SMH"]) == {}

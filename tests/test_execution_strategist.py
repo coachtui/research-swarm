@@ -37,6 +37,28 @@ def test_prompt_handles_no_headlines():
     assert "no macro headlines available" in prompt.lower()
 
 
+def test_prompt_isolated_from_sleeve_a_extended_signals():
+    """Control-group contract: the strategist prompt must be identical whether
+    or not Sleeve-A-only extended signals (industry, size_style) are present
+    on the indicators payload — the strategist's override feeds the shared
+    regime that Sleeve B (the control group) trades on."""
+    base_prompt = build_strategist_prompt(PAYLOAD)
+
+    payload_with_extended = {
+        **PAYLOAD,
+        "industry": {"rankings": [{"etf": "XBI", "industry": "Biotech", "rs_1m": 0.05,
+                                    "rs_3m": 0.02, "rs_6m": 0.01, "rank_1m": 1,
+                                    "rank_3m": 4, "rank_6m": 5, "rank_change": 3,
+                                    "score": 0.033}]},
+        "size_style": {"tag": "small_caps_leading"},
+    }
+    extended_prompt = build_strategist_prompt(payload_with_extended)
+
+    assert base_prompt == extended_prompt
+    assert "industry" not in extended_prompt
+    assert "size_style" not in extended_prompt
+
+
 VALID_RESPONSE = json.dumps({
     "regime_proposal": "risk_on",
     "conviction": 0.7,

@@ -83,6 +83,37 @@ class TestOutlookRowToResponse:
         assert result.strategist_status == "fallback"
         assert result.strategist_override is False
 
+    def test_extended_fields_none_for_legacy_rows(self):
+        """Rows created before Phase 3A have no industry/size-style attrs."""
+        result = outlook_row_to_response(_make_row())
+        assert result.industry_rankings is None
+        assert result.industry_rotations is None
+        assert result.industry_missing is None
+        assert result.size_style is None
+
+    def test_extended_fields_flattened_when_present(self):
+        industry = {
+            "rankings": [{"etf": "XBI", "industry": "Biotech", "score": 0.033}],
+            "rotations": [{"etf": "XBI", "industry": "Biotech",
+                           "direction": "into", "rank_change": 6}],
+            "missing": ["UFO"],
+        }
+        size_style = {"iwm": {"label": "small_cap", "composite": 0.013},
+                      "mdy": {"label": "mid_cap", "composite": 0.005},
+                      "tag": "small_caps_leading"}
+        row = _make_row(industryRankings=industry, sizeStyle=size_style)
+        result = outlook_row_to_response(row)
+        assert result.industry_rankings == industry["rankings"]
+        assert result.industry_rotations == industry["rotations"]
+        assert result.industry_missing == ["UFO"]
+        assert result.size_style == size_style
+
+    def test_extended_fields_none_when_columns_null(self):
+        row = _make_row(industryRankings=None, sizeStyle=None)
+        result = outlook_row_to_response(row)
+        assert result.industry_rankings is None
+        assert result.size_style is None
+
 
 # ── Endpoint tests ───────────────────────────────────────────────────────────
 

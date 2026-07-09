@@ -6,7 +6,7 @@ raise OutlookDataError so the weekly job skips the week instead of
 producing an outlook from partial data.
 """
 import logging
-from typing import Dict
+from typing import Dict, Iterable
 
 import pandas as pd
 
@@ -23,10 +23,13 @@ class OutlookDataError(Exception):
     """Market data too incomplete to produce a trustworthy outlook."""
 
 
-def fetch_market_history(period: str = "1y") -> Dict[str, pd.Series]:
-    client = MarketDataClient()
-    tickers = list(SECTOR_ETFS) + [BENCHMARK, EQUAL_WEIGHT, VIX]
+def fetch_history_for(tickers: Iterable[str], period: str = "1y") -> Dict[str, pd.Series]:
+    """Best-effort close-series fetch. Missing tickers are simply absent.
 
+    Callers own their completeness policy (fetch_market_history raises on
+    missing benchmarks; the Phase 3A passes degrade to null + alert).
+    """
+    client = MarketDataClient()
     closes: Dict[str, pd.Series] = {}
     for ticker in tickers:
         df = client.get_historical_data(ticker, period=period)
@@ -34,6 +37,11 @@ def fetch_market_history(period: str = "1y") -> Dict[str, pd.Series]:
             logger.warning("No history for %s", ticker)
             continue
         closes[ticker] = df["Close"].dropna().reset_index(drop=True)
+    return closes
+
+
+def fetch_market_history(period: str = "1y") -> Dict[str, pd.Series]:
+    closes = fetch_history_for(list(SECTOR_ETFS) + [BENCHMARK, EQUAL_WEIGHT, VIX], period)
 
     if BENCHMARK not in closes:
         raise OutlookDataError("SPY history unavailable — cannot compute outlook")

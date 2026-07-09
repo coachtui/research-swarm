@@ -35,12 +35,18 @@ class MarketOutlookResponse(BaseModel):
     rotation_flags: List[dict]
     breadth: dict
     reasoning: Optional[str]
+    # Phase 3A extended signals — None until the first post-3A outlook runs
+    industry_rankings: Optional[List[dict]] = None
+    industry_rotations: Optional[List[dict]] = None
+    industry_missing: Optional[List[str]] = None
+    size_style: Optional[dict] = None
 
 
 # --- Pure helpers (tested directly) ────────────────────────────────────────
 
 def outlook_row_to_response(row) -> MarketOutlookResponse:
     """Map a Prisma MarketOutlook row (camelCase) to MarketOutlookResponse (snake_case)."""
+    industry = getattr(row, "industryRankings", None)
     return MarketOutlookResponse(
         id=row.id,
         run_date=row.runDate,
@@ -53,6 +59,10 @@ def outlook_row_to_response(row) -> MarketOutlookResponse:
         rotation_flags=row.rotationFlags,
         breadth=row.breadth,
         reasoning=row.reasoning,
+        industry_rankings=industry["rankings"] if industry else None,
+        industry_rotations=industry["rotations"] if industry else None,
+        industry_missing=industry["missing"] if industry else None,
+        size_style=getattr(row, "sizeStyle", None),
     )
 
 

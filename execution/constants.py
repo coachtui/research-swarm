@@ -22,6 +22,43 @@ VIX = "^VIX"
 # Trading-day lookback windows for momentum
 WINDOWS = {"1m": 21, "3m": 63, "6m": 126}
 
+# Composite score weights favor recent momentum (early rotation) over long trend.
+SCORE_WEIGHTS = {"1m": 0.5, "3m": 0.3, "6m": 0.2}
+
+# ── Phase 3A: industry ETF overlay + size/style regime inputs ───────────────
+# Signal instruments only — never traded. Consumed by Sleeve A / theme
+# discovery only; Sleeve B reads none of this (control-group contract).
+INDUSTRY_ETFS = {
+    "XBI": "Biotech",
+    "SMH": "Semiconductors",
+    "IGV": "Software",
+    "FDN": "Internet",
+    "CIBR": "Cybersecurity",
+    "KRE": "Regional Banks",
+    "XHB": "Homebuilders",
+    "ITB": "Home Construction",
+    "XRT": "Retail",
+    "XOP": "Oil & Gas E&P",
+    "OIH": "Oil Services",
+    "XME": "Metals & Mining",
+    "URA": "Uranium / Nuclear",
+    "SRVR": "Data Center REITs",
+    "PAVE": "Infrastructure",
+    "ITA": "Aerospace & Defense",
+    "UFO": "Space",
+    "JETS": "Airlines",
+    "IHI": "Medical Devices",
+}
+
+SIZE_STYLE_ETFS = {"IWM": "small_cap", "MDY": "mid_cap"}
+
+# Rotation threshold scaled for 19 ranks (sectors use 3 for 11 ranks).
+INDUSTRY_ROTATION_MIN_RANK_GAIN = 5
+# Industry pass fails (null + alert) below this many rankable industries.
+MIN_INDUSTRIES_REQUIRED = 15
+# IWM composite RS vs SPY beyond ±this ⇒ small/large caps leading.
+SIZE_STYLE_RS_THRESHOLD = 0.01
+
 # ── Sleeve B (mechanical ETF rotation — Phase 2) ────────────────────────────
 SLEEVE_B = "B"
 SLEEVE_B_FRACTION = 0.30           # share of total account equity Sleeve B manages
