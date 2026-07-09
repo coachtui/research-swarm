@@ -83,6 +83,29 @@ def build_outlook_email_html(record: Dict[str, Any]) -> str:
 """
 
 
+def compute_extended_signals(closes_extra, alert) -> Dict[str, Any]:
+    """Phase 3A industry + size/style passes.
+
+    Each pass degrades independently to None + failure alert. Never raises —
+    the sector outlook (Sleeve B's critical path) must publish regardless.
+    """
+    from execution.indicators.industry_strength import rank_industries  # noqa: PLC0415
+    from execution.indicators.size_style import compute_size_style  # noqa: PLC0415
+
+    out: Dict[str, Any] = {"industry": None, "size_style": None}
+    try:
+        out["industry"] = rank_industries(closes_extra)
+    except Exception as exc:
+        logger.exception("Outlook industry pass failed")
+        alert("Outlook industry pass failed", f"{type(exc).__name__}: {exc}")
+    try:
+        out["size_style"] = compute_size_style(closes_extra)
+    except Exception as exc:
+        logger.exception("Outlook size/style pass failed")
+        alert("Outlook size/style pass failed", f"{type(exc).__name__}: {exc}")
+    return out
+
+
 # ── Inngest function ─────────────────────────────────────────────────────────
 # Guarded registration so pure helpers are unit-testable without the inngest
 # runtime (same pattern as send_teaser_digest.py).
@@ -105,13 +128,18 @@ def _register_inngest_function():
 
         # Step 1: indicators (JSON-serializable payload only crosses steps)
         async def compute_indicators() -> Dict[str, Any]:
-            from execution.constants import BENCHMARK, VIX  # noqa: PLC0415
+            from execution.alerts import send_failure_alert  # noqa: PLC0415
+            from execution.constants import (  # noqa: PLC0415
+                BENCHMARK, INDUSTRY_ETFS, SIZE_STYLE_ETFS, VIX,
+            )
             from execution.indicators.breadth import compute_breadth  # noqa: PLC0415
             from execution.indicators.regime import classify_regime  # noqa: PLC0415
             from execution.indicators.sector_strength import (  # noqa: PLC0415
                 compute_relative_strength, detect_rotations, rank_sectors,
             )
-            from execution.market_data import fetch_market_history  # noqa: PLC0415
+            from execution.market_data import (  # noqa: PLC0415
+                fetch_history_for, fetch_market_history,
+            )
 
             closes = fetch_market_history()  # raises OutlookDataError -> step fails -> alert
             rankings = rank_sectors(compute_relative_strength(closes))
@@ -120,12 +148,22 @@ def _register_inngest_function():
             regime = classify_regime(
                 closes[BENCHMARK], closes.get(VIX), breadth["pct_above_200dma"]
             )
+
+            # Phase 3A: extended passes — downstream of the sector pipeline,
+            # degrade to None + alert, never block the outlook.
+            closes_extra = fetch_history_for(list(INDUSTRY_ETFS) + list(SIZE_STYLE_ETFS))
+            if BENCHMARK in closes:
+                closes_extra[BENCHMARK] = closes[BENCHMARK]
+            extended = compute_extended_signals(closes_extra, send_failure_alert)
+
             return {
                 "rankings": rankings,
                 "rotations": rotations,
                 "breadth": breadth,
                 "regime_mechanical": regime["regime"],
                 "regime_inputs": regime["inputs"],
+                "industry": extended["industry"],
+                "size_style": extended["size_style"],
             }
 
         indicators = await step.run("compute-indicators", compute_indicators)
