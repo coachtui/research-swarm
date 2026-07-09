@@ -51,3 +51,39 @@ def fetch_market_history(period: str = "1y") -> Dict[str, pd.Series]:
             f"{len(missing_etfs)} sector ETFs missing ({missing_etfs}) — refusing partial outlook"
         )
     return closes
+
+
+def fetch_closes_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, pd.Series]:
+    """ONE yf.download for many tickers (theme constituents — up to ~240).
+
+    Best-effort: missing/empty tickers are simply absent. Bypasses the
+    per-ticker MarketDataClient deliberately — 240 sequential cached fetches
+    in the Sunday cron is the failure mode this avoids.
+    """
+    import yfinance as yf  # noqa: PLC0415
+
+    unique = sorted({t.upper() for t in tickers if t})
+    if not unique:
+        return {}
+    try:
+        df = yf.download(unique, period=period, auto_adjust=True,
+                         progress=False, group_by="ticker", threads=True)
+    except Exception:
+        logger.exception("fetch_closes_batch: download failed")
+        return {}
+    if df is None or df.empty:
+        return {}
+    out: Dict[str, pd.Series] = {}
+    if not isinstance(df.columns, pd.MultiIndex):  # single-ticker shape
+        series = df.get("Close")
+        if series is not None and not series.dropna().empty:
+            out[unique[0]] = series.dropna().reset_index(drop=True)
+        return out
+    for ticker in unique:
+        try:
+            series = df[ticker]["Close"].dropna()
+        except (KeyError, IndexError):
+            continue
+        if not series.empty:
+            out[ticker] = series.reset_index(drop=True)
+    return out
