@@ -142,9 +142,14 @@ def _admin_app() -> FastAPI:
     return app
 
 
-def _patch_db():
-    """Patch autopilot's get_db to a MagicMock db (no real prisma)."""
-    return patch("api.routes.autopilot.get_db", new=AsyncMock(return_value=MagicMock()))
+def _patch_db(db=None):
+    """Patch autopilot's get_db. Pass a preconfigured `db` MagicMock when a
+    test needs specific attributes/awaitables (e.g. db.sleevesnapshot.find_first);
+    otherwise falls back to a bare MagicMock for tests that never touch db."""
+    return patch(
+        "api.routes.autopilot.get_db",
+        new=AsyncMock(return_value=db if db is not None else MagicMock()),
+    )
 
 
 class TestBrokerLink:
@@ -185,6 +190,44 @@ class TestBrokerStatus:
         assert resp.status_code == 200
         assert resp.json()["linked"] is False
 
+    def test_status_linked_with_active_sleeve_and_snapshot(self):
+        app = _admin_app()
+        snapshot = SimpleNamespace(
+            snapshotDate=datetime(2026, 7, 9, tzinfo=timezone.utc),
+            sleeve="B",
+            equity=31000.0,
+            spyClose=605.0,
+        )
+        db = MagicMock()
+        db.sleevesnapshot.find_first = AsyncMock(return_value=snapshot)
+
+        def _sleeve_state(_db, sleeve):
+            if sleeve == "A":
+                return None
+            return SimpleNamespace(status="active", statusReason=None, cashBalance=9000.0)
+
+        with _patch_db(db=db), \
+             patch("api.routes.autopilot.get_active_alpaca_account",
+                   new=AsyncMock(return_value=SimpleNamespace(provider="alpaca", mode="paper"))), \
+             patch("api.routes.autopilot.get_sleeve_state",
+                   new=AsyncMock(side_effect=_sleeve_state)):
+            resp = TestClient(app).get("/api/autopilot/broker/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["linked"] is True
+        assert data["provider"] == "alpaca"
+        assert data["mode"] == "paper"
+        assert data["sleeves"] == [
+            {"sleeve": "B", "status": "active", "status_reason": None, "cash_balance": 9000.0}
+        ]
+        assert data["latest_snapshot"] == {
+            "date": "2026-07-09T00:00:00+00:00",
+            "sleeve": "B",
+            "equity": 31000.0,
+            "spy_close": 605.0,
+        }
+
 
 class TestSleeveResume:
     def test_resume_reactivates_halted_sleeve(self):
@@ -203,3 +246,14 @@ class TestSleeveResume:
         app = _admin_app()
         resp = TestClient(app).post("/api/autopilot/sleeve/X/resume")
         assert resp.status_code == 404
+
+    def test_resume_uninitialized_sleeve_404(self):
+        app = _admin_app()
+        with _patch_db(), \
+             patch("api.routes.autopilot.get_sleeve_state",
+                   new=AsyncMock(return_value=None)), \
+             patch("api.routes.autopilot.set_sleeve_status", new=AsyncMock()) as setter:
+            resp = TestClient(app).post("/api/autopilot/sleeve/B/resume")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Sleeve not initialized"
+        setter.assert_not_awaited()
