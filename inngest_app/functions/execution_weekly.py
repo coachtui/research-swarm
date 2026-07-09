@@ -71,9 +71,10 @@ def _register_inngest_function():
     async def _on_failure(ctx: "inngest_sdk.Context") -> None:
         from execution.alerts import send_failure_alert  # noqa: PLC0415
 
-        send_failure_alert(
+        await send_failure_alert(
             "weekly rebalance failed",
             f"execution-weekly failed after retries: {ctx.event.data}",
+            source="execution_weekly",
         )
 
     @inngest_client.create_function(
@@ -110,25 +111,33 @@ def _register_inngest_function():
 
             outlook_row = await get_latest_outlook(db)
             if outlook_row is None:
-                send_failure_alert("rebalance skipped", "no MarketOutlook row exists")
+                await send_failure_alert(
+                    "rebalance skipped", "no MarketOutlook row exists",
+                    source="execution_weekly",
+                )
                 return {"go": False, "reason": "no outlook"}
             outlook_iso = outlook_row.runDate.isoformat()
             if outlook_is_stale(outlook_iso, run_date_iso):
-                send_failure_alert(
-                    "rebalance skipped", f"latest outlook is stale ({outlook_iso})"
+                await send_failure_alert(
+                    "rebalance skipped", f"latest outlook is stale ({outlook_iso})",
+                    source="execution_weekly",
                 )
                 return {"go": False, "reason": "stale outlook"}
 
             state = await get_sleeve_state(db, SLEEVE_B)
             if state is not None and state.status == "frozen":
-                send_failure_alert(
-                    "rebalance skipped", f"Sleeve B frozen: {state.statusReason}"
+                await send_failure_alert(
+                    "rebalance skipped", f"Sleeve B frozen: {state.statusReason}",
+                    source="execution_weekly",
                 )
                 return {"go": False, "reason": "sleeve frozen"}
 
             client = client_from_account(account)
             if not await asyncio.to_thread(client.is_market_open):
-                send_failure_alert("rebalance skipped", "market closed (holiday?)")
+                await send_failure_alert(
+                    "rebalance skipped", "market closed (holiday?)",
+                    source="execution_weekly",
+                )
                 return {"go": False, "reason": "market closed"}
 
             return {
@@ -209,9 +218,10 @@ def _register_inngest_function():
             )
             if mismatches:
                 await set_sleeve_status(db, SLEEVE_B, "frozen", "; ".join(mismatches))
-                send_failure_alert(
+                await send_failure_alert(
                     "rebalance aborted — reconciliation mismatch, Sleeve B frozen",
                     "\n".join(mismatches),
+                    source="execution_weekly",
                 )
             return {
                 "mismatches": mismatches,
@@ -292,7 +302,10 @@ def _register_inngest_function():
                     unfilled.append(f"{fill['side']} {fill['symbol']}: {fill['status']}")
             await update_sleeve_cash(db, SLEEVE_B, cash)
             if unfilled:
-                send_failure_alert("rebalance had unfilled orders", "\n".join(unfilled))
+                await send_failure_alert(
+                    "rebalance had unfilled orders", "\n".join(unfilled),
+                    source="execution_weekly",
+                )
             return {"cash_after": round(cash, 2), "unfilled": unfilled}
 
         persisted = await step.run("persist-fills", persist)

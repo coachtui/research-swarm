@@ -50,9 +50,10 @@ def _register_inngest_function():
     async def _on_failure(ctx: "inngest_sdk.Context") -> None:
         from execution.alerts import send_failure_alert  # noqa: PLC0415
 
-        send_failure_alert(
+        await send_failure_alert(
             "daily execution cron failed",
             f"execution-daily failed after retries: {ctx.event.data}",
+            source="execution_daily",
         )
 
     @inngest_client.create_function(
@@ -126,9 +127,10 @@ def _register_inngest_function():
             if mismatches:
                 db = await get_db()
                 await set_sleeve_status(db, SLEEVE_B, "frozen", "; ".join(mismatches))
-                send_failure_alert(
+                await send_failure_alert(
                     "position reconciliation mismatch — Sleeve B frozen",
                     "\n".join(mismatches),
+                    source="execution_daily",
                 )
             return {"mismatches": mismatches}
 
@@ -184,11 +186,12 @@ def _register_inngest_function():
                 await set_sleeve_status(
                     db, SLEEVE_B, "halted", "circuit breaker: -15pp vs SPY since inception"
                 )
-                send_failure_alert(
+                await send_failure_alert(
                     "Sleeve B circuit breaker tripped",
                     f"equity={snap['equity']} inception={context['inception_equity']} "
                     f"spy={snap['spy_close']} inception_spy={context['inception_spy']}. "
                     "New buys halted; POST /api/autopilot/sleeve/B/resume to resume.",
+                    source="execution_daily",
                 )
             return {"tripped": tripped}
 

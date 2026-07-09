@@ -83,27 +83,29 @@ def build_outlook_email_html(record: Dict[str, Any]) -> str:
 """
 
 
-def compute_extended_signals(closes_extra, alert) -> Dict[str, Any]:
+def compute_extended_signals(closes_extra) -> "tuple[Dict[str, Any], list]":
     """Phase 3A industry + size/style passes.
 
-    Each pass degrades independently to None + failure alert. Never raises —
-    the sector outlook (Sleeve B's critical path) must publish regardless.
+    Each pass degrades independently to None. Returns (out, failures) where
+    failures is a list of (subject, detail) for the async caller to journal —
+    this helper stays sync/pure so it remains unit-testable.
     """
     from execution.indicators.industry_strength import rank_industries  # noqa: PLC0415
     from execution.indicators.size_style import compute_size_style  # noqa: PLC0415
 
     out: Dict[str, Any] = {"industry": None, "size_style": None}
+    failures: list = []
     try:
         out["industry"] = rank_industries(closes_extra)
     except Exception as exc:
         logger.exception("Outlook industry pass failed")
-        alert("Outlook industry pass failed", f"{type(exc).__name__}: {exc}")
+        failures.append(("Outlook industry pass failed", f"{type(exc).__name__}: {exc}"))
     try:
         out["size_style"] = compute_size_style(closes_extra)
     except Exception as exc:
         logger.exception("Outlook size/style pass failed")
-        alert("Outlook size/style pass failed", f"{type(exc).__name__}: {exc}")
-    return out
+        failures.append(("Outlook size/style pass failed", f"{type(exc).__name__}: {exc}"))
+    return out, failures
 
 
 # ── Inngest function ─────────────────────────────────────────────────────────
@@ -158,7 +160,9 @@ def _register_inngest_function():
             except Exception:
                 logger.exception("Extended-signal fetch failed")
                 closes_extra = {}
-            extended = compute_extended_signals(closes_extra, send_failure_alert)
+            extended, ext_failures = compute_extended_signals(closes_extra)
+            for subject, detail in ext_failures:
+                await send_failure_alert(subject, detail, source="weekly_market_outlook")
 
             return {
                 "rankings": rankings,

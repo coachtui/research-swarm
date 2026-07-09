@@ -1,36 +1,40 @@
-"""Tests for execution/alerts.py — dormant-email failure alerts."""
-import sys
-import types
-from unittest.mock import MagicMock
+"""Failure alerts land in the EngineReport journal (email path deleted)."""
+import pytest
 
-from execution.alerts import send_failure_alert
+import execution.alerts as alerts
 
 
-def test_skips_when_email_unconfigured(monkeypatch):
-    monkeypatch.delenv("RESEND_API_KEY", raising=False)
-    monkeypatch.delenv("OWNER_EMAIL", raising=False)
-    assert send_failure_alert("subj", "body") == {"status": "skipped"}
+@pytest.mark.asyncio
+async def test_alert_writes_engine_failure_report(monkeypatch):
+    calls = {}
+
+    async def fake_write_report(report_type, severity, source, title, body, db=None):
+        calls.update(type=report_type, severity=severity, source=source,
+                     title=title, body=body)
+        return "rep_1"
+
+    monkeypatch.setattr(alerts, "write_report", fake_write_report)
+    result = await alerts.send_failure_alert("subj", "detail", source="unit")
+    assert result == {"status": "journaled"}
+    assert calls["type"] == "engine_failure"
+    assert calls["severity"] == "critical"
+    assert calls["source"] == "unit"
+    assert calls["title"] == "subj"
+    assert calls["body"] == {"detail": "detail"}
 
 
-def test_sends_when_configured(monkeypatch):
-    monkeypatch.setenv("RESEND_API_KEY", "re_123")
-    monkeypatch.setenv("OWNER_EMAIL", "tui@example.com")
-    fake_resend = types.ModuleType("resend")
-    fake_resend.Emails = MagicMock()
-    monkeypatch.setitem(sys.modules, "resend", fake_resend)
+@pytest.mark.asyncio
+async def test_alert_reports_error_when_journal_fails(monkeypatch):
+    async def fake_write_report(*a, **k):
+        return None
 
-    assert send_failure_alert("daily cron failed", "trace") == {"status": "sent"}
-    payload = fake_resend.Emails.send.call_args.args[0]
-    assert payload["to"] == ["tui@example.com"]
-    assert "[Autopilot alert]" in payload["subject"]
+    monkeypatch.setattr(alerts, "write_report", fake_write_report)
+    result = await alerts.send_failure_alert("subj", "detail")
+    assert result == {"status": "error"}
 
 
-def test_never_raises_on_send_error(monkeypatch):
-    monkeypatch.setenv("RESEND_API_KEY", "re_123")
-    monkeypatch.setenv("OWNER_EMAIL", "tui@example.com")
-    fake_resend = types.ModuleType("resend")
-    fake_resend.Emails = MagicMock()
-    fake_resend.Emails.send.side_effect = RuntimeError("api down")
-    monkeypatch.setitem(sys.modules, "resend", fake_resend)
-
-    assert send_failure_alert("subj", "body") == {"status": "error"}
+def test_resend_is_gone():
+    import inspect
+    src = inspect.getsource(alerts)
+    assert "resend" not in src
+    assert "RESEND_API_KEY" not in src
