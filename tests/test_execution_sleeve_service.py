@@ -20,6 +20,8 @@ def _db():
         for op in ("create", "update", "upsert", "delete", "find_unique", "find_many", "find_first"):
             setattr(table, op, AsyncMock(return_value=SimpleNamespace(id="row1")))
         setattr(db, model, table)
+    # First-attempt path by default: no prior EngineTrade row for this brokerOrderId.
+    db.enginetrade.find_first = AsyncMock(return_value=None)
     return db
 
 
@@ -98,6 +100,18 @@ async def test_apply_fill_unfilled_order_records_trade_but_touches_nothing():
     delta = await apply_fill(db, "B", fill, requested_notional=500.0, journal={})
     assert delta == 0.0
     db.enginetrade.create.assert_awaited_once()  # journaled for the audit trail
+    db.engineposition.upsert.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_fill_replayed_fill_skips_writes_but_returns_delta():
+    db = _db()
+    db.enginetrade.find_first = AsyncMock(return_value=SimpleNamespace(id="t1"))
+    fill = {"order_id": "o1", "symbol": "XLK", "side": "buy", "status": "filled",
+            "filled_qty": 10.0, "filled_avg_price": 100.0}
+    delta = await apply_fill(db, "B", fill, requested_notional=1000.0, journal={})
+    assert delta == -1000.0
+    db.enginetrade.create.assert_not_awaited()
     db.engineposition.upsert.assert_not_awaited()
 
 

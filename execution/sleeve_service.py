@@ -78,6 +78,23 @@ async def apply_fill(
     filled_qty = float(fill.get("filled_qty") or 0.0)
     fill_price = fill.get("filled_avg_price")
 
+    # Idempotency contract: Inngest's persist-fills step is un-memoized per
+    # fill, so a partial-failure retry re-runs this function for fills that
+    # already made it to the DB on a prior attempt. Dedupe on brokerOrderId
+    # so a retry never re-creates the EngineTrade row or re-applies the
+    # position delta (which would double-count qty/avgEntryPrice) — it still
+    # returns the same cash delta so the caller's running total stays correct.
+    order_id = fill.get("order_id")
+    if order_id:
+        existing_trade = await db.enginetrade.find_first(
+            where={"brokerOrderId": order_id}
+        )
+        if existing_trade is not None:
+            if filled_qty <= 0 or fill_price is None:
+                return 0.0
+            notional = filled_qty * float(fill_price)
+            return -round(notional, 2) if side == "buy" else round(notional, 2)
+
     await db.enginetrade.create(data={
         "sleeve": sleeve,
         "symbol": symbol,

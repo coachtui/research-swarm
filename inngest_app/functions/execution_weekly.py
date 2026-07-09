@@ -270,7 +270,8 @@ def _register_inngest_function():
             fills.append(fill)
 
         # Step 6: persist fills + cash ledger (separate from submission —
-        # a retry here re-writes rows but never re-trades)
+        # apply_fill dedupes on brokerOrderId, so a partial-failure retry
+        # re-applies nothing)
         async def persist() -> Dict[str, Any]:
             from api.lib.db import get_db  # noqa: PLC0415
             from execution.alerts import send_failure_alert  # noqa: PLC0415
