@@ -1,7 +1,7 @@
 """
 Tiered weekly batch: screener → quant snapshots → escalation → capped swarm.
 
-Fires Monday 03:00 UTC (Sunday 11 PM ET), 7 hours after the Sunday 20:00 UTC
+Fires Monday 03:00 UTC (Sun 11 PM EDT / 10 PM EST), 7 hours after the Sunday 20:00 UTC
 MarketOutlook cron, so a fresh outlook exists.
 
 Funnel (docs/superpowers/specs/2026-07-08-tiered-batch-design.md):
@@ -14,6 +14,7 @@ Failed swarm slots are NOT refunded — runs stay deterministic and bounded.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -67,16 +68,22 @@ def _register_inngest_function():
 
     @inngest_client.create_function(
         fn_id="weekly-batch",
-        trigger=inngest_sdk.TriggerCron(cron="0 3 * * 1"),  # Monday 03:00 UTC = Sunday 11 PM ET
+        trigger=inngest_sdk.TriggerCron(cron="0 3 * * 1"),  # Monday 03:00 UTC (Sun 11 PM EDT / 10 PM EST)
         name="Weekly Batch Analysis (Tiered)",
         retries=1,
     )
     async def weekly_batch(ctx: "inngest_sdk.Context") -> Dict[str, Any]:
         step = ctx.step  # steps live on ctx in the current SDK
 
-        run_date = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
+        # Capture run_date in a step so Inngest replays crossing UTC midnight
+        # reuse the memoized value instead of orphaning the quant rows.
+        run_date_iso: str = await step.run(
+            "capture-run-date",
+            lambda: datetime.now(timezone.utc)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat(),
         )
+        run_date = datetime.fromisoformat(run_date_iso)
 
         # ── Step 1: latest market outlook → favored sectors ─────────────────
         async def load_outlook() -> Dict[str, Any]:
@@ -111,7 +118,7 @@ def _register_inngest_function():
                 insider_client=OpenInsiderClient(),
             )
             universe = StockScreener.load_universe()
-            scored = screener.screen_all(universe)
+            scored = await asyncio.to_thread(screener.screen_all, universe)
 
             db = await get_db()
             wl_rows = await db.watchlist.find_many(distinct=["ticker"])
@@ -156,11 +163,12 @@ def _register_inngest_function():
             db = await get_db()
             service = WeeklySignalService(db=db)
             market_client = MarketDataClient()
-            market_context = MarketContextService(
-                market_client=market_client
-            ).get_context()
+            market_context = await asyncio.to_thread(
+                MarketContextService(market_client=market_client).get_context
+            )
 
             priors: Dict[str, Dict[str, Any]] = {}
+            stored_tickers: List[str] = []
             stored = failed = 0
             for c in candidates:
                 try:
@@ -168,11 +176,14 @@ def _register_inngest_function():
                         c["ticker"], before=run_date
                     )
                     priors[c["ticker"]] = prior_ctx
+                    current_price = await asyncio.to_thread(
+                        market_client.get_current_price, c["ticker"]
+                    )
                     await service.store_quant_snapshot(
                         ticker=c["ticker"],
                         run_date=run_date,
                         screener_score=c["score"],
-                        current_price=market_client.get_current_price(c["ticker"]),
+                        current_price=current_price,
                         quant_signals={
                             "has_insider_buying": c["has_insider_buying"],
                             "weekly_price_change_pct": c["weekly_price_change_pct"],
@@ -184,10 +195,16 @@ def _register_inngest_function():
                         prior_ctx=prior_ctx,
                     )
                     stored += 1
+                    stored_tickers.append(c["ticker"])
                 except Exception as e:
                     logger.error("Quant snapshot failed for %s: %s", c["ticker"], e)
                     failed += 1
-            return {"stored": stored, "failed": failed, "priors": priors}
+            return {
+                "stored": stored,
+                "failed": failed,
+                "priors": priors,
+                "stored_tickers": stored_tickers,
+            }
 
         quant: Dict[str, Any] = await step.run(
             "quant-snapshots", write_quant_snapshots
@@ -201,7 +218,12 @@ def _register_inngest_function():
                 favored_sectors=frozenset(outlook["favored_sectors"])
             )
             escalation_candidates = []
+            # Only tickers whose quant row was actually written may escalate;
+            # otherwise upgrade_to_full would fail after the swarm spend.
+            stored_set = set(quant["stored_tickers"])
             for c in candidates:
+                if c["ticker"] not in stored_set:
+                    continue
                 prior = quant["priors"].get(c["ticker"], {})
                 fresh = await service.find_fresh_result(
                     c["ticker"], max_age_days=_FRESH_REPORT_MAX_AGE_DAYS
@@ -304,18 +326,20 @@ def _register_inngest_function():
                     outcomes[d["ticker"]] = "step_failed"
 
         # ── Final step: fire batch/completed for (dormant) downstream fns ────
-        async def fire_batch_event() -> None:
-            await step.send_event("batch-completed-event", {
-                "name": "batch/completed",
-                "data": {
+        # send_event is itself a step tool — never wrap it in step.run
+        # (nested steps are a non-retriable SDK error).
+        await step.send_event(
+            "batch-completed-event",
+            inngest_sdk.Event(
+                name="batch/completed",
+                data={
                     "run_date": run_date.isoformat(),
                     "ticker_count": sum(
                         1 for v in outcomes.values() if v in ("full", "reused")
                     ),
                 },
-            })
-
-        await step.run("fire-batch-completed", fire_batch_event)
+            ),
+        )
 
         return {
             "status": "completed",
