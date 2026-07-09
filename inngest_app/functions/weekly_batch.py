@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -266,9 +266,13 @@ def _register_inngest_function():
                 )
                 return "reused" if ok else "reuse_unusable"
 
-            outcomes[d["ticker"]] = await step.run(
-                f"reuse-{d['ticker'].lower()}", reuse_one
-            )
+            try:
+                outcomes[d["ticker"]] = await step.run(
+                    f"reuse-{d['ticker'].lower()}", reuse_one
+                )
+            except Exception as e:  # noqa: BLE001 — one ticker must not sink the run
+                logger.error("Reuse step failed permanently for %s: %s", d["ticker"], e)
+                outcomes[d["ticker"]] = "step_failed"
 
         # ── Steps 5b: paid swarm analyses (the ONLY paid stage) ──────────────
         if swarm_list:
@@ -291,9 +295,13 @@ def _register_inngest_function():
                     )
                     return "full" if ok else "analysis_failed"
 
-                outcomes[d["ticker"]] = await step.run(
-                    f"analyze-{d['ticker'].lower()}", analyze_one
-                )
+                try:
+                    outcomes[d["ticker"]] = await step.run(
+                        f"analyze-{d['ticker'].lower()}", analyze_one
+                    )
+                except Exception as e:  # noqa: BLE001 — one ticker must not sink the run
+                    logger.error("Analyze step failed permanently for %s: %s", d["ticker"], e)
+                    outcomes[d["ticker"]] = "step_failed"
 
         # ── Final step: fire batch/completed for (dormant) downstream fns ────
         async def fire_batch_event() -> None:
