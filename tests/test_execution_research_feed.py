@@ -52,3 +52,32 @@ async def test_context_dedupes_and_uppercases_watchlist():
         stockresult = _Table(rows=[_Row(fullOutput=None)])
     ctx = await get_research_context(Db())
     assert ctx["watchlist"] == ["AEHR", "VIAV"]
+
+
+@pytest.mark.asyncio
+async def test_context_wires_supply_chain_and_news_keys_to_output_fields():
+    blob = {"agents": {
+        "fundamentalist": {"customers": ["NVDA"], "suppliers": ["TSMC"]},
+        "news_hound": {"entities": ["CoreWeave"]},
+    }}
+
+    class Db:
+        watchlist = _Table(rows=[])
+        stockresult = _Table(rows=[_Row(fullOutput=blob)])
+
+    ctx = await get_research_context(Db())
+    assert ctx["supply_chain"] == ["NVDA", "TSMC"]
+    assert ctx["news_entities"] == ["CoreWeave"]
+
+
+@pytest.mark.asyncio
+async def test_context_partial_failure_watchlist_down_stockresult_up():
+    blob = {"agents": {"fundamentalist": {"suppliers": ["TSMC"]}}}
+
+    class Db:
+        watchlist = _Table(fail=True)
+        stockresult = _Table(rows=[_Row(fullOutput=blob)])
+
+    ctx = await get_research_context(Db())
+    assert ctx["watchlist"] == []
+    assert ctx["supply_chain"] == ["TSMC"]
