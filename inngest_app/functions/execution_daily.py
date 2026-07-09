@@ -114,24 +114,38 @@ def _register_inngest_function():
 
         broker = await step.run("broker-snapshot", broker_snapshot)
 
-        # Step 3: reconcile — mismatch freezes the sleeve, no snapshot written
+        # Step 3: reconcile — mismatch freezes the sleeve, no snapshot written.
+        # Alert + journal only on the active->frozen transition: a sleeve
+        # that's already frozen must not re-alert every day (Phase 2 rider).
         async def reconcile() -> Dict[str, Any]:
             from api.lib.db import get_db  # noqa: PLC0415
             from execution.alerts import send_failure_alert  # noqa: PLC0415
             from execution.constants import SLEEVE_B  # noqa: PLC0415
             from execution.engine.reconcile import find_mismatches  # noqa: PLC0415
-            from execution.sleeve_service import set_sleeve_status  # noqa: PLC0415
+            from execution.reporting import write_report  # noqa: PLC0415
+            from execution.sleeve_service import (  # noqa: PLC0415
+                get_sleeve_state, set_sleeve_status,
+            )
 
             broker_qty = {p["symbol"]: p["qty"] for p in broker["positions"]}
             mismatches = find_mismatches(broker_qty, context["engine_positions"])
             if mismatches:
                 db = await get_db()
+                state = await get_sleeve_state(db, SLEEVE_B)
+                was_frozen = state is not None and state.status == "frozen"
                 await set_sleeve_status(db, SLEEVE_B, "frozen", "; ".join(mismatches))
-                await send_failure_alert(
-                    "position reconciliation mismatch — Sleeve B frozen",
-                    "\n".join(mismatches),
-                    source="execution_daily",
-                )
+                if not was_frozen:
+                    await send_failure_alert(
+                        "position reconciliation mismatch — Sleeve B frozen",
+                        "\n".join(mismatches),
+                        source="execution_daily",
+                    )
+                    await write_report(
+                        "breaker_event", "critical", "execution_daily",
+                        "Sleeve B frozen: reconciliation mismatch",
+                        {"transition": "active->frozen", "mismatches": mismatches},
+                        db=db,
+                    )
             return {"mismatches": mismatches}
 
         recon = await step.run("reconcile", reconcile)
@@ -175,6 +189,7 @@ def _register_inngest_function():
             from execution.alerts import send_failure_alert  # noqa: PLC0415
             from execution.constants import SLEEVE_B  # noqa: PLC0415
             from execution.engine.circuit_breaker import circuit_breaker_tripped  # noqa: PLC0415
+            from execution.reporting import write_report  # noqa: PLC0415
             from execution.sleeve_service import set_sleeve_status  # noqa: PLC0415
 
             tripped = circuit_breaker_tripped(
@@ -192,6 +207,19 @@ def _register_inngest_function():
                     f"spy={snap['spy_close']} inception_spy={context['inception_spy']}. "
                     "New buys halted; POST /api/autopilot/sleeve/B/resume to resume.",
                     source="execution_daily",
+                )
+                await write_report(
+                    "breaker_event", "critical", "execution_daily",
+                    "Sleeve B circuit breaker tripped",
+                    {
+                        "transition": "active->halted",
+                        "rule": "-15pp vs SPY since inception",
+                        "equity": snap["equity"],
+                        "inception_equity": context["inception_equity"],
+                        "spy_close": snap["spy_close"],
+                        "inception_spy": context["inception_spy"],
+                    },
+                    db=db,
                 )
             return {"tripped": tripped}
 

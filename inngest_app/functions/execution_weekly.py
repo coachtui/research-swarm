@@ -318,6 +318,20 @@ def _register_inngest_function():
             "regime": pre["outlook"]["regime"],
         }
         logger.info("Sleeve B rebalance complete: %s", summary)
+
+        # Step 7: journal — one rebalance_summary row per completed run
+        async def journal_summary() -> Dict[str, Any]:
+            from api.lib.db import get_db  # noqa: PLC0415
+            from execution.reporting import write_report  # noqa: PLC0415
+
+            await write_report(
+                "rebalance_summary", "info", "execution_weekly",
+                f"Sleeve B rebalance — {summary.get('status', 'ok')}",
+                summary, db=await get_db(),
+            )
+            return {"journaled": True}
+
+        await step.run("journal-rebalance-summary", journal_summary)
         return summary
 
     return execution_weekly
