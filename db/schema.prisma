@@ -911,6 +911,10 @@ model MarketOutlook {
   rotationFlags      Json     // list of {etf, sector, direction, rank_change}
   breadth            Json     // {pct_above_200dma, equal_weight_trend_3m}
 
+  // Phase 3A — Sleeve A signal expansion (nullable: passes degrade independently)
+  industryRankings   Json?    // {rankings: [{etf, industry, rs_*, rank_*, rank_change, score}], rotations: [...], missing: [...]}
+  sizeStyle          Json?    // {iwm: {label, rs_*, composite}, mdy: {...}, tag}
+
   // Narrative
   reasoning          String?  // strategist's written reasoning
 
