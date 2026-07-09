@@ -177,7 +177,11 @@ def _register_inngest_function():
             from execution.strategist.agent import (  # noqa: PLC0415
                 fetch_macro_headlines, run_strategist,
             )
-            payload = {**indicators, "macro_headlines": fetch_macro_headlines()}
+            # Control-group contract: the strategist must never see the
+            # Sleeve-A-only extended signals (its override feeds the shared regime).
+            payload = {k: v for k, v in indicators.items()
+                       if k not in ("industry", "size_style")}
+            payload["macro_headlines"] = fetch_macro_headlines()
             return run_strategist(payload)
 
         strategist = await step.run("run-strategist", strategist_step)
