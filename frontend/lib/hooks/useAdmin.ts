@@ -19,6 +19,7 @@ export const adminKeys = {
   users: (limit?: number, offset?: number) => [...adminKeys.all, 'users', limit, offset] as const,
   analyses: (limit?: number, ticker?: string) => [...adminKeys.all, 'analyses', limit, ticker] as const,
   outlook: () => [...adminKeys.all, 'outlook'] as const,
+  engineReports: (type?: string) => [...adminKeys.all, 'engineReports', type ?? 'all'] as const,
 }
 
 /**
@@ -85,6 +86,17 @@ export function useMarketOutlook() {
     queryFn: () => apiClient.getMarketOutlook(),
     staleTime: 1000 * 60 * 5, // 5 minutes
     retry: (failureCount, error) => (error as any)?.status === 404 ? false : failureCount < 1,
+  })
+}
+
+/**
+ * Engine journal feed (theme changes, failures, rebalance summaries)
+ */
+export function useEngineReports(type?: string) {
+  return useQuery({
+    queryKey: adminKeys.engineReports(type),
+    queryFn: () => apiClient.getEngineReports({ type, limit: 50 }),
+    staleTime: 1000 * 60 * 5,
   })
 }
 
