@@ -3392,6 +3392,11 @@ Execution order matters; this mirrors the 3A go-live exactly:
    appear; check the Engine Journal panel.
 7. Confirm cost posture: one sonnet+web-search call (~$1-3); weekly haiku
    deltas from Saturday.
+   Note (final review): step 2's pre-merge migrate creates the six seed
+   ThemeBasket rows in prod while prod still runs main — harmless, purely
+   additive; expect them to exist before deploy. During step 6's manual
+   invoke, check the journal for `add ignored — already active` rejections
+   and for an engine_failure on the parse step before declaring success.
 8. Next Sunday 20:00 UTC: verify `themeRankings` lands on the new
    MarketOutlook row and the Leading Themes card renders.
 
