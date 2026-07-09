@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from execution.constants import SECTOR_ETFS, WINDOWS
+from execution.constants import SCORE_WEIGHTS, SECTOR_ETFS, WINDOWS
 from execution.indicators.sector_strength import (
     compute_relative_strength,
     detect_rotations,
@@ -101,3 +101,42 @@ def test_industry_and_size_style_constants_shape():
     assert INDUSTRY_ROTATION_MIN_RANK_GAIN == 5
     assert MIN_INDUSTRIES_REQUIRED == 15
     assert SIZE_STYLE_RS_THRESHOLD == 0.01
+
+
+def test_parameterized_output_is_identical_to_default_for_sectors():
+    """Control-group contract: explicit SECTOR_ETFS args == default args, exactly."""
+    closes = {
+        "SPY": _series(0.0004),
+        "XLE": _series(0.0010),
+        "XLK": _series(0.0006),
+        "XLU": _series(0.0001),
+    }
+    rs_default = compute_relative_strength(closes)
+    rs_explicit = compute_relative_strength(closes, etf_map=SECTOR_ETFS)
+    assert rs_default == rs_explicit
+
+    rankings_default = rank_sectors(rs_default)
+    rankings_explicit = rank_sectors(rs_explicit, etf_map=SECTOR_ETFS, label_key="sector")
+    assert rankings_default == rankings_explicit
+
+    flags_default = detect_rotations(rankings_default)
+    flags_explicit = detect_rotations(rankings_explicit, min_rank_gain=3, label_key="sector")
+    assert flags_default == flags_explicit
+
+
+def test_custom_etf_map_and_label_key():
+    etf_map = {"XBI": "Biotech", "SMH": "Semiconductors"}
+    closes = {"SPY": _series(0.0004), "XBI": _series(0.0010), "SMH": _series(0.0001)}
+    rs = compute_relative_strength(closes, etf_map=etf_map)
+    assert set(rs) == {"XBI", "SMH"}
+    rankings = rank_sectors(rs, etf_map=etf_map, label_key="industry")
+    assert rankings[0]["etf"] == "XBI"
+    assert rankings[0]["industry"] == "Biotech"
+    assert "sector" not in rankings[0]
+    flags = detect_rotations(
+        [{"etf": "XBI", "industry": "Biotech", "rank_change": 6}],
+        min_rank_gain=5,
+        label_key="industry",
+    )
+    assert flags == [{"etf": "XBI", "industry": "Biotech",
+                      "direction": "into", "rank_change": 6}]
