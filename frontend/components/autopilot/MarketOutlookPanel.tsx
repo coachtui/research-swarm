@@ -9,6 +9,8 @@ import type {
   MarketOutlookResponse,
   RotationFlag,
   SizeStyle,
+  ThemeHistoryPoint,
+  ThemeRotationFlag,
 } from '@/types/api'
 
 const REGIME_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'error'> = {
@@ -46,6 +48,28 @@ function industryRotationLabel(flag: IndustryRotationFlag): string {
   return flag.direction === 'into'
     ? `Rotation into ${flag.industry} (${flag.etf})`
     : `Rotation out of ${flag.industry} (${flag.etf})`
+}
+
+function themeRotationLabel(flag: ThemeRotationFlag): string {
+  return flag.direction === 'into'
+    ? `Rotation into ${flag.theme} (${flag.etf})`
+    : `Rotation out of ${flag.theme} (${flag.etf})`
+}
+
+function ThemeSparkline({ points }: { points: ThemeHistoryPoint[] }) {
+  if (points.length < 2) return null
+  const scores = points.map((p) => p.score)
+  const min = Math.min(...scores)
+  const max = Math.max(...scores)
+  const span = max - min || 1
+  const coords = points
+    .map((p, i) => `${(i / (points.length - 1)) * 60},${18 - ((p.score - min) / span) * 16}`)
+    .join(' ')
+  return (
+    <svg width="60" height="20" className="text-primary shrink-0" aria-hidden="true">
+      <polyline points={coords} fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  )
 }
 
 export function MarketOutlookPanel() {
@@ -108,6 +132,10 @@ function MarketOutlookContent({ outlook }: { outlook: MarketOutlookResponse }) {
     industry_rankings,
     industry_rotations,
     size_style,
+    theme_rankings,
+    theme_rotations,
+    theme_missing,
+    theme_history,
   } = outlook
 
   const regimeVariant = REGIME_BADGE_VARIANT[regime] ?? 'secondary'
@@ -250,6 +278,55 @@ function MarketOutlookContent({ outlook }: { outlook: MarketOutlookResponse }) {
                   </li>
                 ))}
               </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {theme_rankings && theme_rankings.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Leading Themes</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-2">
+              {theme_rankings.map((t, i) => (
+                <div key={t.slug} className="flex items-center justify-between gap-3 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-text-secondary w-5 shrink-0">{i + 1}.</span>
+                    <span className="text-text-primary truncate">{t.theme}</span>
+                    <span className="text-text-tertiary text-xs shrink-0">
+                      {t.constituent_count} names
+                    </span>
+                    {t.rank_change >= 5 && <Badge variant="success">rotating in</Badge>}
+                    {t.rank_change <= -5 && <Badge variant="error">rotating out</Badge>}
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <ThemeSparkline points={theme_history?.[t.slug] ?? []} />
+                    <span className="tabular-nums text-text-secondary">
+                      {t.score >= 0 ? '+' : ''}
+                      {t.score.toFixed(4)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {theme_rotations && theme_rotations.length > 0 && (
+              <ul className="space-y-1">
+                {theme_rotations.map((flag) => (
+                  <li
+                    key={flag.etf}
+                    className={`text-sm ${flag.direction === 'into' ? 'text-success' : 'text-error'}`}
+                  >
+                    {themeRotationLabel(flag)}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {theme_missing && theme_missing.length > 0 && (
+              <p className="text-xs text-text-secondary pt-1">
+                Not ranked: {theme_missing.map((m) => `${m.slug} (${m.reason})`).join('; ')}
+              </p>
             )}
           </CardContent>
         </Card>

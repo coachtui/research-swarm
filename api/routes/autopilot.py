@@ -40,13 +40,19 @@ class MarketOutlookResponse(BaseModel):
     industry_rotations: Optional[List[dict]] = None
     industry_missing: Optional[List[str]] = None
     size_style: Optional[dict] = None
+    # Phase 3B theme baskets — None until the first post-3B outlook runs
+    theme_rankings: Optional[List[dict]] = None
+    theme_rotations: Optional[List[dict]] = None
+    theme_missing: Optional[List[dict]] = None
+    theme_history: Optional[dict] = None
 
 
 # --- Pure helpers (tested directly) ────────────────────────────────────────
 
 def outlook_row_to_response(row) -> MarketOutlookResponse:
     """Map a Prisma MarketOutlook row (camelCase) to MarketOutlookResponse (snake_case)."""
-    industry = getattr(row, "industryRankings", None)
+    industry = getattr(row, "industryRankings", None) or None
+    themes = getattr(row, "themeRankings", None) or None
     return MarketOutlookResponse(
         id=row.id,
         run_date=row.runDate,
@@ -59,10 +65,14 @@ def outlook_row_to_response(row) -> MarketOutlookResponse:
         rotation_flags=row.rotationFlags,
         breadth=row.breadth,
         reasoning=row.reasoning,
-        industry_rankings=industry["rankings"] if industry else None,
-        industry_rotations=industry["rotations"] if industry else None,
-        industry_missing=industry["missing"] if industry else None,
+        industry_rankings=industry.get("rankings") if industry else None,
+        industry_rotations=industry.get("rotations") if industry else None,
+        industry_missing=industry.get("missing") if industry else None,
         size_style=getattr(row, "sizeStyle", None),
+        theme_rankings=themes.get("rankings") if themes else None,
+        theme_rotations=themes.get("rotations") if themes else None,
+        theme_missing=themes.get("missing") if themes else None,
+        theme_history=themes.get("history") if themes else None,
     )
 
 
@@ -81,6 +91,47 @@ async def get_outlook(admin: User = Depends(require_admin)):
         raise HTTPException(status_code=404, detail="No outlook available yet")
 
     return outlook_row_to_response(row)
+
+
+class EngineReportResponse(BaseModel):
+    """One EngineReport journal row."""
+    id: str
+    created_at: datetime
+    type: str
+    severity: str
+    source: str
+    title: str
+    body: dict
+
+
+def engine_report_row_to_response(row) -> EngineReportResponse:
+    return EngineReportResponse(
+        id=row.id, created_at=row.createdAt, type=row.type,
+        severity=row.severity, source=row.source, title=row.title,
+        body=row.body or {},
+    )
+
+
+@router.get("/autopilot/reports", response_model=List[EngineReportResponse])
+async def get_engine_reports(
+    limit: int = 50,
+    type: Optional[str] = None,
+    severity: Optional[str] = None,
+    admin: User = Depends(require_admin),
+):
+    """Engine journal feed, newest first. The owner's veto surface."""
+    db = await get_db()
+    where: dict = {}
+    if type:
+        where["type"] = type
+    if severity:
+        where["severity"] = severity
+    rows = await db.enginereport.find_many(
+        where=where or None,
+        take=max(1, min(limit, 200)),
+        order={"createdAt": "desc"},
+    )
+    return [engine_report_row_to_response(r) for r in rows]
 
 
 # ── Phase 2: broker linking + sleeve control ────────────────────────────────

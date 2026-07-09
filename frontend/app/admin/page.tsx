@@ -10,6 +10,7 @@ import { AdminUserTable } from '@/components/admin/AdminUserTable'
 import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
 import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
 import { MarketOutlookPanel } from '@/components/autopilot/MarketOutlookPanel'
+import { EngineJournalPanel } from '@/components/autopilot/EngineJournalPanel'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
 import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
@@ -111,7 +112,10 @@ function AdminContent() {
           </TabsContent>
 
           <TabsContent value="outlook">
-            <MarketOutlookPanel />
+            <div className="space-y-6">
+              <MarketOutlookPanel />
+              <EngineJournalPanel />
+            </div>
           </TabsContent>
 
           <TabsContent value="users">

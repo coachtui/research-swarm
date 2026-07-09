@@ -114,6 +114,46 @@ class TestOutlookRowToResponse:
         assert result.industry_rankings is None
         assert result.size_style is None
 
+    def test_theme_fields_included_when_present(self):
+        theme = {
+            "rankings": [{"slug": "photonics", "theme": "Photonics", "score": 0.02,
+                          "rank_1m": 1, "rank_3m": 2, "rank_6m": 2, "rs_1m": 0.01,
+                          "rs_3m": 0.02, "rs_6m": 0.03, "rank_change": 1, "etf": "photonics",
+                          "confidence": 0.8, "constituent_count": 7}],
+            "rotations": [], "missing": [], "history": {"photonics": []},
+        }
+        row = _make_row(themeRankings=theme)
+        result = outlook_row_to_response(row)
+        assert result.theme_rankings[0]["slug"] == "photonics"
+        assert result.theme_rotations == []
+        assert result.theme_missing == []
+        assert result.theme_history == {"photonics": []}
+
+    def test_theme_fields_none_for_legacy_rows(self):
+        """Rows created before Phase 3B have no themeRankings attr."""
+        result = outlook_row_to_response(_make_row())
+        assert result.theme_rankings is None
+        assert result.theme_rotations is None
+        assert result.theme_missing is None
+        assert result.theme_history is None
+
+    def test_survives_partial_theme_blob(self):
+        """A drifted/partial theme blob missing keys must not raise KeyError."""
+        row = _make_row(themeRankings={"rankings": []})
+        result = outlook_row_to_response(row)
+        assert result.theme_rankings == []
+        assert result.theme_rotations is None
+        assert result.theme_missing is None
+        assert result.theme_history is None
+
+    def test_survives_partial_industry_blob(self):
+        """3A rider: a drifted/partial industry blob missing keys must not raise KeyError."""
+        row = _make_row(industryRankings={"rankings": []})
+        result = outlook_row_to_response(row)
+        assert result.industry_rankings == []
+        assert result.industry_rotations is None
+        assert result.industry_missing is None
+
 
 # ── Endpoint tests ───────────────────────────────────────────────────────────
 
@@ -162,6 +202,115 @@ class TestGetOutlookEndpoint:
         assert resp.status_code == 404
         assert resp.json()["detail"] == "No outlook available yet"
 
+
+# ── Phase 3B: engine report journal ─────────────────────────────────────────
+
+def _make_report_row(**overrides) -> SimpleNamespace:
+    """Build a fake Prisma EngineReport row (camelCase attrs)."""
+    defaults = dict(
+        id="r1",
+        createdAt=datetime(2026, 7, 9, tzinfo=timezone.utc),
+        type="membership_change",
+        severity="info",
+        source="theme_delta_weekly",
+        title="t",
+        body={"a": 1},
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+class TestEngineReportRowToResponse:
+    def test_maps_camel_to_snake(self):
+        from api.routes.autopilot import engine_report_row_to_response
+
+        row = _make_report_row()
+        resp = engine_report_row_to_response(row)
+        assert resp.type == "membership_change"
+        assert resp.body == {"a": 1}
+        assert resp.id == "r1"
+        assert resp.severity == "info"
+        assert resp.source == "theme_delta_weekly"
+        assert resp.title == "t"
+
+
+class TestGetEngineReportsEndpoint:
+    def test_returns_200_newest_first(self):
+        newer = _make_report_row(id="r2", createdAt=datetime(2026, 7, 9, tzinfo=timezone.utc))
+        older = _make_report_row(id="r1", createdAt=datetime(2026, 7, 8, tzinfo=timezone.utc))
+        app = _make_app()
+        app.dependency_overrides[require_admin] = lambda: MagicMock(is_admin=True)
+
+        mock_db = MagicMock()
+        mock_db.enginereport.find_many = AsyncMock(return_value=[newer, older])
+
+        with patch(
+            "api.routes.autopilot.get_db", new_callable=AsyncMock, return_value=mock_db
+        ):
+            client = TestClient(app)
+            resp = client.get("/api/autopilot/reports")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert [row["id"] for row in data] == ["r2", "r1"]
+        _, kwargs = mock_db.enginereport.find_many.call_args
+        assert kwargs["order"] == {"createdAt": "desc"}
+        # Neither type nor severity supplied → empty where dict collapses to None
+        assert kwargs["where"] is None
+
+    def test_passes_type_and_severity_filters_into_where(self):
+        app = _make_app()
+        app.dependency_overrides[require_admin] = lambda: MagicMock(is_admin=True)
+
+        mock_db = MagicMock()
+        mock_db.enginereport.find_many = AsyncMock(return_value=[])
+
+        with patch(
+            "api.routes.autopilot.get_db", new_callable=AsyncMock, return_value=mock_db
+        ):
+            client = TestClient(app)
+            resp = client.get(
+                "/api/autopilot/reports",
+                params={"type": "breaker_event", "severity": "critical"},
+            )
+
+        assert resp.status_code == 200
+        _, kwargs = mock_db.enginereport.find_many.call_args
+        assert kwargs["where"] == {"type": "breaker_event", "severity": "critical"}
+
+    def test_clamps_take_to_max_200(self):
+        app = _make_app()
+        app.dependency_overrides[require_admin] = lambda: MagicMock(is_admin=True)
+
+        mock_db = MagicMock()
+        mock_db.enginereport.find_many = AsyncMock(return_value=[])
+
+        with patch(
+            "api.routes.autopilot.get_db", new_callable=AsyncMock, return_value=mock_db
+        ):
+            client = TestClient(app)
+            resp = client.get("/api/autopilot/reports", params={"limit": 9999})
+
+        assert resp.status_code == 200
+        _, kwargs = mock_db.enginereport.find_many.call_args
+        assert kwargs["take"] == 200
+
+    def test_clamps_take_to_min_1(self):
+        app = _make_app()
+        app.dependency_overrides[require_admin] = lambda: MagicMock(is_admin=True)
+
+        mock_db = MagicMock()
+        mock_db.enginereport.find_many = AsyncMock(return_value=[])
+
+        with patch(
+            "api.routes.autopilot.get_db", new_callable=AsyncMock, return_value=mock_db
+        ):
+            client = TestClient(app)
+            resp = client.get("/api/autopilot/reports", params={"limit": 0})
+
+        assert resp.status_code == 200
+        _, kwargs = mock_db.enginereport.find_many.call_args
+        assert kwargs["take"] == 1
 
 # ── Phase 2: broker link / status / resume ──────────────────────────────────
 

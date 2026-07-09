@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -83,27 +83,59 @@ def build_outlook_email_html(record: Dict[str, Any]) -> str:
 """
 
 
-def compute_extended_signals(closes_extra, alert) -> Dict[str, Any]:
+def compute_extended_signals(closes_extra) -> "tuple[Dict[str, Any], list]":
     """Phase 3A industry + size/style passes.
 
-    Each pass degrades independently to None + failure alert. Never raises —
-    the sector outlook (Sleeve B's critical path) must publish regardless.
+    Each pass degrades independently to None. Returns (out, failures) where
+    failures is a list of (subject, detail) for the async caller to journal —
+    this helper stays sync/pure so it remains unit-testable.
     """
     from execution.indicators.industry_strength import rank_industries  # noqa: PLC0415
     from execution.indicators.size_style import compute_size_style  # noqa: PLC0415
 
     out: Dict[str, Any] = {"industry": None, "size_style": None}
+    failures: list = []
     try:
         out["industry"] = rank_industries(closes_extra)
     except Exception as exc:
         logger.exception("Outlook industry pass failed")
-        alert("Outlook industry pass failed", f"{type(exc).__name__}: {exc}")
+        failures.append(("Outlook industry pass failed", f"{type(exc).__name__}: {exc}"))
     try:
         out["size_style"] = compute_size_style(closes_extra)
     except Exception as exc:
         logger.exception("Outlook size/style pass failed")
-        alert("Outlook size/style pass failed", f"{type(exc).__name__}: {exc}")
-    return out
+        failures.append(("Outlook size/style pass failed", f"{type(exc).__name__}: {exc}"))
+    return out, failures
+
+
+async def compute_theme_rankings_payload(db) -> "Optional[Dict[str, Any]]":
+    """Fetch active themes and rank their synthetic baskets (Phase 3B).
+
+    Returns None in the pre-first-discovery state (no themes with active
+    constituents). Raises on real failures — the caller owns degrade+alert.
+    """
+    from execution.constants import BENCHMARK  # noqa: PLC0415
+    from execution.indicators.theme_strength import rank_themes  # noqa: PLC0415
+    from execution.market_data import (  # noqa: PLC0415
+        fetch_closes_batch, fetch_history_for,
+    )
+
+    rows = await db.themebasket.find_many(
+        where={"status": "active"}, include={"constituents": True})
+    themes = [{
+        "slug": r.slug, "name": r.name, "confidence": r.confidence,
+        "tickers": [c.ticker for c in (r.constituents or [])
+                    if c.status == "active"],
+    } for r in rows]
+    themes = [t for t in themes if t["tickers"]]
+    if not themes:
+        return None  # pre-first-discovery state: seeds have no constituents
+    all_tickers = sorted({t for th in themes for t in th["tickers"]})
+    closes = fetch_closes_batch(all_tickers)
+    spy = fetch_history_for([BENCHMARK]).get(BENCHMARK)
+    if spy is None:
+        raise RuntimeError("SPY history unavailable for theme pass")
+    return rank_themes(themes, closes, spy)
 
 
 # ── Inngest function ─────────────────────────────────────────────────────────
@@ -158,7 +190,9 @@ def _register_inngest_function():
             except Exception:
                 logger.exception("Extended-signal fetch failed")
                 closes_extra = {}
-            extended = compute_extended_signals(closes_extra, send_failure_alert)
+            extended, ext_failures = compute_extended_signals(closes_extra)
+            for subject, detail in ext_failures:
+                await send_failure_alert(subject, detail, source="weekly_market_outlook")
 
             return {
                 "rankings": rankings,
@@ -180,11 +214,34 @@ def _register_inngest_function():
             # Control-group contract: the strategist must never see the
             # Sleeve-A-only extended signals (its override feeds the shared regime).
             payload = {k: v for k, v in indicators.items()
-                       if k not in ("industry", "size_style")}
+                       if k not in ("industry", "size_style", "themes")}
             payload["macro_headlines"] = fetch_macro_headlines()
             return run_strategist(payload)
 
         strategist = await step.run("run-strategist", strategist_step)
+
+        # Step 2.5: theme rankings (Phase 3B — Sleeve-A-only; degrades to None)
+        # Deliberately runs AFTER the strategist step — structurally impossible
+        # for the LLM to see theme data. All imports live inside the try so
+        # even an ImportError degrades instead of killing the outlook.
+        async def compute_theme_rankings() -> "Optional[Dict[str, Any]]":
+            try:
+                from api.lib.db import get_db  # noqa: PLC0415
+                return await compute_theme_rankings_payload(await get_db())
+            except Exception as exc:
+                logger.exception("Outlook theme pass failed")
+                try:
+                    from execution.alerts import send_failure_alert  # noqa: PLC0415
+                    await send_failure_alert(
+                        "Outlook theme pass failed", f"{type(exc).__name__}: {exc}",
+                        source="weekly_market_outlook")
+                except Exception:
+                    # Journaling is best-effort — never let the alert path
+                    # break the degrade-to-None contract.
+                    logger.exception("Failed to journal theme-pass alert")
+                return None
+
+        themes_result = await step.run("compute-theme-rankings", compute_theme_rankings)
 
         # Step 3: store
         async def store() -> Dict[str, Any]:
@@ -192,7 +249,8 @@ def _register_inngest_function():
             from execution.outlook_service import (  # noqa: PLC0415
                 build_outlook_record, store_outlook,
             )
-            record = build_outlook_record(run_date, indicators, strategist)
+            record = build_outlook_record(
+                run_date, {**indicators, "themes": themes_result}, strategist)
             row = await store_outlook(await get_db(), record)
             logger.info("MarketOutlook stored: %s regime=%s", row.id, record["regime"])
             return {"id": row.id, **{k: v for k, v in record.items() if k != "runDate"},

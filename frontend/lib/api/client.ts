@@ -20,6 +20,7 @@ import type {
   RevenueTimeSeries,
   UserInfo,
   MarketOutlookResponse,
+  EngineReportEntry,
   EntitlementsResponse,
   DeploymentUpdateResponse,
   EligibilityStressTestResponse,
@@ -358,6 +359,15 @@ class ApiClient {
 
   async getMarketOutlook(): Promise<MarketOutlookResponse> {
     return this.request('/api/autopilot/outlook')
+  }
+
+  async getEngineReports(params?: { type?: string; severity?: string; limit?: number }): Promise<EngineReportEntry[]> {
+    const q = new URLSearchParams()
+    if (params?.type) q.set('type', params.type)
+    if (params?.severity) q.set('severity', params.severity)
+    if (params?.limit) q.set('limit', String(params.limit))
+    const suffix = q.toString() ? `?${q.toString()}` : ''
+    return this.request(`/api/autopilot/reports${suffix}`)
   }
 
   // Stripe subscription methods

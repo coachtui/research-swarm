@@ -1118,6 +1118,50 @@ export interface SizeStyle {
   tag: 'small_caps_leading' | 'large_caps_leading' | 'mixed'
 }
 
+export interface ThemeRanking {
+  etf: string // slug (synthetic index key)
+  slug: string
+  theme: string
+  rs_1m: number
+  rs_3m: number
+  rs_6m: number
+  rank_1m: number
+  rank_3m: number
+  rank_6m: number
+  rank_change: number
+  score: number
+  confidence: number
+  constituent_count: number
+}
+
+export interface ThemeRotationFlag {
+  etf: string
+  theme: string
+  direction: 'into' | 'out_of'
+  rank_change: number
+}
+
+export interface ThemeMissing {
+  slug: string
+  reason: string
+}
+
+export interface ThemeHistoryPoint {
+  weeks_ago: number
+  score: number
+  rank: number
+}
+
+export interface EngineReportEntry {
+  id: string
+  created_at: string
+  type: string
+  severity: 'info' | 'warning' | 'critical'
+  source: string
+  title: string
+  body: Record<string, unknown>
+}
+
 export interface MarketOutlookResponse {
   id: string
   run_date: string
@@ -1134,6 +1178,10 @@ export interface MarketOutlookResponse {
   industry_rotations: IndustryRotationFlag[] | null
   industry_missing: string[] | null
   size_style: SizeStyle | null
+  theme_rankings: ThemeRanking[] | null
+  theme_rotations: ThemeRotationFlag[] | null
+  theme_missing: ThemeMissing[] | null
+  theme_history: Record<string, ThemeHistoryPoint[]> | null
 }
 
 export class ApiError extends Error {

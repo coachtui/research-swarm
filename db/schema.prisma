@@ -914,6 +914,7 @@ model MarketOutlook {
   // Phase 3A — Sleeve A signal expansion (nullable: passes degrade independently)
   industryRankings   Json?    // {rankings: [{etf, industry, rs_*, rank_*, rank_change, score}], rotations: [...], missing: [...]}
   sizeStyle          Json?    // {iwm: {label, rs_*, composite}, mdy: {...}, tag}
+  themeRankings      Json?    // Phase 3B: {rankings, rotations, missing, history} — Sleeve A only
 
   // Narrative
   reasoning          String?  // strategist's written reasoning
@@ -921,6 +922,54 @@ model MarketOutlook {
   createdAt          DateTime @default(now())
 
   @@index([runDate])
+}
+
+// ── Phase 3B: LLM-discovered theme baskets + engine journal ─────────────────
+// Sleeve-A-only signal objects. Theme membership NEVER buys a stock.
+
+model ThemeBasket {
+  id             String    @id @default(cuid())
+  slug           String    @unique          // "photonics", "gas-turbines"
+  name           String
+  status         String    @default("active") // "active" | "retired"
+  origin         String    // "seed" | "engine"
+  thesis         String    // demand-chain reasoning from the monthly pass
+  confidence     Float     @default(0.5)
+  metadata       Json?     // {binding_constraint, consensus_gap_notes, leading_indicators}
+  lastReasonedAt DateTime?
+  createdAt      DateTime  @default(now())
+  retiredAt      DateTime?
+  constituents   ThemeConstituent[]
+}
+
+model ThemeConstituent {
+  id         String    @id @default(cuid())
+  themeId    String
+  theme      ThemeBasket @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  ticker     String
+  exposure   String    // stated exposure, one sentence with evidence
+  confidence Float
+  status     String    @default("active") // "active" | "removed"
+  source     String    // "reasoning" | "delta"
+  validation Json?     // {adv, market_cap, price, validated_at}
+  addedAt    DateTime  @default(now())
+  removedAt  DateTime?
+
+  @@unique([themeId, ticker])
+}
+
+model EngineReport {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  type      String   // theme_proposal | membership_change | theme_retired |
+                     // validation_failure | engine_failure | rebalance_summary | breaker_event
+  severity  String   // "info" | "warning" | "critical"
+  source    String   // originating cron/module
+  title     String
+  body      Json
+
+  @@index([createdAt])
+  @@index([type])
 }
 
 // ── Autopilot execution layer (Phase 2) ─────────────────────────────────────

@@ -17,6 +17,10 @@ execution crons, execution_daily and execution_weekly
 Both use the same guarded-registration pattern (None when the pip SDK is
 absent), so they are safe to add to the roster in every environment.
 
+Owner decision (2026-07-09, Phase 3B): register theme_discovery_monthly and
+theme_delta_weekly
+(docs/superpowers/specs/2026-07-09-phase3b-theme-baskets-design.md).
+
 Hosting decision (2026-07-08 review): Vercel installs the inngest SDK
 transitively (requirements-vercel.txt -> requirements.txt), so the SDK being
 importable does NOT mean this host should serve cron. The handler only
@@ -32,6 +36,8 @@ from inngest_app.functions.weekly_batch import weekly_batch
 from inngest_app.functions.weekly_outlook import weekly_market_outlook
 from inngest_app.functions.execution_daily import execution_daily
 from inngest_app.functions.execution_weekly import execution_weekly
+from inngest_app.functions.theme_discovery_monthly import theme_discovery_monthly
+from inngest_app.functions.theme_delta_weekly import theme_delta_weekly
 
 # Dormant roster — intentionally NOT registered (need real batch data first):
 # from inngest_app.functions.send_teaser_digest import send_teaser_digest
@@ -43,7 +49,8 @@ from inngest_app.functions.execution_weekly import execution_weekly
 # pass to serve() in any environment.
 ACTIVE_FUNCTIONS = [
     fn
-    for fn in [weekly_market_outlook, weekly_batch, execution_daily, execution_weekly]
+    for fn in [weekly_market_outlook, weekly_batch, execution_daily, execution_weekly,
+               theme_discovery_monthly, theme_delta_weekly]
     if fn is not None
 ]
 

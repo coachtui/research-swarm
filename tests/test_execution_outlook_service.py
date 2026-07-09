@@ -117,3 +117,27 @@ async def test_store_outlook_wraps_extended_json_only_when_present():
     data = db.marketoutlook.create.call_args.kwargs["data"]
     assert "industryRankings" not in data
     assert "sizeStyle" not in data
+
+
+THEMES = {"rankings": [], "rotations": [], "missing": [], "history": {}}
+
+
+def test_build_outlook_record_maps_theme_rankings():
+    indicators = {**INDICATORS, "themes": THEMES}
+    record = build_outlook_record(RUN_DATE, indicators, STRATEGIST_OK)
+    assert record["themeRankings"] == THEMES
+
+
+def test_build_outlook_record_theme_rankings_none_when_absent():
+    record = build_outlook_record(RUN_DATE, INDICATORS, STRATEGIST_OK)
+    assert record["themeRankings"] is None
+
+
+@pytest.mark.asyncio
+async def test_store_outlook_omits_none_theme_rankings():
+    db = MagicMock()
+    db.marketoutlook.create = AsyncMock(return_value="row")
+    record = build_outlook_record(RUN_DATE, INDICATORS, STRATEGIST_OK)
+    await store_outlook(db, record)
+    data = db.marketoutlook.create.call_args.kwargs["data"]
+    assert "themeRankings" not in data
