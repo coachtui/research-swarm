@@ -1,8 +1,10 @@
 """Tests for Stage 1 stock screener."""
 import pytest
+import pandas as pd
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
-from research_swarm.data.screener import StockScreener, ScreenerSignals, score_ticker
+from research_swarm.data.screener import StockScreener, ScreenerSignals, ScoredTicker, score_ticker
 
 
 class TestScorerFunction:
@@ -115,3 +117,62 @@ class TestStockScreener:
         assert len(tickers) > 50
         assert all(isinstance(t, str) for t in tickers)
         assert "AAPL" in tickers
+
+
+def _mock_clients(insider=None, ret=None, earnings=None):
+    market = MagicMock()
+    market.calculate_return.side_effect = ret or (lambda t, days: 0.0)
+    market.get_earnings_dates.side_effect = earnings or (lambda t: None)
+    ins = MagicMock()
+    ins.get_insider_transactions.side_effect = insider or (lambda t, days_back: [])
+    return market, ins
+
+
+class TestDaysSinceEarnings:
+    def test_past_earnings_sets_days_since(self):
+        now = datetime.now(timezone.utc)
+        df = pd.DataFrame(index=pd.DatetimeIndex([now - timedelta(days=3)], tz="UTC"))
+        market, ins = _mock_clients(earnings=lambda t: df)
+        screener = StockScreener(market_client=market, insider_client=ins)
+        signals = screener._collect_signals("AAPL")
+        assert signals.days_since_earnings == 3
+        assert signals.days_to_earnings is None
+
+    def test_no_earnings_leaves_none(self):
+        market, ins = _mock_clients()
+        screener = StockScreener(market_client=market, insider_client=ins)
+        signals = screener._collect_signals("AAPL")
+        assert signals.days_since_earnings is None
+
+    def test_default_field_keeps_positional_construction_working(self):
+        s = ScreenerSignals("X", False, None, 0.0)
+        assert s.days_since_earnings is None
+
+
+class TestScreenAll:
+    def test_returns_all_tickers_scored_desc(self):
+        # MSFT gets insider buying (+3.0), AAPL gets nothing
+        market, ins = _mock_clients(
+            insider=lambda t, days_back: [{"transaction_type": "P"}] if t == "MSFT" else []
+        )
+        screener = StockScreener(market_client=market, insider_client=ins)
+        result = screener.screen_all(["AAPL", "MSFT"])
+        assert len(result) == 2
+        assert result[0].ticker == "MSFT" and result[0].score >= 3.0
+        assert result[1].ticker == "AAPL"
+        assert isinstance(result[0], ScoredTicker)
+        assert result[0].signals.has_insider_buying is True
+
+    def test_screen_delegates_to_screen_all(self):
+        market, ins = _mock_clients(
+            insider=lambda t, days_back: [{"transaction_type": "P"}] if t == "MSFT" else []
+        )
+        screener = StockScreener(market_client=market, insider_client=ins)
+        assert screener.screen(["AAPL", "MSFT"], max_candidates=1) == ["MSFT"]
+
+    def test_concurrent_run_completes_for_many_tickers(self):
+        market, ins = _mock_clients()
+        screener = StockScreener(market_client=market, insider_client=ins)
+        universe = [f"T{i}" for i in range(40)]
+        result = screener.screen_all(universe, max_workers=8)
+        assert sorted(st.ticker for st in result) == sorted(universe)
