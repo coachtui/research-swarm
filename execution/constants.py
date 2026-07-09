@@ -72,3 +72,17 @@ MAX_SECTOR_PCT_OF_ACCOUNT = 0.35   # hard guardrail: one sector across both slee
 CIRCUIT_BREAKER_VS_SPY = -0.15     # sleeve return minus SPY return since inception
 POSITION_QTY_TOLERANCE = 0.01      # relative qty tolerance for reconciliation
 OUTLOOK_MAX_AGE_DAYS = 8           # rebalance refuses an outlook older than this
+
+# ── Phase 3B: LLM-discovered theme baskets (Sleeve A signal layer 3) ─────────
+# Theme membership NEVER buys a stock — themes pick hunting grounds only.
+MAX_ACTIVE_THEMES = 12
+MIN_THEME_CONSTITUENTS = 5          # validated names required to activate/rank
+MAX_THEME_CONSTITUENTS = 20         # bounds the Sunday batch download (≤240 tickers)
+THEME_ADV_FLOOR_USD = 1_000_000.0   # avg daily dollar volume floor
+THEME_MCAP_FLOOR_USD = 100_000_000.0
+DELTA_AUTO_APPLY_CONFIDENCE = 0.7   # weekly delta below this journals but doesn't apply
+THEME_ROTATION_MIN_RANK_GAIN = 5    # same scale as industries
+THEME_HISTORY_WEEKS = 12            # sparkline series length (current membership)
+THEME_REASONING_MODEL = "claude-sonnet-5"
+THEME_DELTA_MODEL = "claude-haiku-4-5"
+THEME_WEB_SEARCH_MAX_USES = 8
