@@ -130,3 +130,76 @@ class TestGetOutlookEndpoint:
 
         assert resp.status_code == 404
         assert resp.json()["detail"] == "No outlook available yet"
+
+
+# ── Phase 2: broker link / status / resume ──────────────────────────────────
+
+def _admin_app() -> FastAPI:
+    """Minimal FastAPI app with only autopilot.router, admin override included."""
+    app = FastAPI()
+    app.include_router(router, prefix="/api")
+    app.dependency_overrides[require_admin] = lambda: SimpleNamespace(id="admin1", is_admin=True)
+    return app
+
+
+def _patch_db():
+    """Patch autopilot's get_db to a MagicMock db (no real prisma)."""
+    return patch("api.routes.autopilot.get_db", new=AsyncMock(return_value=MagicMock()))
+
+
+class TestBrokerLink:
+    def test_link_validates_and_stores_encrypted(self):
+        app = _admin_app()
+        fake_summary = {"equity": 100000.0, "cash": 100000.0}
+        with _patch_db(), \
+             patch("api.routes.autopilot._alpaca_client_factory") as factory, \
+             patch("api.routes.autopilot.upsert_alpaca_account", new=AsyncMock()) as upsert:
+            factory.return_value.get_account_summary.return_value = fake_summary
+            client = TestClient(app)
+            resp = client.post("/api/autopilot/broker/link",
+                               json={"api_key": "PK123", "api_secret": "SEC456"})
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "linked", "account_equity": 100000.0}
+        upsert.assert_awaited_once()
+
+    def test_link_rejects_bad_keys_without_storing(self):
+        app = _admin_app()
+        with _patch_db(), \
+             patch("api.routes.autopilot._alpaca_client_factory") as factory, \
+             patch("api.routes.autopilot.upsert_alpaca_account", new=AsyncMock()) as upsert:
+            factory.return_value.get_account_summary.side_effect = RuntimeError("401")
+            client = TestClient(app)
+            resp = client.post("/api/autopilot/broker/link",
+                               json={"api_key": "bad", "api_secret": "bad"})
+        assert resp.status_code == 400
+        upsert.assert_not_awaited()
+
+
+class TestBrokerStatus:
+    def test_status_unlinked(self):
+        app = _admin_app()
+        with _patch_db(), \
+             patch("api.routes.autopilot.get_active_alpaca_account",
+                   new=AsyncMock(return_value=None)):
+            resp = TestClient(app).get("/api/autopilot/broker/status")
+        assert resp.status_code == 200
+        assert resp.json()["linked"] is False
+
+
+class TestSleeveResume:
+    def test_resume_reactivates_halted_sleeve(self):
+        app = _admin_app()
+        state = SimpleNamespace(sleeve="B", status="halted", statusReason="cb")
+        with _patch_db(), \
+             patch("api.routes.autopilot.get_sleeve_state",
+                   new=AsyncMock(return_value=state)), \
+             patch("api.routes.autopilot.set_sleeve_status", new=AsyncMock()) as setter:
+            resp = TestClient(app).post("/api/autopilot/sleeve/B/resume")
+        assert resp.status_code == 200
+        assert resp.json() == {"sleeve": "B", "status": "active"}
+        setter.assert_awaited_once()
+
+    def test_resume_unknown_sleeve_404(self):
+        app = _admin_app()
+        resp = TestClient(app).post("/api/autopilot/sleeve/X/resume")
+        assert resp.status_code == 404
