@@ -44,6 +44,19 @@ def plan_monthly_actions(
     # live confidence view, mutated as retires/dethrones land this pass
     confidence = {t["slug"]: t["confidence"] for t in current if t["status"] == "active"}
 
+    # An "add" for a slug that's already active (e.g. a seed theme with zero
+    # constituents) is a natural — if wrong — reading of "populate this seed".
+    # Coerce it to "keep" (semantics identical: keep is a full-list replace),
+    # unless the same pass also retires that slug — retire+add-same-slug is
+    # a deliberate reactivation and must keep working as-is.
+    retire_slugs = {p["slug"] for p in proposals if p["action"] == "retire"}
+    proposals = [
+        {**p, "action": "keep"}
+        if p["action"] == "add" and p["slug"] in active and p["slug"] not in retire_slugs
+        else p
+        for p in proposals
+    ]
+
     retires = [p for p in proposals if p["action"] == "retire"]
     keeps = [p for p in proposals if p["action"] == "keep"]
     adds = sorted((p for p in proposals if p["action"] == "add"),

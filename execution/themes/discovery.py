@@ -39,13 +39,16 @@ def _call_llm(model: str, prompt: str, use_web_search: bool = False, max_uses: i
     client = anthropic.Anthropic(api_key=_anthropic_api_key())
     kwargs: Dict[str, Any] = {
         "model": model,
-        "max_tokens": 8192,
+        "max_tokens": 16384,
         "messages": [{"role": "user", "content": prompt}],
     }
     if use_web_search:
         kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search",
                             "max_uses": max_uses}]
     response = client.messages.create(**kwargs)
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        raise RuntimeError(
+            "LLM response truncated at max_tokens — increase THEME reasoning budget")
     return "".join(
         block.text for block in response.content
         if getattr(block, "type", "") == "text"

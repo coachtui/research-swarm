@@ -1,4 +1,7 @@
 """Discovery orchestration with stubbed LLM + validation + db."""
+import sys
+import types
+
 import pytest
 
 import execution.themes.discovery as discovery
@@ -29,6 +32,68 @@ def test_reason_monthly_uses_web_search_model(monkeypatch):
     assert seen["model"] == "claude-sonnet-5"
     assert seen["use_web_search"] is True and seen["max_uses"] == 8
     assert "demand chain" in seen["prompt"].lower()
+
+
+class _FakeBlock:
+    def __init__(self, text, block_type="text"):
+        self.type = block_type
+        self.text = text
+
+
+class _FakeResponse:
+    def __init__(self, texts, stop_reason):
+        self.content = [_FakeBlock(t) for t in texts]
+        self.stop_reason = stop_reason
+
+
+class _FakeMessages:
+    def __init__(self, response):
+        self._response = response
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return self._response
+
+
+class _FakeClient:
+    def __init__(self, response):
+        self.messages = _FakeMessages(response)
+
+
+class _FakeAnthropic:
+    """Stub for the `anthropic` module's `Anthropic` class."""
+
+    def __init__(self, response):
+        self._response = response
+        self.last_client = None
+
+    def __call__(self, api_key=None):
+        self.last_client = _FakeClient(self._response)
+        return self.last_client
+
+
+def _install_fake_anthropic(monkeypatch, response):
+    fake_module = types.ModuleType("anthropic")
+    factory = _FakeAnthropic(response)
+    fake_module.Anthropic = factory
+    monkeypatch.setitem(sys.modules, "anthropic", fake_module)
+    return factory
+
+
+def test_call_llm_raises_on_truncated_response(monkeypatch):
+    response = _FakeResponse(["{ truncated json..."], stop_reason="max_tokens")
+    _install_fake_anthropic(monkeypatch, response)
+    with pytest.raises(RuntimeError, match="truncated"):
+        discovery._call_llm("m", "p")
+
+
+def test_call_llm_happy_path_returns_concatenated_text_with_16384_max_tokens(monkeypatch):
+    response = _FakeResponse(["hello ", "world"], stop_reason="end_turn")
+    factory = _install_fake_anthropic(monkeypatch, response)
+    out = discovery._call_llm("m", "p")
+    assert out == "hello world"
+    assert factory.last_client.messages.kwargs["max_tokens"] == 16384
 
 
 def test_parse_and_validate_monthly(monkeypatch):

@@ -87,6 +87,31 @@ def test_retire_only_applies_to_active_theme():
     assert not any(s == "ghost" for _, s in kinds)
 
 
+def test_add_for_active_theme_coerced_to_keep():
+    # seed state: active theme with zero constituents
+    current = [_current("photonics", tickers=())]
+    props = [_proposal("photonics", action="add", n_constituents=6)]
+    plan = plan_monthly_actions(current, props, _validation_for(props))
+    acts = plan["actions"]
+    assert len(acts) == 1
+    assert acts[0]["kind"] == "update_theme"
+    assert len(acts[0]["add"]) == 6
+    assert plan["rejected"] == []
+
+
+def test_retire_plus_add_same_slug_still_reactivates():
+    current = [_current("photonics", tickers=("LASR",))]
+    props = [
+        _proposal("photonics", action="retire"),
+        _proposal("photonics", action="add", n_constituents=6),
+    ]
+    plan = plan_monthly_actions(current, props, _validation_for(props))
+    kinds = [a["kind"] for a in plan["actions"]]
+    assert kinds == ["retire_theme", "activate_theme"]
+    assert plan["actions"][0]["slug"] == "photonics"
+    assert plan["actions"][1]["slug"] == "photonics"
+
+
 def test_reactivation_flagged_for_retired_slug():
     current = [_current("space", status="retired")]
     props = [_proposal("space", action="add")]
