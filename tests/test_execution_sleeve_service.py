@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from execution.sleeve_service import apply_fill, init_sleeve_state, store_snapshot
+from execution.sleeve_service import (
+    apply_fill, get_engine_positions, get_sleeve_state, init_sleeve_state,
+    set_sleeve_status, store_snapshot, update_sleeve_cash,
+)
 
 RUN_DATE = datetime(2026, 7, 13, tzinfo=timezone.utc)
 
@@ -96,3 +99,37 @@ async def test_apply_fill_unfilled_order_records_trade_but_touches_nothing():
     assert delta == 0.0
     db.enginetrade.create.assert_awaited_once()  # journaled for the audit trail
     db.engineposition.upsert.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_sleeve_state_queries_unique_sleeve():
+    db = _db()
+    await get_sleeve_state(db, "B")
+    db.sleevestate.find_unique.assert_awaited_once_with(where={"sleeve": "B"})
+
+
+@pytest.mark.asyncio
+async def test_set_sleeve_status_writes_status_and_reason():
+    db = _db()
+    await set_sleeve_status(db, "B", "halted", reason="circuit breaker")
+    db.sleevestate.update.assert_awaited_once_with(
+        where={"sleeve": "B"},
+        data={"status": "halted", "statusReason": "circuit breaker"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_update_sleeve_cash_rounds_to_cents():
+    db = _db()
+    await update_sleeve_cash(db, "B", 12345.6789)
+    db.sleevestate.update.assert_awaited_once_with(
+        where={"sleeve": "B"},
+        data={"cashBalance": 12345.68},
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_engine_positions_filters_by_sleeve():
+    db = _db()
+    await get_engine_positions(db, "B")
+    db.engineposition.find_many.assert_awaited_once_with(where={"sleeve": "B"})
