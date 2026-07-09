@@ -47,6 +47,8 @@ def test_all_function_modules_import_without_sdk():
         "inngest_app.functions.send_teaser_digest",
         "inngest_app.functions.send_watchlist_alerts",
         "inngest_app.functions.weekly_outlook",
+        "inngest_app.functions.execution_daily",
+        "inngest_app.functions.execution_weekly",
     ):
         mod = importlib.import_module(name)
         assert mod is not None
@@ -63,9 +65,16 @@ def test_active_functions_roster():
     # actually materialized — in registration order.
     batch_mod = importlib.import_module("inngest_app.functions.weekly_batch")
     outlook_mod = importlib.import_module("inngest_app.functions.weekly_outlook")
+    daily_mod = importlib.import_module("inngest_app.functions.execution_daily")
+    weekly_exec_mod = importlib.import_module("inngest_app.functions.execution_weekly")
     expected = [
         fn
-        for fn in [outlook_mod.weekly_market_outlook, batch_mod.weekly_batch]
+        for fn in [
+            outlook_mod.weekly_market_outlook,
+            batch_mod.weekly_batch,
+            daily_mod.execution_daily,
+            weekly_exec_mod.execution_weekly,
+        ]
         if fn is not None
     ]
     assert registry.ACTIVE_FUNCTIONS == expected
