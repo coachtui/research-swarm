@@ -1084,6 +1084,40 @@ export interface OutlookBreadth {
   equal_weight_trend_3m: number | null
 }
 
+export interface IndustryRanking {
+  etf: string
+  industry: string
+  rs_1m: number
+  rs_3m: number
+  rs_6m: number
+  rank_1m: number
+  rank_3m: number
+  rank_6m: number
+  rank_change: number
+  score: number
+}
+
+export interface IndustryRotationFlag {
+  etf: string
+  industry: string
+  direction: 'into' | 'out_of'
+  rank_change: number
+}
+
+export interface SizeStyleLeg {
+  label: string
+  rs_1m: number
+  rs_3m: number
+  rs_6m: number
+  composite: number
+}
+
+export interface SizeStyle {
+  iwm: SizeStyleLeg
+  mdy: SizeStyleLeg
+  tag: 'small_caps_leading' | 'large_caps_leading' | 'mixed'
+}
+
 export interface MarketOutlookResponse {
   id: string
   run_date: string
@@ -1096,6 +1130,10 @@ export interface MarketOutlookResponse {
   rotation_flags: RotationFlag[]
   breadth: OutlookBreadth
   reasoning: string | null
+  industry_rankings: IndustryRanking[] | null
+  industry_rotations: IndustryRotationFlag[] | null
+  industry_missing: string[] | null
+  size_style: SizeStyle | null
 }
 
 export class ApiError extends Error {

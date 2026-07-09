@@ -4,7 +4,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useMarketOutlook } from '@/lib/hooks/useAdmin'
 import { formatDate, formatPercent } from '@/lib/utils/formatting'
 import { AlertTriangle } from 'lucide-react'
-import type { MarketOutlookResponse, RotationFlag } from '@/types/api'
+import type {
+  IndustryRotationFlag,
+  MarketOutlookResponse,
+  RotationFlag,
+  SizeStyle,
+} from '@/types/api'
 
 const REGIME_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'error'> = {
   risk_on: 'success',
@@ -28,6 +33,19 @@ function rotationLabel(flag: RotationFlag): string {
   return flag.direction === 'into'
     ? `Rotation into ${flag.sector} (${flag.etf})`
     : `Rotation out of ${flag.sector} (${flag.etf})`
+}
+
+function sizeStyleLabel(tag: SizeStyle['tag']): string {
+  return tag
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function industryRotationLabel(flag: IndustryRotationFlag): string {
+  return flag.direction === 'into'
+    ? `Rotation into ${flag.industry} (${flag.etf})`
+    : `Rotation out of ${flag.industry} (${flag.etf})`
 }
 
 export function MarketOutlookPanel() {
@@ -87,6 +105,9 @@ function MarketOutlookContent({ outlook }: { outlook: MarketOutlookResponse }) {
     rotation_flags,
     breadth,
     reasoning,
+    industry_rankings,
+    industry_rotations,
+    size_style,
   } = outlook
 
   const regimeVariant = REGIME_BADGE_VARIANT[regime] ?? 'secondary'
@@ -111,6 +132,9 @@ function MarketOutlookContent({ outlook }: { outlook: MarketOutlookResponse }) {
                 {conviction === null ? 'n/a' : formatPercent(conviction * 100, 0)}
               </span>
             </div>
+            {size_style && (
+              <Badge variant="secondary">{sizeStyleLabel(size_style.tag)}</Badge>
+            )}
           </div>
 
           {strategist_override && (
@@ -186,6 +210,50 @@ function MarketOutlookContent({ outlook }: { outlook: MarketOutlookResponse }) {
           )}
         </CardContent>
       </Card>
+
+      {industry_rankings && industry_rankings.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Leading Industries</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <ul className="space-y-1">
+              {industry_rankings.slice(0, 5).map((row, i) => (
+                <li key={row.etf} className="text-sm text-text-primary">
+                  <span className="font-medium">{i + 1}.</span> {row.industry}{' '}
+                  <span className="text-text-tertiary">({row.etf})</span>
+                  <span
+                    className={`ml-2 text-xs font-medium ${
+                      row.rank_change > 0
+                        ? 'text-success'
+                        : row.rank_change < 0
+                          ? 'text-error'
+                          : 'text-text-secondary'
+                    }`}
+                  >
+                    {row.rank_change > 0 ? `+${row.rank_change}` : row.rank_change}
+                  </span>
+                  <span className="ml-2 text-xs text-text-secondary">
+                    {row.score.toFixed(4)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {industry_rotations && industry_rotations.length > 0 && (
+              <ul className="space-y-1">
+                {industry_rotations.map((flag) => (
+                  <li
+                    key={flag.etf}
+                    className={`text-sm ${flag.direction === 'into' ? 'text-success' : 'text-error'}`}
+                  >
+                    {industryRotationLabel(flag)}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
