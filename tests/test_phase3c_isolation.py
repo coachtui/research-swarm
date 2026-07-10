@@ -21,6 +21,12 @@ _CONTROL_GROUP_FILES = [
 
 
 def test_sleeve_b_code_never_imports_funnel_modules():
+    """Sleeve B control-group files must never import funnel modules or the
+    shadow broker. For ImportFrom we check node.module AND the qualified
+    module.alias names, so evasive forms like `from execution import funnel`
+    or `from execution.broker import shadow_client` are also flagged (the
+    submodule name lives only in the alias, not node.module) — verified by
+    ast-parsing both forms and confirming the walker flags them."""
     for rel in _CONTROL_GROUP_FILES:
         tree = ast.parse(pathlib.Path(rel).read_text())
         for node in ast.walk(tree):
@@ -28,7 +34,11 @@ def test_sleeve_b_code_never_imports_funnel_modules():
             if isinstance(node, ast.Import):
                 names = [a.name for a in node.names]
             elif isinstance(node, ast.ImportFrom):
-                names = [node.module or ""]
+                module = node.module or ""
+                names = [module] + [
+                    f"{module}.{a.name}" if module else a.name
+                    for a in node.names
+                ]
             for name in names:
                 assert not name.startswith("execution.funnel"), (
                     f"{rel} imports {name} — Sleeve B is the control group"
