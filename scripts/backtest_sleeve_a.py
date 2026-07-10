@@ -64,9 +64,12 @@ def cmd_fetch(ns) -> None:
     if not PIT_CSV.exists():
         try:
             download_constituents_csv(PIT_CSV)
-            print("downloaded PIT S&P 500 constituents")
         except Exception as exc:  # noqa: BLE001
-            print(f"FAILED to download PIT constituents ({exc}).\n"
+            print(f"PIT constituents download raised: {exc}")
+        if PIT_CSV.exists():
+            print("downloaded PIT S&P 500 constituents")
+        else:
+            print(f"FAILED to obtain PIT constituents.\n"
                   f"  Run `python3 -m scripts.backtest.data.sp500_constituents "
                   f"--download` or save the canonical CSV as {PIT_CSV}.\n"
                   f"  Proceeding survivorship-biased (iShares only).")
@@ -110,7 +113,9 @@ def cmd_run(ns, with_sweep: bool) -> None:
     pit_coverage = None
     if pit is not None:
         pit_syms = set(pit["ticker"])
-        pit_coverage = round(100.0 * len(pit_syms & set(ohlcv)) / len(pit_syms), 1)
+        if pit_syms:
+            pit_coverage = round(
+                100.0 * len(pit_syms & set(ohlcv)) / len(pit_syms), 1)
     print(f"universe: {len(ohlcv)} symbols with data; running base backtest…")
     base_res = run_backtest(ohlcv, cfg, pit=pit, static_universe=static)
     base = compute_metrics(base_res.equity)
