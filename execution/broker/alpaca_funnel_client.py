@@ -80,10 +80,32 @@ class AlpacaFunnelBroker:
     ) -> BrokerOrderResult:
         """Market sell (the existing helper already polls to fill). price_hint
         is IGNORED — the real market decides the price. Records the EngineTrade
-        at the ACTUAL filled_avg_price and reduces the position accordingly."""
+        at the ACTUAL filled_avg_price and reduces the position accordingly.
+
+        Idempotent like the buy path (C1): the funnel's decide/execute stage
+        replays outside step.run, so a repeated client_order_id must NOT fire a
+        second real market sell (oversold position, double cash credit). Guarded
+        two ways — the journal client_order_id lookup short-circuits to the
+        recorded fill, and the coid is passed to Alpaca so its duplicate
+        rejection backs the DB guard."""
         from prisma import Json  # noqa: PLC0415
 
-        result = await asyncio.to_thread(self._alpaca.submit_market_sell_qty, symbol, qty)
+        existing = await self._db.enginetrade.find_first(
+            where={
+                "sleeve": self._sleeve,
+                "journal": {"path": ["client_order_id"], "equals": client_order_id},
+            }
+        )
+        if existing is not None:
+            return BrokerOrderResult(
+                order_id=str(existing.brokerOrderId), symbol=symbol, side="sell",
+                status=existing.status, filled_qty=float(existing.qty or 0.0),
+                filled_avg_price=existing.fillPrice,
+            )
+
+        result = await asyncio.to_thread(
+            self._alpaca.submit_market_sell_qty, symbol, qty, client_order_id,
+        )
         fill_price = result.filled_avg_price
         filled_qty = float(result.filled_qty or 0.0)
         await self._db.enginetrade.create(data={
@@ -165,7 +187,9 @@ class AlpacaFunnelBroker:
                 data["journal"] = Json({**journal, "note": note})
         await self._db.enginetrade.update(where={"id": order.id}, data=data)
         await self._increase_position(order.symbol, filled_qty, fill_price)
-        return {"status": "filled", "cash_delta": -round(filled_qty * fill_price, 2)}
+        # fill_price/filled_qty surfaced so the cron journals ACTUAL values.
+        return {"status": "filled", "cash_delta": -round(filled_qty * fill_price, 2),
+                "fill_price": fill_price, "filled_qty": filled_qty}
 
     async def _increase_position(self, symbol: str, qty: float, price: float) -> None:
         from prisma import Json  # noqa: PLC0415

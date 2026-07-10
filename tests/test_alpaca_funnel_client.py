@@ -118,7 +118,9 @@ def test_submit_sell_market_records_actual_fill_and_reduces_position():
     res = _run(broker.submit_sell("AEHR", 100.0, price_hint=21.0,
                                   journal={"reason": "exit"}, client_order_id="c-sell"))
 
-    alpaca.submit_market_sell_qty.assert_called_once_with("AEHR", 100.0)
+    # client_order_id threads through to Alpaca so its duplicate rejection
+    # backs the DB idempotency guard.
+    alpaca.submit_market_sell_qty.assert_called_once_with("AEHR", 100.0, "c-sell")
     create_data = db.enginetrade.create.call_args.kwargs["data"]
     assert create_data["side"] == "sell"
     assert create_data["fillPrice"] == 23.75      # ACTUAL fill, price_hint ignored
@@ -126,6 +128,32 @@ def test_submit_sell_market_records_actual_fill_and_reduces_position():
     # position fully reduced -> row deleted
     db.engineposition.delete.assert_called_once()
     assert res.filled_avg_price == 23.75
+
+
+def test_submit_sell_idempotent_second_call_returns_recorded_fill():
+    """C1: the funnel's decide/execute stage replays outside step.run — a
+    second submit_sell with the SAME client_order_id must NOT fire a second
+    real market sell (oversold position, double cash credit). It short-circuits
+    on the recorded EngineTrade row and returns the recorded fill."""
+    existing = MagicMock(brokerOrderId="alp-sell-1", status="filled",
+                         qty=100.0, fillPrice=23.75)
+    db = _db(find_first=existing)
+    alpaca = _alpaca()
+    alpaca.submit_market_sell_qty = MagicMock()
+    broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
+
+    res = _run(broker.submit_sell("AEHR", 100.0, price_hint=21.0,
+                                  journal={"reason": "exit"}, client_order_id="c-sell"))
+
+    alpaca.submit_market_sell_qty.assert_not_called()   # NO second real sell
+    db.enginetrade.create.assert_not_called()           # no duplicate row
+    db.engineposition.delete.assert_not_called()        # no second reduce
+    db.engineposition.update.assert_not_called()
+    assert res.status == "filled"
+    assert res.filled_qty == 100.0 and res.filled_avg_price == 23.75
+    # dedup keys off the client_order_id stored in the journal (like buys)
+    where = db.enginetrade.find_first.call_args.kwargs["where"]
+    assert where["journal"] == {"path": ["client_order_id"], "equals": "c-sell"}
 
 
 # ── get_open_orders ─────────────────────────────────────────────────────────

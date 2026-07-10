@@ -76,6 +76,20 @@ class TestOrders:
         assert request.qty == 3.25
         assert request.side == "sell"
         assert not hasattr(request, "notional")
+        # Default (no client_order_id) keeps the request byte-identical to the
+        # pre-Sleeve-A shape — Sleeve B's behavior is pinned unchanged.
+        assert not hasattr(request, "client_order_id")
+
+    def test_sell_qty_threads_client_order_id(self):
+        # C1: an explicit client_order_id reaches the MarketOrderRequest so
+        # Alpaca's duplicate rejection backs the engine's DB idempotency guard.
+        fake = MagicMock()
+        fake.submit_order.return_value = _fake_order()
+        fake.get_order_by_id.return_value = _fake_order(status="filled")
+        _bare_client(fake).submit_market_sell_qty("AEHR", 3.25, "coid-sell-1")
+        request = fake.submit_order.call_args.kwargs["order_data"]
+        assert request.client_order_id == "coid-sell-1"
+        assert request.qty == 3.25 and request.side == "sell"
 
     def test_wait_for_fill_times_out_to_timeout_status(self, monkeypatch):
         fake = MagicMock()

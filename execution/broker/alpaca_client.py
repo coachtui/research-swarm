@@ -60,15 +60,21 @@ class AlpacaPaperClient:
         )
         return self._wait_for_fill(order.id)
 
-    def submit_market_sell_qty(self, symbol: str, qty: float) -> BrokerOrderResult:
-        order = self._client.submit_order(
-            order_data=self._MarketOrderRequest(
-                symbol=symbol,
-                qty=qty,
-                side=self._OrderSide.SELL,
-                time_in_force=self._TimeInForce.DAY,
-            )
+    def submit_market_sell_qty(
+        self, symbol: str, qty: float, client_order_id: Optional[str] = None,
+    ) -> BrokerOrderResult:
+        # client_order_id is optional so existing (Sleeve B) callers build a
+        # byte-identical request; when set, Alpaca's duplicate rejection backs
+        # the engine's DB-side sell idempotency guard.
+        kwargs = dict(
+            symbol=symbol,
+            qty=qty,
+            side=self._OrderSide.SELL,
+            time_in_force=self._TimeInForce.DAY,
         )
+        if client_order_id:
+            kwargs["client_order_id"] = client_order_id
+        order = self._client.submit_order(order_data=self._MarketOrderRequest(**kwargs))
         return self._wait_for_fill(order.id)
 
     def submit_gtc_limit_buy(

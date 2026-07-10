@@ -69,6 +69,10 @@ async def flip(dry_run: bool) -> None:
     # Build the live broker (state now reads mode=live).
     live_state = await get_sleeve_state(db, SLEEVE_A)
     broker = await sleeve_a_broker(db, live_state)
+    if broker is None:
+        print("❌ No active linked broker account — mode is now live but no "
+              "orders were re-placed. Link an account and re-run.")
+        return
 
     replaced = 0
     failed = 0
@@ -76,7 +80,15 @@ async def flip(dry_run: bool) -> None:
         old_coid = o.brokerOrderId
         new_coid = f"{old_coid}-live"
         try:
-            # Cancel the shadow row (book of record) + journal the transition.
+            # Submit the REAL order FIRST (idempotent via the -live coid +
+            # Alpaca duplicate rejection), and only then retire the shadow
+            # row. If the submit fails, the row stays shadow_open and a
+            # re-run retries it — never a canceled shadow with no live twin.
+            journal = o.journal if isinstance(o.journal, dict) else {}
+            await broker.submit_limit_buy(
+                symbol=o.symbol, qty=o.qty, limit_price=o.limitPrice,
+                expires_at=o.expiresAt, journal=journal, client_order_id=new_coid,
+            )
             await db.enginetrade.update(
                 where={"id": o.id}, data={"status": "shadow_canceled"}
             )
@@ -87,17 +99,11 @@ async def flip(dry_run: bool) -> None:
                  "old_client_order_id": old_coid, "new_client_order_id": new_coid},
                 db=db,
             )
-            # Place the real GTC limit with the same terms.
-            journal = o.journal if isinstance(o.journal, dict) else {}
-            await broker.submit_limit_buy(
-                symbol=o.symbol, qty=o.qty, limit_price=o.limitPrice,
-                expires_at=o.expiresAt, journal=journal, client_order_id=new_coid,
-            )
             replaced += 1
             print(f"  ✅ {o.symbol} {o.qty} @ {o.limitPrice}  (coid={new_coid})")
         except Exception as exc:  # noqa: BLE001 — report and continue the rest
             failed += 1
-            print(f"  ❌ {o.symbol}: re-place failed: {exc}")
+            print(f"  ❌ {o.symbol}: re-place failed (row left shadow_open): {exc}")
 
     print(f"\nDone. mode=live; {replaced} order(s) re-placed live, {failed} failed.")
 

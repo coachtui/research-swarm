@@ -100,11 +100,16 @@ class ShadowBrokerClient:
                 where={"id": order.id},
                 data={"status": "shadow_filled", "fillPrice": order.limitPrice},
             )
+            # fill_price/filled_qty surfaced (same keys as AlpacaFunnelBroker)
+            # so the cron journals actual fill values broker-agnostically.
+            fill_keys = {"fill_price": order.limitPrice, "filled_qty": order.qty}
             if order.side == "buy":
                 await self._increase_position(order.symbol, order.qty, order.limitPrice)
-                return {"status": "filled", "cash_delta": -round(order.qty * order.limitPrice, 2)}
+                return {"status": "filled",
+                        "cash_delta": -round(order.qty * order.limitPrice, 2), **fill_keys}
             await self._reduce_position(order.symbol, order.qty, order.limitPrice)
-            return {"status": "filled", "cash_delta": round(order.qty * order.limitPrice, 2)}
+            return {"status": "filled",
+                    "cash_delta": round(order.qty * order.limitPrice, 2), **fill_keys}
         except Exception:  # noqa: BLE001 — a broken settle must not sink the sweep
             logger.exception("shadow settle failed for order %s", getattr(order, "id", "?"))
             return {"status": "error", "cash_delta": 0.0}

@@ -40,6 +40,15 @@ def test_live_mode_selects_alpaca_funnel_broker(monkeypatch):
     assert isinstance(broker, AlpacaFunnelBroker)
 
 
+def test_live_mode_without_linked_account_returns_none(monkeypatch):
+    # M2: no LinkedBrokerAccount row -> clean None (caller journals), not an
+    # AttributeError from client_from_account(None) swallowed by a catch-all.
+    state = types.SimpleNamespace(mode="live", sleeve="A")
+    monkeypatch.setattr(creds_mod, "get_active_alpaca_account",
+                        AsyncMock(return_value=None))
+    assert _run(sleeve_a_broker(MagicMock(), state)) is None
+
+
 def test_default_mode_is_live(monkeypatch):
     # A state whose mode is anything other than "shadow" goes live — the
     # default so a fresh sleeve trades for real, not into the void.

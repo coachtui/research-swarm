@@ -1054,5 +1054,5 @@ model SleeveState {
   inceptionSpyClose Float
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-  mode              String   @default("live") // "live" | "shadow" — Sleeve A starts shadow (Phase 3C)
+  mode              String   @default("live") // "live" | "shadow" — defaults live (paper-direct, 2026-07-10 ruling); the 3C funnel bootstrap seeds Sleeve A "shadow" explicitly until flipped via scripts/flip_sleeve_a_paper.py; "shadow" remains for the 3D replay engine
 }

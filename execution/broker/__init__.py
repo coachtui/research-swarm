@@ -13,7 +13,8 @@ async def sleeve_a_broker(db, state: Any):
       (owner ruling 2026-07-10: Sleeve A trades directly on Alpaca paper).
 
     The Alpaca client is built INSIDE this call (from the active linked account)
-    so decrypted secrets never cross an Inngest step boundary."""
+    so decrypted secrets never cross an Inngest step boundary. Returns None if
+    live mode finds no active linked account — the caller must journal."""
     from execution.constants import SLEEVE_A  # noqa: PLC0415
 
     sleeve = getattr(state, "sleeve", None) or SLEEVE_A
@@ -27,4 +28,8 @@ async def sleeve_a_broker(db, state: Any):
     from execution.broker.credentials import get_active_alpaca_account  # noqa: PLC0415
 
     account = await get_active_alpaca_account(db)
+    if account is None:
+        # Clean guard (M2): live mode with no linked account returns None and
+        # the CALLER journals — not an AttributeError swallowed by a catch-all.
+        return None
     return AlpacaFunnelBroker(db, client_from_account(account), sleeve=sleeve)

@@ -299,7 +299,7 @@ def _register_inngest_function():
             try:
                 from api.lib.db import get_db  # noqa: PLC0415
                 from execution.alerts import send_failure_alert  # noqa: PLC0415
-                from execution.constants import SLEEVE_A  # noqa: PLC0415
+                from execution.constants import SECTOR_ETFS, SLEEVE_A  # noqa: PLC0415
                 from execution.engine.reconcile import reconcile_sleeve  # noqa: PLC0415
                 from execution.sleeve_service import (  # noqa: PLC0415
                     get_engine_positions, get_sleeve_state, set_sleeve_status,
@@ -307,12 +307,31 @@ def _register_inngest_function():
 
                 db = await get_db()
                 state = await get_sleeve_state(db, SLEEVE_A)
-                if state is None:
-                    return {"active": False, "frozen": False}
                 engine_qty = {
                     p.symbol: p.qty for p in await get_engine_positions(db, SLEEVE_A)
                 }
                 broker_qty = {p["symbol"]: p["qty"] for p in broker["positions"]}
+
+                # Visibility check (I2): per-sleeve scoping means a broker
+                # symbol claimed by NEITHER sleeve — not in either engine book,
+                # not a sector ETF — is invisible to both reconciles. Journal
+                # it loudly (a human must explain it) but freeze NOBODY: an
+                # unexplained extra can't corrupt either sleeve's own books.
+                claimed = (
+                    set(engine_qty) | set(context["engine_positions"]) | set(SECTOR_ETFS)
+                )
+                unclaimed = sorted(s for s in broker_qty if s not in claimed)
+                if unclaimed:
+                    await write_report(
+                        "engine_failure", "warning", "execution_daily",
+                        f"unclaimed broker positions: {unclaimed}",
+                        {"stage": "sleeve-a-reconcile", "unclaimed": unclaimed},
+                        db=db,
+                    )
+                extra = {"unclaimed": unclaimed} if unclaimed else {}
+
+                if state is None:
+                    return {"active": False, "frozen": False, **extra}
                 mismatches = reconcile_sleeve(broker_qty, engine_qty)
                 if mismatches:
                     was_frozen = state.status == "frozen"
@@ -329,8 +348,9 @@ def _register_inngest_function():
                             {"transition": "active->frozen", "mismatches": mismatches},
                             db=db,
                         )
-                    return {"active": True, "frozen": True, "mismatches": mismatches}
-                return {"active": True, "frozen": False}
+                    return {"active": True, "frozen": True,
+                            "mismatches": mismatches, **extra}
+                return {"active": True, "frozen": False, **extra}
             except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return
                 logger.exception("sleeve-a-reconcile failed")
                 await write_report(
@@ -387,6 +407,13 @@ def _register_inngest_function():
 
                 # shadow -> ShadowBrokerClient; live -> AlpacaFunnelBroker.
                 broker = await sleeve_a_broker(db, state)
+                if broker is None:  # live mode, no linked account (M2)
+                    await write_report(
+                        "engine_failure", "warning", "execution_daily",
+                        "Sleeve A live mode but no linked broker account",
+                        {"stage": "sleeve-a-fills"}, db=db,
+                    )
+                    return {"active": True, "error": True}
                 orders = await broker.get_open_orders()
                 if not orders:
                     return {"active": True, "filled": 0, "missed": 0}
@@ -420,8 +447,12 @@ def _register_inngest_function():
                         await write_report(
                             "entry_filled", "info", "execution_daily",
                             f"Sleeve A fill: {order.symbol}",
+                            # ACTUAL fill values from the settle result (M3) —
+                            # a live GTC limit can fill below the limit price;
+                            # shadow settles at the limit so it's unchanged.
                             {"symbol": order.symbol, "side": order.side,
-                             "qty": order.qty, "fill_price": order.limitPrice},
+                             "qty": settled.get("filled_qty", order.qty),
+                             "fill_price": settled.get("fill_price", order.limitPrice)},
                             db=db,
                         )
                     elif settled["status"] == "expired":
@@ -495,6 +526,13 @@ def _register_inngest_function():
                 # shadow -> ShadowBrokerClient; live -> AlpacaFunnelBroker.
                 state = await get_sleeve_state(db, SLEEVE_A)
                 broker = await sleeve_a_broker(db, state)
+                if broker is None:  # live mode, no linked account (M2)
+                    await write_report(
+                        "engine_failure", "warning", "execution_daily",
+                        "Sleeve A live mode but no linked broker account",
+                        {"stage": "sleeve-a-stops"}, db=db,
+                    )
+                    return {"active": False, "error": True}
                 cash_delta_total = 0.0
                 exits = 0
                 for pos in positions:
@@ -524,21 +562,40 @@ def _register_inngest_function():
                     if fill_price is None:
                         continue
                     client_order_id = f"shadow-A-{pos.symbol}-{now:%Y%m%d}-stop"
-                    await broker.submit_sell(
+                    res = await broker.submit_sell(
                         symbol=pos.symbol, qty=pos.qty, price_hint=fill_price,
                         journal={"reason": "trailing_stop", "stop": stop, "atr": atr,
                                  "high_water": new_hw},
                         client_order_id=client_order_id,
                     )
-                    cash_delta_total += round(pos.qty * fill_price, 2)
-                    exits += 1
-                    await write_report(
-                        "exit_stop", "info", "execution_daily",
-                        f"Sleeve A trailing stop: {pos.symbol}",
-                        {"symbol": pos.symbol, "qty": pos.qty, "stop": stop,
-                         "fill_price": fill_price, "high_water": new_hw},
-                        db=db,
-                    )
+                    # Credit the ACTUAL fill (I1): in live mode the market —
+                    # not the stop-level hint — decides the price. Shadow
+                    # returns hint values, so shadow behavior is unchanged.
+                    actual_qty = float(res.filled_qty or 0.0)
+                    actual_price = res.filled_avg_price
+                    if actual_qty > 0 and actual_price is not None:
+                        cash_delta_total += round(actual_qty * float(actual_price), 2)
+                        exits += 1
+                        await write_report(
+                            "exit_stop", "info", "execution_daily",
+                            f"Sleeve A trailing stop: {pos.symbol}",
+                            {"symbol": pos.symbol, "qty": actual_qty, "stop": stop,
+                             "fill_price": float(actual_price), "high_water": new_hw},
+                            db=db,
+                        )
+                    if actual_price is None or actual_qty < pos.qty - 1e-9:
+                        # zero fill (timeout) or partial: the position row
+                        # already reflects reality via position_after_fill in
+                        # the broker — journal for visibility, book nothing
+                        # beyond what actually filled.
+                        await write_report(
+                            "engine_failure", "warning", "execution_daily",
+                            f"Sleeve A stop sell incomplete: {pos.symbol}",
+                            {"symbol": pos.symbol, "requested_qty": pos.qty,
+                             "filled_qty": actual_qty, "status": res.status,
+                             "stop": stop},
+                            db=db,
+                        )
                 if cash_delta_total != 0.0:
                     state = await get_sleeve_state(db, SLEEVE_A)
                     base_cash = float(state.cashBalance) if state else 0.0
