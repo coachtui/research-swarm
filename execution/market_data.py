@@ -87,3 +87,35 @@ def fetch_closes_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, 
         if not series.empty:
             out[ticker] = series.reset_index(drop=True)
     return out
+
+
+def fetch_ohlcv_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, pd.DataFrame]:
+    """Batched OHLCV download. Returns {ticker: DataFrame[Open,High,Low,Close,Volume]}.
+    Tickers with no data are omitted — callers treat absence as 'skip this name'."""
+    import yfinance as yf  # noqa: PLC0415 — heavy import stays local
+
+    symbols = [t for t in dict.fromkeys(tickers) if t]
+    if not symbols:
+        return {}
+    try:
+        raw = yf.download(
+            tickers=" ".join(symbols), period=period, interval="1d",
+            group_by="ticker", auto_adjust=True, progress=False, threads=True,
+        )
+    except Exception:  # noqa: BLE001 — one bad ticker must not sink the batch
+        logger.exception("fetch_ohlcv_batch: download failed")
+        return {}
+    out: Dict[str, pd.DataFrame] = {}
+    if not isinstance(raw.columns, pd.MultiIndex):  # single-ticker shape
+        df = raw[["Open", "High", "Low", "Close", "Volume"]].dropna()
+        if not df.empty:
+            out[symbols[0]] = df
+        return out
+    for sym in symbols:
+        try:
+            df = raw[sym][["Open", "High", "Low", "Close", "Volume"]].dropna()
+            if not df.empty:
+                out[sym] = df
+        except (KeyError, IndexError):  # noqa: BLE001 — one bad ticker must not sink the batch
+            continue
+    return out
