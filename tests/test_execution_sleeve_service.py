@@ -93,6 +93,21 @@ async def test_apply_fill_full_sell_deletes_position():
 
 
 @pytest.mark.asyncio
+async def test_apply_fill_partial_sell_updates_qty_without_deleting():
+    db = _db()
+    db.engineposition.find_unique = AsyncMock(
+        return_value=SimpleNamespace(qty=10.0, avgEntryPrice=25.0)
+    )
+    fill = {"order_id": "o5", "symbol": "XLE", "side": "sell", "status": "filled",
+            "filled_qty": 3.0, "filled_avg_price": 40.0}
+    delta = await apply_fill(db, "B", fill, requested_notional=None, journal={})
+    assert delta == 120.0
+    db.engineposition.delete.assert_not_awaited()
+    update = db.engineposition.update.await_args.kwargs
+    assert update["data"] == {"qty": 7.0}  # avgEntryPrice untouched — sells never re-weight it
+
+
+@pytest.mark.asyncio
 async def test_apply_fill_unfilled_order_records_trade_but_touches_nothing():
     db = _db()
     fill = {"order_id": "o4", "symbol": "XLK", "side": "buy", "status": "timeout",

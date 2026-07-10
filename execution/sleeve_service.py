@@ -5,7 +5,7 @@ access for the execution engine funnels through here; everything above it
 is pure. JSON columns are wrapped in prisma.Json at this edge only.
 """
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _QTY_EPSILON = 1e-6
 
@@ -15,7 +15,8 @@ async def get_sleeve_state(db, sleeve: str) -> Optional[Any]:
 
 
 async def init_sleeve_state(
-    db, sleeve: str, cash: float, spy_close: float, inception_date: datetime
+    db, sleeve: str, cash: float, spy_close: float, inception_date: datetime,
+    mode: str = "live",
 ) -> Any:
     return await db.sleevestate.create(data={
         "sleeve": sleeve,
@@ -24,6 +25,7 @@ async def init_sleeve_state(
         "inceptionDate": inception_date,
         "inceptionEquity": round(cash, 2),
         "inceptionSpyClose": spy_close,
+        "mode": mode,
     })
 
 
@@ -62,6 +64,23 @@ async def store_snapshot(
             "update": payload,
         },
     )
+
+
+def position_after_fill(
+    qty0: float, avg0: float, fill_qty: float, price: float, side: str,
+) -> Tuple[float, float]:
+    """Pure position math shared by real (apply_fill) and shadow fills.
+    Buys re-weight the average entry; sells never touch it."""
+    if side == "buy":
+        qty1 = qty0 + fill_qty
+        if qty1 <= 0:
+            return qty1, 0.0
+        # Fresh position takes the fill price directly — the weighted formula
+        # is algebraically identical but can drift a ulp, which flips round(,4)
+        # at boundary values (byte-for-byte parity with pre-refactor apply_fill).
+        avg1 = price if qty0 == 0.0 else ((qty0 * avg0) + (fill_qty * price)) / qty1
+        return qty1, avg1
+    return max(qty0 - fill_qty, 0.0), avg0
 
 
 async def apply_fill(
@@ -115,12 +134,11 @@ async def apply_fill(
         where={"sleeve_symbol": {"sleeve": sleeve, "symbol": symbol}}
     )
 
+    qty0 = existing.qty if existing else 0.0
+    avg0 = existing.avgEntryPrice if existing else 0.0
+
     if side == "buy":
-        if existing is None:
-            new_qty, new_avg = filled_qty, float(fill_price)
-        else:
-            new_qty = existing.qty + filled_qty
-            new_avg = (existing.qty * existing.avgEntryPrice + notional) / new_qty
+        new_qty, new_avg = position_after_fill(qty0, avg0, filled_qty, float(fill_price), "buy")
         await db.engineposition.upsert(
             where={"sleeve_symbol": {"sleeve": sleeve, "symbol": symbol}},
             data={
@@ -134,7 +152,7 @@ async def apply_fill(
         return -round(notional, 2)
 
     # sell
-    remaining = (existing.qty if existing else 0.0) - filled_qty
+    remaining, _ = position_after_fill(qty0, avg0, filled_qty, float(fill_price), "sell")
     if remaining <= _QTY_EPSILON:
         if existing is not None:
             await db.engineposition.delete(

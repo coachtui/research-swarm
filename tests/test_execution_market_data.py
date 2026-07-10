@@ -71,3 +71,12 @@ def test_fetch_history_for_never_raises_on_all_missing():
     with patch("execution.market_data.MarketDataClient") as MockClient:
         MockClient.return_value.get_historical_data.return_value = None
         assert fetch_history_for(["XBI", "SMH"]) == {}
+
+
+def test_fetch_ohlcv_batch_empty_download_returns_empty():
+    """A bare empty frame (e.g. total network failure yfinance swallows)
+    must degrade to {} — not KeyError on the OHLCV column slice."""
+    from execution.market_data import fetch_ohlcv_batch
+
+    with patch("yfinance.download", return_value=pd.DataFrame()):
+        assert fetch_ohlcv_batch(["AAPL"]) == {}

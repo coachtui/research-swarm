@@ -67,6 +67,9 @@ def test_active_functions_roster():
     outlook_mod = importlib.import_module("inngest_app.functions.weekly_outlook")
     daily_mod = importlib.import_module("inngest_app.functions.execution_daily")
     weekly_exec_mod = importlib.import_module("inngest_app.functions.execution_weekly")
+    theme_disc_mod = importlib.import_module("inngest_app.functions.theme_discovery_monthly")
+    theme_delta_mod = importlib.import_module("inngest_app.functions.theme_delta_weekly")
+    funnel_mod = importlib.import_module("inngest_app.functions.sleeve_a_funnel")
     expected = [
         fn
         for fn in [
@@ -74,6 +77,9 @@ def test_active_functions_roster():
             batch_mod.weekly_batch,
             daily_mod.execution_daily,
             weekly_exec_mod.execution_weekly,
+            theme_disc_mod.theme_discovery_monthly,
+            theme_delta_mod.theme_delta_weekly,
+            funnel_mod.sleeve_a_funnel,
         ]
         if fn is not None
     ]

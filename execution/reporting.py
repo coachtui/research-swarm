@@ -14,6 +14,10 @@ REPORT_TYPES = frozenset({
     "theme_proposal", "membership_change", "theme_retired",
     "validation_failure", "engine_failure", "rebalance_summary",
     "breaker_event",
+    # Phase 3C — Sleeve A funnel (shadow mode)
+    "funnel_summary", "entry_order", "entry_filled", "entry_missed",
+    "entry_deferred", "exit_stop", "exit_sell_verdict", "exit_outcompeted",
+    "theme_review", "risk_trim", "light_run_failure",
 })
 SEVERITIES = frozenset({"info", "warning", "critical"})
 
