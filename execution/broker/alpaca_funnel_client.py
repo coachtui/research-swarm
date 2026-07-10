@@ -32,6 +32,25 @@ class AlpacaFunnelBroker:
         self._alpaca = alpaca
         self._sleeve = sleeve
 
+    async def _find_by_client_order_id(
+        self, symbol: str, side: str, client_order_id: str,
+    ) -> Optional[Any]:
+        """Idempotency lookup. prisma-client-py 0.15 (the pinned version) has
+        NO Json path filter — `where={"journal": {"path": [...], "equals": ...}}`
+        raises FieldNotFoundError at runtime, which would fail every submit.
+        Version-proof instead: pull a bounded recent window for this
+        sleeve/symbol/side and match the journal's client_order_id in Python
+        (only ever a few rows exist per symbol/side; 25 is generous)."""
+        rows = await self._db.enginetrade.find_many(
+            where={"sleeve": self._sleeve, "symbol": symbol, "side": side},
+            order={"createdAt": "desc"}, take=25,
+        )
+        return next(
+            (r for r in rows
+             if (r.journal or {}).get("client_order_id") == client_order_id),
+            None,
+        )
+
     async def submit_limit_buy(
         self, symbol: str, qty: float, limit_price: float, expires_at: datetime,
         journal: Dict[str, Any], client_order_id: str,
@@ -39,19 +58,15 @@ class AlpacaFunnelBroker:
         """Idempotent GTC limit buy. Guarded TWO ways:
         1. local — a prior attempt already booked this client_order_id (we
            store it in the journal, since brokerOrderId now holds the Alpaca
-           id, and look it up on the JSON path);
+           id, and match it Python-side over a bounded recent window — see
+           _find_by_client_order_id);
         2. authoritative — Alpaca rejects a duplicate client_order_id outright
            (closing the long-deferred Phase 2 idempotency rider).
         Exactly ONE EngineTrade row per order: status "open", brokerOrderId =
         the ALPACA order id."""
         from prisma import Json  # noqa: PLC0415
 
-        existing = await self._db.enginetrade.find_first(
-            where={
-                "sleeve": self._sleeve,
-                "journal": {"path": ["client_order_id"], "equals": client_order_id},
-            }
-        )
+        existing = await self._find_by_client_order_id(symbol, "buy", client_order_id)
         if existing is not None:
             return BrokerOrderResult(
                 order_id=str(existing.brokerOrderId), symbol=symbol, side="buy",
@@ -90,12 +105,7 @@ class AlpacaFunnelBroker:
         rejection backs the DB guard."""
         from prisma import Json  # noqa: PLC0415
 
-        existing = await self._db.enginetrade.find_first(
-            where={
-                "sleeve": self._sleeve,
-                "journal": {"path": ["client_order_id"], "equals": client_order_id},
-            }
-        )
+        existing = await self._find_by_client_order_id(symbol, "sell", client_order_id)
         if existing is not None:
             return BrokerOrderResult(
                 order_id=str(existing.brokerOrderId), symbol=symbol, side="sell",

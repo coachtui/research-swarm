@@ -22,10 +22,12 @@ def _run(coro):
         loop.close()
 
 
-def _db(find_first=None):
+def _db(find_first=None, rows=None):
+    # `rows` feeds the bounded find_many window the idempotency guards scan
+    # (prisma 0.15 has no Json path filter — the match happens Python-side).
     db = MagicMock()
     db.enginetrade.find_first = AsyncMock(return_value=find_first)
-    db.enginetrade.find_many = AsyncMock(return_value=[])
+    db.enginetrade.find_many = AsyncMock(return_value=list(rows or []))
     db.enginetrade.create = AsyncMock(return_value=MagicMock(id="t1"))
     db.enginetrade.update = AsyncMock()
     db.engineposition.find_unique = AsyncMock(return_value=None)
@@ -73,9 +75,13 @@ def test_submit_limit_buy_places_gtc_and_books_alpaca_id():
 
 
 def test_submit_limit_buy_idempotent_on_existing_row():
-    # A prior attempt already booked this client_order_id (journal lookup hit).
-    existing = MagicMock(brokerOrderId="alp-77", status="open")
-    db = _db(find_first=existing)
+    # A prior attempt already booked this client_order_id: the Python-side
+    # match over the bounded window finds it among unrelated rows.
+    other = MagicMock(brokerOrderId="alp-11", status="filled",
+                      journal={"client_order_id": "some-other-coid"})
+    existing = MagicMock(brokerOrderId="alp-77", status="open",
+                         journal={"client_order_id": "coid-1"})
+    db = _db(rows=[other, existing])
     alpaca = _alpaca()
     alpaca.submit_gtc_limit_buy = MagicMock()
     broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
@@ -89,15 +95,27 @@ def test_submit_limit_buy_idempotent_on_existing_row():
     assert res.order_id == "alp-77"
 
 
-def test_submit_limit_buy_lookup_uses_client_order_id_journal_path():
-    db = _db()
+def test_submit_limit_buy_lookup_is_bounded_and_matches_python_side():
+    """prisma 0.15 has NO Json path filter (FieldNotFoundError at
+    where.journal.equals) — the guard must issue a bounded sleeve/symbol/side
+    query and match client_order_id in Python. Rows with a DIFFERENT coid must
+    NOT short-circuit the submit."""
+    other = MagicMock(brokerOrderId="alp-11", status="open",
+                      journal={"client_order_id": "some-other-coid"})
+    no_journal = MagicMock(brokerOrderId="alp-12", status="filled", journal=None)
+    db = _db(rows=[other, no_journal])
     alpaca = _alpaca()
     alpaca.submit_gtc_limit_buy = MagicMock(return_value=_order("accepted"))
     broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
     _run(broker.submit_limit_buy("AEHR", 1.0, 20.0, NOW, {}, "coid-xyz"))
 
-    where = db.enginetrade.find_first.call_args.kwargs["where"]
-    assert where["journal"] == {"path": ["client_order_id"], "equals": "coid-xyz"}
+    alpaca.submit_gtc_limit_buy.assert_called_once()  # wrong coids don't block
+    kwargs = db.enginetrade.find_many.call_args.kwargs
+    assert kwargs["where"] == {"sleeve": "A", "symbol": "AEHR", "side": "buy"}
+    assert kwargs["take"] == 25                       # bounded window
+    assert kwargs["order"] == {"createdAt": "desc"}
+    # NO Json path filter anywhere in the query (raises on prisma 0.15).
+    assert "journal" not in kwargs["where"]
     # client_order_id is persisted in the journal so the lookup can find it.
     assert db.enginetrade.create.call_args.kwargs["data"]["journal"] is not None
 
@@ -135,9 +153,12 @@ def test_submit_sell_idempotent_second_call_returns_recorded_fill():
     second submit_sell with the SAME client_order_id must NOT fire a second
     real market sell (oversold position, double cash credit). It short-circuits
     on the recorded EngineTrade row and returns the recorded fill."""
+    other = MagicMock(brokerOrderId="alp-old", status="filled", qty=5.0,
+                      fillPrice=19.0, journal={"client_order_id": "different"})
     existing = MagicMock(brokerOrderId="alp-sell-1", status="filled",
-                         qty=100.0, fillPrice=23.75)
-    db = _db(find_first=existing)
+                         qty=100.0, fillPrice=23.75,
+                         journal={"client_order_id": "c-sell"})
+    db = _db(rows=[other, existing])
     alpaca = _alpaca()
     alpaca.submit_market_sell_qty = MagicMock()
     broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
@@ -151,9 +172,12 @@ def test_submit_sell_idempotent_second_call_returns_recorded_fill():
     db.engineposition.update.assert_not_called()
     assert res.status == "filled"
     assert res.filled_qty == 100.0 and res.filled_avg_price == 23.75
-    # dedup keys off the client_order_id stored in the journal (like buys)
-    where = db.enginetrade.find_first.call_args.kwargs["where"]
-    assert where["journal"] == {"path": ["client_order_id"], "equals": "c-sell"}
+    # dedup: bounded sleeve/symbol/side query + Python-side coid match —
+    # NO Json path filter (prisma 0.15 raises FieldNotFoundError on it).
+    kwargs = db.enginetrade.find_many.call_args.kwargs
+    assert kwargs["where"] == {"sleeve": "A", "symbol": "AEHR", "side": "sell"}
+    assert kwargs["take"] == 25
+    assert "journal" not in kwargs["where"]
 
 
 # ── get_open_orders ─────────────────────────────────────────────────────────
