@@ -71,7 +71,12 @@ def position_after_fill(
     Buys re-weight the average entry; sells never touch it."""
     if side == "buy":
         qty1 = qty0 + fill_qty
-        avg1 = ((qty0 * avg0) + (fill_qty * price)) / qty1 if qty1 > 0 else 0.0
+        if qty1 <= 0:
+            return qty1, 0.0
+        # Fresh position takes the fill price directly — the weighted formula
+        # is algebraically identical but can drift a ulp, which flips round(,4)
+        # at boundary values (byte-for-byte parity with pre-refactor apply_fill).
+        avg1 = price if qty0 == 0.0 else ((qty0 * avg0) + (fill_qty * price)) / qty1
         return qty1, avg1
     return max(qty0 - fill_qty, 0.0), avg0
 

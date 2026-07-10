@@ -17,6 +17,15 @@ def test_position_math():
     assert position_after_fill(20.0, 25.0, 5.0, 40.0, "sell") == (15.0, 25.0)
 
 
+def test_position_math_create_branch_takes_price_directly():
+    # Fresh position must return the fill price EXACTLY (direct assignment,
+    # not the weighted formula, whose ulp drift can flip round(x, 4) at
+    # boundary values — e.g. this pair: formula rounds to 1656.358, price 1656.3581).
+    qty, avg = position_after_fill(0.0, 0.0, 84693.486085, 1656.35805, "buy")
+    assert avg == 1656.35805
+    assert qty == 84693.486085
+
+
 def test_evaluate_fill_honesty_rule():
     # buy fills only if the day's low traded through the limit
     assert evaluate_fill("buy", 20.0, day_high=25.0, day_low=19.5, expired=False) == "filled"

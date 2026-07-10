@@ -7,7 +7,7 @@ traded through its limit, always AT the limit — no generous fills, so the
 swapping this client for AlpacaPaperClient. Nothing here talks to Alpaca."""
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from execution.broker.base import BrokerOrderResult
 from execution.sleeve_service import position_after_fill
