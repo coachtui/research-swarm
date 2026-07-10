@@ -485,3 +485,55 @@ def test_bootstrap_refuses_when_spy_close_unavailable():
         out = _run(saf._ensure_sleeve_a(MagicMock(), NOW))
     assert out is None
     init.assert_not_called()
+
+
+def test_theme_review_skipped_when_theme_membership_unavailable():
+    """Outage guard (same class as C1): empty theme_members/active_themes means
+    a theme-source outage, not mass retirement — the ENTIRE theme-review stage
+    is skipped (journaled), no holding is flagged, no research is commissioned."""
+    import inngest_app.functions.sleeve_a_funnel as saf
+
+    captured = {}
+
+    def capture_plan(holdings, candidates, equity, maxpos):
+        captured["holdings"] = holdings
+        return {"exits": [], "trims": [], "entry_queue": [], "notes": []}
+
+    screened = {"ranked": [_screen_row("THM")],
+                "close_by_symbol": {"THM": 20.0}, "sector_by_symbol": {}}
+    reuse = AsyncMock()
+    report = AsyncMock()
+    with patch.object(saf, "_load_latest_signals", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_load_position_source_tags",
+                      new=AsyncMock(return_value={"THM": {"themes": ["dead"]}})), \
+         patch.object(saf, "_open_shadow_buys",
+                      new=AsyncMock(return_value={"notional": 0.0, "symbols": set(),
+                                                  "count": 0})), \
+         patch.object(saf, "reuse_or_budget", new=reuse), \
+         patch.object(saf, "_execute_sells",
+                      new=AsyncMock(return_value={"cash": 5000.0, "proceeds": 0.0,
+                                                  "sold": []})), \
+         patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_handshake_and_enter", new=AsyncMock(return_value=[])), \
+         patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)), \
+         patch.object(saf, "plan_decisions", new=capture_plan), \
+         patch.object(saf, "write_report", new=report):
+        _run(saf._decide_and_execute(
+            MagicMock(), MagicMock(), NOW, "neutral",
+            sleeve_ctx={"cash": 10_000.0, "positions": {"THM": 10.0},
+                        "allow_buys": True, "status": "active"},
+            assembled={"active_themes": []},   # theme-source outage
+            screened=screened, lights={"light_rows": {}, "spent": 0}, step=None,
+        ))
+
+    # No holding flagged; no research handshake commissioned.
+    reuse.assert_not_called()
+    assert all(not h.get("theme_review_failed") for h in captured["holdings"])
+    # The skip is journaled: theme_review row, status "skipped".
+    skip_calls = [c for c in report.call_args_list
+                  if (c.args[0] if c.args else c.kwargs.get("report_type")) == "theme_review"]
+    assert skip_calls, "expected a theme_review skip journal row"
+    body = (skip_calls[0].args[4] if len(skip_calls[0].args) > 4
+            else skip_calls[0].kwargs.get("body"))
+    assert body.get("status") == "skipped"
+    assert body.get("reason") == "theme membership unavailable"

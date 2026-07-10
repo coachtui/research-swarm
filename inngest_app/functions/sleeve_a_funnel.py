@@ -1088,7 +1088,18 @@ async def _decide_and_execute(
 
     # Theme review: holdings whose EVERY sourcing theme (from persisted tags)
     # is retired. A deferred/failed review NEVER exits — only a completed run.
-    await _theme_review(db, run_date, holdings, by_symbol, active_themes, step)
+    # Outage guard (same class as C1): if load_theme_members failed or came
+    # back EMPTY, every theme-sourced holding would look "all retired" and a
+    # completed review scored with hunting_bonus=0 for themes that are not
+    # actually retired could exit a holding on a DATA OUTAGE. Skip the entire
+    # stage; theme membership re-resolves next Monday.
+    if not active_themes:
+        await _journal(db, "theme_review", "warning",
+                       "Theme review skipped — theme membership unavailable",
+                       {"status": "skipped",
+                        "reason": "theme membership unavailable"})
+    else:
+        await _theme_review(db, run_date, holdings, by_symbol, active_themes, step)
 
     # Standing (unfilled) shadow buys are pending positions: exclude them from
     # this week's challengers so a patient 14-day limit can't spawn a SECOND
