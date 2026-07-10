@@ -21,8 +21,8 @@ but explicitly flagged as inflated by survivorship bias.
 
 | Decision | Choice |
 |---|---|
-| Universe | Broad mechanical stand-in: current iShares S&P 1500 holdings (IVV + IJH + IJR CSVs), fixed list, per-week floors applied as-of |
-| Survivorship handling | Bias is shared with baselines run on the identical universe; relative conclusions stay meaningful; absolute numbers disclaimed |
+| Universe | Hybrid: point-in-time S&P 500 membership (free fja05680/sp500 dataset via the repo's existing `scripts/backtest/data/sp500_constituents.py` downloader) ∪ current iShares IJH + IJR holdings for the mid/small breadth Sleeve A hunts in; per-week floors applied as-of. Current IVV holdings kept as fallback if the PIT download fails |
+| Survivorship handling | Two disclosed tiers: the large-cap set is PIT-clean *to the extent yfinance still serves delisted tickers* (coverage % measured and reported); mid/small is current-membership biased. All bias is shared with baselines run on the identical universe; relative conclusions stay meaningful; absolute numbers disclaimed |
 | Conviction stand-in | Base run: `conviction = screen_score × 10` (0–100). Sensitivity variant: flat 60 for all (no-signal run) |
 | Window | Jan 2015 → Jun 2026 (data pull from Jul 2014 for indicator warm-up) |
 | Cadence | Weekly decisions (first trading day of week), daily bars between for fills/stops/TTL |
@@ -63,7 +63,7 @@ no DB/network at simulation time (network only in the data-fetch step).
 | Module | Responsibility |
 |---|---|
 | `data.py` | yfinance batch download (Jul 2014 → Jun 2026, daily OHLCV, auto-adjusted) → parquet cache under `data/backtest/` (gitignored). Idempotent; re-run refreshes only missing symbols |
-| `universe.py` | Parse iShares IVV/IJH/IJR holdings CSVs into the fixed symbol list; per-week as-of floors: price ≥ `FUNNEL_PRICE_FLOOR`, 20d dollar ADV ≥ `THEME_ADV_FLOOR_USD`. Mcap floor is *not* applied (no point-in-time share counts) — ADV serves as the liquidity proxy; disclaimed in the report |
+| `universe.py` | Parse iShares holdings CSVs; load PIT S&P 500 membership (canonical ticker/date_added/date_removed CSV) and resolve members as-of each week; per-week as-of floors: price ≥ `FUNNEL_PRICE_FLOOR`, 20d dollar ADV ≥ `THEME_ADV_FLOOR_USD`. Mcap floor is *not* applied (no point-in-time share counts) — ADV serves as the liquidity proxy; disclaimed in the report |
 | `simulator.py` | The event loop. Weekly: mechanical regime (SPY/RSP breadth + VIX, same rules as live) → `screen_row` per symbol on its as-of slice → conviction mapping → `plan_decisions` → `size_entry` → extension check → limit price + TTL. Daily: fills, stops, TTL expiry |
 | `fills.py` | Order book + fill rules (below) |
 | `ledger.py` | Cash, positions (qty, cost basis, high-water close), trade journal with reasons, daily equity curve |
@@ -126,6 +126,7 @@ variants; flat-conviction-60 run.
 
 - Tier 1 (replaying live LLM decisions) — needs weeks of accumulated
   history; second half of 3D, later.
-- Point-in-time index membership, historical fundamentals, intraday data.
+- Point-in-time membership for the S&P 400/600 (no free source), historical
+  fundamentals, intraday data.
 - Any change to production funnel code or constants (a *follow-up* may
   retune constants if the sweep finds a better plateau — separate PR).
