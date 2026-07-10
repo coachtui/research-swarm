@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
+
+from execution.constants import TRAILING_STOP_ATR_MULT
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,23 @@ def build_sleeve_snapshot(
         "positions_value": round(positions_value, 2),
         "equity": round(state_cash + positions_value, 2),
     }
+
+
+def stop_levels(high_water: float, today_close: float, atr: float) -> Tuple[float, float]:
+    """ATR trailing stop, ratchets up only. Caller seeds `high_water` from
+    the position's stored highWaterClose, falling back to entry price when
+    that column is still null (first day after fill)."""
+    hw = max(high_water, today_close)
+    return hw, round(hw - TRAILING_STOP_ATR_MULT * atr, 2)
+
+
+def stop_fill_price(stop: float, today_open: float, today_low: float) -> Optional[float]:
+    """Honesty-rule fill: None when the day never traded through the stop;
+    otherwise the stop itself, or the open if the day gapped below the stop
+    (you cannot fill above the open)."""
+    if today_low > stop:
+        return None
+    return round(min(stop, today_open), 2)
 
 
 # ── Inngest function (guarded registration, weekly_outlook.py pattern) ──────
@@ -224,7 +243,282 @@ def _register_inngest_function():
             return {"tripped": tripped}
 
         breaker = await step.run("circuit-breaker", breaker_check)
-        return {"status": "ok", "equity": snap["equity"], "breaker_tripped": breaker["tripped"]}
+
+        # ── Sleeve A: shadow fills, ATR trailing stops, snapshot + breaker ──
+        # No-op entirely when SleeveState A doesn't exist yet (the weekly
+        # funnel hasn't bootstrapped it). That existence check happens ONCE,
+        # in sleeve-a-fills; the later three steps trust the `active` flag
+        # it returns rather than re-querying. Each step is independently
+        # try/except-wrapped and journals `engine_failure` on its own
+        # failure — Sleeve B's result above is already computed and must
+        # reach the caller even if every Sleeve A duty below blows up.
+
+        async def sleeve_a_fills_step() -> Dict[str, Any]:
+            db = None
+            from execution.reporting import write_report  # noqa: PLC0415
+            try:
+                import asyncio  # noqa: PLC0415
+
+                from api.lib.db import get_db  # noqa: PLC0415
+                from execution.broker.shadow_client import ShadowBrokerClient  # noqa: PLC0415
+                from execution.constants import SLEEVE_A  # noqa: PLC0415
+                from execution.market_data import fetch_ohlcv_batch  # noqa: PLC0415
+                from execution.sleeve_service import (  # noqa: PLC0415
+                    get_sleeve_state, update_sleeve_cash,
+                )
+
+                db = await get_db()
+                state = await get_sleeve_state(db, SLEEVE_A)
+                if state is None:
+                    return {"active": False}
+
+                broker = ShadowBrokerClient(db, sleeve=SLEEVE_A)
+                orders = await broker.get_open_orders()
+                if not orders:
+                    return {"active": True, "filled": 0, "missed": 0}
+
+                symbols = sorted({o.symbol for o in orders})
+                ohlcv = await asyncio.to_thread(fetch_ohlcv_batch, symbols, "5d")
+
+                now = datetime.fromisoformat(run_date_iso)
+                cash_delta_total = 0.0
+                filled = 0
+                missed = 0
+                for order in orders:
+                    df = ohlcv.get(order.symbol)
+                    if df is None or df.empty:
+                        continue  # no bar today — retry next run
+                    today = df.iloc[-1]
+                    settled = await broker.settle_open_order(
+                        order, day_high=float(today["High"]), day_low=float(today["Low"]),
+                        now=now,
+                    )
+                    if settled["status"] == "filled":
+                        filled += 1
+                        cash_delta_total += settled["cash_delta"]
+                        await write_report(
+                            "entry_filled", "info", "execution_daily",
+                            f"Sleeve A fill: {order.symbol}",
+                            {"symbol": order.symbol, "side": order.side,
+                             "qty": order.qty, "fill_price": order.limitPrice},
+                            db=db,
+                        )
+                    elif settled["status"] == "expired":
+                        missed += 1
+                        await write_report(
+                            "entry_missed", "info", "execution_daily",
+                            f"Sleeve A order expired unfilled: {order.symbol}",
+                            {"symbol": order.symbol, "side": order.side,
+                             "qty": order.qty, "limit_price": order.limitPrice},
+                            db=db,
+                        )
+                if cash_delta_total != 0.0:
+                    new_cash = float(state.cashBalance) + cash_delta_total
+                    await update_sleeve_cash(db, SLEEVE_A, new_cash)
+                return {"active": True, "filled": filled, "missed": missed}
+            except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return
+                logger.exception("sleeve-a-fills failed")
+                await write_report(
+                    "engine_failure", "warning", "execution_daily",
+                    "Sleeve A fills sweep failed", {"stage": "sleeve-a-fills"}, db=db,
+                )
+                return {"active": False, "error": True}
+
+        fills = await step.run("sleeve-a-fills", sleeve_a_fills_step)
+
+        async def sleeve_a_stops_step() -> Dict[str, Any]:
+            if not fills["active"]:
+                return {"active": False}
+            db = None
+            from execution.reporting import write_report  # noqa: PLC0415
+            try:
+                import asyncio  # noqa: PLC0415
+
+                from api.lib.db import get_db  # noqa: PLC0415
+                from execution.broker.shadow_client import ShadowBrokerClient  # noqa: PLC0415
+                from execution.constants import SLEEVE_A  # noqa: PLC0415
+                from execution.funnel.screen import compute_atr  # noqa: PLC0415
+                from execution.market_data import fetch_ohlcv_batch  # noqa: PLC0415
+                from execution.sleeve_service import (  # noqa: PLC0415
+                    get_engine_positions, get_sleeve_state, update_sleeve_cash,
+                )
+
+                db = await get_db()
+                positions = await get_engine_positions(db, SLEEVE_A)
+                if not positions:
+                    return {"active": True, "exits": 0}
+
+                symbols = sorted({p.symbol for p in positions})
+                ohlcv = await asyncio.to_thread(fetch_ohlcv_batch, symbols)
+
+                now = datetime.fromisoformat(run_date_iso)
+                broker = ShadowBrokerClient(db, sleeve=SLEEVE_A)
+                cash_delta_total = 0.0
+                exits = 0
+                for pos in positions:
+                    df = ohlcv.get(pos.symbol)
+                    if df is None or len(df) < 15:  # need 15 rows for ATR(14)
+                        continue  # not enough bars today — retry next run
+                    atr = compute_atr(df)
+                    if atr is None:
+                        continue
+                    today = df.iloc[-1]
+                    today_open = float(today["Open"])
+                    today_low = float(today["Low"])
+                    today_close = float(today["Close"])
+                    hw_in = (
+                        pos.highWaterClose if pos.highWaterClose is not None
+                        else pos.avgEntryPrice
+                    )
+                    new_hw, stop = stop_levels(hw_in, today_close, atr)
+                    # Persist the ratcheted anchor BEFORE any exit below — a
+                    # full exit deletes the EnginePosition row, so this must
+                    # land first or it never lands at all.
+                    await db.engineposition.update(
+                        where={"sleeve_symbol": {"sleeve": SLEEVE_A, "symbol": pos.symbol}},
+                        data={"highWaterClose": new_hw, "stopPrice": stop},
+                    )
+                    fill_price = stop_fill_price(stop, today_open, today_low)
+                    if fill_price is None:
+                        continue
+                    client_order_id = f"shadow-A-{pos.symbol}-{now:%Y%m%d}-stop"
+                    await broker.submit_shadow_sell(
+                        symbol=pos.symbol, qty=pos.qty, fill_price=fill_price,
+                        journal={"reason": "trailing_stop", "stop": stop, "atr": atr,
+                                 "high_water": new_hw},
+                        client_order_id=client_order_id,
+                    )
+                    cash_delta_total += round(pos.qty * fill_price, 2)
+                    exits += 1
+                    await write_report(
+                        "exit_stop", "info", "execution_daily",
+                        f"Sleeve A trailing stop: {pos.symbol}",
+                        {"symbol": pos.symbol, "qty": pos.qty, "stop": stop,
+                         "fill_price": fill_price, "high_water": new_hw},
+                        db=db,
+                    )
+                if cash_delta_total != 0.0:
+                    state = await get_sleeve_state(db, SLEEVE_A)
+                    base_cash = float(state.cashBalance) if state else 0.0
+                    await update_sleeve_cash(db, SLEEVE_A, base_cash + cash_delta_total)
+                return {"active": True, "exits": exits}
+            except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return
+                logger.exception("sleeve-a-stops failed")
+                await write_report(
+                    "engine_failure", "warning", "execution_daily",
+                    "Sleeve A trailing stop sweep failed", {"stage": "sleeve-a-stops"}, db=db,
+                )
+                return {"active": False, "error": True}
+
+        stops = await step.run("sleeve-a-stops", sleeve_a_stops_step)
+
+        async def sleeve_a_snapshot_step() -> Dict[str, Any]:
+            if not fills["active"]:
+                return {"active": False}
+            db = None
+            from execution.reporting import write_report  # noqa: PLC0415
+            try:
+                import asyncio  # noqa: PLC0415
+
+                from api.lib.db import get_db  # noqa: PLC0415
+                from execution.constants import SLEEVE_A  # noqa: PLC0415
+                from execution.market_data import fetch_ohlcv_batch  # noqa: PLC0415
+                from execution.sleeve_service import (  # noqa: PLC0415
+                    get_engine_positions, get_sleeve_state, store_snapshot,
+                )
+
+                db = await get_db()
+                state = await get_sleeve_state(db, SLEEVE_A)
+                if state is None:
+                    return {"active": False}
+                positions = await get_engine_positions(db, SLEEVE_A)
+                symbols = sorted({p.symbol for p in positions})
+                ohlcv = await asyncio.to_thread(fetch_ohlcv_batch, symbols) if symbols else {}
+
+                positions_value = 0.0
+                for p in positions:
+                    df = ohlcv.get(p.symbol)
+                    if df is None or df.empty:
+                        continue
+                    positions_value += p.qty * float(df["Close"].iloc[-1])
+
+                cash = float(state.cashBalance)
+                equity = round(cash + positions_value, 2)
+                run_date = datetime.fromisoformat(run_date_iso)
+                snapshot_date = run_date.replace(hour=0, minute=0, second=0, microsecond=0)
+                # Same SPY close the Sleeve B snapshot above already fetched —
+                # both sleeves benchmark against literally the same number.
+                await store_snapshot(
+                    db, SLEEVE_A, snapshot_date, equity=equity, cash=cash,
+                    positions_value=round(positions_value, 2), spy_close=snap["spy_close"],
+                )
+                return {
+                    "active": True, "equity": equity, "spy_close": snap["spy_close"],
+                    "inception_equity": state.inceptionEquity,
+                    "inception_spy": state.inceptionSpyClose, "status": state.status,
+                }
+            except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return
+                logger.exception("sleeve-a-snapshot failed")
+                await write_report(
+                    "engine_failure", "warning", "execution_daily",
+                    "Sleeve A snapshot failed", {"stage": "sleeve-a-snapshot"}, db=db,
+                )
+                return {"active": False, "error": True}
+
+        a_snap = await step.run("sleeve-a-snapshot", sleeve_a_snapshot_step)
+
+        async def sleeve_a_breaker_step() -> Dict[str, Any]:
+            if not a_snap.get("active"):
+                return {"active": False}
+            db = None
+            from execution.reporting import write_report  # noqa: PLC0415
+            try:
+                from api.lib.db import get_db  # noqa: PLC0415
+                from execution.constants import SLEEVE_A  # noqa: PLC0415
+                from execution.engine.circuit_breaker import circuit_breaker_tripped  # noqa: PLC0415
+                from execution.sleeve_service import set_sleeve_status  # noqa: PLC0415
+
+                tripped = circuit_breaker_tripped(
+                    a_snap["equity"], a_snap["inception_equity"],
+                    a_snap["spy_close"], a_snap["inception_spy"],
+                )
+                if tripped and a_snap["status"] == "active":
+                    db = await get_db()
+                    await set_sleeve_status(
+                        db, SLEEVE_A, "halted",
+                        "circuit breaker: -15pp vs SPY since inception",
+                    )
+                    await write_report(
+                        "breaker_event", "critical", "execution_daily",
+                        "Sleeve A circuit breaker tripped",
+                        {
+                            "transition": "active->halted",
+                            "rule": "-15pp vs SPY since inception",
+                            "equity": a_snap["equity"],
+                            "inception_equity": a_snap["inception_equity"],
+                            "spy_close": a_snap["spy_close"],
+                            "inception_spy": a_snap["inception_spy"],
+                        },
+                        db=db,
+                    )
+                return {"active": True, "tripped": tripped}
+            except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return
+                logger.exception("sleeve-a-breaker failed")
+                await write_report(
+                    "engine_failure", "warning", "execution_daily",
+                    "Sleeve A breaker check failed", {"stage": "sleeve-a-breaker"}, db=db,
+                )
+                return {"active": False, "error": True}
+
+        a_breaker = await step.run("sleeve-a-breaker", sleeve_a_breaker_step)
+
+        return {
+            "status": "ok", "equity": snap["equity"], "breaker_tripped": breaker["tripped"],
+            "sleeve_a": {
+                "active": fills["active"], "fills": fills, "stops": stops,
+                "snapshot": a_snap, "breaker": a_breaker,
+            },
+        }
 
     return execution_daily
 

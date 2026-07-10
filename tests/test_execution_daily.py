@@ -197,8 +197,11 @@ async def test_frozen_transition_writes_breaker_event_once(monkeypatch, executio
     monkeypatch.setattr(reporting_mod, "write_report", fake_write_report)
 
     # Day 1: sleeve currently active -> mismatch freezes it, alerts + journals once.
+    # Sleeve-aware: this scenario only sets up Sleeve B, so SleeveState A
+    # correctly reads as absent — the Task 13 Sleeve A steps are no-ops here
+    # too (though this path returns "frozen" before ever reaching them).
     async def fake_get_sleeve_state_day1(db, sleeve):
-        return _SleeveState(status="active")
+        return _SleeveState(status="active") if sleeve == "B" else None
     monkeypatch.setattr(sleeve_mod, "get_sleeve_state", fake_get_sleeve_state_day1)
 
     result1 = await execution_daily_fn(_FakeCtx())
@@ -209,7 +212,7 @@ async def test_frozen_transition_writes_breaker_event_once(monkeypatch, executio
 
     # Day 2: sleeve already frozen -> no repeat alert, no repeat journal entry.
     async def fake_get_sleeve_state_day2(db, sleeve):
-        return _SleeveState(status="frozen")
+        return _SleeveState(status="frozen") if sleeve == "B" else None
     monkeypatch.setattr(sleeve_mod, "get_sleeve_state", fake_get_sleeve_state_day2)
 
     result2 = await execution_daily_fn(_FakeCtx())
@@ -259,6 +262,12 @@ async def test_breaker_trip_writes_breaker_event(monkeypatch, execution_daily_fn
         return [_EnginePos("XLK", 10.0)]
 
     async def fake_get_sleeve_state(db, sleeve):
+        # Sleeve-aware: this scenario only sets up Sleeve B. SleeveState A
+        # correctly reads as absent, so the Task 13 Sleeve A steps (appended
+        # after Sleeve B's breaker check, which this test's flow does reach)
+        # are a full no-op and never touch write_report/alerts/status here.
+        if sleeve != "B":
+            return None
         return _SleeveState(status="active", cash=10000.0,
                              inception_equity=50000.0, inception_spy=400.0)
 
