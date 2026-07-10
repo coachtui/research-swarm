@@ -40,6 +40,8 @@ class BacktestConfig:
     starting_cash: float = 100_000.0
     flat_conviction: Optional[float] = None   # None → screen_score × 10
     slippage_bps: float = 10.0
+    requote_weekly: bool = False        # experiment A: weekly fresh limits
+    capitulation_valve: bool = False    # experiment B: market entry after 2 misses
 
 
 @dataclass
@@ -53,6 +55,17 @@ def _conviction(row: Dict[str, Any], cfg: BacktestConfig) -> float:
     if cfg.flat_conviction is not None:
         return float(cfg.flat_conviction)
     return max(0.0, min(100.0, float(row["screen_score"]) * 10.0))
+
+
+def valve_armed(miss: Optional[dict], conviction: float) -> bool:
+    """Two consecutive missed quotes and conviction not lower than the last one."""
+    return miss is not None and miss["count"] >= 2 and conviction >= miss["conviction"]
+
+
+def _record_miss(missed: Dict[str, dict], order: LimitOrder) -> None:
+    m = missed.setdefault(order.symbol, {"count": 0, "conviction": 0.0})
+    m["count"] += 1
+    m["conviction"] = order.conviction
 
 
 def _week_starts(cal: pd.DatetimeIndex) -> set:
