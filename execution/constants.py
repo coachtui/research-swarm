@@ -98,6 +98,7 @@ ENTRY_WEIGHT_MIN = 0.03             # conviction band at entry (of sleeve equity
 ENTRY_WEIGHT_MAX = 0.12
 RISK_TRIM_CEILING = 0.20            # only above this is a winner ever trimmed…
 RISK_TRIM_TARGET = 0.12             # …back to here; journaled risk_trim, not a signal
+RETIRED_THEME_EXIT_CONVICTION = 50.0  # review re-score (hunting_bonus=0) must clear this
 
 LIGHT_RUNS_PER_WEEK = 20            # numbers-only runs (~$0.10–0.15 each)
 FULL_RUNS_PER_WEEK = 2              # entry handshake budget (~$0.51 avg each)

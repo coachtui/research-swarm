@@ -17,3 +17,4 @@ def test_funnel_constants_exist_and_cohere():
     assert abs(sum(c.SCREEN_WEIGHTS.values()) - 1.0) < 1e-9
     assert 0 < c.SMALL_CAP_HAIRCUT_MIN_MULT < 1.0
     assert 0 < c.STALENESS_DECAY_PER_WEEK < 0.1
+    assert 0 < c.RETIRED_THEME_EXIT_CONVICTION < 100
