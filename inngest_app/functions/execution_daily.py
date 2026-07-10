@@ -59,6 +59,40 @@ def stop_fill_price(stop: float, today_open: float, today_low: float) -> Optiona
     return round(min(stop, today_open), 2)
 
 
+async def _persist_position_provenance(db, order: Any) -> None:
+    """Copy sourceTags / convictionScore / reportRef from a filled buy's order
+    journal onto its EnginePosition row (C1a). The columns were migrated but
+    left dead; the weekly theme review needs the persisted sourceTags to flag
+    only theme-sourced holdings. Best-effort — never sinks the fills sweep."""
+    from execution.constants import SLEEVE_A  # noqa: PLC0415
+
+    try:
+        journal = getattr(order, "journal", None) or {}
+        if not isinstance(journal, dict):
+            return
+        data: Dict[str, Any] = {}
+        tags = journal.get("sourceTags")
+        if isinstance(tags, dict):
+            from prisma import Json  # noqa: PLC0415
+
+            data["sourceTags"] = Json(tags)
+        conviction = journal.get("convictionScore")
+        if conviction is not None:
+            data["convictionScore"] = float(conviction)
+        report_ref = journal.get("reportRef")
+        if report_ref is not None:
+            data["reportRef"] = report_ref
+        if not data:
+            return
+        await db.engineposition.update(
+            where={"sleeve_symbol": {"sleeve": SLEEVE_A, "symbol": order.symbol}},
+            data=data,
+        )
+    except Exception:  # noqa: BLE001 — provenance is audit, not a gate
+        logger.exception("sleeve-a-fills: provenance persist failed for %s",
+                         getattr(order, "symbol", "?"))
+
+
 # ── Inngest function (guarded registration, weekly_outlook.py pattern) ──────
 
 def _register_inngest_function():
@@ -307,6 +341,13 @@ def _register_inngest_function():
                     if settled["status"] == "filled":
                         filled += 1
                         cash_delta_total += settled["cash_delta"]
+                        # Provenance (C1a): copy the buy's sourceTags /
+                        # convictionScore / reportRef from the order journal onto
+                        # the freshly-settled position row — reviving the dead
+                        # migrated columns so the weekly theme review reads
+                        # PERSISTED tags. Only for buys (a sell closes the row).
+                        if order.side == "buy":
+                            await _persist_position_provenance(db, order)
                         await write_report(
                             "entry_filled", "info", "execution_daily",
                             f"Sleeve A fill: {order.symbol}",
@@ -325,6 +366,20 @@ def _register_inngest_function():
                         )
                 if cash_delta_total != 0.0:
                     new_cash = float(state.cashBalance) + cash_delta_total
+                    if new_cash < 0.0:
+                        # Belt-and-suspenders (I3b): a shadow ledger must never
+                        # go negative (no leverage). Floor at 0 and make the
+                        # overshoot visible — the weekly pass's committed-capital
+                        # accounting should already prevent this.
+                        await write_report(
+                            "engine_failure", "warning", "execution_daily",
+                            "Sleeve A cash floored at 0 — fills exceeded ledger",
+                            {"stage": "sleeve-a-fills",
+                             "would_be_cash": round(new_cash, 2),
+                             "cash_delta": round(cash_delta_total, 2)},
+                            db=db,
+                        )
+                        new_cash = 0.0
                     await update_sleeve_cash(db, SLEEVE_A, new_cash)
                 return {"active": True, "filled": filled, "missed": missed}
             except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return

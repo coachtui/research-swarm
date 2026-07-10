@@ -27,12 +27,15 @@ from typing import Any, Dict, List, Optional
 
 from execution.constants import (
     BENCHMARK,
+    FRESH_REPORT_DAYS,
     FULL_RUNS_PER_WEEK,
+    HOLDING_STALE_WEEKS,
     LIGHT_RUNS_PER_WEEK,
     MIN_TRADE_NOTIONAL,
     OUTLOOK_MAX_AGE_DAYS,
     REGIME_INVESTED_FRACTION,
     RETIRED_THEME_EXIT_CONVICTION,
+    SCREEN_WEIGHTS,
     SLEEVE_A,
     SLEEVE_A_FRACTION,
     SLEEVE_A_MAX_POSITIONS,
@@ -45,7 +48,7 @@ from execution.funnel.entries import (
     entry_limit_price, entry_ttl_days, extension_state, size_entry,
 )
 from execution.funnel.research_budget import (
-    persist_full, reuse_or_budget, run_paid_analysis,
+    full_runs_used, persist_full, reuse_or_budget, run_paid_analysis,
 )
 from execution.outlook_service import get_latest_outlook
 from execution.reporting import write_report
@@ -86,38 +89,55 @@ def _fv_gap_pct(fair_value: Optional[float], price: Optional[float]) -> Optional
 
 
 def _conviction_input_from_signals(
-    signals: Dict[str, Any], screen: Dict[str, Any], report_age_days: float = 0.0,
+    signals: Dict[str, Any], screen: Dict[str, Any],
+    base: Optional[Dict[str, Any]] = None, report_age_days: float = 0.0,
 ) -> Dict[str, Any]:
-    """Full-signal (manager) shape → compute_conviction input. Full signals use
-    the extract_signals_from_result camelCase keys; screen supplies momentum,
-    hunting and market cap the manager doesn't carry."""
+    """Overlay full-run (manager) signals ONTO a light/screen-derived base.
+
+    extract_signals_from_result returns ONLY verdict/fairValue/insiderScore/
+    darkPoolScore/sentimentScore — NOT valuation_score, financial_health,
+    earnings_momentum, short_pct_float or market_cap. Building conviction from
+    the full signals alone therefore drops the small-cap haircut and the
+    fundamentals exactly at the entry recompute (I1). So we start from the base
+    (the light-row/screen conviction input, which carries market_cap,
+    valuation_score, short_pct_float, momentum, hunting) and let the full-run
+    fields override only where present."""
+    merged = dict(base or {})
+    merged.setdefault("momentum", screen.get("momentum"))
+    merged.setdefault("hunting_bonus", screen.get("hunting_bonus"))
+    merged.setdefault("market_cap", screen.get("market_cap"))
+    if report_age_days:
+        merged["report_age_days"] = report_age_days
+    merged.setdefault("report_age_days", 0.0)
+
+    if signals.get("verdict") is not None:
+        merged["verdict"] = signals.get("verdict")
     fv_gap = signals.get("fair_value_gap_pct")
     if fv_gap is None:
         fv_gap = _fv_gap_pct(signals.get("fairValue"), screen.get("price"))
-    return {
-        "verdict": signals.get("verdict"),
-        "fair_value_gap_pct": fv_gap,
-        "insider_score": signals.get("insiderScore"),
-        "dark_pool_score": signals.get("darkPoolScore"),
-        "sentiment_score": signals.get("sentimentScore"),
-        "valuation_score": signals.get("valuation_score"),
-        "financial_health": signals.get("financial_health"),
-        "earnings_momentum": signals.get("earnings_momentum"),
-        "short_pct_float": signals.get("short_pct_float"),
-        "momentum": screen.get("momentum"),
-        "hunting_bonus": screen.get("hunting_bonus"),
-        "market_cap": screen.get("market_cap") or signals.get("market_cap"),
-        "report_age_days": report_age_days,
-    }
+    if fv_gap is not None:
+        merged["fair_value_gap_pct"] = fv_gap
+    for src, dst in (
+        ("insiderScore", "insider_score"),
+        ("darkPoolScore", "dark_pool_score"),
+        ("sentimentScore", "sentiment_score"),
+    ):
+        if signals.get(src) is not None:
+            merged[dst] = signals.get(src)
+    return merged
 
 
 def _conviction_input_from_light(
     light: Dict[str, Any], screen: Dict[str, Any],
     report_age_days: float = 0.0, hunting_bonus: Optional[float] = None,
+    verdict: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Light-run (numbers-only, snake_case) shape → compute_conviction input."""
+    """Light-run (numbers-only, snake_case) shape → compute_conviction input.
+    `verdict` is threaded from the symbol's most recent full WeeklySignal row
+    (the light runner itself never assigns one) so a holding whose last full
+    run said SELL is vetoed and staleness decays with real report age (C2)."""
     return {
-        "verdict": None,  # the light runner never assigns a verdict
+        "verdict": verdict,
         "fair_value_gap_pct": light.get("fair_value_gap_pct"),
         "insider_score": light.get("insider_score"),
         "dark_pool_score": light.get("dark_pool_score"),
@@ -129,6 +149,81 @@ def _conviction_input_from_light(
         "market_cap": light.get("market_cap") or screen.get("market_cap"),
         "report_age_days": report_age_days,
     }
+
+
+def _age_days(created: Any, now: datetime) -> Optional[float]:
+    """Whole days between a WeeklySignal.createdAt and now (tz-safe)."""
+    if created is None:
+        return None
+    try:
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return float((now - created).days)
+    except (TypeError, AttributeError):
+        return None
+
+
+async def _load_latest_signals(
+    db, symbols: List[str], now: datetime,
+) -> Dict[str, Dict[str, Any]]:
+    """ONE query for ALL symbols → per-symbol {verdict, report_age_days}.
+
+    verdict comes from the most recent tier='full' row (the categorical call
+    only a paid run makes); report_age_days comes from the most recent row of
+    ANY tier — a light run that refreshed the numbers this week counts as
+    fresh for the staleness multiplier (§7.1) and the free-ride slot (§5)."""
+    out: Dict[str, Dict[str, Any]] = {}
+    syms = list({s for s in symbols if s})
+    if not syms:
+        return out
+    try:
+        rows = await db.weeklysignal.find_many(
+            where={"ticker": {"in": syms}},
+            order=[{"runDate": "desc"}, {"createdAt": "desc"}],
+        )
+    except Exception:  # noqa: BLE001 — degrade; missing ages are neutral
+        logger.exception("funnel: latest-signals query failed")
+        return out
+    for r in rows:
+        sym = getattr(r, "ticker", None)
+        if sym is None:
+            continue
+        entry = out.setdefault(
+            sym, {"verdict": None, "report_age_days": None,
+                  "_have_age": False, "_have_verdict": False},
+        )
+        if not entry["_have_age"]:
+            entry["report_age_days"] = _age_days(getattr(r, "createdAt", None), now)
+            entry["_have_age"] = True
+        if not entry["_have_verdict"] and getattr(r, "tier", None) == "full":
+            entry["verdict"] = getattr(r, "verdict", None)
+            entry["_have_verdict"] = True
+    for entry in out.values():
+        entry.pop("_have_age", None)
+        entry.pop("_have_verdict", None)
+    return out
+
+
+def _light_slot_policy(
+    ranked: List[Dict[str, Any]], positions: Dict[str, Any],
+    latest: Dict[str, Dict[str, Any]],
+) -> tuple:
+    """Spec §5 slot policy. stale_holdings = a holding whose newest report is
+    older than HOLDING_STALE_WEEKS (or has NO row) — it claims a light slot.
+    fresh_symbols = any ranked name refreshed within FRESH_REPORT_DAYS — it
+    rides free (no slot burned). Returns (fresh_symbols, stale_holdings)."""
+    stale_days = HOLDING_STALE_WEEKS * 7
+    stale_holdings: List[str] = []
+    for sym in positions:
+        age = (latest.get(sym) or {}).get("report_age_days")
+        if age is None or age > stale_days:
+            stale_holdings.append(sym)
+    fresh_symbols = {
+        r["symbol"] for r in ranked
+        if (latest.get(r["symbol"]) or {}).get("report_age_days") is not None
+        and (latest.get(r["symbol"]) or {}).get("report_age_days") < FRESH_REPORT_DAYS
+    }
+    return fresh_symbols, stale_holdings
 
 
 # ── Step helpers (unit-tested directly with step=None) ───────────────────────
@@ -214,6 +309,17 @@ async def _ensure_sleeve_a(db, now: datetime) -> Optional[Dict[str, Any]]:
         summary = await asyncio.to_thread(client.get_account_summary)
         seed_cash = SLEEVE_A_FRACTION * float(summary["equity"])
         prev_spy = await _previous_spy_close()
+        if not prev_spy or prev_spy <= 0.0:
+            # REFUSE to bootstrap on a missing SPY close: seeding
+            # inceptionSpyClose=0.0 silently disables the −15pp breaker forever.
+            # Skip this pass; retry next Monday when the close is available.
+            await _journal(
+                db, "engine_failure", "warning",
+                "Funnel skipped: previous SPY close unavailable — refusing to "
+                "seed Sleeve A with inceptionSpyClose=0.0 (would disable breaker)",
+                {"stage": "ensure-sleeve-a", "prev_spy": prev_spy},
+            )
+            return None
         state = await init_sleeve_state(
             db, SLEEVE_A, cash=seed_cash, spy_close=prev_spy,
             inception_date=now, mode="shadow",
@@ -271,10 +377,16 @@ async def _handshake_and_enter(
     placed: List[Dict[str, Any]] = []
     deployable_remaining = float(deployable)
     cash_remaining = float(cash_available)
+    # Cap accumulation (I5): enforce_funnel_guardrails sums theme/sector usage
+    # across the LIST it is given, so each placed order must be appended to the
+    # baseline the NEXT call sees — two same-theme entries in one pass would
+    # otherwise each be checked against a fresh baseline and jointly bust 35%.
+    running_holdings: List[Dict[str, Any]] = list(holdings)
 
     for sym in entry_queue:
         cand = candidates_by_symbol.get(sym) or {}
         screen = cand.get("screen") or {}
+        base_input = cand.get("conv_input")
 
         # 1) Budget-aware handshake gate (reuse_or_budget is bare — wrap it).
         try:
@@ -333,8 +445,12 @@ async def _handshake_and_enter(
                            f"{sym}: no usable signals — no entry", {"symbol": sym})
             continue
 
-        # 2) Re-score conviction on the FULL signals; SELL is a veto.
-        conv = compute_conviction(_conviction_input_from_signals(signals, screen))
+        # 2) Re-score conviction: overlay the FULL signals onto the light/screen
+        #    base so the small-cap haircut + fundamentals survive the recompute
+        #    (I1). SELL is a veto.
+        conv = compute_conviction(
+            _conviction_input_from_signals(signals, screen, base=base_input)
+        )
         if conv.get("vetoed"):
             await _journal(db, "exit_sell_verdict", "info",
                            f"{sym}: entry vetoed — {conv.get('veto_reason')}",
@@ -376,7 +492,7 @@ async def _handshake_and_enter(
         }
         adjusted, notes = enforce_funnel_guardrails(
             [order], sleeve_equity, sleeve_equity, cash_remaining,
-            holdings, other_sleeve_sector_notional, allow_buys,
+            running_holdings, other_sleeve_sector_notional, allow_buys,
         )
         buys = [o for o in adjusted if o["side"] == "buy"]
         if not buys:
@@ -386,15 +502,24 @@ async def _handshake_and_enter(
             continue
 
         # 5) Submit the shadow limit buy (deterministic client_order_id).
+        source_tags = screen.get("tags") or {}
+        report_ref = await _latest_full_signal_id(db, sym)
+        sector = sector_by_symbol.get(sym)
         for o in buys:
             final_notional = float(o["notional"])
             qty = round(final_notional / limit, 4)
             expires_at = run_date + timedelta(days=ttl)
             coid = f"shadow-A-{sym}-{run_date:%Y%m%d}"
+            # Provenance (C1a): the journal carries sourceTags/convictionScore/
+            # reportRef so the daily fills step can copy them onto the position
+            # row — reviving the dead migrated columns and giving the weekly
+            # theme review persisted tags to read.
             journal = {
                 "symbol": sym, "conviction": conviction, "limit_price": limit,
                 "notional": final_notional, "extension_state": state,
                 "ttl_days": ttl, "guardrail_notes": notes,
+                "sourceTags": source_tags, "convictionScore": conviction,
+                "reportRef": report_ref,
             }
             try:
                 await client.submit_limit_buy(
@@ -412,6 +537,11 @@ async def _handshake_and_enter(
                 "symbol": sym, "qty": qty, "limit_price": limit,
                 "notional": final_notional, "client_order_id": coid,
                 "expires_at": expires_at.isoformat(),
+            })
+            # Feed this order into the baseline the next guardrail call sees.
+            running_holdings.append({
+                "symbol": sym, "market_value": final_notional,
+                "tags": source_tags, "sector": sector,
             })
             deployable_remaining = max(0.0, deployable_remaining - final_notional)
             cash_remaining = max(0.0, cash_remaining - final_notional)
@@ -589,7 +719,12 @@ def _register_inngest_function():
         async def screen_step() -> Dict[str, Any]:
             db = await get_db()
             try:
-                return await _screen(assembled, outlook, sleeve_ctx)
+                latest = await _load_latest_signals(
+                    db,
+                    list(assembled.get("tagged", {})) + list(sleeve_ctx["positions"]),
+                    now,
+                )
+                return await _screen(assembled, outlook, sleeve_ctx, latest)
             except Exception:  # noqa: BLE001
                 logger.exception("funnel: screen failed")
                 await _journal(db, "engine_failure", "warning",
@@ -690,6 +825,9 @@ async def _assemble(db, outlook: Dict[str, Any], holdings: List[str]) -> Dict[st
     tagged = merge_sources(theme_members, industry_holdings, watchlist, holdings)
     return {
         "tagged": tagged,
+        # active theme slugs this week — a holding's stored sourcing theme is
+        # "retired" (§7.4) precisely when it is absent from this set.
+        "active_themes": list(theme_members.keys()),
         "counts": {
             "themes": len(theme_members), "watchlist": len(watchlist),
             "industry_holdings": sum(len(v) for v in industry_holdings.values()),
@@ -700,6 +838,7 @@ async def _assemble(db, outlook: Dict[str, Any], holdings: List[str]) -> Dict[st
 
 async def _screen(
     assembled: Dict[str, Any], outlook: Dict[str, Any], sleeve_ctx: Dict[str, Any],
+    latest_signals: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Fetch OHLCV, apply the sanity floors, screen every kept name, quality
     re-rank the top 40, pick light slots. All DataFrames stay LOCAL to this
@@ -758,9 +897,11 @@ async def _screen(
     ranked = await _quality_rerank(ranked)
     ranked = rank_candidates(ranked)
 
-    stale_holdings = [s for s in sleeve_ctx.get("positions", {})]
+    fresh_symbols, stale_holdings = _light_slot_policy(
+        ranked, sleeve_ctx.get("positions", {}), latest_signals or {},
+    )
     slots = select_light_slots(
-        ranked, fresh_symbols=set(), stale_holdings=stale_holdings,
+        ranked, fresh_symbols=fresh_symbols, stale_holdings=stale_holdings,
         budget=LIGHT_RUNS_PER_WEEK,
     )
     sector_by_symbol = await _sectors_for([r["symbol"] for r in ranked])
@@ -787,7 +928,13 @@ async def _screen(
 
 
 async def _quality_rerank(ranked: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Re-score the top N with a real valuation quality score; rest keep q=5."""
+    """Re-score the top N with a real valuation quality score; rest keep q=5.
+
+    calculate_valuation_score returns Tuple[float, Dict] — the tuple must be
+    UNPACKED (float(tuple) raises per-row, swallowed at debug) and the row's
+    screen_score must be RE-BLENDED with the quality delta, else the re-sort in
+    _screen changes nothing and the 40 network calls are wasted (I2). Quality is
+    a cheap tiebreaker (§5): delta × SCREEN_WEIGHTS['quality'] is exact."""
     import asyncio  # noqa: PLC0415
 
     try:
@@ -805,10 +952,18 @@ async def _quality_rerank(ranked: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             metrics = await asyncio.to_thread(
                 provider.get_valuation_metrics, row["symbol"]
             )
-            q = await asyncio.to_thread(scorer.calculate_valuation_score, metrics)
+            q, _detail = await asyncio.to_thread(
+                scorer.calculate_valuation_score, metrics
+            )
             if q is not None:
-                # blend the real quality into the screen score (q is 0..10).
-                row["quality"] = float(q)
+                old_q = float(row.get("quality", 5.0))
+                new_q = max(0.0, min(10.0, float(q)))
+                row["quality"] = new_q
+                row["screen_score"] = round(
+                    float(row["screen_score"])
+                    + SCREEN_WEIGHTS["quality"] * (new_q - old_q),
+                    3,
+                )
         except Exception:  # noqa: BLE001
             logger.debug("quality rerank skipped for %s", row.get("symbol"))
     return ranked
@@ -825,7 +980,16 @@ async def _sectors_for(symbols: List[str]) -> Dict[str, str]:
             if getattr(r, "sector", None):
                 out[r.ticker] = r.sector
     except Exception:  # noqa: BLE001
-        logger.debug("sector lookup failed")
+        # A silent loss of the cross-sleeve sector cap must be VISIBLE.
+        logger.exception("funnel: TickerMeta sector lookup failed")
+        try:
+            db = await get_db()
+            await _journal(db, "engine_failure", "warning",
+                           "TickerMeta sector lookup failed — cross-sleeve sector "
+                           "cap may be under-enforced this pass",
+                           {"stage": "sectors-for", "symbols": len(symbols)})
+        except Exception:  # noqa: BLE001
+            pass
     return out
 
 
@@ -861,24 +1025,43 @@ async def _decide_and_execute(
 ) -> Dict[str, Any]:
     """Conviction table → theme review → plan → sells → entries. Returns the
     summary fragments the funnel_summary row records."""
+    now = datetime.now(timezone.utc)
     ranked = screened.get("ranked", [])
     by_symbol = {r["symbol"]: r for r in ranked}
     close_by_symbol = screened.get("close_by_symbol", {})
     positions = sleeve_ctx.get("positions", {})
     light_rows = lights.get("light_rows", {})
 
-    # Conviction table for holdings and candidates.
+    # Latest WeeklySignal per symbol (ONE query): the most recent full-tier
+    # verdict (SELL → veto/exit) + report age (staleness decay). Without this
+    # the conviction table is built from light data only — verdict hard-None,
+    # age 0 — killing the SELL-verdict exit and the staleness multiplier (C2).
+    latest = await _load_latest_signals(
+        db, list(by_symbol) + list(positions), now,
+    )
+
+    # Persisted provenance (C1a): the theme-review check reads the sourceTags
+    # STORED on the EnginePosition at fill time, not the weekly screen tags —
+    # industry-sourced holdings (industries rotate out weekly by design) must
+    # never trip a phantom paid review.
+    stored_tags = await _load_position_source_tags(db)
+    active_themes = set(assembled.get("active_themes", []))
+
+    # Conviction table for holdings and candidates. Keep each candidate's conv
+    # input so the entry-handshake recompute can overlay full signals ONTO it
+    # (I1) instead of rebuilding from the signal-only shape.
     candidates: List[Dict[str, Any]] = []
     candidates_by_symbol: Dict[str, Dict[str, Any]] = {}
     for sym, screen in by_symbol.items():
         light = light_rows.get(sym)
-        conv_input = (
-            _conviction_input_from_light(light, screen) if light
-            else _conviction_input_from_light({}, screen)
+        meta = latest.get(sym) or {}
+        age = meta.get("report_age_days") or 0.0
+        conv_input = _conviction_input_from_light(
+            light or {}, screen, report_age_days=age, verdict=meta.get("verdict"),
         )
         conv = compute_conviction(conv_input)
         entry = {"symbol": sym, "conviction": conv["score"], "vetoed": conv["vetoed"],
-                 "screen": screen}
+                 "screen": screen, "conv_input": conv_input}
         candidates.append(entry)
         candidates_by_symbol[sym] = entry
 
@@ -891,17 +1074,42 @@ async def _decide_and_execute(
         close = close_by_symbol.get(sym, 0.0)
         screen = by_symbol.get(sym, {})
         light = light_rows.get(sym)
-        conv = compute_conviction(_conviction_input_from_light(light or {}, screen))
+        meta = latest.get(sym) or {}
+        age = meta.get("report_age_days") or 0.0
+        conv = compute_conviction(_conviction_input_from_light(
+            light or {}, screen, report_age_days=age, verdict=meta.get("verdict"),
+        ))
         holdings.append({
             "symbol": sym, "qty": qty, "market_value": qty * close,
             "conviction": conv["score"], "vetoed": conv["vetoed"],
-            "tags": screen.get("tags") or {}, "sector": screened.get("sector_by_symbol", {}).get(sym),
+            "tags": screen.get("tags") or {}, "source_tags": stored_tags.get(sym) or {},
+            "sector": screened.get("sector_by_symbol", {}).get(sym),
         })
 
-    # Theme review: holdings whose ALL sourcing themes are retired.
-    await _theme_review(db, run_date, holdings, by_symbol, light_rows, step)
+    # Theme review: holdings whose EVERY sourcing theme (from persisted tags)
+    # is retired. A deferred/failed review NEVER exits — only a completed run.
+    await _theme_review(db, run_date, holdings, by_symbol, active_themes, step)
 
-    decisions = plan_decisions(holdings, candidates, sleeve_equity, SLEEVE_A_MAX_POSITIONS)
+    # Standing (unfilled) shadow buys are pending positions: exclude them from
+    # this week's challengers so a patient 14-day limit can't spawn a SECOND
+    # order, and reserve their slots against the max-positions cap (I3a).
+    try:
+        open_buys = await _open_shadow_buys(db)
+    except Exception:  # noqa: BLE001 — degrade + journal
+        logger.exception("funnel: open shadow buy query failed")
+        await _journal(db, "engine_failure", "warning",
+                       "Open shadow buy query failed — treating committed capital as 0",
+                       {"stage": "decide-and-execute"})
+        open_buys = {"notional": 0.0, "symbols": set(), "count": 0}
+    open_symbols = open_buys["symbols"]
+    committed = open_buys["notional"]
+    candidates = [c for c in candidates if c["symbol"] not in open_symbols]
+    candidates_by_symbol = {
+        s: c for s, c in candidates_by_symbol.items() if s not in open_symbols
+    }
+    max_positions = max(0, SLEEVE_A_MAX_POSITIONS - open_buys["count"])
+
+    decisions = plan_decisions(holdings, candidates, sleeve_equity, max_positions)
 
     # Sells (exits + trims) first — their proceeds fund entries. Wrapped in its
     # own step (no internal step.run) so the shadow sells + cash update are
@@ -922,14 +1130,6 @@ async def _decide_and_execute(
     # capital a standing order already claimed.
     invested_fraction = REGIME_INVESTED_FRACTION.get(regime, 0.7)
     position_mv = sum(qty * close_by_symbol.get(sym, 0.0) for sym, qty in positions.items())
-    try:
-        committed = await _open_shadow_buy_notional(db)
-    except Exception:  # noqa: BLE001 — degrade + journal; shadow mode tolerates over-spend better than a dead pass
-        logger.exception("funnel: open shadow buy notional query failed")
-        await _journal(db, "engine_failure", "warning",
-                       "Open shadow buy query failed — treating committed capital as 0",
-                       {"stage": "decide-and-execute"})
-        committed = 0.0
     deployable = max(0.0, invested_fraction * sleeve_equity - position_mv - committed)
     cash_available = max(0.0, sell_out["cash"] - committed)
 
@@ -949,10 +1149,18 @@ async def _decide_and_execute(
     # _execute_sells above. Deducting placed buy notionals at submit would
     # double-count against the fill-time deduction and strand cash on expiry.
 
+    # Report ACTUAL spend, not the caps: full runs commissioned this pass (the
+    # handshake + theme review may have billed) and the real light count.
+    try:
+        full_used = await full_runs_used(db, run_date)
+    except Exception:  # noqa: BLE001
+        full_used = None
+
     return {
         "decisions": decisions, "guardrail_notes": decisions.get("notes", []),
         "placed": placed, "sells": sell_out,
-        "budget_used": {"full_runs_cap": FULL_RUNS_PER_WEEK,
+        "budget_used": {"full_runs_used": full_used,
+                        "full_runs_cap": FULL_RUNS_PER_WEEK,
                         "light_runs": lights.get("spent", 0)},
         "sleeve_equity": round(sleeve_equity, 2),
     }
@@ -960,11 +1168,16 @@ async def _decide_and_execute(
 
 async def _theme_review(
     db, run_date: datetime, holdings: List[Dict[str, Any]],
-    by_symbol: Dict[str, Any], light_rows: Dict[str, Any], step,
+    by_symbol: Dict[str, Any], active_themes: set, step,
 ) -> None:
-    """Per holding whose EVERY sourcing theme is retired: re-run research and
-    re-score with hunting_bonus=0; flag theme_review_failed below the floor."""
-    flagged = [h for h in holdings if _all_themes_retired(h, by_symbol)]
+    """Per holding whose EVERY sourcing theme (from PERSISTED sourceTags) is
+    retired: re-run research and re-score with hunting_bonus=0; flag
+    theme_review_failed only when a COMPLETED review lands below the floor.
+
+    Degradation must never generate a trade (C1b): when the handshake returns
+    no signals (budget exhausted or a failed persist), journal `deferred` and
+    leave the holding untouched — the name stays and re-competes next week."""
+    flagged = [h for h in holdings if _sourcing_themes_retired(h, active_themes)]
     if not flagged:
         return  # cheap no-op — the common case
     for h in flagged:
@@ -986,6 +1199,8 @@ async def _theme_review(
                     float(screen.get("screen_score") or 0.0),
                 )
                 signals = persisted.get("signals")
+            elif gate.get("action") == "skip":
+                signals = None  # budget exhausted — defer, do NOT fail
             else:
                 signals = gate.get("signals")
         except Exception:  # noqa: BLE001
@@ -994,37 +1209,61 @@ async def _theme_review(
                            f"{sym}: theme review failed", {"symbol": sym})
             continue
 
-        conv_input = _conviction_input_from_signals(signals or {}, screen)
+        if signals is None:
+            # No completed review this pass. Never exit on degradation.
+            reason = gate.get("reason") if gate.get("action") == "skip" else "no_signals"
+            await _journal(db, "theme_review", "info",
+                           f"{sym}: theme review deferred — {reason}",
+                           {"symbol": sym, "status": "deferred", "reason": reason})
+            continue
+
+        conv_input = _conviction_input_from_signals(signals, screen)
         conv_input["hunting_bonus"] = 0.0  # retired ground: no hunting credit
         conv = compute_conviction(conv_input)
         failed = conv["vetoed"] or conv["score"] < RETIRED_THEME_EXIT_CONVICTION
         h["theme_review_failed"] = failed
         await _journal(db, "theme_review", "info",
                        f"{sym}: theme review — {'exit' if failed else 'keep'}",
-                       {"symbol": sym, "conviction": conv["score"],
+                       {"symbol": sym, "conviction": conv["score"], "status": "completed",
                         "floor": RETIRED_THEME_EXIT_CONVICTION, "failed": failed})
 
 
+def _sourcing_themes_retired(holding: Dict[str, Any], active_themes: set) -> bool:
+    """Flag a holding for theme review only when its PERSISTED sourceTags show
+    ≥1 theme, ALL of those themes are now retired (absent from the active
+    theme set), and it carries no watchlist tag. Holdings with no stored tags
+    (pre-fix rows) or industry-only tags are NEVER flagged — industries rotate
+    out of the top-5 weekly by design and must not trigger a paid review."""
+    tags = holding.get("source_tags") or {}
+    themes = tags.get("themes") or []
+    if not themes or tags.get("watchlist"):
+        return False
+    return all(t not in active_themes for t in themes)
+
+
 def _all_themes_retired(holding: Dict[str, Any], by_symbol: Dict[str, Any]) -> bool:
-    """A holding is flagged only when it has sourcing themes and NONE remain
-    active. Screen tags only carry active themes, so an active-theme holding
-    keeps a non-empty themes list; an all-retired holding has an empty one but
-    was still sourced from a theme (holding flag)."""
+    """Deprecated (pre-provenance). Retained only so nothing imports it and
+    breaks; the live path uses _sourcing_themes_retired against stored tags."""
     screen = by_symbol.get(holding["symbol"], {})
     tags = (screen.get("tags") or {})
     themes = tags.get("themes", [])
     return bool(tags.get("holding")) and not themes and not tags.get("watchlist")
 
 
-async def _open_shadow_buy_notional(db) -> float:
-    """Total notional of standing (unfilled, unexpired) Sleeve A shadow buy
-    orders. Buys move cash only when the daily cron fills them, so an open
-    order is committed capital the cash ledger doesn't yet reflect."""
+async def _open_shadow_buys(db) -> Dict[str, Any]:
+    """ONE query → {notional, symbols, count} for standing (unfilled) Sleeve A
+    shadow buys. Buys move cash only when the daily cron fills them, so an open
+    order is committed capital the cash ledger doesn't yet reflect AND a pending
+    position that must reserve a slot and block a duplicate challenger (I3)."""
     orders = await db.enginetrade.find_many(
         where={"sleeve": SLEEVE_A, "status": "shadow_open", "side": "buy"}
     )
     total = 0.0
+    symbols: set = set()
     for o in orders:
+        sym = getattr(o, "symbol", None)
+        if sym:
+            symbols.add(sym)
         notional = getattr(o, "notional", None)
         if notional is not None:
             total += float(notional)
@@ -1032,7 +1271,42 @@ async def _open_shadow_buy_notional(db) -> float:
             total += float(getattr(o, "qty", 0.0) or 0.0) * float(
                 getattr(o, "limitPrice", 0.0) or 0.0
             )
-    return round(total, 2)
+    return {"notional": round(total, 2), "symbols": symbols, "count": len(symbols)}
+
+
+async def _open_shadow_buy_notional(db) -> float:
+    """Back-compat thin wrapper — total notional only."""
+    return (await _open_shadow_buys(db))["notional"]
+
+
+async def _latest_full_signal_id(db, symbol: str) -> Optional[str]:
+    """Best-effort id of the symbol's most recent full WeeklySignal (reportRef
+    audit column). None when unavailable — never load-bearing for a decision."""
+    try:
+        row = await db.weeklysignal.find_first(
+            where={"ticker": symbol, "tier": "full"}, order={"runDate": "desc"},
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    return getattr(row, "id", None) if row is not None else None
+
+
+async def _load_position_source_tags(db) -> Dict[str, Dict[str, Any]]:
+    """Per-symbol PERSISTED sourceTags for Sleeve A positions (C1a). These are
+    copied onto the EnginePosition at fill time; the theme review reads them so
+    it flags only theme-sourced holdings, never industry-only ones."""
+    out: Dict[str, Dict[str, Any]] = {}
+    try:
+        rows = await db.engineposition.find_many(where={"sleeve": SLEEVE_A})
+    except Exception:  # noqa: BLE001 — degrade; no tags ⇒ nothing flagged
+        logger.exception("funnel: position source-tags query failed")
+        return out
+    for r in rows:
+        sym = getattr(r, "symbol", None)
+        tags = getattr(r, "sourceTags", None)
+        if sym and isinstance(tags, dict):
+            out[sym] = tags
+    return out
 
 
 async def _sleeve_b_sector_notional(db) -> Dict[str, float]:
@@ -1049,7 +1323,14 @@ async def _sleeve_b_sector_notional(db) -> Dict[str, float]:
             if sector:
                 out[sector] = out.get(sector, 0.0) + mv
     except Exception:  # noqa: BLE001
-        logger.debug("sleeve B sector notional lookup failed")
+        logger.exception("funnel: Sleeve B sector notional lookup failed")
+        try:
+            await _journal(db, "engine_failure", "warning",
+                           "Sleeve B sector-notional lookup failed — cross-sleeve "
+                           "sector cap may be under-enforced this pass",
+                           {"stage": "sleeve-b-sector-notional"})
+        except Exception:  # noqa: BLE001
+            pass
     return out
 
 

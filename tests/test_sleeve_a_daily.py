@@ -486,3 +486,30 @@ async def test_missing_bar_skips_snapshot_and_breaker(monkeypatch, execution_dai
     assert a["breaker"] == {"active": False}             # gated on the snapshot
     assert snapshot_calls == ["B"]                       # Sleeve B's snapshot only
     assert ("engine_failure", "Sleeve A snapshot skipped — missing bars: ['AEHR']") in reports
+
+
+def test_c1_position_provenance_persisted_on_fill():
+    """C1a: a filled buy copies sourceTags / convictionScore / reportRef from
+    its order journal onto the EnginePosition row (dead columns revived)."""
+    import asyncio as _asyncio
+    from unittest.mock import AsyncMock as _AsyncMock, MagicMock as _MagicMock
+    from inngest_app.functions.execution_daily import _persist_position_provenance
+
+    order = _MagicMock(symbol="AEHR",
+                       journal={"sourceTags": {"themes": ["photonics"]},
+                                "convictionScore": 80.0, "reportRef": "ws-123"})
+    db = _MagicMock()
+    db.engineposition.update = _AsyncMock()
+
+    loop = _asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_persist_position_provenance(db, order))
+    finally:
+        loop.close()
+
+    db.engineposition.update.assert_awaited_once()
+    kw = db.engineposition.update.call_args.kwargs
+    assert kw["where"]["sleeve_symbol"]["symbol"] == "AEHR"
+    data = kw["data"]
+    assert data["convictionScore"] == 80.0 and data["reportRef"] == "ws-123"
+    assert "sourceTags" in data
