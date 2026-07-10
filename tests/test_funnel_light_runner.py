@@ -12,6 +12,14 @@ SCREEN = {"price": 20.0, "atr_pct": 0.04, "screen_score": 6.5,
           "liquidity_adv_usd": 5e6, "tags": {"themes": ["photonics"]}}
 
 
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 def test_sentiment_parses_score_line():
     assert lr.sentiment_from_headlines(["Up"], lambda p: "SCORE: 7.5") == 7.5
     assert lr.sentiment_from_headlines(["Up"], lambda p: "garbage") is None
@@ -22,7 +30,7 @@ def test_light_run_survives_every_source_failing():
     with patch.object(lr, "_gather_market_numbers", side_effect=RuntimeError("boom")), \
          patch.object(lr, "_gather_flow_numbers", side_effect=RuntimeError("boom")), \
          patch.object(lr, "_gather_headlines", side_effect=RuntimeError("boom")):
-        out = asyncio.get_event_loop().run_until_complete(
+        out = _run(
             lr.light_run_one("AEHR", SCREEN, llm_call=lambda p: "SCORE: 5")
         )
     assert out["ticker"] == "AEHR"
@@ -34,7 +42,7 @@ def test_light_run_survives_every_source_failing():
 def test_light_run_survives_malformed_screen_row():
     """Self-review hardening: missing/invalid 'price' must not raise, matching the
     'always returns a dict, never raises' contract."""
-    out = asyncio.get_event_loop().run_until_complete(
+    out = _run(
         lr.light_run_one("BADTICK", {"atr_pct": 0.04}, llm_call=lambda p: "SCORE: 5")
     )
     assert out["ticker"] == "BADTICK"
@@ -69,7 +77,7 @@ def test_persist_never_downgrades_full_row():
     db = MagicMock()
     db.weeklysignal.find_unique = AsyncMock(return_value=MagicMock(tier="full"))
     db.weeklysignal.upsert = AsyncMock()
-    out = asyncio.get_event_loop().run_until_complete(
+    out = _run(
         lr.persist_light_signal(db, RUN_DATE, {"ticker": "NVDA"}, 6.5)
     )
     assert out == "kept_full"
@@ -84,7 +92,7 @@ def test_persist_upserts_engine_light():
              "fair_value_gap_pct": 30.0, "insider_score": 7.0, "dark_pool_score": None,
              "sentiment_score": 6.0, "market_cap": 4.2e8, "rsi14": 55.0,
              "short_pct_float": 0.03, "valuation_score": 6.0}
-    out = asyncio.get_event_loop().run_until_complete(
+    out = _run(
         lr.persist_light_signal(db, RUN_DATE, light, 6.5)
     )
     assert out == "stored"

@@ -10,6 +10,14 @@ from execution.sleeve_service import position_after_fill
 NOW = datetime(2026, 7, 14, 21, 15, tzinfo=timezone.utc)
 
 
+def _run(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 def test_position_math():
     assert position_after_fill(0.0, 0.0, 10.0, 20.0, "buy") == (10.0, 20.0)
     qty, avg = position_after_fill(10.0, 20.0, 10.0, 30.0, "buy")
@@ -50,7 +58,7 @@ def _db_with(order_lookup=None):
 def test_submit_limit_buy_is_idempotent():
     db = _db_with(order_lookup=MagicMock(id="dup", status="shadow_open"))
     client = ShadowBrokerClient(db, sleeve="A")
-    res = asyncio.get_event_loop().run_until_complete(
+    res = _run(
         client.submit_limit_buy("AEHR", 100.0, 20.0, NOW + timedelta(days=7),
                                 {"why": "test"}, "shadow-A-AEHR-20260713")
     )
@@ -63,7 +71,7 @@ def test_settle_fills_at_limit_and_reports_cash_delta():
     client = ShadowBrokerClient(db, sleeve="A")
     order = MagicMock(id="o1", symbol="AEHR", side="buy", qty=100.0,
                       limitPrice=20.0, expiresAt=NOW + timedelta(days=5))
-    out = asyncio.get_event_loop().run_until_complete(
+    out = _run(
         client.settle_open_order(order, day_high=22.0, day_low=19.0, now=NOW)
     )
     assert out["status"] == "filled" and out["cash_delta"] == -2000.0
@@ -77,7 +85,7 @@ def test_settle_expires_quietly():
     client = ShadowBrokerClient(db, sleeve="A")
     order = MagicMock(id="o1", symbol="AEHR", side="buy", qty=100.0,
                       limitPrice=20.0, expiresAt=NOW - timedelta(days=1))
-    out = asyncio.get_event_loop().run_until_complete(
+    out = _run(
         client.settle_open_order(order, day_high=22.0, day_low=21.0, now=NOW)
     )
     assert out == {"status": "expired", "cash_delta": 0.0}

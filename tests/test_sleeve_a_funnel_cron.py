@@ -10,7 +10,11 @@ NOW = datetime(2026, 7, 13, 16, 0, tzinfo=timezone.utc)
 
 
 def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def test_module_imports_without_inngest_sdk():
