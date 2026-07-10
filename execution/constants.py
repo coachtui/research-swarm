@@ -86,3 +86,55 @@ THEME_HISTORY_WEEKS = 12            # sparkline series length (current membershi
 THEME_REASONING_MODEL = "claude-sonnet-5"
 THEME_DELTA_MODEL = "claude-haiku-4-5"
 THEME_WEB_SEARCH_MAX_USES = 8
+
+# ── Phase 3C: Sleeve A funnel + small-cap guardrails (SHADOW MODE) ──────────
+# Spec: docs/superpowers/specs/2026-07-09-phase3c-sleeve-a-funnel-design.md
+# Sleeve A places NO real orders until the Phase 3D backtest gate flips it.
+SLEEVE_A = "A"
+SLEEVE_A_FRACTION = 0.70            # share of account equity Sleeve A manages
+SLEEVE_A_TARGET_POSITIONS = 10      # intended book shape — NEVER a forcing rule
+SLEEVE_A_MAX_POSITIONS = 15         # hard cap
+ENTRY_WEIGHT_MIN = 0.03             # conviction band at entry (of sleeve equity)
+ENTRY_WEIGHT_MAX = 0.12
+RISK_TRIM_CEILING = 0.20            # only above this is a winner ever trimmed…
+RISK_TRIM_TARGET = 0.12             # …back to here; journaled risk_trim, not a signal
+
+LIGHT_RUNS_PER_WEEK = 20            # numbers-only runs (~$0.10–0.15 each)
+FULL_RUNS_PER_WEEK = 2              # entry handshake budget (~$0.51 avg each)
+HOLDING_STALE_WEEKS = 6             # holding report older than this claims a light slot
+FRESH_REPORT_DAYS = 7               # reports younger than this ride free
+
+EXTENSION_ATR_LIMIT = 1.5           # >this many ATRs above 20d SMA ⇒ "extended"
+PATIENT_LIMIT_TTL_WEEKS = 2         # extended entries wait this long for a pullback
+TRAILING_STOP_ATR_MULT = 2.5        # stop = high-water close − this × ATR
+ADV_POSITION_CAP_PCT = 0.01         # position ≤ 1% of 20d dollar ADV
+VOL_CEILING_SLEEVE_RISK = 0.0075    # 1-ATR day move costs ≤ 0.75% of sleeve
+SMALL_CAP_HAIRCUT_BELOW = 1_000_000_000.0   # conviction haircut under $1B mcap
+SMALL_CAP_HAIRCUT_MIN_MULT = 0.70   # haircut floor (at/below FUNNEL_MCAP_FLOOR)
+OUTCOMPETE_MARGIN = 10.0            # challenger must beat weakest holding by this
+MAX_THEME_PCT_OF_SLEEVE = 0.35      # aggregate cap per theme (overlaps double-count)
+FUNNEL_MCAP_FLOOR = 150_000_000.0
+FUNNEL_PRICE_FLOOR = 2.0
+FUNNEL_INDUSTRY_TOP_N = 5           # industries whose ETF holdings enter the universe
+FUNNEL_HOLDINGS_PER_ETF = 10
+STALENESS_DECAY_PER_WEEK = 0.02     # conviction multiplier loss per week of report age
+STALENESS_DECAY_FLOOR = 0.60
+CONVICTION_BUY_BONUS = 5.0          # points (0–100 scale); SELL is a veto, not a score
+LIGHT_SENTIMENT_MODEL = "claude-haiku-4-5"
+LIGHT_SENTIMENT_MAX_HEADLINES = 25
+
+# Weights must each sum to 1.0 (tested).
+CONVICTION_WEIGHTS = {
+    "fair_value_gap": 0.30,
+    "fundamental": 0.20,
+    "flow": 0.20,
+    "momentum": 0.20,
+    "hunting_ground": 0.10,
+}
+SCREEN_WEIGHTS = {
+    "momentum": 0.40,
+    "trend": 0.20,
+    "liquidity": 0.15,
+    "quality": 0.15,
+    "hunting_ground": 0.10,
+}

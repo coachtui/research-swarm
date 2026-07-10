@@ -1003,6 +1003,10 @@ model EngineTrade {
   status        String   // "filled" | "canceled" | "rejected" | "expired" | "timeout"
   journal       Json     // decision journal: outlook snapshot, weights, guardrail notes
   createdAt     DateTime @default(now())
+  // Phase 3C — shadow limit orders. status additionally takes:
+  // "shadow_open" | "shadow_filled" | "shadow_expired" | "shadow_canceled"
+  limitPrice    Float?
+  expiresAt     DateTime?
 
   @@index([sleeve, createdAt])
 }
@@ -1016,6 +1020,12 @@ model EnginePosition {
   thesis        Json     // opening journal (outlook id, regime, weight)
   openedAt      DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  // Phase 3C — Sleeve A funnel (all nullable; Sleeve B rows never set them)
+  convictionScore Float?
+  stopPrice       Float?   // ATR trailing stop, updated daily
+  highWaterClose  Float?   // trailing-stop anchor
+  sourceTags      Json?    // {themes: [slug], industries: [key], watchlist: bool}
+  reportRef       String?  // WeeklySignal id of the full run that justified entry
 
   @@unique([sleeve, symbol])
 }
@@ -1044,4 +1054,5 @@ model SleeveState {
   inceptionSpyClose Float
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  mode              String   @default("live") // "live" | "shadow" — Sleeve A starts shadow (Phase 3C)
 }
