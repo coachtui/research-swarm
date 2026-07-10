@@ -94,7 +94,7 @@ def fetch_ohlcv_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, p
     Tickers with no data are omitted — callers treat absence as 'skip this name'."""
     import yfinance as yf  # noqa: PLC0415 — heavy import stays local
 
-    symbols = [t for t in dict.fromkeys(tickers) if t]
+    symbols = list(dict.fromkeys(t.upper() for t in tickers if t))
     if not symbols:
         return {}
     try:
@@ -102,8 +102,10 @@ def fetch_ohlcv_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, p
             tickers=" ".join(symbols), period=period, interval="1d",
             group_by="ticker", auto_adjust=True, progress=False, threads=True,
         )
-    except Exception:  # noqa: BLE001 — one bad ticker must not sink the batch
+    except Exception:
         logger.exception("fetch_ohlcv_batch: download failed")
+        return {}
+    if raw is None or raw.empty:
         return {}
     out: Dict[str, pd.DataFrame] = {}
     if not isinstance(raw.columns, pd.MultiIndex):  # single-ticker shape
@@ -116,6 +118,6 @@ def fetch_ohlcv_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, p
             df = raw[sym][["Open", "High", "Low", "Close", "Volume"]].dropna()
             if not df.empty:
                 out[sym] = df
-        except (KeyError, IndexError):  # noqa: BLE001 — one bad ticker must not sink the batch
+        except (KeyError, IndexError):  # one bad ticker must not sink the batch
             continue
     return out
