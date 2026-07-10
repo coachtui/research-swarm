@@ -52,12 +52,15 @@ class _FakeCtx:
 
 
 class _SleeveState:
-    def __init__(self, status, cash=10000.0, inception_equity=10000.0, inception_spy=400.0):
+    def __init__(self, status, cash=10000.0, inception_equity=10000.0,
+                 inception_spy=400.0, mode="shadow", sleeve="A"):
         self.status = status
         self.cashBalance = cash
         self.inceptionEquity = inception_equity
         self.inceptionSpyClose = inception_spy
         self.statusReason = None
+        self.mode = mode
+        self.sleeve = sleeve
 
 
 class _EnginePos:
@@ -488,6 +491,110 @@ async def test_missing_bar_skips_snapshot_and_breaker(monkeypatch, execution_dai
     assert ("engine_failure", "Sleeve A snapshot skipped — missing bars: ['AEHR']") in reports
 
 
+def _reconcile_scenario_mocks(monkeypatch, pd, *, a_engine, broker_positions):
+    """Shared wiring for the shared-account reconcile tests: real
+    reconcile_sleeve (find_mismatches un-patched), Sleeve B with an EMPTY book,
+    Sleeve A holding `a_engine`, and the broker reporting `broker_positions`."""
+    import execution.broker.alpaca_client as alpaca_mod
+    import execution.broker.shadow_client as shadow_mod
+    import execution.engine.reconcile as reconcile_mod
+    import execution.market_data as market_data_mod
+    import execution.sleeve_service as sleeve_mod
+    import api.lib.db as db_mod
+    from execution.engine.reconcile import find_mismatches as real_fm
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    monkeypatch.setattr(reconcile_mod, "find_mismatches", real_fm)  # exercise real scoping
+
+    status_calls = []
+
+    async def fake_set_sleeve_status(db, sleeve, status, reason=None):
+        status_calls.append((sleeve, status))
+    monkeypatch.setattr(sleeve_mod, "set_sleeve_status", fake_set_sleeve_status)
+
+    async def fake_get_engine_positions(db, sleeve):
+        if sleeve == "A":
+            return [_EnginePos(s, q) for s, q in a_engine.items()]
+        return []  # Sleeve B holds nothing in these scenarios
+    monkeypatch.setattr(sleeve_mod, "get_engine_positions", fake_get_engine_positions)
+
+    async def fake_get_sleeve_state(db, sleeve):
+        if sleeve == "B":
+            return _SleeveState(status="active", cash=10000.0,
+                                 inception_equity=50000.0, inception_spy=400.0)
+        return _SleeveState(status="active", cash=5000.0,
+                             inception_equity=5000.0, inception_spy=300.0, mode="shadow")
+    monkeypatch.setattr(sleeve_mod, "get_sleeve_state", fake_get_sleeve_state)
+
+    def fake_client_from_account(account):
+        class _Client:
+            def get_positions(self):
+                return [_BrokerPos({"symbol": s, "qty": q, "market_value": q * 20.0,
+                                    "current_price": 20.0, "avg_entry_price": 20.0})
+                        for s, q in broker_positions.items()]
+
+            def get_account_summary(self):
+                return {"equity": 11000.0, "cash": 10000.0}
+        return _Client()
+    monkeypatch.setattr(alpaca_mod, "client_from_account", fake_client_from_account)
+
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
+                        AsyncMock(return_value=[]))
+
+    def fake_fetch_ohlcv_batch(symbols, period="1y"):
+        return {s: pd.DataFrame({"Open": [20.0], "High": [21.0], "Low": [19.0],
+                                 "Close": [20.0], "Volume": [1000]}) for s in symbols}
+    monkeypatch.setattr(market_data_mod, "fetch_ohlcv_batch", fake_fetch_ohlcv_batch)
+
+    async def fake_get_db():
+        return MagicMock()
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+    return status_calls
+
+
+@pytest.mark.asyncio
+async def test_sleeve_a_stock_in_broker_never_freezes_sleeve_b(monkeypatch, execution_daily_fn):
+    """THE LANDMINE regression: the shared paper account's broker position list
+    carries Sleeve A's real stocks. Sleeve B reconciles only its own scope
+    (empty book ∪ sector ETFs), so an A stock (AAPL) can never freeze B — and
+    when A's book matches the broker, A stays clean too."""
+    import pandas as pd
+
+    status_calls = _reconcile_scenario_mocks(
+        monkeypatch, pd, a_engine={"AAPL": 5.0}, broker_positions={"AAPL": 5.0},
+    )
+    reports = _capture_reports(monkeypatch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"                       # Sleeve B NOT frozen
+    assert result["sleeve_a"]["reconcile"] == {"active": True, "frozen": False}
+    assert status_calls == []                             # nobody frozen
+    assert not any(t == "breaker_event" for t, _ in reports)
+
+
+@pytest.mark.asyncio
+async def test_sleeve_a_mismatch_freezes_only_a(monkeypatch, execution_daily_fn):
+    """A qty drift inside Sleeve A's own book (engine 10 vs broker 5) freezes
+    ONLY Sleeve A — B is untouched (the AAPL drift isn't in B's scope) — and A's
+    fills/stops halt for the day while the whole run still returns ok."""
+    import pandas as pd
+
+    status_calls = _reconcile_scenario_mocks(
+        monkeypatch, pd, a_engine={"AAPL": 10.0}, broker_positions={"AAPL": 5.0},
+    )
+    reports = _capture_reports(monkeypatch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"                       # B path completes
+    assert result["sleeve_a"]["reconcile"]["frozen"] is True
+    assert status_calls == [("A", "frozen")]              # ONLY A frozen, never B
+    assert result["sleeve_a"]["fills"] == {"active": True, "filled": 0, "missed": 0}
+    assert result["sleeve_a"]["stops"] == {"active": True, "exits": 0}
+    assert ("breaker_event", "Sleeve A frozen: reconciliation mismatch") in reports
+
+
 def test_c1_position_provenance_persisted_on_fill():
     """C1a: a filled buy copies sourceTags / convictionScore / reportRef from
     its order journal onto the EnginePosition row (dead columns revived)."""
@@ -513,3 +620,131 @@ def test_c1_position_provenance_persisted_on_fill():
     data = kw["data"]
     assert data["convictionScore"] == 80.0 and data["reportRef"] == "ws-123"
     assert "sourceTags" in data
+
+
+def _capture_report_bodies(monkeypatch):
+    import execution.reporting as reporting_mod
+
+    reports = []
+
+    async def fake_write_report(report_type, severity, source, title, body, db=None):
+        reports.append((report_type, title, body))
+        return "rep-id"
+
+    monkeypatch.setattr(reporting_mod, "write_report", fake_write_report)
+    return reports
+
+
+def _live_stops_scenario(monkeypatch, pd, sell_result):
+    """Sleeve A live-mode stops scenario: one position whose stop triggers
+    today; the (mocked live) broker returns `sell_result` from submit_sell."""
+    import execution.broker as broker_pkg
+    import api.lib.db as db_mod
+    import execution.market_data as market_data_mod
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    pos = types.SimpleNamespace(symbol="AEHR", qty=100.0,
+                                highWaterClose=100.0, avgEntryPrice=100.0)
+    cash_updates = _sleeve_a_state_mocks(monkeypatch, positions_a=[pos])
+
+    mock_broker = MagicMock()
+    mock_broker.get_open_orders = AsyncMock(return_value=[])
+    mock_broker.submit_sell = AsyncMock(return_value=sell_result)
+
+    async def fake_sleeve_a_broker(db, state):
+        return mock_broker
+    monkeypatch.setattr(broker_pkg, "sleeve_a_broker", fake_sleeve_a_broker)
+
+    shadow_db = MagicMock()
+    shadow_db.engineposition.update = AsyncMock()
+
+    async def fake_get_db():
+        return shadow_db
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+
+    # 16 bars: flat 100 except today's low 90 — safely through any stop.
+    def fake_fetch_ohlcv_batch(symbols, period="1y"):
+        n = 16
+        return {"AEHR": pd.DataFrame({
+            "Open": [100.0] * n, "High": [101.0] * n,
+            "Low": [99.0] * (n - 1) + [90.0], "Close": [100.0] * n,
+            "Volume": [1000] * n,
+        })}
+    monkeypatch.setattr(market_data_mod, "fetch_ohlcv_batch", fake_fetch_ohlcv_batch)
+    return cash_updates, mock_broker
+
+
+@pytest.mark.asyncio
+async def test_live_stop_exit_credits_actual_fill_not_hint(monkeypatch, execution_daily_fn):
+    """I1: in live mode the market decides the sell price. The stop sweep must
+    credit res.filled_qty * res.filled_avg_price (here 94.2), NOT the stop-level
+    hint, and journal the ACTUAL fill price."""
+    import pandas as pd
+    from execution.broker.base import BrokerOrderResult
+
+    sell_result = BrokerOrderResult(
+        order_id="alp-s1", symbol="AEHR", side="sell", status="filled",
+        filled_qty=100.0, filled_avg_price=94.2,
+    )
+    cash_updates, mock_broker = _live_stops_scenario(monkeypatch, pd, sell_result)
+    reports = _capture_report_bodies(monkeypatch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"
+    assert result["sleeve_a"]["stops"] == {"active": True, "exits": 1}
+    mock_broker.submit_sell.assert_awaited_once()
+    # Cash credited at the ACTUAL fill: 10000 + 100*94.2
+    assert ("A", 19420.0) in cash_updates
+    exit_bodies = [b for t, _, b in reports if t == "exit_stop"]
+    assert exit_bodies and exit_bodies[0]["fill_price"] == 94.2
+    assert not any(t == "engine_failure" for t, _, _ in reports)
+
+
+@pytest.mark.asyncio
+async def test_live_stop_exit_zero_fill_credits_nothing(monkeypatch, execution_daily_fn):
+    """I1: a timed-out live sell (zero fill) credits NO cash, counts NO exit,
+    and journals engine_failure — never books the hint price."""
+    import pandas as pd
+    from execution.broker.base import BrokerOrderResult
+
+    sell_result = BrokerOrderResult(
+        order_id="alp-s1", symbol="AEHR", side="sell", status="timeout",
+        filled_qty=0.0, filled_avg_price=None,
+    )
+    cash_updates, mock_broker = _live_stops_scenario(monkeypatch, pd, sell_result)
+    reports = _capture_report_bodies(monkeypatch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"
+    assert result["sleeve_a"]["stops"] == {"active": True, "exits": 0}
+    mock_broker.submit_sell.assert_awaited_once()
+    assert not any(s == "A" for s, _ in cash_updates)    # no cash moved
+    assert not any(t == "exit_stop" for t, _, _ in reports)
+    assert any(t == "engine_failure" and "AEHR" in title
+               for t, title, _ in reports)
+
+
+@pytest.mark.asyncio
+async def test_unclaimed_broker_symbol_journals_without_freezing(monkeypatch, execution_daily_fn):
+    """I2: a broker symbol claimed by NEITHER sleeve (not in either engine
+    book, not a sector ETF) must be journaled as an engine_failure warning —
+    visible — but must NOT freeze anyone."""
+    import pandas as pd
+
+    status_calls = _reconcile_scenario_mocks(
+        monkeypatch, pd,
+        a_engine={"AAPL": 5.0},
+        broker_positions={"AAPL": 5.0, "ZZZZ": 3.0},   # ZZZZ: nobody's
+    )
+    reports = _capture_reports(monkeypatch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"                     # B not frozen
+    assert status_calls == []                           # nobody frozen
+    recon = result["sleeve_a"]["reconcile"]
+    assert recon["frozen"] is False
+    assert recon.get("unclaimed") == ["ZZZZ"]
+    assert ("engine_failure", "unclaimed broker positions: ['ZZZZ']") in reports

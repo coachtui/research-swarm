@@ -230,3 +230,36 @@ FUNNEL_MCAP_FLOOR = 150_000_000    FUNNEL_PRICE_FLOOR = 2.0
 - **Phase 4:** `/autopilot` dashboard incl. dedicated funnel/journal cards.
 - Riders carried (from 3A/3B lists, unchanged): journal dupes on Inngest step retry (mitigated here by DB-backed budget counts, not eliminated globally), sequential yfinance fetch volume in the Sunday cron, frontend hardcoded `rank_change ≥ 5`.
 - Light-run sentiment beyond one Haiku call; tranched entries; any email delivery (dead permanently).
+
+## Addendum 2026-07-10 — owner ruling: paper-direct
+
+The Phase 3C "shadow mode" scoping was a mis-scoping. Owner ruling (2026-07-10):
+**Sleeve A trades DIRECTLY on the Alpaca paper account.** The Phase 3D backtest
+now gates the move to REAL money — not the move from imagined fills to paper
+orders.
+
+Concretely:
+
+- **`AlpacaFunnelBroker`** (`execution/broker/alpaca_funnel_client.py`) is the
+  live Sleeve A broker. It mirrors `ShadowBrokerClient`'s surface
+  (`submit_limit_buy` / `submit_sell` / `get_open_orders` / `settle_open_order`),
+  places real GTC limit buys and market sells on the paper account, and books
+  EngineTrade rows at ACTUAL fill prices. GTC limit submits are idempotent two
+  ways (journal `client_order_id` lookup + Alpaca's duplicate-`client_order_id`
+  rejection — this closes the long-deferred Phase 2 idempotency rider).
+- **`ShadowBrokerClient` is retained** as the Phase 3D backtest replay engine
+  (honest fills from recorded daily bars). Its `submit_shadow_sell` was renamed
+  `submit_sell(price_hint=...)` to share a signature with the live broker.
+- **Mode selection** lives in one helper, `execution.broker.sleeve_a_broker(db,
+  state)`: `SleeveState.mode == "shadow"` → `ShadowBrokerClient`; otherwise →
+  `AlpacaFunnelBroker` on the active linked paper account. Both crons (weekly
+  funnel, daily sweep) construct the Sleeve A broker through it.
+- **Reconciliation is now per-sleeve** (`reconcile_sleeve`): Sleeve A and B share
+  one paper account, so the broker position list contains both sleeves' symbols.
+  B reconciles only (its engine book ∪ sector ETFs); a new `sleeve-a-reconcile`
+  daily step reconciles A's book only. A mismatch freezes that sleeve ALONE.
+- **3D gates real money.** Going live for real is a later, backtest-gated step;
+  this addendum only moves Sleeve A from shadow fills to paper-direct orders.
+- **Flip:** `scripts/flip_sleeve_a_paper.py` (manual, not CI) sets mode=live and
+  re-places any open `shadow_open` orders as real GTC limits (`client_order_id`
+  = old id + `-live`).

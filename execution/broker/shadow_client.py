@@ -51,10 +51,14 @@ class ShadowBrokerClient:
             status="shadow_open", filled_qty=0.0, filled_avg_price=None,
         )
 
-    async def submit_shadow_sell(
-        self, symbol: str, qty: float, fill_price: float,
+    async def submit_sell(
+        self, symbol: str, qty: float, price_hint: float,
         journal: Dict[str, Any], client_order_id: str,
     ) -> BrokerOrderResult:
+        """Shadow sell — fills immediately AT price_hint (the caller's last
+        close / stop level). Same behavior as the former submit_shadow_sell;
+        renamed to share a signature with AlpacaFunnelBroker.submit_sell so the
+        crons are broker-agnostic (the live broker ignores the hint)."""
         from prisma import Json  # noqa: PLC0415
 
         existing = await self._db.enginetrade.find_first(
@@ -63,14 +67,14 @@ class ShadowBrokerClient:
         if existing is None:
             await self._db.enginetrade.create(data={
                 "sleeve": self._sleeve, "symbol": symbol, "side": "sell",
-                "qty": qty, "fillPrice": fill_price, "limitPrice": None,
+                "qty": qty, "fillPrice": price_hint, "limitPrice": None,
                 "brokerOrderId": client_order_id, "status": "shadow_filled",
                 "journal": Json(journal or {}),
             })
-            await self._reduce_position(symbol, qty, fill_price)
+            await self._reduce_position(symbol, qty, price_hint)
         return BrokerOrderResult(
             order_id=client_order_id, symbol=symbol, side="sell",
-            status="shadow_filled", filled_qty=qty, filled_avg_price=fill_price,
+            status="shadow_filled", filled_qty=qty, filled_avg_price=price_hint,
         )
 
     async def get_open_orders(self) -> List[Any]:
@@ -96,11 +100,16 @@ class ShadowBrokerClient:
                 where={"id": order.id},
                 data={"status": "shadow_filled", "fillPrice": order.limitPrice},
             )
+            # fill_price/filled_qty surfaced (same keys as AlpacaFunnelBroker)
+            # so the cron journals actual fill values broker-agnostically.
+            fill_keys = {"fill_price": order.limitPrice, "filled_qty": order.qty}
             if order.side == "buy":
                 await self._increase_position(order.symbol, order.qty, order.limitPrice)
-                return {"status": "filled", "cash_delta": -round(order.qty * order.limitPrice, 2)}
+                return {"status": "filled",
+                        "cash_delta": -round(order.qty * order.limitPrice, 2), **fill_keys}
             await self._reduce_position(order.symbol, order.qty, order.limitPrice)
-            return {"status": "filled", "cash_delta": round(order.qty * order.limitPrice, 2)}
+            return {"status": "filled",
+                    "cash_delta": round(order.qty * order.limitPrice, 2), **fill_keys}
         except Exception:  # noqa: BLE001 — a broken settle must not sink the sweep
             logger.exception("shadow settle failed for order %s", getattr(order, "id", "?"))
             return {"status": "error", "cash_delta": 0.0}

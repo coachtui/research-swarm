@@ -537,3 +537,74 @@ def test_theme_review_skipped_when_theme_membership_unavailable():
             else skip_calls[0].kwargs.get("body"))
     assert body.get("status") == "skipped"
     assert body.get("reason") == "theme membership unavailable"
+
+
+def test_execute_sells_credits_actual_fill_not_hint():
+    """I1: a live broker fills the market sell at the REAL price — cash and
+    proceeds must credit res.filled_qty * res.filled_avg_price, not the close
+    hint. (Shadow returns hint values, so shadow behavior is unchanged.)"""
+    from execution.broker.base import BrokerOrderResult
+    import execution.sleeve_service as sleeve_mod
+
+    db = MagicMock()
+    client = MagicMock()
+    client.submit_sell = AsyncMock(return_value=BrokerOrderResult(
+        order_id="alp-1", symbol="AEHR", side="sell", status="filled",
+        filled_qty=100.0, filled_avg_price=19.5,   # hint below is 20.0
+    ))
+    cash_writes = []
+
+    async def fake_update_sleeve_cash(db_, sleeve, cash):
+        cash_writes.append(cash)
+
+    with patch.object(sleeve_mod, "update_sleeve_cash", new=fake_update_sleeve_cash), \
+         patch.object(saf, "_journal", new=AsyncMock()) as journal:
+        out = _run(saf._execute_sells(
+            db, client,
+            {"exits": [{"symbol": "AEHR", "reason": "sell_verdict"}], "trims": []},
+            {"AEHR": 20.0}, {"AEHR": 100.0}, NOW, 1000.0,
+        ))
+
+    assert out["proceeds"] == 1950.0                     # 100 * 19.5, NOT 2000
+    assert out["cash"] == 1000.0 + 1950.0
+    assert out["sold"] == ["AEHR"]
+    # journal logs the ACTUAL fill price
+    exit_bodies = [c.args[4] for c in journal.call_args_list
+                   if c.args[1] == "exit_sell_verdict"]
+    assert exit_bodies and exit_bodies[0]["fill_price"] == 19.5
+
+
+def test_execute_sells_zero_fill_credits_nothing_and_journals_failure():
+    """I1: a timed-out live sell (no fill) must credit NO cash, not count the
+    exit, and journal an engine_failure warning — the position row already
+    reflects reality via position_after_fill inside the broker."""
+    from execution.broker.base import BrokerOrderResult
+    import execution.sleeve_service as sleeve_mod
+
+    db = MagicMock()
+    client = MagicMock()
+    client.submit_sell = AsyncMock(return_value=BrokerOrderResult(
+        order_id="alp-1", symbol="AEHR", side="sell", status="timeout",
+        filled_qty=0.0, filled_avg_price=None,
+    ))
+    cash_writes = []
+
+    async def fake_update_sleeve_cash(db_, sleeve, cash):
+        cash_writes.append(cash)
+
+    with patch.object(sleeve_mod, "update_sleeve_cash", new=fake_update_sleeve_cash), \
+         patch.object(saf, "_journal", new=AsyncMock()) as journal:
+        out = _run(saf._execute_sells(
+            db, client,
+            {"exits": [{"symbol": "AEHR", "reason": "sell_verdict"}],
+             "trims": [{"symbol": "NVDA", "sell_notional": 2000.0}]},
+            {"AEHR": 20.0, "NVDA": 100.0}, {"AEHR": 100.0, "NVDA": 50.0},
+            NOW, 1000.0,
+        ))
+
+    assert out["proceeds"] == 0.0
+    assert out["cash"] == 1000.0                        # nothing credited
+    assert out["sold"] == []
+    kinds = [c.args[1] for c in journal.call_args_list]
+    assert kinds.count("engine_failure") == 2           # exit AND trim no-fill
+    assert "exit_sell_verdict" not in kinds and "risk_trim" not in kinds

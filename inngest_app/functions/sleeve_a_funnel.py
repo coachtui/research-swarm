@@ -554,9 +554,10 @@ async def _execute_sells(
     close_by_symbol: Dict[str, float], positions: Dict[str, float],
     run_date: datetime, sleeve_cash: float,
 ) -> Dict[str, Any]:
-    """Shadow-sell every exit (full) and trim (partial) at last close, journal
-    each, and return the resulting cash balance. update_sleeve_cash is owned
-    here (the cron), not in the pure planner."""
+    """Sell every exit (full) and trim (partial) — last close is the hint;
+    live brokers fill at the real market price and cash credits the ACTUAL
+    fill. Journal each, return the resulting cash balance. update_sleeve_cash
+    is owned here (the cron), not in the pure planner."""
     from execution.sleeve_service import update_sleeve_cash  # noqa: PLC0415
 
     cash = float(sleeve_cash)
@@ -579,8 +580,8 @@ async def _execute_sells(
             continue
         coid = f"shadow-A-{sym}-{run_date:%Y%m%d}-sell"
         try:
-            await client.submit_shadow_sell(
-                symbol=sym, qty=qty, fill_price=close,
+            res = await client.submit_sell(
+                symbol=sym, qty=qty, price_hint=close,
                 journal={"reason": ex.get("reason")}, client_order_id=coid,
             )
         except Exception:  # noqa: BLE001
@@ -588,12 +589,22 @@ async def _execute_sells(
             await _journal(db, "engine_failure", "warning",
                            f"{sym}: exit shadow-sell failed", {"symbol": sym})
             continue
-        proceeds += qty * close
-        cash += qty * close
+        # Credit the ACTUAL fill (I1): live sells fill at the real market
+        # price, not last close. Shadow returns hint values — unchanged.
+        fq = float(res.filled_qty or 0.0)
+        fp = res.filled_avg_price
+        if fq <= 0 or fp is None:
+            await _journal(db, "engine_failure", "warning",
+                           f"{sym}: exit sell did not fill (status={res.status})",
+                           {"symbol": sym, "qty": qty, "status": res.status,
+                            "reason": ex.get("reason")})
+            continue
+        proceeds += fq * float(fp)
+        cash += fq * float(fp)
         sold.append(sym)
         await _journal(db, _EXIT_REPORT.get(ex.get("reason"), "exit_sell_verdict"),
                        "info", f"{sym}: exit ({ex.get('reason')})",
-                       {"symbol": sym, "qty": qty, "fill_price": close,
+                       {"symbol": sym, "qty": fq, "fill_price": float(fp),
                         "reason": ex.get("reason")})
 
     for tr in decisions.get("trims", []):
@@ -605,8 +616,8 @@ async def _execute_sells(
         qty = round(sell_notional / close, 4)
         coid = f"shadow-A-{sym}-{run_date:%Y%m%d}-sell"
         try:
-            await client.submit_shadow_sell(
-                symbol=sym, qty=qty, fill_price=close,
+            res = await client.submit_sell(
+                symbol=sym, qty=qty, price_hint=close,
                 journal={"reason": "risk_trim"}, client_order_id=coid,
             )
         except Exception:  # noqa: BLE001
@@ -614,10 +625,17 @@ async def _execute_sells(
             await _journal(db, "engine_failure", "warning",
                            f"{sym}: risk-trim shadow-sell failed", {"symbol": sym})
             continue
-        proceeds += qty * close
-        cash += qty * close
+        fq = float(res.filled_qty or 0.0)
+        fp = res.filled_avg_price
+        if fq <= 0 or fp is None:
+            await _journal(db, "engine_failure", "warning",
+                           f"{sym}: risk-trim sell did not fill (status={res.status})",
+                           {"symbol": sym, "qty": qty, "status": res.status})
+            continue
+        proceeds += fq * float(fp)
+        cash += fq * float(fp)
         await _journal(db, "risk_trim", "info", f"{sym}: risk trim",
-                       {"symbol": sym, "qty": qty, "fill_price": close,
+                       {"symbol": sym, "qty": fq, "fill_price": float(fp),
                         "sell_notional": sell_notional})
 
     try:
@@ -759,13 +777,21 @@ def _register_inngest_function():
         outcome: Dict[str, Any] = {}
         try:
             db = await get_db()
-            from execution.broker.shadow_client import ShadowBrokerClient  # noqa: PLC0415
+            from execution.broker import sleeve_a_broker  # noqa: PLC0415
+            from execution.sleeve_service import get_sleeve_state  # noqa: PLC0415
 
-            client = ShadowBrokerClient(db, sleeve=SLEEVE_A)
-            outcome = await _decide_and_execute(
-                db, client, run_date, regime, sleeve_ctx, assembled,
-                screened, lights, step,
-            )
+            # shadow -> ShadowBrokerClient (3D replay); live -> AlpacaFunnelBroker.
+            state = await get_sleeve_state(db, SLEEVE_A)
+            client = await sleeve_a_broker(db, state)
+            if client is None:  # live mode, no linked account (M2)
+                await _journal(db, "engine_failure", "warning",
+                               "Sleeve A live mode but no linked broker account",
+                               {"stage": "decide-and-execute"})
+            else:
+                outcome = await _decide_and_execute(
+                    db, client, run_date, regime, sleeve_ctx, assembled,
+                    screened, lights, step,
+                )
         except Exception:  # noqa: BLE001 — degrade; summary must still write
             logger.exception("funnel: decide-and-execute failed")
             db = await get_db()
