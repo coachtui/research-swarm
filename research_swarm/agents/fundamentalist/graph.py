@@ -981,9 +981,21 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                         def _run_in_thread():
                             _loop = _asyncio.new_event_loop()
                             try:
-                                return _loop.run_until_complete(
-                                    _get_fins(state["ticker"], min_quarters=8)
-                                )
+                                async def _isolated():
+                                    # Dedicated client: the shared pool must never
+                                    # bind a connection to this throwaway loop
+                                    # (first-invoke incident 2026-07-10 — closed-loop
+                                    # poisoning crashed the next main-loop query).
+                                    from prisma import Prisma
+                                    _db = Prisma()
+                                    await _db.connect()
+                                    try:
+                                        return await _get_fins(
+                                            state["ticker"], min_quarters=8, db=_db
+                                        )
+                                    finally:
+                                        await _db.disconnect()
+                                return _loop.run_until_complete(_isolated())
                             finally:
                                 _loop.close()
 
