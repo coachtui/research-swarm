@@ -400,9 +400,11 @@ def test_eligible_asof_applies_floors_and_min_history():
 
 def test_eligible_asof_uses_only_data_up_to_asof():
     df = _frame(price=50.0, volume=100_000)
-    df.loc[df.index > "2020-03-01", "Volume"] = 0.0     # goes illiquid later
-    assert eligible_asof({"AAA": df}, pd.Timestamp("2020-02-14")) == ["AAA"]
-    assert eligible_asof({"AAA": df}, pd.Timestamp("2020-05-01")) == []
+    df.loc[df.index > "2020-04-15", "Volume"] = 0.0     # goes illiquid later
+    # 2020-04-01: 66 rows of history (≥63) and full-volume ADV → eligible
+    assert eligible_asof({"AAA": df}, pd.Timestamp("2020-04-01")) == ["AAA"]
+    # 2020-05-15: the 20d ADV window is all zero-volume days → ineligible
+    assert eligible_asof({"AAA": df}, pd.Timestamp("2020-05-15")) == []
 
 
 def test_eligible_asof_respects_allowed_filter():
@@ -717,8 +719,9 @@ def test_max_drawdown_and_yearly_returns():
 def test_sharpe_zero_vol_is_zero_and_positive_drift_positive():
     flat = compute_metrics(_series([100.0] * 50))
     assert flat["sharpe"] == 0.0
-    rng = np.random.default_rng(7)
-    drift = 100 * np.cumprod(1 + 0.001 + 0.01 * rng.standard_normal(500))
+    # deterministic +0.2%/day drift with alternating ±0.5% noise
+    rets = [0.002 + (0.005 if i % 2 == 0 else -0.005) for i in range(500)]
+    drift = 100 * np.cumprod(1 + np.array(rets))
     assert compute_metrics(_series(list(drift)))["sharpe"] > 0
 
 
@@ -887,15 +890,16 @@ def test_accounting_identity_and_no_negative_cash(result):
 
 
 def test_no_lookahead_buy_fills(result):
-    """Every buy fill must be at or below the (weekly) limit that was set,
-    and on a day whose low actually reached it."""
+    """Every buy fill must be on a day whose low actually reached the fill
+    price, and never above the open (min(open, limit) semantics). Fill
+    prices are rounded to 4dp, so allow 1e-4 of rounding slack."""
     data = _fixture()
     for j in result.journal:
         if j["side"] != "buy":
             continue
         bar = data[j["symbol"]].loc[pd.Timestamp(j["date"])]
-        assert bar["Low"] <= j["price"] + 1e-9
-        assert j["price"] <= bar["Open"] + 1e-9 or j["price"] <= bar["Low"] * 1.02
+        assert bar["Low"] <= j["price"] + 1e-4
+        assert j["price"] <= bar["Open"] + 1e-4
 
 
 def test_equity_curve_covers_calendar_and_ends_positive(result):
@@ -1436,12 +1440,12 @@ def test_gate_fails_when_one_year_dominates_or_edge_flips():
 
 
 def test_render_and_write_report(tmp_path):
-    verdict = gate_verdict(BASE, NAIVE, {"2020": 0.04, "2021": 0.05},
-                           sweep_edges=[0.05])
+    yearly = {"2020": 0.04, "2021": 0.05, "2022": 0.03}   # no year > 50% of total
+    verdict = gate_verdict(BASE, NAIVE, yearly, sweep_edges=[0.05])
     md = render_report(
         {"window": "2015-01-01 → 2026-06-30", "universe_size": 1400},
         BASE, {"naive_momentum": NAIVE, "equal_weight": NAIVE, "spy": NAIVE},
-        {"2020": 0.04, "2021": 0.05},
+        yearly,
         [{"name": "stop_mult", "value": 2.0, "cagr": 0.1,
           "max_drawdown": -0.22, "sharpe": 0.85, "sharpe_edge": 0.05}],
         verdict)
