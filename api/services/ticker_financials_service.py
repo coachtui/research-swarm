@@ -36,6 +36,7 @@ STALE_DAYS = 90
 async def get_quarterly_financials(
     ticker: str,
     min_quarters: int = 8,
+    db: Any = None,
 ) -> List[Dict[str, Any]]:
     """
     Return up to `min_quarters` quarters of financial data for `ticker`.
@@ -48,10 +49,16 @@ async def get_quarterly_financials(
         period, period_end, source, revenue, operating_income, operating_margin,
         gross_profit, net_income, ebitda, operating_cash_flow, capex,
         free_cash_flow, total_debt, cash
-    """
-    from api.lib.db import get_db
 
-    db = await get_db()
+    `db`: optional injected prisma client. Pass a dedicated client when
+    calling from a throwaway event loop (e.g. a worker thread) — the shared
+    singleton from api.lib.db.get_db() must never bind a connection to a
+    loop that gets closed out from under the pool (closed-loop poisoning
+    incident 2026-07-10). Defaults to the shared client when omitted.
+    """
+    if db is None:
+        from api.lib.db import get_db
+        db = await get_db()
     cutoff = datetime.now(timezone.utc) - timedelta(days=STALE_DAYS)
 
     # ── 1. Check DB cache ─────────────────────────────────────────────────────

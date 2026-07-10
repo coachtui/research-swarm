@@ -80,6 +80,14 @@ def extract_signals_from_result(
     if result.get("status") != "completed":
         return None
 
+    # Paid-path wrapper (run_stock_analysis) nests the manager blob under
+    # full_output; the reuse path feeds the blob directly. Unwrap so both
+    # paths extract from the identical shape (first-invoke incident 2026-07-10:
+    # every wrapper-shaped result stored all-null signals).
+    blob = result.get("full_output")
+    if isinstance(blob, dict) and blob.get("rating") is not None:
+        result = {**blob, "status": result.get("status")}
+
     rating = _as_str(result.get("rating"))
     verdict = _as_str(result.get("verdict")) or (
         _RATING_TO_VERDICT.get(rating.upper()) if rating else None

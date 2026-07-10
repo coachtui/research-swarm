@@ -395,6 +395,62 @@ class TestExtractSignalsFromLiveSchema:
         assert signals["fairValue"] == 99.0
 
 
+# ── Paid-path wrapper (run_stock_analysis) — first-invoke incident 2026-07-10 ──
+# run_stock_analysis returns {ticker, status, scores..., "full_output": {manager blob}}.
+# extract_signals_from_result must unwrap full_output so the paid path and the
+# reuse path (which feeds the blob directly) extract identically.
+
+WRAPPER_RESULT = {
+    "ticker": "LRCX",
+    "status": "completed",
+    "sentiment_score": 9.9,  # top-level decoy — must NOT be used when full_output present
+    "full_output": {
+        "rating": "BUY",
+        "fair_value_calibration": {"internal_fair_value": 400.0},
+        "signal_breakdown": {
+            "insider_score": 7.0,
+            "news_score": 6.0,
+            "dark_pool_score": 5.5,
+        },
+        "synthesis_narrative": "Long thesis. Second sentence. Third.",
+    },
+}
+
+
+class TestExtractSignalsFromWrapper:
+    def test_unwraps_full_output_and_ignores_top_level_decoy(self):
+        signals = extract_signals_from_result(WRAPPER_RESULT, ticker="LRCX")
+        assert signals["verdict"] == "buy"
+        assert signals["fairValue"] == 400.0
+        assert signals["insiderScore"] == 7.0
+        # decoy top-level sentiment_score=9.9 must be ignored in favor of the
+        # blob's news_score — proves both paths extract from the same shape
+        assert signals["sentimentScore"] == 6.0
+        assert signals["synthesis_summary"] == "Long thesis. Second sentence."
+
+    def test_blob_shaped_input_without_full_output_still_works(self):
+        # Reuse path (StockResult.fullOutput fed directly) — pin against the
+        # existing NVDA-style shape, must be unaffected by the unwrap change.
+        signals = extract_signals_from_result(LIVE_RESULT, ticker="NVDA")
+        assert signals["verdict"] == "buy"
+        assert signals["fairValue"] == 211.22
+        assert signals["insiderScore"] == 5.0
+
+    def test_etf_wrapper_without_rating_behaves_as_before(self):
+        etf_wrapper = {
+            "ticker": "SPY",
+            "status": "completed",
+            "instrument_type": "ETF",
+            "full_output": {
+                "instrument_type": "ETF",
+                "allocation_recommendation": "overweight",
+            },
+        }
+        signals = extract_signals_from_result(etf_wrapper, ticker="SPY")
+        assert signals is not None
+        assert signals["verdict"] is None
+
+
 class TestUpgradePreservesQuantPrice:
     @pytest.mark.asyncio
     async def test_missing_current_price_not_clobbered_and_gap_computed(self):
