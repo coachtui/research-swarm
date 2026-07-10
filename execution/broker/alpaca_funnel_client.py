@@ -73,6 +73,21 @@ class AlpacaFunnelBroker:
                 status=existing.status, filled_qty=0.0, filled_avg_price=None,
             )
 
+        # Alpaca rejects fractional GTC orders (error 42210000: "fractional
+        # orders must be DAY orders") — GTC limits need WHOLE shares. Floor the
+        # sized qty; the EngineTrade row below records the floored qty and a
+        # recomputed notional so settle/position math stays consistent.
+        # (Sells are market DAY orders, where fractional is allowed — and
+        # whole-share buys produce whole-share positions anyway.)
+        qty = float(int(qty))
+        if qty < 1:
+            # Too small to buy a single share: do NOT submit and do NOT book a
+            # row — surface a rejected result for the call site to report.
+            return BrokerOrderResult(
+                order_id="", symbol=symbol, side="buy",
+                status="rejected", filled_qty=0.0, filled_avg_price=None,
+            )
+
         result = await asyncio.to_thread(
             self._alpaca.submit_gtc_limit_buy, symbol, qty, limit_price, client_order_id,
         )
