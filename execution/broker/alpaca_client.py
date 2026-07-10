@@ -22,10 +22,11 @@ class AlpacaPaperClient:
     def __init__(self, api_key: str, api_secret: str):
         from alpaca.trading.client import TradingClient  # lazy — runtime dep
         from alpaca.trading.enums import OrderSide, TimeInForce
-        from alpaca.trading.requests import MarketOrderRequest
+        from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
 
         self._client = TradingClient(api_key, api_secret, paper=True)
         self._MarketOrderRequest = MarketOrderRequest
+        self._LimitOrderRequest = LimitOrderRequest
         self._OrderSide = OrderSide
         self._TimeInForce = TimeInForce
 
@@ -69,6 +70,35 @@ class AlpacaPaperClient:
             )
         )
         return self._wait_for_fill(order.id)
+
+    def submit_gtc_limit_buy(
+        self, symbol: str, qty: float, limit_price: float,
+        client_order_id: Optional[str] = None,
+    ) -> BrokerOrderResult:
+        """Place a good-till-canceled limit buy and return IMMEDIATELY with its
+        working status — a GTC limit may sit open for days, so (unlike the
+        market helpers) we do NOT poll to fill here; the daily settle sweep
+        polls by order id. client_order_id makes the submit idempotent: Alpaca
+        rejects a duplicate outright."""
+        order = self._client.submit_order(
+            order_data=self._LimitOrderRequest(
+                symbol=symbol,
+                qty=qty,
+                limit_price=round(limit_price, 2),
+                side=self._OrderSide.BUY,
+                time_in_force=self._TimeInForce.GTC,
+                client_order_id=client_order_id,
+            )
+        )
+        return self._to_result(order, _enum_str(order.status))
+
+    def get_order(self, order_id) -> BrokerOrderResult:
+        """Current normalized state of one order (for the settle sweep)."""
+        order = self._client.get_order_by_id(order_id)
+        return self._to_result(order, _enum_str(order.status))
+
+    def cancel_order(self, order_id) -> None:
+        self._client.cancel_order_by_id(order_id)
 
     def _to_result(self, order, status: str) -> BrokerOrderResult:
         price = order.filled_avg_price
