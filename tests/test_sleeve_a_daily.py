@@ -305,3 +305,184 @@ async def test_sleeve_a_fill_then_snapshot_runs_in_order(monkeypatch, execution_
     assert fills_i < stops_i < snap_i < breaker_i
     # Sleeve B's own steps all precede every Sleeve A step.
     assert step_names.index("circuit-breaker") < fills_i
+
+
+def _sleeve_a_state_mocks(monkeypatch, positions_a=None):
+    """Sleeve-aware overrides on top of _healthy_sleeve_b_mocks: SleeveState A
+    exists, optional Sleeve A positions, and a recording update_sleeve_cash."""
+    import execution.sleeve_service as sleeve_mod
+
+    cash_updates = []
+
+    async def fake_get_sleeve_state(db, sleeve):
+        if sleeve == "B":
+            return _SleeveState(status="active", cash=10000.0,
+                                 inception_equity=50000.0, inception_spy=400.0)
+        return _SleeveState(status="active", cash=10000.0,
+                             inception_equity=5000.0, inception_spy=300.0)
+
+    async def fake_update_sleeve_cash(db, sleeve, cash_balance):
+        cash_updates.append((sleeve, cash_balance))
+
+    async def fake_get_engine_positions(db, sleeve):
+        if sleeve == "A":
+            return list(positions_a or [])
+        return []
+
+    monkeypatch.setattr(sleeve_mod, "get_sleeve_state", fake_get_sleeve_state)
+    monkeypatch.setattr(sleeve_mod, "update_sleeve_cash", fake_update_sleeve_cash)
+    monkeypatch.setattr(sleeve_mod, "get_engine_positions", fake_get_engine_positions)
+    return cash_updates
+
+
+def _capture_reports(monkeypatch):
+    import execution.reporting as reporting_mod
+
+    reports = []
+
+    async def fake_write_report(report_type, severity, source, title, body, db=None):
+        reports.append((report_type, title))
+        return "rep-id"
+
+    monkeypatch.setattr(reporting_mod, "write_report", fake_write_report)
+    return reports
+
+
+@pytest.mark.asyncio
+async def test_expiry_leaves_cash_untouched(monkeypatch, execution_daily_fn):
+    """Single cash mover contract, expiry half: an open shadow buy that
+    expires unfilled journals entry_missed and moves NO cash — the funnel
+    reserved nothing at submit, so there is nothing to refund."""
+    import pandas as pd
+
+    import api.lib.db as db_mod
+    import execution.market_data as market_data_mod
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    cash_updates = _sleeve_a_state_mocks(monkeypatch)
+    reports = _capture_reports(monkeypatch)
+
+    # Expired yesterday; today's bar never traded through the 20.0 limit.
+    order = MagicMock(id="o1", symbol="AEHR", side="buy", qty=100.0,
+                      limitPrice=20.0, expiresAt=datetime(2020, 1, 1, tzinfo=timezone.utc))
+    shadow_db = MagicMock()
+    shadow_db.enginetrade.find_many = AsyncMock(return_value=[order])
+    shadow_db.enginetrade.update = AsyncMock()
+
+    async def fake_get_db():
+        return shadow_db
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+
+    def fake_fetch_ohlcv_batch(symbols, period="1y"):
+        return {"AEHR": pd.DataFrame({
+            "Open": [22.0], "High": [23.0], "Low": [21.0],
+            "Close": [22.5], "Volume": [1000],
+        })}
+    monkeypatch.setattr(market_data_mod, "fetch_ohlcv_batch", fake_fetch_ohlcv_batch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"
+    assert result["sleeve_a"]["fills"] == {"active": True, "filled": 0, "missed": 1}
+    assert cash_updates == []                      # no deduction, no refund
+    assert [r[0] for r in reports] == ["entry_missed"]
+
+
+@pytest.mark.asyncio
+async def test_fills_error_does_not_cascade_to_stops(monkeypatch, execution_daily_fn):
+    """A transient fills-step failure journals engine_failure but must NOT
+    skip the later Sleeve A steps: stops still evaluates positions (persists
+    the ratcheted stop), snapshot still writes, breaker still runs. Only
+    SleeveState-A-absent skips them."""
+    import pandas as pd
+
+    import api.lib.db as db_mod
+    import execution.broker.shadow_client as shadow_mod
+    import execution.market_data as market_data_mod
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    pos = types.SimpleNamespace(symbol="AEHR", qty=100.0,
+                                highWaterClose=None, avgEntryPrice=100.0)
+    _sleeve_a_state_mocks(monkeypatch, positions_a=[pos])
+    reports = _capture_reports(monkeypatch)
+
+    async def broken_get_open_orders(self):
+        raise RuntimeError("transient DB blip")
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
+                        broken_get_open_orders)
+
+    shadow_db = MagicMock()
+    shadow_db.engineposition.update = AsyncMock()
+
+    async def fake_get_db():
+        return shadow_db
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+
+    # 16 flat bars: ATR(14)=2.0, stop = 100 - 2.5*2 = 95; low 99 > 95 -> no exit.
+    def fake_fetch_ohlcv_batch(symbols, period="1y"):
+        n = 16
+        return {"AEHR": pd.DataFrame({
+            "Open": [100.0] * n, "High": [101.0] * n, "Low": [99.0] * n,
+            "Close": [100.0] * n, "Volume": [1000] * n,
+        })}
+    monkeypatch.setattr(market_data_mod, "fetch_ohlcv_batch", fake_fetch_ohlcv_batch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"
+    a = result["sleeve_a"]
+    assert a["fills"] == {"active": True, "error": True}
+    assert a["stops"] == {"active": True, "exits": 0}   # stops still ran
+    assert a["snapshot"]["active"] is True               # snapshot still ran
+    assert a["breaker"] == {"active": True, "tripped": False}
+    # The stop anchor was actually persisted — proof stops did real work.
+    upd = shadow_db.engineposition.update.call_args.kwargs
+    assert upd["data"] == {"highWaterClose": 100.0, "stopPrice": 95.0}
+    assert ("engine_failure", "Sleeve A fills sweep failed") in reports
+
+
+@pytest.mark.asyncio
+async def test_missing_bar_skips_snapshot_and_breaker(monkeypatch, execution_daily_fn):
+    """A held position with no OHLCV bar must SKIP the day's Sleeve A
+    snapshot (journaling engine_failure) rather than value the holding at 0
+    — a zeroed holding understates equity and could falsely trip the -15pp
+    breaker. The breaker step then no-ops (it gates on the snapshot)."""
+    import pandas as pd
+
+    import api.lib.db as db_mod
+    import execution.broker.shadow_client as shadow_mod
+    import execution.market_data as market_data_mod
+    import execution.sleeve_service as sleeve_mod
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    pos = types.SimpleNamespace(symbol="AEHR", qty=100.0,
+                                highWaterClose=105.0, avgEntryPrice=100.0)
+    _sleeve_a_state_mocks(monkeypatch, positions_a=[pos])
+    reports = _capture_reports(monkeypatch)
+
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
+                        AsyncMock(return_value=[]))
+
+    snapshot_calls = []
+
+    async def fake_store_snapshot(db, sleeve, snapshot_date, equity, cash,
+                                   positions_value, spy_close):
+        snapshot_calls.append(sleeve)
+    monkeypatch.setattr(sleeve_mod, "store_snapshot", fake_store_snapshot)
+
+    async def fake_get_db():
+        return MagicMock()
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+
+    def fake_fetch_ohlcv_batch(symbols, period="1y"):
+        return {}  # AEHR's bar is missing today
+    monkeypatch.setattr(market_data_mod, "fetch_ohlcv_batch", fake_fetch_ohlcv_batch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"
+    a = result["sleeve_a"]
+    assert a["snapshot"] == {"active": False, "skipped": True, "missing": ["AEHR"]}
+    assert a["breaker"] == {"active": False}             # gated on the snapshot
+    assert snapshot_calls == ["B"]                       # Sleeve B's snapshot only
+    assert ("engine_failure", "Sleeve A snapshot skipped — missing bars: ['AEHR']") in reports

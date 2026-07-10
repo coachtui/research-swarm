@@ -159,3 +159,56 @@ def test_full_run_sell_verdict_vetoes_entry():
         ))
     assert placed == []
     client.submit_limit_buy.assert_not_called()
+
+
+def test_open_shadow_buys_reduce_spend_and_no_cash_write_at_buy_submit():
+    """F1 (Task 13 review): the daily fills step is the SOLE cash mover for
+    buys. The weekly pass (a) never writes the cash ledger at buy submit and
+    (b) treats standing shadow-open buy notionals as committed capital,
+    subtracting them from BOTH cash_available and deployable."""
+    db = MagicMock()
+    # One standing shadow buy worth $1,000 from a previous pass.
+    db.enginetrade.find_many = AsyncMock(return_value=[
+        MagicMock(qty=50.0, limitPrice=20.0, notional=1000.0, side="buy",
+                  status="shadow_open"),
+    ])
+    captured = {}
+
+    async def fake_handshake(db_, client, entry_queue, cands, run_date,
+                             sleeve_equity, deployable, cash_available,
+                             holdings, sector_by_symbol, other, allow_buys, step):
+        captured["deployable"] = deployable
+        captured["cash_available"] = cash_available
+        return [{"symbol": "AEHR", "qty": 100.0, "limit_price": 20.0,
+                 "notional": 2000.0, "client_order_id": "shadow-A-AEHR-20260713",
+                 "expires_at": NOW.isoformat()}]
+
+    with patch.object(saf, "_theme_review", new=AsyncMock()), \
+         patch.object(saf, "plan_decisions",
+                      return_value={"exits": [], "trims": [],
+                                    "entry_queue": ["AEHR"], "notes": []}), \
+         patch.object(saf, "_execute_sells",
+                      new=AsyncMock(return_value={"cash": 10_000.0,
+                                                  "proceeds": 0.0, "sold": []})), \
+         patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_handshake_and_enter", new=fake_handshake), \
+         patch.object(saf, "write_report", new=AsyncMock()), \
+         patch("execution.sleeve_service.update_sleeve_cash",
+               new=AsyncMock()) as cash_write:
+        out = _run(saf._decide_and_execute(
+            db, MagicMock(), NOW, "neutral",
+            sleeve_ctx={"cash": 10_000.0, "positions": {},
+                        "allow_buys": True, "status": "active"},
+            assembled={}, screened={"ranked": [], "close_by_symbol": {},
+                                    "sector_by_symbol": {}},
+            lights={"light_rows": {}, "spent": 0}, step=None,
+        ))
+
+    # Committed $1,000 comes off both spendable envelopes:
+    # cash: 10,000 (post-sells ledger) − 1,000 = 9,000
+    # deployable: 0.7 (neutral) × 10,000 equity − 0 MV − 1,000 = 6,000
+    assert captured["cash_available"] == 9000.0
+    assert captured["deployable"] == 6000.0
+    # And placing a buy writes NO cash — the daily fill (or expiry) decides.
+    cash_write.assert_not_called()
+    assert len(out["placed"]) == 1

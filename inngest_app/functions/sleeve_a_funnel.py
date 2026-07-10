@@ -914,11 +914,24 @@ async def _decide_and_execute(
         ),
     )
 
-    # Deployable = regime fraction × equity − position MV − queued notionals.
+    # Deployable = regime fraction × equity − position MV − standing orders.
+    # Buys move cash ONLY when the daily cron fills them (single cash mover:
+    # execution_daily's sleeve-a-fills step; expiry deducts nothing), so open
+    # shadow buy orders are committed capital the cash ledger doesn't show —
+    # subtract their notional from BOTH envelopes or this pass would re-spend
+    # capital a standing order already claimed.
     invested_fraction = REGIME_INVESTED_FRACTION.get(regime, 0.7)
     position_mv = sum(qty * close_by_symbol.get(sym, 0.0) for sym, qty in positions.items())
-    deployable = max(0.0, invested_fraction * sleeve_equity - position_mv)
-    cash_available = sell_out["cash"]
+    try:
+        committed = await _open_shadow_buy_notional(db)
+    except Exception:  # noqa: BLE001 — degrade + journal; shadow mode tolerates over-spend better than a dead pass
+        logger.exception("funnel: open shadow buy notional query failed")
+        await _journal(db, "engine_failure", "warning",
+                       "Open shadow buy query failed — treating committed capital as 0",
+                       {"stage": "decide-and-execute"})
+        committed = 0.0
+    deployable = max(0.0, invested_fraction * sleeve_equity - position_mv - committed)
+    cash_available = max(0.0, sell_out["cash"] - committed)
 
     other_sleeve_sector_notional = await _sleeve_b_sector_notional(db)
 
@@ -929,21 +942,12 @@ async def _decide_and_execute(
         sleeve_ctx.get("allow_buys", True), step,
     )
 
-    # Buys shrink the cash ledger too (sells already updated it). Wrapped in a
-    # step so the final ledger write is memoized, not replayed.
-    if placed:
-        remaining_cash = max(0.0, cash_available - sum(p["notional"] for p in placed))
-
-        async def _finalize_cash() -> Dict[str, Any]:
-            try:
-                from execution.sleeve_service import update_sleeve_cash  # noqa: PLC0415
-
-                await update_sleeve_cash(db, SLEEVE_A, remaining_cash)
-            except Exception:  # noqa: BLE001
-                logger.exception("funnel: post-entry cash update failed")
-            return {"cash": remaining_cash}
-
-        await _run_step(step, "finalize-entry-cash", _finalize_cash)
+    # NOTE: no cash write for buys here. A shadow buy is a limit order that
+    # may never fill; the daily cron's sleeve-a-fills step is the SOLE cash
+    # mover for buys (deducts at fill, nothing to refund on expiry). Sells
+    # fill immediately at submit, so their cash already moved inside
+    # _execute_sells above. Deducting placed buy notionals at submit would
+    # double-count against the fill-time deduction and strand cash on expiry.
 
     return {
         "decisions": decisions, "guardrail_notes": decisions.get("notes", []),
@@ -1010,6 +1014,25 @@ def _all_themes_retired(holding: Dict[str, Any], by_symbol: Dict[str, Any]) -> b
     tags = (screen.get("tags") or {})
     themes = tags.get("themes", [])
     return bool(tags.get("holding")) and not themes and not tags.get("watchlist")
+
+
+async def _open_shadow_buy_notional(db) -> float:
+    """Total notional of standing (unfilled, unexpired) Sleeve A shadow buy
+    orders. Buys move cash only when the daily cron fills them, so an open
+    order is committed capital the cash ledger doesn't yet reflect."""
+    orders = await db.enginetrade.find_many(
+        where={"sleeve": SLEEVE_A, "status": "shadow_open", "side": "buy"}
+    )
+    total = 0.0
+    for o in orders:
+        notional = getattr(o, "notional", None)
+        if notional is not None:
+            total += float(notional)
+        else:  # legacy/partial rows: reconstruct from qty × limit
+            total += float(getattr(o, "qty", 0.0) or 0.0) * float(
+                getattr(o, "limitPrice", 0.0) or 0.0
+            )
+    return round(total, 2)
 
 
 async def _sleeve_b_sector_notional(db) -> Dict[str, float]:

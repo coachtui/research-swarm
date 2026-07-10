@@ -248,10 +248,21 @@ def _register_inngest_function():
         # No-op entirely when SleeveState A doesn't exist yet (the weekly
         # funnel hasn't bootstrapped it). That existence check happens ONCE,
         # in sleeve-a-fills; the later three steps trust the `active` flag
-        # it returns rather than re-querying. Each step is independently
-        # try/except-wrapped and journals `engine_failure` on its own
-        # failure — Sleeve B's result above is already computed and must
-        # reach the caller even if every Sleeve A duty below blows up.
+        # it returns rather than re-querying. `active` means "downstream
+        # Sleeve A steps should run": it is False ONLY for sleeve-absent —
+        # a fills-step FAILURE returns active=True so a transient fills
+        # error never cascades into skipped stops/snapshot/breaker (each is
+        # harmless against an actually-absent sleeve: stops sees no
+        # positions, snapshot re-checks state itself). Each step is
+        # independently try/except-wrapped and journals `engine_failure` on
+        # its own failure — Sleeve B's result above is already computed and
+        # must reach the caller even if every Sleeve A duty below blows up.
+        #
+        # Cash semantics: this fills step is the SOLE cash mover for shadow
+        # buys. The weekly funnel reserves NOTHING at submit (it instead
+        # subtracts open-order notionals from its spendable envelope), so a
+        # fill deducts exactly once here and an expiry deducts nothing —
+        # there is no reservation to refund.
 
         async def sleeve_a_fills_step() -> Dict[str, Any]:
             db = None
@@ -322,7 +333,9 @@ def _register_inngest_function():
                     "engine_failure", "warning", "execution_daily",
                     "Sleeve A fills sweep failed", {"stage": "sleeve-a-fills"}, db=db,
                 )
-                return {"active": False, "error": True}
+                # active=True: a fills failure must NOT cascade — stops,
+                # snapshot and breaker still run (only sleeve-absent skips).
+                return {"active": True, "error": True}
 
         fills = await step.run("sleeve-a-fills", sleeve_a_fills_step)
 
@@ -435,12 +448,26 @@ def _register_inngest_function():
                 symbols = sorted({p.symbol for p in positions})
                 ohlcv = await asyncio.to_thread(fetch_ohlcv_batch, symbols) if symbols else {}
 
+                # A missing bar must SKIP the snapshot, not zero the holding:
+                # valuing a held position at 0 understates equity and could
+                # falsely trip the -15pp breaker. No snapshot today -> the
+                # breaker step below no-ops (it gates on this step).
+                missing = [
+                    s for s in symbols
+                    if s not in ohlcv or ohlcv[s] is None or ohlcv[s].empty
+                ]
+                if missing:
+                    await write_report(
+                        "engine_failure", "warning", "execution_daily",
+                        f"Sleeve A snapshot skipped — missing bars: {missing}",
+                        {"stage": "sleeve-a-snapshot", "missing": missing},
+                        db=db,
+                    )
+                    return {"active": False, "skipped": True, "missing": missing}
+
                 positions_value = 0.0
                 for p in positions:
-                    df = ohlcv.get(p.symbol)
-                    if df is None or df.empty:
-                        continue
-                    positions_value += p.qty * float(df["Close"].iloc[-1])
+                    positions_value += p.qty * float(ohlcv[p.symbol]["Close"].iloc[-1])
 
                 cash = float(state.cashBalance)
                 equity = round(cash + positions_value, 2)
