@@ -41,11 +41,30 @@ UNIVERSE_DIR = DATA_DIR / "universe"
 PIT_CSV = DATA_DIR / "sp500_constituents.csv"
 REPORTS_DIR = REPO / "reports" / "backtests"
 
-ISHARES = {
-    "IVV": "https://www.ishares.com/us/products/239726/ishares-core-sp-500-etf/1467271812596.ajax?fileType=csv&fileName=IVV_holdings&dataType=fund",
-    "IJH": "https://www.ishares.com/us/products/239763/ishares-core-sp-midcap-etf/1467271812596.ajax?fileType=csv&fileName=IJH_holdings&dataType=fund",
-    "IJR": "https://www.ishares.com/us/products/239774/ishares-core-sp-smallcap-etf/1467271812596.ajax?fileType=csv&fileName=IJR_holdings&dataType=fund",
+# Mid/small breadth = current S&P 400/600 membership (what IJH/IJR track).
+# Wikipedia's component lists are stable HTML tables; iShares' holdings
+# CSVs sit behind JS-injected ajax URLs that return HTML to plain fetches.
+WIKI_INDEXES = {
+    "SP400": "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
+    "SP600": "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies",
 }
+
+
+def _download_index_holdings(name: str, url: str, dest: Path) -> None:
+    """Write the index's current members as a minimal iShares-format CSV
+    (Ticker / Asset Class columns) so universe.parse_ishares_csv reads it."""
+    import io
+
+    import pandas as pd
+
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    html = urllib.request.urlopen(req, timeout=60).read().decode("utf-8", "replace")
+    table = next(t for t in pd.read_html(io.StringIO(html))
+                 if "Symbol" in [str(c) for c in t.columns])
+    lines = ["Ticker,Name,Asset Class"]
+    lines += [f"{str(sym).strip()},{name} member,Equity"
+              for sym in table["Symbol"] if str(sym).strip()]
+    dest.write_text("\n".join(lines) + "\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,19 +91,17 @@ def cmd_fetch(ns) -> None:
             print(f"FAILED to obtain PIT constituents.\n"
                   f"  Run `python3 -m scripts.backtest.data.sp500_constituents "
                   f"--download` or save the canonical CSV as {PIT_CSV}.\n"
-                  f"  Proceeding survivorship-biased (iShares only).")
-    for name, url in ISHARES.items():
+                  f"  Proceeding survivorship-biased (current members only).")
+    for name, url in WIKI_INDEXES.items():
         dest = UNIVERSE_DIR / f"{name}_holdings.csv"
         if dest.exists():
             continue
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            dest.write_bytes(urllib.request.urlopen(req, timeout=60).read())
-            print(f"downloaded {name} holdings")
+            _download_index_holdings(name, url, dest)
+            print(f"downloaded {name} member list ({dest.name})")
         except Exception as exc:  # noqa: BLE001
             print(f"FAILED to download {name} ({exc}).\n"
-                  f"  Download the holdings CSV manually from ishares.com "
-                  f"and save it as {dest}")
+                  f"  Save a CSV with Ticker/Asset Class columns as {dest}")
     universe = set(load_universe(UNIVERSE_DIR))
     if PIT_CSV.exists():
         universe |= set(load_pit_membership(PIT_CSV)["ticker"])

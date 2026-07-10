@@ -26,6 +26,14 @@ def test_parse_ishares_csv_skips_preamble_and_non_equity(tmp_path):
     assert parse_ishares_csv(p) == ["AAPL", "BRK-B", "MSFT"]
 
 
+def test_parse_skips_junk_files_without_ticker_header(tmp_path):
+    junk = tmp_path / "IJH_holdings.csv"
+    junk.write_text("<!DOCTYPE html>\n<html><body>error page</body></html>\n")
+    assert parse_ishares_csv(junk) == []
+    (tmp_path / "good.csv").write_text(ISHARES_SAMPLE)
+    assert load_universe(tmp_path) == ["AAPL", "BRK-B", "MSFT"]
+
+
 def test_load_universe_unions_and_sorts(tmp_path):
     (tmp_path / "a.csv").write_text(ISHARES_SAMPLE)
     (tmp_path / "b.csv").write_text(ISHARES_SAMPLE.replace("MSFT", "NVDA"))

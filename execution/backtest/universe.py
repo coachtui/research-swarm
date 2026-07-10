@@ -3,12 +3,15 @@ mid/small holdings, per-week floors applied strictly as-of. Mcap floor is
 NOT applied (no point-in-time share counts) — ADV is the liquidity proxy;
 the report discloses this."""
 import csv
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 import pandas as pd
 
 from execution.constants import FUNNEL_PRICE_FLOOR, THEME_ADV_FLOOR_USD
+
+logger = logging.getLogger(__name__)
 
 _MIN_ROWS = 63  # matches execution.funnel.screen._MIN_ROWS
 
@@ -18,7 +21,11 @@ def parse_ishares_csv(path: Path) -> List[str]:
     whose first cell is 'Ticker'. Equity rows only; '.'→'-' for yfinance."""
     with open(path, newline="", encoding="utf-8-sig") as fh:
         rows = list(csv.reader(fh))
-    header_idx = next(i for i, r in enumerate(rows) if r and r[0].strip() == "Ticker")
+    header_idx = next(
+        (i for i, r in enumerate(rows) if r and r[0].strip() == "Ticker"), None)
+    if header_idx is None:  # junk download (e.g. an HTML error page) — skip
+        logger.warning("no Ticker header in %s — skipping file", path)
+        return []
     header = rows[header_idx]
     t_col, a_col = header.index("Ticker"), header.index("Asset Class")
     out: List[str] = []
