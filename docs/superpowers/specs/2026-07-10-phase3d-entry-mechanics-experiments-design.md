@@ -74,7 +74,7 @@ either way.
 | Miss definition | Any quote ending unfilled (expiry or requote-cancel) | Expiry-only — under A+B combined, requote cancels every order before TTL, so the valve would never arm |
 | Valve fill price | Next open + 10 bps adverse | Same-day close — decision uses data through today's close, so filling at it is look-ahead; next open matches the sell convention |
 | Gate rendering | Full pre-committed gate (criteria 1–3, with a ±20% sweep **recentred on the combined config**) rendered for the combined variant; alone variants get race-table rows plus informational criteria 1–2 | Gate per alone-variant with own sweeps — 3 extra sweep suites ≈ +7h compute for ablations whose job is attribution, not qualification |
-| Base comparability | Re-run base + naive momentum in-process; assert base metrics match `20260710-115422` (determinism/integrity check) | Reading cached `metrics.json` — couples the driver to a prior run's file layout and silently trusts that code hasn't drifted |
+| Base comparability | Re-run base + naive momentum in-process; check base metrics against `20260710-115422` and report MATCH/MISMATCH loudly (recorded in report meta). A mismatch does not abort — the race stays internally consistent because every row shares the in-process code path, and a hard assert would kill a ~4 h detached run over a diagnostic signal | Reading cached `metrics.json` as the base row — couples the driver to a prior run's file layout and silently trusts that code hasn't drifted |
 
 ## Runs (the race)
 
@@ -123,8 +123,8 @@ per-variant `trades_<variant>.csv`):
   the streak; queue-dropout resets the streak; sub-`MIN_TRADE_NOTIONAL`
   half-notional → no entry.
 - **Flags off ⇒ byte-identical behavior:** existing simulator tests pass
-  untouched, and the driver asserts base-run metrics equal the
-  2026-07-10 run's.
+  untouched, and the driver checks base-run metrics against the
+  2026-07-10 run's, reporting MATCH/MISMATCH in the run meta.
 - **Driver:** race-table assembly and recentred sweep-spec construction
   on stub results (no full sims in tests).
 
