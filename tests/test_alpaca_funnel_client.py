@@ -120,6 +120,48 @@ def test_submit_limit_buy_lookup_is_bounded_and_matches_python_side():
     assert db.enginetrade.create.call_args.kwargs["data"]["journal"] is not None
 
 
+def test_submit_limit_buy_floors_fractional_qty_to_whole_shares():
+    """Alpaca rejects fractional GTC orders (code 42210000: 'fractional orders
+    must be DAY orders'). The sized fractional qty must floor to whole shares
+    in BOTH the request and the EngineTrade row (notional recomputed) so
+    settle/position math stays consistent."""
+    db = _db()
+    alpaca = _alpaca()
+    alpaca.submit_gtc_limit_buy = MagicMock(return_value=_order("accepted", order_id="alp-31"))
+    broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
+
+    res = _run(broker.submit_limit_buy(
+        "AEHR", 26.619, 20.0, NOW + timedelta(days=7), {}, "coid-frac",
+    ))
+
+    alpaca.submit_gtc_limit_buy.assert_called_once_with(
+        "AEHR", 26.0, 20.0, "coid-frac"        # request qty EXACTLY whole
+    )
+    create_data = db.enginetrade.create.call_args.kwargs["data"]
+    assert create_data["qty"] == 26.0          # row records the FLOORED qty
+    assert create_data["notional"] == 520.0    # 26 * 20, recomputed
+    assert res.status == "open"
+
+
+def test_submit_limit_buy_sub_one_share_rejected_without_submit():
+    """A floored qty of 0 (input < 1 share) must NOT reach Alpaca and must NOT
+    create an EngineTrade row — return a rejected result so the call site's
+    existing handling reports it."""
+    db = _db()
+    alpaca = _alpaca()
+    alpaca.submit_gtc_limit_buy = MagicMock()
+    broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
+
+    res = _run(broker.submit_limit_buy(
+        "AEHR", 0.8, 20.0, NOW + timedelta(days=7), {}, "coid-tiny",
+    ))
+
+    alpaca.submit_gtc_limit_buy.assert_not_called()
+    db.enginetrade.create.assert_not_called()
+    assert res.status == "rejected"
+    assert res.filled_qty == 0.0 and res.filled_avg_price is None
+
+
 # ── submit_sell (market) ────────────────────────────────────────────────────
 
 def test_submit_sell_market_records_actual_fill_and_reduces_position():
