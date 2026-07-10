@@ -5,7 +5,7 @@ access for the execution engine funnels through here; everything above it
 is pure. JSON columns are wrapped in prisma.Json at this edge only.
 """
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _QTY_EPSILON = 1e-6
 
@@ -64,6 +64,18 @@ async def store_snapshot(
     )
 
 
+def position_after_fill(
+    qty0: float, avg0: float, fill_qty: float, price: float, side: str,
+) -> Tuple[float, float]:
+    """Pure position math shared by real (apply_fill) and shadow fills.
+    Buys re-weight the average entry; sells never touch it."""
+    if side == "buy":
+        qty1 = qty0 + fill_qty
+        avg1 = ((qty0 * avg0) + (fill_qty * price)) / qty1 if qty1 > 0 else 0.0
+        return qty1, avg1
+    return max(qty0 - fill_qty, 0.0), avg0
+
+
 async def apply_fill(
     db, sleeve: str, fill: Dict[str, Any],
     requested_notional: Optional[float], journal: Dict[str, Any],
@@ -115,12 +127,11 @@ async def apply_fill(
         where={"sleeve_symbol": {"sleeve": sleeve, "symbol": symbol}}
     )
 
+    qty0 = existing.qty if existing else 0.0
+    avg0 = existing.avgEntryPrice if existing else 0.0
+
     if side == "buy":
-        if existing is None:
-            new_qty, new_avg = filled_qty, float(fill_price)
-        else:
-            new_qty = existing.qty + filled_qty
-            new_avg = (existing.qty * existing.avgEntryPrice + notional) / new_qty
+        new_qty, new_avg = position_after_fill(qty0, avg0, filled_qty, float(fill_price), "buy")
         await db.engineposition.upsert(
             where={"sleeve_symbol": {"sleeve": sleeve, "symbol": symbol}},
             data={
@@ -134,7 +145,7 @@ async def apply_fill(
         return -round(notional, 2)
 
     # sell
-    remaining = (existing.qty if existing else 0.0) - filled_qty
+    remaining, _ = position_after_fill(qty0, avg0, filled_qty, float(fill_price), "sell")
     if remaining <= _QTY_EPSILON:
         if existing is not None:
             await db.engineposition.delete(
