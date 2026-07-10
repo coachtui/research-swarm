@@ -189,8 +189,10 @@ def cmd_run(ns, with_sweep: bool) -> None:
                             "yearly_log_outperformance": yearly,
                             "sweep": sweep_rows, "verdict": verdict,
                             "trade_stats": stats})
+    import pandas as pd
+    pd.DataFrame(base_res.journal).to_csv(out / "trades.csv", index=False)
     print(md)
-    print(f"written: {out}/report.md")
+    print(f"written: {out}/report.md (+ trades.csv, {len(base_res.journal)} rows)")
 
 
 def main() -> None:
