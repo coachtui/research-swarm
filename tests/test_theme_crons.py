@@ -20,6 +20,7 @@ def test_registered_in_active_functions():
         import inngest  # noqa: F401
         names = {getattr(f, "id", None) or getattr(getattr(f, "_opts", None), "fn_id", "")
                  for f in idx.ACTIVE_FUNCTIONS}
-        assert len(idx.ACTIVE_FUNCTIONS) == 6
+        assert len(idx.ACTIVE_FUNCTIONS) == 7
+        assert "sleeve-a-funnel" in names
     except ImportError:
         pass

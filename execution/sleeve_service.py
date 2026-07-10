@@ -15,7 +15,8 @@ async def get_sleeve_state(db, sleeve: str) -> Optional[Any]:
 
 
 async def init_sleeve_state(
-    db, sleeve: str, cash: float, spy_close: float, inception_date: datetime
+    db, sleeve: str, cash: float, spy_close: float, inception_date: datetime,
+    mode: str = "live",
 ) -> Any:
     return await db.sleevestate.create(data={
         "sleeve": sleeve,
@@ -24,6 +25,7 @@ async def init_sleeve_state(
         "inceptionDate": inception_date,
         "inceptionEquity": round(cash, 2),
         "inceptionSpyClose": spy_close,
+        "mode": mode,
     })
 
 

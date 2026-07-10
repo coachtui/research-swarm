@@ -21,6 +21,9 @@ Owner decision (2026-07-09, Phase 3B): register theme_discovery_monthly and
 theme_delta_weekly
 (docs/superpowers/specs/2026-07-09-phase3b-theme-baskets-design.md).
 
+Owner decision (2026-07-09, Phase 3C): register sleeve_a_funnel
+(docs/superpowers/specs/2026-07-09-phase3c-sleeve-a-funnel-design.md).
+
 Hosting decision (2026-07-08 review): Vercel installs the inngest SDK
 transitively (requirements-vercel.txt -> requirements.txt), so the SDK being
 importable does NOT mean this host should serve cron. The handler only
@@ -38,6 +41,7 @@ from inngest_app.functions.execution_daily import execution_daily
 from inngest_app.functions.execution_weekly import execution_weekly
 from inngest_app.functions.theme_discovery_monthly import theme_discovery_monthly
 from inngest_app.functions.theme_delta_weekly import theme_delta_weekly
+from inngest_app.functions.sleeve_a_funnel import sleeve_a_funnel
 
 # Dormant roster — intentionally NOT registered (need real batch data first):
 # from inngest_app.functions.send_teaser_digest import send_teaser_digest
@@ -50,7 +54,7 @@ from inngest_app.functions.theme_delta_weekly import theme_delta_weekly
 ACTIVE_FUNCTIONS = [
     fn
     for fn in [weekly_market_outlook, weekly_batch, execution_daily, execution_weekly,
-               theme_discovery_monthly, theme_delta_weekly]
+               theme_discovery_monthly, theme_delta_weekly, sleeve_a_funnel]
     if fn is not None
 ]
 
