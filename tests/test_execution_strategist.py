@@ -39,9 +39,10 @@ def test_prompt_handles_no_headlines():
 
 def test_prompt_isolated_from_sleeve_a_extended_signals():
     """Control-group contract: the strategist prompt must be identical whether
-    or not Sleeve-A-only extended signals (industry, size_style) are present
-    on the indicators payload — the strategist's override feeds the shared
-    regime that Sleeve B (the control group) trades on."""
+    or not Sleeve-A-only extended signals (industry, size_style) — or, as of
+    Phase 3C, funnel signals (entry_queue, shadow positions, engine_light
+    rows) — are present on the indicators payload. The strategist's override
+    feeds the shared regime that Sleeve B (the control group) trades on."""
     base_prompt = build_strategist_prompt(PAYLOAD)
 
     payload_with_extended = {
@@ -52,6 +53,10 @@ def test_prompt_isolated_from_sleeve_a_extended_signals():
                                     "score": 0.033}]},
         "size_style": {"tag": "small_caps_leading"},
         "themes": {"rankings": [{"theme": "Photonics", "score": 0.02}]},
+        "funnel": {"entry_queue": ["ABCD"], "notes": ["shrink-only sizing applied"]},
+        "entry_queue": ["ABCD"],
+        "shadow_positions": [{"symbol": "ABCD", "qty": 10}],
+        "engine_light": [{"symbol": "ABCD", "tier": "engine_light"}],
     }
     extended_prompt = build_strategist_prompt(payload_with_extended)
 
@@ -60,6 +65,11 @@ def test_prompt_isolated_from_sleeve_a_extended_signals():
     assert "size_style" not in extended_prompt
     assert "themes" not in extended_prompt
     assert "Photonics" not in extended_prompt
+    assert "funnel" not in extended_prompt
+    assert "entry_queue" not in extended_prompt
+    assert "shadow_positions" not in extended_prompt
+    assert "engine_light" not in extended_prompt
+    assert "ABCD" not in extended_prompt
 
 
 VALID_RESPONSE = json.dumps({
