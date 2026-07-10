@@ -42,6 +42,29 @@ def test_light_run_survives_malformed_screen_row():
     assert out["fair_value"] is None and out["sentiment_score"] is None
 
 
+def test_dark_pool_score_via_signal_divergence_extractor():
+    """FINRA metrics dict has no 'score' key; the light runner converts it to a
+    0-10 score by importing the manager's _extract_dark_pool_score (never copies
+    the math). avg_ats_pct present + z_score > 1.5 must yield a real float."""
+    fake_metrics = {"avg_ats_pct": 42.0, "trend": "increasing", "z_score": 2.0}
+    fc = MagicMock()
+    fc.get_dark_pool_activity.return_value = [{"week": 1}, {"week": 2}]
+    fc.calculate_dark_pool_metrics.return_value = fake_metrics
+    oi = MagicMock()
+    oi.get_insider_transactions.return_value = []  # skip insider path
+    with patch("research_swarm.data.finra_client.FINRAClient", return_value=fc), \
+         patch("research_swarm.data.openinsider_client.OpenInsiderClient", return_value=oi):
+        out = lr._gather_flow_numbers("AEHR", market_cap=4.2e8)
+    assert isinstance(out["dark_pool_score"], float)
+    assert out["dark_pool_score"] == 7.5  # neutral base, z>1.5 floor per signal_divergence
+    # and no-data metrics (missing avg_ats_pct) must map to None, not neutral 5.0
+    fc.calculate_dark_pool_metrics.return_value = {"trend": "stable"}
+    with patch("research_swarm.data.finra_client.FINRAClient", return_value=fc), \
+         patch("research_swarm.data.openinsider_client.OpenInsiderClient", return_value=oi):
+        out = lr._gather_flow_numbers("AEHR", market_cap=4.2e8)
+    assert out["dark_pool_score"] is None
+
+
 def test_persist_never_downgrades_full_row():
     db = MagicMock()
     db.weeklysignal.find_unique = AsyncMock(return_value=MagicMock(tier="full"))

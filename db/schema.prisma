@@ -862,7 +862,7 @@ model WeeklySignal {
   screenerScore       Float?   // Stage 1 score that selected this ticker
 
   // Tiered batch (2026-07-08 design)
-  tier              String  @default("full") // "quant" | "full"
+  tier              String  @default("full") // "quant" | "full" | "engine_light"
   escalationScore   Float?  // audit: weighted escalation score this run
   escalationReasons Json?   // audit: e.g. ["prior_buy", "post_earnings"]
   quantSignals      Json?   // {has_insider_buying, weekly_price_change_pct, days_to_earnings, days_since_earnings, on_watchlist}

@@ -49,11 +49,14 @@ def _gather_market_numbers(ticker: str, current_price: float) -> Dict[str, Any]:
         logger.warning("light_run %s: yf info failed", ticker)
 
     fair_value = None
-    scenarios = BlendedValuationCalculator().calculate_fair_value(
-        ticker, current_price, valuation_metrics, stock_info=info or None,
-    )
-    if scenarios is not None:
-        fair_value = float(scenarios.fair_value_mid)
+    try:
+        scenarios = BlendedValuationCalculator().calculate_fair_value(
+            ticker, current_price, valuation_metrics, stock_info=info or None,
+        )
+        if scenarios is not None:
+            fair_value = float(scenarios.fair_value_mid)
+    except Exception:  # noqa: BLE001
+        logger.warning("light_run %s: fair value calc failed", ticker)
 
     valuation_score = None
     try:
@@ -85,10 +88,17 @@ def _gather_flow_numbers(ticker: str, market_cap: Optional[float]) -> Dict[str, 
     except Exception:  # noqa: BLE001
         logger.warning("light_run %s: insider fetch failed", ticker)
     try:
+        from research_swarm.agents.manager.signal_divergence import (  # noqa: PLC0415, PLC2701 — import-don't-copy beats the underscore convention; copying this math is the manager-formatter drift lesson
+            _extract_dark_pool_score,
+        )
+
         fc = FINRAClient()
         dp = fc.get_dark_pool_activity(ticker)
         if dp:
-            dark_pool_score = _pick_score(fc.calculate_dark_pool_metrics(dp, ticker))
+            score, has_data = _extract_dark_pool_score(
+                {"dark_pool_activity": fc.calculate_dark_pool_metrics(dp, ticker)}
+            )
+            dark_pool_score = float(score) if has_data else None
     except Exception:  # noqa: BLE001
         logger.warning("light_run %s: dark pool fetch failed", ticker)
     return {"insider_score": insider_score, "dark_pool_score": dark_pool_score}
@@ -198,8 +208,9 @@ async def persist_light_signal(
     """Upsert an engine_light WeeklySignal row. NEVER downgrade a full row."""
     from prisma import Json  # noqa: PLC0415 — runtime-only dependency
 
-    ticker = light["ticker"]
+    ticker = light.get("ticker", "<unknown>")
     try:
+        ticker = light["ticker"]
         existing = await db.weeklysignal.find_unique(
             where={"ticker_runDate": {"ticker": ticker, "runDate": run_date}}
         )
