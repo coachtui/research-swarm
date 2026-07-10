@@ -80,6 +80,32 @@ def test_settle_fills_at_limit_and_reports_cash_delta():
     db.engineposition.upsert.assert_called_once()
 
 
+def test_submit_sell_fills_at_price_hint():
+    # Renamed from submit_shadow_sell — fills immediately AT the hint, records
+    # one EngineTrade sell row, and reduces the position.
+    db = _db_with()
+    db.engineposition.find_unique = AsyncMock(
+        return_value=MagicMock(qty=100.0, avgEntryPrice=20.0)
+    )
+    db.engineposition.update = AsyncMock()
+    client = ShadowBrokerClient(db, sleeve="A")
+    res = _run(
+        client.submit_sell("AEHR", 40.0, price_hint=25.0,
+                           journal={"reason": "risk_trim"}, client_order_id="shadow-A-AEHR-sell")
+    )
+    assert res.status == "shadow_filled" and res.filled_avg_price == 25.0
+    create = db.enginetrade.create.call_args.kwargs["data"]
+    assert create["side"] == "sell" and create["fillPrice"] == 25.0
+    db.engineposition.update.assert_called_once()  # 100 -> 60, not deleted
+
+
+def test_submit_sell_is_idempotent():
+    db = _db_with(order_lookup=MagicMock(id="dup", status="shadow_filled"))
+    client = ShadowBrokerClient(db, sleeve="A")
+    _run(client.submit_sell("AEHR", 40.0, 25.0, {}, "shadow-A-AEHR-sell"))
+    db.enginetrade.create.assert_not_called()
+
+
 def test_settle_expires_quietly():
     db = _db_with()
     client = ShadowBrokerClient(db, sleeve="A")

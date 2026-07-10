@@ -579,8 +579,8 @@ async def _execute_sells(
             continue
         coid = f"shadow-A-{sym}-{run_date:%Y%m%d}-sell"
         try:
-            await client.submit_shadow_sell(
-                symbol=sym, qty=qty, fill_price=close,
+            await client.submit_sell(
+                symbol=sym, qty=qty, price_hint=close,
                 journal={"reason": ex.get("reason")}, client_order_id=coid,
             )
         except Exception:  # noqa: BLE001
@@ -605,8 +605,8 @@ async def _execute_sells(
         qty = round(sell_notional / close, 4)
         coid = f"shadow-A-{sym}-{run_date:%Y%m%d}-sell"
         try:
-            await client.submit_shadow_sell(
-                symbol=sym, qty=qty, fill_price=close,
+            await client.submit_sell(
+                symbol=sym, qty=qty, price_hint=close,
                 journal={"reason": "risk_trim"}, client_order_id=coid,
             )
         except Exception:  # noqa: BLE001
@@ -759,9 +759,12 @@ def _register_inngest_function():
         outcome: Dict[str, Any] = {}
         try:
             db = await get_db()
-            from execution.broker.shadow_client import ShadowBrokerClient  # noqa: PLC0415
+            from execution.broker import sleeve_a_broker  # noqa: PLC0415
+            from execution.sleeve_service import get_sleeve_state  # noqa: PLC0415
 
-            client = ShadowBrokerClient(db, sleeve=SLEEVE_A)
+            # shadow -> ShadowBrokerClient (3D replay); live -> AlpacaFunnelBroker.
+            state = await get_sleeve_state(db, SLEEVE_A)
+            client = await sleeve_a_broker(db, state)
             outcome = await _decide_and_execute(
                 db, client, run_date, regime, sleeve_ctx, assembled,
                 screened, lights, step,
