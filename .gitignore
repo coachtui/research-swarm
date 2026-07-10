@@ -23,3 +23,7 @@ reports/*.pdf
 .DS_Store
 Thumbs.db
 .worktrees/
+
+# Tier 2 backtest artifacts
+data/backtest/
+reports/backtests/
