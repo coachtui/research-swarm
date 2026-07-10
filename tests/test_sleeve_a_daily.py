@@ -52,12 +52,15 @@ class _FakeCtx:
 
 
 class _SleeveState:
-    def __init__(self, status, cash=10000.0, inception_equity=10000.0, inception_spy=400.0):
+    def __init__(self, status, cash=10000.0, inception_equity=10000.0,
+                 inception_spy=400.0, mode="shadow", sleeve="A"):
         self.status = status
         self.cashBalance = cash
         self.inceptionEquity = inception_equity
         self.inceptionSpyClose = inception_spy
         self.statusReason = None
+        self.mode = mode
+        self.sleeve = sleeve
 
 
 class _EnginePos:
@@ -486,6 +489,110 @@ async def test_missing_bar_skips_snapshot_and_breaker(monkeypatch, execution_dai
     assert a["breaker"] == {"active": False}             # gated on the snapshot
     assert snapshot_calls == ["B"]                       # Sleeve B's snapshot only
     assert ("engine_failure", "Sleeve A snapshot skipped — missing bars: ['AEHR']") in reports
+
+
+def _reconcile_scenario_mocks(monkeypatch, pd, *, a_engine, broker_positions):
+    """Shared wiring for the shared-account reconcile tests: real
+    reconcile_sleeve (find_mismatches un-patched), Sleeve B with an EMPTY book,
+    Sleeve A holding `a_engine`, and the broker reporting `broker_positions`."""
+    import execution.broker.alpaca_client as alpaca_mod
+    import execution.broker.shadow_client as shadow_mod
+    import execution.engine.reconcile as reconcile_mod
+    import execution.market_data as market_data_mod
+    import execution.sleeve_service as sleeve_mod
+    import api.lib.db as db_mod
+    from execution.engine.reconcile import find_mismatches as real_fm
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    monkeypatch.setattr(reconcile_mod, "find_mismatches", real_fm)  # exercise real scoping
+
+    status_calls = []
+
+    async def fake_set_sleeve_status(db, sleeve, status, reason=None):
+        status_calls.append((sleeve, status))
+    monkeypatch.setattr(sleeve_mod, "set_sleeve_status", fake_set_sleeve_status)
+
+    async def fake_get_engine_positions(db, sleeve):
+        if sleeve == "A":
+            return [_EnginePos(s, q) for s, q in a_engine.items()]
+        return []  # Sleeve B holds nothing in these scenarios
+    monkeypatch.setattr(sleeve_mod, "get_engine_positions", fake_get_engine_positions)
+
+    async def fake_get_sleeve_state(db, sleeve):
+        if sleeve == "B":
+            return _SleeveState(status="active", cash=10000.0,
+                                 inception_equity=50000.0, inception_spy=400.0)
+        return _SleeveState(status="active", cash=5000.0,
+                             inception_equity=5000.0, inception_spy=300.0, mode="shadow")
+    monkeypatch.setattr(sleeve_mod, "get_sleeve_state", fake_get_sleeve_state)
+
+    def fake_client_from_account(account):
+        class _Client:
+            def get_positions(self):
+                return [_BrokerPos({"symbol": s, "qty": q, "market_value": q * 20.0,
+                                    "current_price": 20.0, "avg_entry_price": 20.0})
+                        for s, q in broker_positions.items()]
+
+            def get_account_summary(self):
+                return {"equity": 11000.0, "cash": 10000.0}
+        return _Client()
+    monkeypatch.setattr(alpaca_mod, "client_from_account", fake_client_from_account)
+
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
+                        AsyncMock(return_value=[]))
+
+    def fake_fetch_ohlcv_batch(symbols, period="1y"):
+        return {s: pd.DataFrame({"Open": [20.0], "High": [21.0], "Low": [19.0],
+                                 "Close": [20.0], "Volume": [1000]}) for s in symbols}
+    monkeypatch.setattr(market_data_mod, "fetch_ohlcv_batch", fake_fetch_ohlcv_batch)
+
+    async def fake_get_db():
+        return MagicMock()
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+    return status_calls
+
+
+@pytest.mark.asyncio
+async def test_sleeve_a_stock_in_broker_never_freezes_sleeve_b(monkeypatch, execution_daily_fn):
+    """THE LANDMINE regression: the shared paper account's broker position list
+    carries Sleeve A's real stocks. Sleeve B reconciles only its own scope
+    (empty book ∪ sector ETFs), so an A stock (AAPL) can never freeze B — and
+    when A's book matches the broker, A stays clean too."""
+    import pandas as pd
+
+    status_calls = _reconcile_scenario_mocks(
+        monkeypatch, pd, a_engine={"AAPL": 5.0}, broker_positions={"AAPL": 5.0},
+    )
+    reports = _capture_reports(monkeypatch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"                       # Sleeve B NOT frozen
+    assert result["sleeve_a"]["reconcile"] == {"active": True, "frozen": False}
+    assert status_calls == []                             # nobody frozen
+    assert not any(t == "breaker_event" for t, _ in reports)
+
+
+@pytest.mark.asyncio
+async def test_sleeve_a_mismatch_freezes_only_a(monkeypatch, execution_daily_fn):
+    """A qty drift inside Sleeve A's own book (engine 10 vs broker 5) freezes
+    ONLY Sleeve A — B is untouched (the AAPL drift isn't in B's scope) — and A's
+    fills/stops halt for the day while the whole run still returns ok."""
+    import pandas as pd
+
+    status_calls = _reconcile_scenario_mocks(
+        monkeypatch, pd, a_engine={"AAPL": 10.0}, broker_positions={"AAPL": 5.0},
+    )
+    reports = _capture_reports(monkeypatch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"                       # B path completes
+    assert result["sleeve_a"]["reconcile"]["frozen"] is True
+    assert status_calls == [("A", "frozen")]              # ONLY A frozen, never B
+    assert result["sleeve_a"]["fills"] == {"active": True, "filled": 0, "missed": 0}
+    assert result["sleeve_a"]["stops"] == {"active": True, "exits": 0}
+    assert ("breaker_event", "Sleeve A frozen: reconciliation mismatch") in reports
 
 
 def test_c1_position_provenance_persisted_on_fill():

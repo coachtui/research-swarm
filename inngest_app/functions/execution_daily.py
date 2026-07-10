@@ -170,18 +170,26 @@ def _register_inngest_function():
         # Step 3: reconcile — mismatch freezes the sleeve, no snapshot written.
         # Alert + journal only on the active->frozen transition: a sleeve
         # that's already frozen must not re-alert every day (Phase 2 rider).
+        #
+        # SHARED-ACCOUNT SCOPING (owner ruling 2026-07-10): Sleeve A now holds
+        # real stocks in the SAME paper account, so broker["positions"] carries
+        # A's names too. Reconcile B against ONLY B's scope — its engine book ∪
+        # its sector-ETF universe — so an A stock can never freeze B. (The
+        # separate sleeve-a-reconcile step below does the mirror for A.)
         async def reconcile() -> Dict[str, Any]:
             from api.lib.db import get_db  # noqa: PLC0415
             from execution.alerts import send_failure_alert  # noqa: PLC0415
-            from execution.constants import SLEEVE_B  # noqa: PLC0415
-            from execution.engine.reconcile import find_mismatches  # noqa: PLC0415
+            from execution.constants import SECTOR_ETFS, SLEEVE_B  # noqa: PLC0415
+            from execution.engine.reconcile import reconcile_sleeve  # noqa: PLC0415
             from execution.reporting import write_report  # noqa: PLC0415
             from execution.sleeve_service import (  # noqa: PLC0415
                 get_sleeve_state, set_sleeve_status,
             )
 
             broker_qty = {p["symbol"]: p["qty"] for p in broker["positions"]}
-            mismatches = find_mismatches(broker_qty, context["engine_positions"])
+            mismatches = reconcile_sleeve(
+                broker_qty, context["engine_positions"], SECTOR_ETFS.keys()
+            )
             if mismatches:
                 db = await get_db()
                 state = await get_sleeve_state(db, SLEEVE_B)
@@ -278,6 +286,63 @@ def _register_inngest_function():
 
         breaker = await step.run("circuit-breaker", breaker_check)
 
+        # ── Sleeve A reconcile (shared-account mirror of Step 3 for B) ──
+        # The broker snapshot now carries Sleeve A's real stocks too. Reconcile
+        # A against ONLY A's engine book (no expected universe — A holds no
+        # fixed instrument set), so a Sleeve B ETF can never freeze A and an
+        # A-side mismatch freezes A ONLY. On the active->frozen transition,
+        # alert + journal once (Phase 2 re-alert rider); a frozen A halts its
+        # own new trading below but still snapshots for visibility.
+        async def sleeve_a_reconcile_step() -> Dict[str, Any]:
+            db = None
+            from execution.reporting import write_report  # noqa: PLC0415
+            try:
+                from api.lib.db import get_db  # noqa: PLC0415
+                from execution.alerts import send_failure_alert  # noqa: PLC0415
+                from execution.constants import SLEEVE_A  # noqa: PLC0415
+                from execution.engine.reconcile import reconcile_sleeve  # noqa: PLC0415
+                from execution.sleeve_service import (  # noqa: PLC0415
+                    get_engine_positions, get_sleeve_state, set_sleeve_status,
+                )
+
+                db = await get_db()
+                state = await get_sleeve_state(db, SLEEVE_A)
+                if state is None:
+                    return {"active": False, "frozen": False}
+                engine_qty = {
+                    p.symbol: p.qty for p in await get_engine_positions(db, SLEEVE_A)
+                }
+                broker_qty = {p["symbol"]: p["qty"] for p in broker["positions"]}
+                mismatches = reconcile_sleeve(broker_qty, engine_qty)
+                if mismatches:
+                    was_frozen = state.status == "frozen"
+                    await set_sleeve_status(db, SLEEVE_A, "frozen", "; ".join(mismatches))
+                    if not was_frozen:
+                        await send_failure_alert(
+                            "position reconciliation mismatch — Sleeve A frozen",
+                            "\n".join(mismatches),
+                            source="execution_daily",
+                        )
+                        await write_report(
+                            "breaker_event", "critical", "execution_daily",
+                            "Sleeve A frozen: reconciliation mismatch",
+                            {"transition": "active->frozen", "mismatches": mismatches},
+                            db=db,
+                        )
+                    return {"active": True, "frozen": True, "mismatches": mismatches}
+                return {"active": True, "frozen": False}
+            except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return
+                logger.exception("sleeve-a-reconcile failed")
+                await write_report(
+                    "engine_failure", "warning", "execution_daily",
+                    "Sleeve A reconcile failed", {"stage": "sleeve-a-reconcile"}, db=db,
+                )
+                # Its own failure must not block A's other duties (mirror the
+                # fills-step degrade contract): treat as not-frozen.
+                return {"active": True, "frozen": False, "error": True}
+
+        a_recon = await step.run("sleeve-a-reconcile", sleeve_a_reconcile_step)
+
         # ── Sleeve A: shadow fills, ATR trailing stops, snapshot + breaker ──
         # No-op entirely when SleeveState A doesn't exist yet (the weekly
         # funnel hasn't bootstrapped it). That existence check happens ONCE,
@@ -305,7 +370,7 @@ def _register_inngest_function():
                 import asyncio  # noqa: PLC0415
 
                 from api.lib.db import get_db  # noqa: PLC0415
-                from execution.broker.shadow_client import ShadowBrokerClient  # noqa: PLC0415
+                from execution.broker import sleeve_a_broker  # noqa: PLC0415
                 from execution.constants import SLEEVE_A  # noqa: PLC0415
                 from execution.market_data import fetch_ohlcv_batch  # noqa: PLC0415
                 from execution.sleeve_service import (  # noqa: PLC0415
@@ -316,8 +381,12 @@ def _register_inngest_function():
                 state = await get_sleeve_state(db, SLEEVE_A)
                 if state is None:
                     return {"active": False}
+                if a_recon.get("frozen"):
+                    # reconciliation mismatch this morning -> no new fills.
+                    return {"active": True, "filled": 0, "missed": 0}
 
-                broker = ShadowBrokerClient(db, sleeve=SLEEVE_A)
+                # shadow -> ShadowBrokerClient; live -> AlpacaFunnelBroker.
+                broker = await sleeve_a_broker(db, state)
                 orders = await broker.get_open_orders()
                 if not orders:
                     return {"active": True, "filled": 0, "missed": 0}
@@ -403,7 +472,7 @@ def _register_inngest_function():
                 import asyncio  # noqa: PLC0415
 
                 from api.lib.db import get_db  # noqa: PLC0415
-                from execution.broker.shadow_client import ShadowBrokerClient  # noqa: PLC0415
+                from execution.broker import sleeve_a_broker  # noqa: PLC0415
                 from execution.constants import SLEEVE_A  # noqa: PLC0415
                 from execution.funnel.screen import compute_atr  # noqa: PLC0415
                 from execution.market_data import fetch_ohlcv_batch  # noqa: PLC0415
@@ -412,6 +481,9 @@ def _register_inngest_function():
                 )
 
                 db = await get_db()
+                if a_recon.get("frozen"):
+                    # reconciliation mismatch this morning -> no new exits.
+                    return {"active": True, "exits": 0}
                 positions = await get_engine_positions(db, SLEEVE_A)
                 if not positions:
                     return {"active": True, "exits": 0}
@@ -420,7 +492,9 @@ def _register_inngest_function():
                 ohlcv = await asyncio.to_thread(fetch_ohlcv_batch, symbols)
 
                 now = datetime.fromisoformat(run_date_iso)
-                broker = ShadowBrokerClient(db, sleeve=SLEEVE_A)
+                # shadow -> ShadowBrokerClient; live -> AlpacaFunnelBroker.
+                state = await get_sleeve_state(db, SLEEVE_A)
+                broker = await sleeve_a_broker(db, state)
                 cash_delta_total = 0.0
                 exits = 0
                 for pos in positions:
@@ -450,8 +524,8 @@ def _register_inngest_function():
                     if fill_price is None:
                         continue
                     client_order_id = f"shadow-A-{pos.symbol}-{now:%Y%m%d}-stop"
-                    await broker.submit_shadow_sell(
-                        symbol=pos.symbol, qty=pos.qty, fill_price=fill_price,
+                    await broker.submit_sell(
+                        symbol=pos.symbol, qty=pos.qty, price_hint=fill_price,
                         journal={"reason": "trailing_stop", "stop": stop, "atr": atr,
                                  "high_water": new_hw},
                         client_order_id=client_order_id,
@@ -597,8 +671,8 @@ def _register_inngest_function():
         return {
             "status": "ok", "equity": snap["equity"], "breaker_tripped": breaker["tripped"],
             "sleeve_a": {
-                "active": fills["active"], "fills": fills, "stops": stops,
-                "snapshot": a_snap, "breaker": a_breaker,
+                "active": fills["active"], "reconcile": a_recon, "fills": fills,
+                "stops": stops, "snapshot": a_snap, "breaker": a_breaker,
             },
         }
 
