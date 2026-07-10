@@ -14,7 +14,9 @@ DISCLAIMER = (
     "same universe — only relative conclusions are meaningful. The mcap "
     "floor is not applied historically (no point-in-time share counts); ADV "
     "is the liquidity proxy. Guardrails (theme/sector caps) are omitted — "
-    "inert without historical tags."
+    "inert without historical tags. Conviction is a mechanical stand-in — "
+    "screen_score × 10, no LLM inputs — the one deliberate substitution "
+    "from the live funnel (flat-60 variant in the sweep)."
 )
 
 
@@ -49,8 +51,14 @@ def render_report(run_meta: dict, base: dict, baselines: Dict[str, dict],
         "robust_ok": "3. No year > 50% of edge; all perturbations keep a positive Sharpe edge",
     }
     for key, label in labels.items():
-        lines.append(f"- {'PASS' if verdict[key] else 'FAIL'} — {label}")
-    lines += ["", f"**Overall: {'PASS' if verdict['passed'] else 'FAIL'}**", ""]
+        if key == "robust_ok" and not sweep_rows:
+            lines.append(f"- N/A — {label} (sweep not run)")
+        else:
+            lines.append(f"- {'PASS' if verdict[key] else 'FAIL'} — {label}")
+    if sweep_rows:
+        lines += ["", f"**Overall: {'PASS' if verdict['passed'] else 'FAIL'}**", ""]
+    else:
+        lines += ["", "**Overall: INCOMPLETE — run sweep for the full gate**", ""]
 
     lines += ["## Performance", "", "| run | CAGR | maxDD | Sharpe | MAR |",
               "|---|---|---|---|---|", _metrics_row("**funnel (base)**", base)]

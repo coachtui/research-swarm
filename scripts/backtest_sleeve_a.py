@@ -21,7 +21,7 @@ from execution.backtest.data import (               # noqa: E402
     MARKET_SYMBOLS, fetch_ohlcv, load_ohlcv,
 )
 from execution.backtest.metrics import (            # noqa: E402
-    compute_metrics, yearly_log_outperformance,
+    compute_metrics, trade_stats, yearly_log_outperformance,
 )
 from execution.backtest.report import (             # noqa: E402
     gate_verdict, render_report, write_report,
@@ -48,6 +48,12 @@ WIKI_INDEXES = {
     "SP400": "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
     "SP600": "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies",
 }
+
+# Not in WIKI_INDEXES: this must not download unconditionally. It's only a
+# fallback for large-cap coverage when the PIT constituents CSV is absent —
+# when PIT is present, current S&P 500 members must come only from it, or
+# the PIT tier's cleanliness claim is polluted.
+SP500 = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
 
 def _download_index_holdings(name: str, url: str, dest: Path) -> None:
@@ -92,6 +98,23 @@ def cmd_fetch(ns) -> None:
                   f"  Run `python3 -m scripts.backtest.data.sp500_constituents "
                   f"--download` or save the canonical CSV as {PIT_CSV}.\n"
                   f"  Proceeding survivorship-biased (current members only).")
+    sp500_dest = UNIVERSE_DIR / "SP500_holdings.csv"
+    if not PIT_CSV.exists():
+        # No PIT source at all — fall back to current S&P 500 membership so
+        # large-cap coverage isn't dropped entirely.
+        if not sp500_dest.exists():
+            try:
+                _download_index_holdings("SP500", SP500, sp500_dest)
+                print(f"downloaded SP500 member list ({sp500_dest.name})")
+            except Exception as exc:  # noqa: BLE001
+                print(f"FAILED to download SP500 ({exc}).\n"
+                      f"  Save a CSV with Ticker/Asset Class columns as {sp500_dest}")
+    elif sp500_dest.exists():
+        # PIT is present — a leftover Wikipedia SP500 list from an earlier
+        # degraded fetch would pollute the PIT tier's cleanliness claim.
+        sp500_dest.unlink()
+        print(f"removed stale {sp500_dest.name} — PIT constituents present, "
+              f"S&P 500 membership comes from PIT only")
     for name, url in WIKI_INDEXES.items():
         dest = UNIVERSE_DIR / f"{name}_holdings.csv"
         if dest.exists():
@@ -152,17 +175,20 @@ def cmd_run(ns, with_sweep: bool) -> None:
                                pit=pit, static_universe=static)
     edges = [r["sharpe_edge"] for r in sweep_rows if r["name"] != "flat_conviction_60"]
     verdict = gate_verdict(base, baselines["naive_momentum"], yearly, edges)
+    stats = trade_stats(base_res.journal, base_res.equity, cfg.starting_cash)
     meta = {"window": f"{cfg.start} → {cfg.end}", "starting_cash": cfg.starting_cash,
             "symbols": len(ohlcv), "weeks": base_res.weeks,
             "trades": len(base_res.journal),
             "pit_coverage_pct": pit_coverage if pit_coverage is not None
             else "n/a — survivorship-biased run",
-            "sweep": "yes" if with_sweep else "no (run `sweep` for the full gate)"}
+            "sweep": "yes" if with_sweep else "no (run `sweep` for the full gate)",
+            **stats}
     md = render_report(meta, base, baselines, yearly, sweep_rows, verdict)
     out = write_report(REPORTS_DIR / datetime.now().strftime("%Y%m%d-%H%M%S"),
                        md, {"meta": meta, "base": base, "baselines": baselines,
                             "yearly_log_outperformance": yearly,
-                            "sweep": sweep_rows, "verdict": verdict})
+                            "sweep": sweep_rows, "verdict": verdict,
+                            "trade_stats": stats})
     print(md)
     print(f"written: {out}/report.md")
 

@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from execution.backtest.metrics import compute_metrics, yearly_log_outperformance
+from execution.backtest.metrics import (
+    compute_metrics, trade_stats, yearly_log_outperformance,
+)
 
 
 def _series(values, start="2020-01-01"):
@@ -44,3 +46,33 @@ def test_yearly_log_outperformance():
     total = sum(out.values())
     assert total == pytest.approx(math.log(1.21), rel=1e-9)
     assert set(out) == {"2020", "2021"}
+
+
+def test_trade_stats_hand_computed():
+    # flat 100k equity over 30 calendar days; buy 10@50 day2, sell 10@60
+    # day10 (win, +100 realized), buy 10@50 day12, sell 10@40 day20 (loss,
+    # -100 realized). See task write-up for the by-hand cash/exposure trace.
+    idx = pd.date_range("2021-01-01", periods=30, freq="D")
+    equity = pd.Series([100_000.0] * 30, index=idx)
+    journal = [
+        {"date": idx[2].date(), "side": "buy", "symbol": "AAA", "qty": 10, "price": 50.0},
+        {"date": idx[10].date(), "side": "sell", "symbol": "AAA", "qty": 10, "price": 60.0},
+        {"date": idx[12].date(), "side": "buy", "symbol": "AAA", "qty": 10, "price": 50.0},
+        {"date": idx[20].date(), "side": "sell", "symbol": "AAA", "qty": 10, "price": 40.0},
+        {"date": idx[5].date(), "side": "cancel", "symbol": "BBB", "qty": 5, "price": 10.0},
+    ]
+    stats = trade_stats(journal, equity, starting_cash=100_000.0)
+    assert stats["win_rate"] == pytest.approx(0.5)
+    # turnover = (600+400) / 100000 / (29/365.25), rounded to 4dp
+    assert stats["turnover_annual"] == pytest.approx(365.25 / 2900, abs=1e-4)
+    # avg_exposure = (2*0 + 8*0.005 + 2*(-0.001) + 8*0.004 + 10*0) / 30
+    assert stats["avg_exposure"] == pytest.approx(0.0023333333, abs=1e-4)
+
+
+def test_trade_stats_no_sells_win_rate_none():
+    idx = pd.date_range("2021-01-01", periods=10, freq="D")
+    equity = pd.Series([100_000.0] * 10, index=idx)
+    journal = [{"date": idx[1].date(), "side": "buy", "symbol": "AAA",
+                "qty": 10, "price": 50.0}]
+    stats = trade_stats(journal, equity, starting_cash=100_000.0)
+    assert stats["win_rate"] is None

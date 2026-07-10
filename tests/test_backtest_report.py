@@ -50,6 +50,19 @@ def test_render_and_write_report(tmp_path):
           "max_drawdown": -0.22, "sharpe": 0.85, "sharpe_edge": 0.05}],
         verdict)
     assert "GATE" in md and "survivorship" in md.lower()
+    assert "stand-in" in md.lower()
     out = write_report(tmp_path / "run1", md, {"base": BASE, "verdict": verdict})
     assert (out / "report.md").read_text().startswith("#")
     assert json.loads((out / "metrics.json").read_text())["verdict"]["passed"]
+
+
+def test_render_report_with_no_sweep_is_incomplete_not_pass():
+    yearly = {"2020": 0.04, "2021": 0.05, "2022": 0.03}
+    verdict = gate_verdict(BASE, NAIVE, yearly, sweep_edges=[])
+    md = render_report(
+        {"window": "2015-01-01 → 2026-06-30", "universe_size": 1400},
+        BASE, {"naive_momentum": NAIVE, "equal_weight": NAIVE, "spy": NAIVE},
+        yearly, [], verdict)
+    assert "INCOMPLETE" in md
+    assert "Overall: PASS" not in md
+    assert "N/A" in md and "sweep not run" in md
