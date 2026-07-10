@@ -44,39 +44,61 @@ async def ensure_signal_row(
         )
 
 
+async def reuse_or_budget(db, ticker: str, run_date: datetime) -> Dict[str, Any]:
+    """Handshake gate: reuse fresh result, analyze, or skip on budget exhaustion."""
+    svc = _service(db)
+    fresh = await svc.find_fresh_result(ticker, max_age_days=FRESH_REPORT_DAYS)
+    if fresh is not None:
+        signals = extract_signals_from_result(fresh, ticker=ticker)
+        if signals is not None:
+            return {"action": "reuse", "signals": signals}
+    if await full_runs_used(db, run_date) >= FULL_RUNS_PER_WEEK:
+        return {"action": "skip", "reason": "budget_exhausted"}
+    return {"action": "analyze"}
+
+
+async def run_paid_analysis(ticker: str) -> Dict[str, Any]:
+    """Run the paid stock analysis with standard parameters."""
+    from api.services.analysis_service import run_stock_analysis  # noqa: PLC0415
+    from inngest_app.functions.weekly_batch import _QUARTERS  # noqa: PLC0415
+
+    return await run_stock_analysis(
+        ticker=ticker, quarters=_QUARTERS, news_days_back=30,
+        user_id=os.getenv("BATCH_SYSTEM_USER_ID"),
+    )
+
+
+async def persist_full(
+    db, ticker: str, run_date: datetime, result: Dict[str, Any],
+    current_price: float, screen_score: float,
+) -> Dict[str, Any]:
+    """Persist the analysis result to the signal row and upgrade to full tier."""
+    signals = extract_signals_from_result(result, ticker=ticker)
+    if signals is None:
+        return {"status": "failed", "signals": None}
+    await ensure_signal_row(db, ticker, run_date, current_price, screen_score)
+    ok = await _service(db).upgrade_to_full(
+        ticker=ticker, run_date=run_date, result=result,
+        escalation_score=0.0, escalation_reasons=[_FUNNEL_MARKER],
+    )
+    return {"status": "upgraded" if ok else "failed",
+            "signals": signals if ok else None}
+
+
 async def commission_full_run(
     db, ticker: str, run_date: datetime, current_price: float, screen_score: float,
     analyze: Optional[Callable[..., Any]] = None,
 ) -> Dict[str, Any]:
-    svc = _service(db)
+    """All-in-one handshake for non-Inngest callers. The cron uses the three
+    pieces above in SEPARATE steps so a persist retry can never re-bill."""
     try:
-        fresh = await svc.find_fresh_result(ticker, max_age_days=FRESH_REPORT_DAYS)
-        if fresh is not None:
-            signals = extract_signals_from_result(fresh, ticker=ticker)
-            if signals is not None:
-                return {"status": "reused", "signals": signals}
-
-        if await full_runs_used(db, run_date) >= FULL_RUNS_PER_WEEK:
+        gate = await reuse_or_budget(db, ticker, run_date)
+        if gate["action"] == "reuse":
+            return {"status": "reused", "signals": gate["signals"]}
+        if gate["action"] == "skip":
             return {"status": "budget_exhausted", "signals": None}
-
-        if analyze is None:
-            from api.services.analysis_service import run_stock_analysis  # noqa: PLC0415
-            from inngest_app.functions.weekly_batch import _QUARTERS  # noqa: PLC0415
-            analyze = lambda t: run_stock_analysis(  # noqa: E731
-                ticker=t, quarters=_QUARTERS, news_days_back=30,
-                user_id=os.getenv("BATCH_SYSTEM_USER_ID"),
-            )
-        result = await analyze(ticker)
-        signals = extract_signals_from_result(result, ticker=ticker)
-        if signals is None:
-            return {"status": "failed", "signals": None}
-        await ensure_signal_row(db, ticker, run_date, current_price, screen_score)
-        ok = await svc.upgrade_to_full(
-            ticker=ticker, run_date=run_date, result=result,
-            escalation_score=0.0, escalation_reasons=[_FUNNEL_MARKER],
-        )
-        return {"status": "upgraded" if ok else "failed",
-                "signals": signals if ok else None}
-    except Exception:  # noqa: BLE001 — a failed handshake defers the entry, never crashes
+        result = await (analyze or run_paid_analysis)(ticker)
+        return await persist_full(db, ticker, run_date, result, current_price, screen_score)
+    except Exception:  # noqa: BLE001
         logger.exception("commission_full_run failed for %s", ticker)
         return {"status": "failed", "signals": None}

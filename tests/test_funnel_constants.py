@@ -18,3 +18,11 @@ def test_funnel_constants_exist_and_cohere():
     assert 0 < c.SMALL_CAP_HAIRCUT_MIN_MULT < 1.0
     assert 0 < c.STALENESS_DECAY_PER_WEEK < 0.1
     assert 0 < c.RETIRED_THEME_EXIT_CONVICTION < 100
+
+
+def test_funnel_report_types_registered():
+    from execution.reporting import REPORT_TYPES
+    for t in ("funnel_summary", "entry_order", "entry_filled", "entry_missed",
+              "entry_deferred", "exit_stop", "exit_sell_verdict", "exit_outcompeted",
+              "theme_review", "risk_trim", "light_run_failure"):
+        assert t in REPORT_TYPES
