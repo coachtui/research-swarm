@@ -79,6 +79,66 @@ def test_full_pass_places_shadow_order_with_deterministic_id():
     assert kwargs["limit_price"] == 20.0          # not extended → limit at close
 
 
+def test_outlook_rankings_dicts_unwrap_and_reach_consumers():
+    """MarketOutlook.industryRankings/themeRankings are DICTS shaped
+    {"rankings": [...], "rotations": [...], "missing": [...]} (see
+    execution/indicators/industry_strength.py). Lock the shape: the unwrapped
+    rankings LIST must reach fetch_industry_holdings and the top-industries /
+    top-themes slices in _screen."""
+    import pandas as pd
+
+    industry_rankings = [{"etf": "SMH", "industry": "Semiconductors", "rank_1m": 1}]
+    theme_rankings = [{"slug": "photonics", "rank_1m": 1}]
+    outlook_row = MagicMock(
+        regime="neutral",
+        industryRankings={"rankings": industry_rankings, "rotations": [],
+                          "missing": []},
+        themeRankings={"rankings": theme_rankings, "rotations": [],
+                       "missing": []},
+    )
+    ctx = saf._outlook_context(outlook_row)
+    assert ctx["industryRankings"] == industry_rankings
+    assert ctx["themeRankings"] == theme_rankings
+
+    # _assemble: the unwrapped LIST reaches fetch_industry_holdings verbatim.
+    db = MagicMock()
+    fih = MagicMock(return_value={"SMH": ["AEHR"]})
+    with patch("execution.funnel.universe.load_theme_members",
+               new=AsyncMock(return_value={"photonics": ["AEHR"]})), \
+         patch("execution.funnel.universe.fetch_industry_holdings", new=fih), \
+         patch("execution.research_feed.get_research_context",
+               new=AsyncMock(return_value={"watchlist": []})):
+        assembled = _run(saf._assemble(db, ctx, holdings=[]))
+    fih.assert_called_once_with(industry_rankings)
+    assert "AEHR" in assembled["tagged"]
+
+    # _screen: the [:5] slices over the unwrapped lists reach screen_row.
+    df = pd.DataFrame({"Close": [50.0] * 60, "Volume": [1_000_000] * 60})
+    captured = {}
+
+    def fake_screen_row(symbol, frame, spy_closes, tags, top_themes,
+                        top_industries, quality):
+        captured["top_themes"] = top_themes
+        captured["top_industries"] = top_industries
+        return {"symbol": symbol, "screen_score": 5.0, "price": 50.0,
+                "sma20": 49.0, "atr": 1.0, "atr_pct": 0.02, "ext_atr": 0.5,
+                "momentum": 5.0, "hunting_bonus": 5.0,
+                "liquidity_adv_usd": 5e7, "tags": tags}
+
+    async def _identity_rerank(rows):
+        return rows
+
+    with patch("execution.market_data.fetch_ohlcv_batch",
+               new=MagicMock(return_value={"AEHR": df, "SPY": df})), \
+         patch("execution.funnel.screen.screen_row", new=fake_screen_row), \
+         patch.object(saf, "_quality_rerank", new=_identity_rerank), \
+         patch.object(saf, "_sectors_for", new=AsyncMock(return_value={})):
+        screened = _run(saf._screen(assembled, ctx, {"positions": {}}))
+    assert captured["top_industries"] == ["SMH"]
+    assert captured["top_themes"] == ["photonics"]
+    assert [r["symbol"] for r in screened["ranked"]] == ["AEHR"]
+
+
 def test_full_run_sell_verdict_vetoes_entry():
     db = MagicMock()
     client = MagicMock()

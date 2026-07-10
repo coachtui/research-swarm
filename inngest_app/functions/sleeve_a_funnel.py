@@ -133,6 +133,20 @@ def _conviction_input_from_light(
 
 # ── Step helpers (unit-tested directly with step=None) ───────────────────────
 
+def _outlook_context(outlook: Any) -> Dict[str, Any]:
+    """JSON-safe outlook context for the pass. industryRankings/themeRankings
+    are DICTS shaped {"rankings": [...], "rotations": [...], "missing": [...]}
+    (built by industry_strength.py / theme_strength.py; themes/discovery.py
+    also reads .get("rankings")) — unwrap the rankings LIST here so every
+    downstream consumer (fetch_industry_holdings, the top-industries slice)
+    sees a plain list."""
+    return {
+        "regime": outlook.regime,
+        "industryRankings": (outlook.industryRankings or {}).get("rankings", []),
+        "themeRankings": (outlook.themeRankings or {}).get("rankings", []),
+    }
+
+
 async def _load_and_gate_outlook(db, now: datetime) -> Optional[Any]:
     """Latest MarketOutlook, or None (journalled) when it is missing or stale.
     Stale/absent outlook skips the ENTIRE pass — the funnel refuses to trade on
@@ -204,8 +218,10 @@ async def _ensure_sleeve_a(db, now: datetime) -> Optional[Dict[str, Any]]:
             db, SLEEVE_A, cash=seed_cash, spy_close=prev_spy,
             inception_date=now, mode="shadow",
         )
+        # NOT funnel_summary: the pass emits exactly ONE funnel_summary (the
+        # final step). rebalance_summary is the closest registered notice type.
         await _journal(
-            db, "funnel_summary", "info",
+            db, "rebalance_summary", "info",
             "Sleeve A bootstrapped (shadow)",
             {"seed_cash": round(seed_cash, 2), "inception_spy": prev_spy},
         )
@@ -535,9 +551,7 @@ def _register_inngest_function():
             outlook = await _load_and_gate_outlook(db, now)
             if outlook is None:
                 return None
-            return {"regime": outlook.regime,
-                    "industryRankings": outlook.industryRankings or [],
-                    "themeRankings": outlook.themeRankings or []}
+            return _outlook_context(outlook)
 
         outlook = await step.run("load-outlook", load_outlook_step)
         if outlook is None:
@@ -582,14 +596,21 @@ def _register_inngest_function():
                                "Screen failed", {"stage": "screen"})
                 return {"ranked": [], "slots": {"light": [], "free_ride": [],
                                                 "over_budget": []},
-                        "close_by_symbol": {}, "sector_by_symbol": {}}
+                        "close_by_symbol": {}, "sector_by_symbol": {},
+                        "excluded": [], "counts": {"kept": 0, "excluded": 0}}
 
         screened = await step.run("screen", screen_step)
 
         # light-runs — ONE memoized step; per-name guards inside.
         async def light_step() -> Dict[str, Any]:
             db = await get_db()
-            return await _run_lights(db, run_date, screened)
+            try:
+                return await _run_lights(db, run_date, screened)
+            except Exception:  # noqa: BLE001
+                logger.exception("funnel: light-runs step failed")
+                await _journal(db, "engine_failure", "warning",
+                               "Light runs failed", {"stage": "light-runs"})
+                return {"light_rows": {}, "spent": 0}
 
         lights = await step.run("light-runs", light_step)
 
@@ -743,6 +764,21 @@ async def _screen(
         budget=LIGHT_RUNS_PER_WEEK,
     )
     sector_by_symbol = await _sectors_for([r["symbol"] for r in ranked])
+    # Harden for the Inngest JSON step boundary: pandas arithmetic can leave
+    # numpy scalars in the rows, which don't JSON-serialize — force plain float.
+    try:
+        import numpy as np  # noqa: PLC0415
+
+        _np_scalar: Any = np.generic
+    except Exception:  # noqa: BLE001
+        _np_scalar = ()
+    for row in ranked:
+        for k, v in row.items():
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, (int, float)) or isinstance(v, _np_scalar):
+                row[k] = float(v)
+    close_by_symbol = {s: float(p) for s, p in close_by_symbol.items()}
     return {
         "ranked": ranked, "slots": slots, "close_by_symbol": close_by_symbol,
         "sector_by_symbol": sector_by_symbol, "excluded": excluded,
