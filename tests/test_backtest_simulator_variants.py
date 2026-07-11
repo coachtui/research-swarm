@@ -119,3 +119,66 @@ def test_combined_requote_misses_arm_the_valve_faster():
     assert (valve[0]["date"] - pd.Timestamp(VCFG.start).date()).days <= 35
     # once held, no further quotes: at most one valve entry per symbol
     assert len([j for j in valve if j["symbol"] == "EXTD"]) == 1
+
+
+# --- DCA ladder + thesis-break exit (owner conviction-hold philosophy) ---
+
+def _dip_df(n=260, start="2019-01-01", vol=1_000_000):
+    """Up 1%/day for 150 days, then -1.2%/day for 60 (max dd ~51%), then
+    +1%/day recovery: crosses the 20/30/40 rungs on the way down."""
+    idx = pd.bdate_range(start, periods=n)
+    r = np.concatenate([np.full(150, 1.01), np.full(60, 0.988),
+                        np.full(n - 210, 1.01)])
+    close = pd.Series(30.0 * np.cumprod(r), index=idx)
+    op = close.shift(1).fillna(close.iloc[0])
+    lo = pd.concat([op, close], axis=1).min(axis=1) * 0.999
+    hi = pd.concat([op, close], axis=1).max(axis=1) * 1.001
+    return pd.DataFrame({"Open": op, "High": hi, "Low": lo,
+                         "Close": close, "Volume": float(vol)}, index=idx)
+
+
+def _dip_fixture():
+    return {"DIPR": _dip_df(), "SPY": _mild_df()}
+
+
+def test_dca_ladder_adds_on_intact_thesis_dips():
+    from dataclasses import replace
+
+    from execution.backtest.sensitivity import patched
+    cfg = replace(VCFG, dca_ladder=True)
+    # the ladder only coheres with stops out of the way (a 2.5-ATR trail
+    # sells ~5% below the high — before any rung can arm)
+    with patched("inngest_app.functions.execution_daily",
+                 "TRAILING_STOP_ATR_MULT", 1e9):
+        res = run_backtest(_dip_fixture(), cfg)
+    adds = [j for j in res.journal
+            if j["side"] == "buy" and j["reason"] == "dca_add"]
+    entries = [j for j in res.journal
+               if j["side"] == "buy" and j["reason"] == "entry_fill"]
+    assert entries, "never entered DIPR"
+    assert len(adds) >= 2, f"ladder should fire multiple rungs, got {len(adds)}"
+    # adds happen on the way down: each later add at a lower price
+    prices = [j["price"] for j in adds if j["symbol"] == "DIPR"]
+    assert prices == sorted(prices, reverse=True)
+    # at most one tranche per rung: never more than 3 adds per episode
+    assert len([j for j in adds if j["symbol"] == "DIPR"]) <= 3
+
+
+def test_dca_ladder_off_means_no_adds():
+    res = run_backtest(_dip_fixture(), VCFG)
+    assert not [j for j in res.journal if j["reason"] == "dca_add"]
+
+
+def test_thesis_break_exits_collapsing_name():
+    """CRSH from the base fixture: -3%/day cliff kills its screen score →
+    conviction (screen_score×10) sits under the break floor for weeks."""
+    import tests.test_backtest_simulator as base
+    from dataclasses import replace
+
+    from execution.backtest.sensitivity import patched
+    cfg = replace(base.CFG, flat_conviction=None, thesis_break_exit=True)
+    with patched("inngest_app.functions.execution_daily",
+                 "TRAILING_STOP_ATR_MULT", 1e9):
+        res = run_backtest(base._fixture(), cfg)
+    breaks = [j for j in res.journal if j["reason"] == "thesis_break"]
+    assert any(j["symbol"] == "CRSH" for j in breaks)

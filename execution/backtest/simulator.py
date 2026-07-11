@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 CANDIDATE_POOL = 25
 DELIST_AFTER_MISSING_DAYS = 10
+DCA_RUNGS = (0.20, 0.30, 0.40)      # drawdown-from-high add levels (owner ladder)
+DCA_GATE_CONVICTION = 50.0          # thesis-intact stand-in: neutral or better
+DCA_TRANCHE_FRACTION = 0.5          # each rung adds half a fresh entry's notional
+THESIS_BREAK_CONVICTION = 40.0      # sustained weakness below this = thesis broken
+THESIS_BREAK_WEEKS = 3
 ENTRY_TAGS: Dict[str, Any] = {"themes": [], "industries": [], "watchlist": False}
 _NON_STOCK = {BENCHMARK, EQUAL_WEIGHT, VIX, *SECTOR_ETFS}
 
@@ -44,6 +49,8 @@ class BacktestConfig:
     slippage_bps: float = 10.0
     requote_weekly: bool = False        # experiment A: weekly fresh limits
     capitulation_valve: bool = False    # experiment B: market entry after 2 misses
+    dca_ladder: bool = False            # add tranches at 20/30/40% dips, thesis intact
+    thesis_break_exit: bool = False     # exit on sustained conviction collapse
 
 
 @dataclass
@@ -90,8 +97,10 @@ def run_backtest(ohlcv: Dict[str, pd.DataFrame], cfg: BacktestConfig,
     ledger = Ledger(cfg.starting_cash)
     open_orders: List[LimitOrder] = []
     pending_sells: List[dict] = []      # {"symbol","qty","reason"}; qty None → full
-    pending_market_buys: List[dict] = []   # {"symbol","qty","ref_price","atr","conviction"}
+    pending_market_buys: List[dict] = []   # {"symbol","qty","ref_price","atr","conviction","reason"}
     missed: Dict[str, dict] = {}           # symbol → {"count", "conviction"}
+    dca_state: Dict[str, dict] = {}        # symbol → {"armed_high", "used" rungs}
+    weak_weeks: Dict[str, int] = {}        # symbol → consecutive sub-floor weeks
     last_close: Dict[str, float] = {}
     missing_days: Dict[str, int] = {}
     n_weeks = 0
@@ -123,7 +132,7 @@ def run_backtest(ohlcv: Dict[str, pd.DataFrame], cfg: BacktestConfig,
             px = buy_fill_price(float(df.at[today, "Open"]), cfg.slippage_bps)
             if b["qty"] * px <= ledger.cash:
                 ledger.buy(b["symbol"], b["qty"], px, today.date(),
-                           "capitulation_entry", atr=b["atr"])
+                           b.get("reason", "capitulation_entry"), atr=b["atr"])
                 last_close[b["symbol"]] = float(df.at[today, "Close"])
             else:
                 ledger.journal.append({"date": today.date(), "side": "cancel",
@@ -165,7 +174,7 @@ def run_backtest(ohlcv: Dict[str, pd.DataFrame], cfg: BacktestConfig,
             allowed = (members_asof(pit, today) | static) if pit is not None else None
             _weekly(today, ohlcv, stocks, spy, ledger, open_orders,
                     pending_sells, pending_market_buys, missed,
-                    last_close, cfg, allowed)
+                    dca_state, weak_weeks, last_close, cfg, allowed)
 
         # (d) close: stops, delist sweep
         for pos in list(ledger.positions.values()):
@@ -194,7 +203,8 @@ def run_backtest(ohlcv: Dict[str, pd.DataFrame], cfg: BacktestConfig,
 
 
 def _weekly(today, ohlcv, stocks, spy, ledger, open_orders, pending_sells,
-            market_buys, missed, last_close, cfg, allowed=None) -> None:
+            market_buys, missed, dca_state, weak_weeks, last_close, cfg,
+            allowed=None) -> None:
     spy_closes = spy.loc[:today]["Close"]
 
     etf_closes = {sym: ohlcv[sym].loc[:today]["Close"]
@@ -276,6 +286,64 @@ def _weekly(today, ohlcv, stocks, spy, ledger, open_orders, pending_sells,
     deployable = max(0.0, invested * sleeve_equity - position_mv - committed)
     cash_remaining = max(0.0, ledger.cash - committed)
     ordered = {o.symbol for o in open_orders} | {b["symbol"] for b in market_buys}
+
+    if cfg.thesis_break_exit:
+        # exits come from sustained thesis weakness, not price levels
+        for sym in [s for s in weak_weeks if s not in ledger.positions]:
+            del weak_weeks[sym]
+        for pos in list(ledger.positions.values()):
+            sym = pos.symbol
+            row = by_symbol.get(sym)
+            conv = _conviction(row, cfg) if row is not None else 50.0
+            if conv < THESIS_BREAK_CONVICTION:
+                weak_weeks[sym] = weak_weeks.get(sym, 0) + 1
+            else:
+                weak_weeks.pop(sym, None)
+            if weak_weeks.get(sym, 0) >= THESIS_BREAK_WEEKS and sym not in queued:
+                pending_sells.append({"symbol": sym, "qty": None,
+                                      "reason": "thesis_break"})
+                queued.add(sym)
+                weak_weeks.pop(sym, None)
+
+    if cfg.dca_ladder:
+        # owner ladder: add at 20/30/40% below high while the thesis holds;
+        # rungs re-arm only after a fresh high starts a new episode
+        for sym in [s for s in dca_state if s not in ledger.positions]:
+            del dca_state[sym]
+        for pos in ledger.positions.values():
+            sym = pos.symbol
+            if sym in queued or sym in ordered:
+                continue
+            row = by_symbol.get(sym)
+            if row is None:
+                continue
+            conv = _conviction(row, cfg)
+            price = float(row["price"])
+            if conv < DCA_GATE_CONVICTION or price <= 0 or pos.high_water <= 0:
+                continue
+            st = dca_state.setdefault(
+                sym, {"armed_high": pos.high_water, "used": set()})
+            if pos.high_water > st["armed_high"]:
+                st["armed_high"] = pos.high_water
+                st["used"] = set()
+            dd = 1.0 - price / pos.high_water
+            rung = next((r for r in DCA_RUNGS
+                         if dd >= r and r not in st["used"]), None)
+            if rung is None:
+                continue
+            notional = DCA_TRANCHE_FRACTION * size_entry(
+                conv, sleeve_equity, float(row["liquidity_adv_usd"] or 0.0),
+                float(row["atr_pct"]), deployable, cash_remaining)
+            qty = int(notional // price)
+            if qty <= 0 or qty * price < MIN_TRADE_NOTIONAL:
+                continue
+            st["used"].add(rung)
+            market_buys.append({"symbol": sym, "qty": qty, "ref_price": price,
+                                "atr": float(row["atr"]), "conviction": conv,
+                                "reason": "dca_add"})
+            spent = qty * price
+            deployable = max(0.0, deployable - spent)
+            cash_remaining = max(0.0, cash_remaining - spent)
 
     for sym in plan["entry_queue"]:
         if sym in ordered or sym in queued:
