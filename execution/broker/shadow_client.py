@@ -77,6 +77,34 @@ class ShadowBrokerClient:
             status="shadow_filled", filled_qty=qty, filled_avg_price=price_hint,
         )
 
+    async def submit_market_buy(
+        self, symbol: str, qty: float, price_hint: float,
+        journal: Dict[str, Any], client_order_id: str,
+    ) -> BrokerOrderResult:
+        """Shadow market buy for DCA ADD tranches — fills immediately AT
+        price_hint (same convention as submit_sell; there's no real market to
+        trade through in the shadow world). Idempotent on client_order_id
+        like submit_sell/submit_limit_buy. _increase_position's update branch
+        (an ADD to an existing position) leaves highWaterClose untouched — it
+        anchors the DCA ladder and only the create branch seeds it."""
+        from prisma import Json  # noqa: PLC0415
+
+        existing = await self._db.enginetrade.find_first(
+            where={"brokerOrderId": client_order_id}
+        )
+        if existing is None:
+            await self._db.enginetrade.create(data={
+                "sleeve": self._sleeve, "symbol": symbol, "side": "buy",
+                "qty": qty, "fillPrice": price_hint, "limitPrice": None,
+                "brokerOrderId": client_order_id, "status": "shadow_filled",
+                "journal": Json(journal or {}),
+            })
+            await self._increase_position(symbol, qty, price_hint)
+        return BrokerOrderResult(
+            order_id=client_order_id, symbol=symbol, side="buy",
+            status="shadow_filled", filled_qty=qty, filled_avg_price=price_hint,
+        )
+
     async def get_open_orders(self) -> List[Any]:
         return await self._db.enginetrade.find_many(
             where={"sleeve": self._sleeve, "status": "shadow_open"}

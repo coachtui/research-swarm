@@ -222,6 +222,124 @@ def test_submit_sell_idempotent_second_call_returns_recorded_fill():
     assert "journal" not in kwargs["where"]
 
 
+# ── submit_market_buy (DCA ADD tranches) ────────────────────────────────────
+
+def test_submit_market_buy_records_actual_fill_and_creates_position():
+    db = _db()
+    alpaca = _alpaca()
+    alpaca.submit_market_buy_notional = MagicMock(return_value=BrokerOrderResult(
+        order_id="alp-buy", symbol="AEHR", side="buy", status="filled",
+        filled_qty=5.0, filled_avg_price=101.0,   # real fill price, not the hint
+    ))
+    broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
+
+    res = _run(broker.submit_market_buy(
+        "AEHR", qty=5.0, price_hint=100.0,
+        journal={"reason": "dca_add", "rung": 0.2}, client_order_id="c-buy",
+    ))
+
+    # notional = qty * price_hint sent to Alpaca; real fill diverges from hint
+    alpaca.submit_market_buy_notional.assert_called_once_with("AEHR", 500.0)
+    create_data = db.enginetrade.create.call_args.kwargs["data"]
+    assert create_data["side"] == "buy"
+    assert create_data["fillPrice"] == 101.0
+    assert create_data["status"] == "filled"
+    assert create_data["journal"].data["reason"] == "dca_add"
+    assert create_data["journal"].data["client_order_id"] == "c-buy"
+    # NEW position -> highWaterClose seeded at the fill price
+    upsert_data = db.engineposition.upsert.call_args.kwargs["data"]
+    assert upsert_data["create"]["highWaterClose"] == 101.0
+    assert res.status == "filled" and res.filled_avg_price == 101.0
+
+
+def test_submit_market_buy_add_to_existing_position_preserves_high_water():
+    """CRITICAL: a DCA ADD to an EXISTING position must NOT reset
+    highWaterClose — it anchors the DCA ladder. _increase_position's update
+    branch only touches qty/avgEntryPrice."""
+    db = _db()
+    db.engineposition.find_unique = AsyncMock(
+        return_value=MagicMock(qty=10.0, avgEntryPrice=90.0, highWaterClose=150.0)
+    )
+    alpaca = _alpaca()
+    alpaca.submit_market_buy_notional = MagicMock(return_value=BrokerOrderResult(
+        order_id="alp-buy2", symbol="AEHR", side="buy", status="filled",
+        filled_qty=5.0, filled_avg_price=101.0,
+    ))
+    broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
+
+    _run(broker.submit_market_buy(
+        "AEHR", qty=5.0, price_hint=100.0,
+        journal={"reason": "dca_add"}, client_order_id="c-buy-2",
+    ))
+
+    upsert_data = db.engineposition.upsert.call_args.kwargs["data"]
+    assert "highWaterClose" not in upsert_data["update"]   # ratchet untouched
+    assert upsert_data["update"]["qty"] == 15.0
+
+
+def test_submit_market_buy_is_idempotent_on_client_order_id():
+    """C1-shaped: a repeated client_order_id must NOT fire a second real
+    market buy (double position size, double cash debit)."""
+    other = MagicMock(brokerOrderId="alp-old", status="filled", qty=5.0,
+                      fillPrice=95.0, journal={"client_order_id": "different"})
+    existing = MagicMock(brokerOrderId="alp-buy-1", status="filled",
+                         qty=5.0, fillPrice=101.0,
+                         journal={"client_order_id": "c-buy"})
+    db = _db(rows=[other, existing])
+    alpaca = _alpaca()
+    alpaca.submit_market_buy_notional = MagicMock()
+    broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
+
+    res = _run(broker.submit_market_buy(
+        "AEHR", qty=5.0, price_hint=100.0,
+        journal={"reason": "dca_add"}, client_order_id="c-buy",
+    ))
+
+    alpaca.submit_market_buy_notional.assert_not_called()   # NO second real buy
+    db.enginetrade.create.assert_not_called()                # no duplicate row
+    db.engineposition.upsert.assert_not_called()              # no second increase
+    assert res.status == "filled"
+    assert res.filled_qty == 5.0 and res.filled_avg_price == 101.0
+    kwargs = db.enginetrade.find_many.call_args.kwargs
+    assert kwargs["where"] == {"sleeve": "A", "symbol": "AEHR", "side": "buy"}
+    assert kwargs["take"] == 25
+
+
+def test_submit_market_buy_floors_fractional_qty_to_whole_shares():
+    db = _db()
+    alpaca = _alpaca()
+    alpaca.submit_market_buy_notional = MagicMock(return_value=BrokerOrderResult(
+        order_id="alp-buy3", symbol="AEHR", side="buy", status="filled",
+        filled_qty=26.0, filled_avg_price=20.0,
+    ))
+    broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
+
+    _run(broker.submit_market_buy(
+        "AEHR", qty=26.619, price_hint=20.0,
+        journal={}, client_order_id="coid-frac",
+    ))
+
+    # request notional built from the FLOORED qty (26, not 26.619)
+    alpaca.submit_market_buy_notional.assert_called_once_with("AEHR", 520.0)
+
+
+def test_submit_market_buy_sub_one_share_rejected_without_submit():
+    db = _db()
+    alpaca = _alpaca()
+    alpaca.submit_market_buy_notional = MagicMock()
+    broker = AlpacaFunnelBroker(db, alpaca, sleeve="A")
+
+    res = _run(broker.submit_market_buy(
+        "AEHR", qty=0.8, price_hint=20.0,
+        journal={}, client_order_id="coid-tiny",
+    ))
+
+    alpaca.submit_market_buy_notional.assert_not_called()
+    db.enginetrade.create.assert_not_called()
+    assert res.status == "rejected"
+    assert res.filled_qty == 0.0 and res.filled_avg_price is None
+
+
 # ── get_open_orders ─────────────────────────────────────────────────────────
 
 def test_get_open_orders_queries_open_status():

@@ -106,6 +106,48 @@ def test_submit_sell_is_idempotent():
     db.enginetrade.create.assert_not_called()
 
 
+def test_submit_market_buy_fills_immediately_at_price_hint():
+    # DCA ADD tranches — no real market to trade through, so (like
+    # submit_sell) the shadow fill is immediate AT price_hint.
+    db = _db_with()
+    client = ShadowBrokerClient(db, sleeve="A")
+    res = _run(
+        client.submit_market_buy("AEHR", 5.0, price_hint=101.0,
+                                 journal={"reason": "dca_add"},
+                                 client_order_id="shadow-A-AEHR-buy")
+    )
+    assert res.status == "shadow_filled" and res.filled_avg_price == 101.0
+    assert res.filled_qty == 5.0
+    create = db.enginetrade.create.call_args.kwargs["data"]
+    assert create["side"] == "buy" and create["fillPrice"] == 101.0
+    assert create["journal"].data["reason"] == "dca_add"
+    db.engineposition.upsert.assert_called_once()   # _increase_position, not _reduce
+
+
+def test_submit_market_buy_add_to_existing_position_preserves_high_water():
+    db = _db_with()
+    db.engineposition.find_unique = AsyncMock(
+        return_value=MagicMock(qty=10.0, avgEntryPrice=90.0, highWaterClose=150.0)
+    )
+    client = ShadowBrokerClient(db, sleeve="A")
+    _run(
+        client.submit_market_buy("AEHR", 5.0, price_hint=101.0,
+                                 journal={"reason": "dca_add"},
+                                 client_order_id="shadow-A-AEHR-buy-2")
+    )
+    upsert_data = db.engineposition.upsert.call_args.kwargs["data"]
+    assert "highWaterClose" not in upsert_data["update"]
+    assert upsert_data["update"]["qty"] == 15.0
+
+
+def test_submit_market_buy_is_idempotent():
+    db = _db_with(order_lookup=MagicMock(id="dup", status="shadow_filled"))
+    client = ShadowBrokerClient(db, sleeve="A")
+    _run(client.submit_market_buy("AEHR", 5.0, 101.0, {}, "shadow-A-AEHR-buy"))
+    db.enginetrade.create.assert_not_called()
+    db.engineposition.upsert.assert_not_called()
+
+
 def test_settle_expires_quietly():
     db = _db_with()
     client = ShadowBrokerClient(db, sleeve="A")
