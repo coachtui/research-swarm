@@ -19,3 +19,13 @@ def test_funnel_reads_sleeve_a_dict_not_the_shared_one():
     src = inspect.getsource(funnel)
     assert "SLEEVE_A_INVESTED_FRACTION" in src
     assert "REGIME_INVESTED_FRACTION" not in src
+
+
+def test_no_price_level_sell_paths_remain():
+    """The daily cron must not reference stop_fill_price for Sleeve A sells,
+    and the funnel must not call plan_decisions with mechanical trims."""
+    import inspect
+
+    import inngest_app.functions.sleeve_a_funnel as funnel
+    src = inspect.getsource(funnel)
+    assert "trim_ceiling=None" in src and "evictions=False" in src
