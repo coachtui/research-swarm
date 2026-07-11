@@ -1,0 +1,21 @@
+"""Exposure floors: Sleeve A gets its own dict; the control group's
+constant is frozen at its Phase 2 values."""
+from execution.constants import REGIME_INVESTED_FRACTION, SLEEVE_A_INVESTED_FRACTION
+
+
+def test_sleeve_b_control_constant_is_frozen():
+    assert REGIME_INVESTED_FRACTION == {"risk_on": 1.0, "neutral": 0.7, "risk_off": 0.4}
+
+
+def test_sleeve_a_floors_match_owner_ruling():
+    # owner 2026-07-10: "90% invested at least; at most 25% cash"
+    assert SLEEVE_A_INVESTED_FRACTION == {"risk_on": 1.0, "neutral": 0.9, "risk_off": 0.75}
+
+
+def test_funnel_reads_sleeve_a_dict_not_the_shared_one():
+    import inspect
+
+    import inngest_app.functions.sleeve_a_funnel as funnel
+    src = inspect.getsource(funnel)
+    assert "SLEEVE_A_INVESTED_FRACTION" in src
+    assert "REGIME_INVESTED_FRACTION" not in src

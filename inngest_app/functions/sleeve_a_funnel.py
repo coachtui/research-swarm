@@ -33,7 +33,7 @@ from execution.constants import (
     LIGHT_RUNS_PER_WEEK,
     MIN_TRADE_NOTIONAL,
     OUTLOOK_MAX_AGE_DAYS,
-    REGIME_INVESTED_FRACTION,
+    SLEEVE_A_INVESTED_FRACTION,
     RETIRED_THEME_EXIT_CONVICTION,
     SCREEN_WEIGHTS,
     SLEEVE_A,
@@ -1165,7 +1165,7 @@ async def _decide_and_execute(
     # shadow buy orders are committed capital the cash ledger doesn't show —
     # subtract their notional from BOTH envelopes or this pass would re-spend
     # capital a standing order already claimed.
-    invested_fraction = REGIME_INVESTED_FRACTION.get(regime, 0.7)
+    invested_fraction = SLEEVE_A_INVESTED_FRACTION.get(regime, 0.9)
     position_mv = sum(qty * close_by_symbol.get(sym, 0.0) for sym, qty in positions.items())
     deployable = max(0.0, invested_fraction * sleeve_equity - position_mv - committed)
     cash_available = max(0.0, sell_out["cash"] - committed)

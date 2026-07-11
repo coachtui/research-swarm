@@ -66,6 +66,9 @@ SLEEVE_B_TOP_N = 3                 # ETFs held in risk_on / neutral
 SLEEVE_B_BASE_WEIGHTS = (0.5, 0.3, 0.2)  # rank-proportional base weights
 HYSTERESIS_RANKS = 2               # challenger must out-rank an incumbent by >= this
 REGIME_INVESTED_FRACTION = {"risk_on": 1.0, "neutral": 0.7, "risk_off": 0.4}
+# Sleeve A thesis-hold exposure floors (owner ruling 2026-07-10). Sleeve B
+# (control) keeps REGIME_INVESTED_FRACTION above — never merge these.
+SLEEVE_A_INVESTED_FRACTION = {"risk_on": 1.0, "neutral": 0.9, "risk_off": 0.75}
 DEFENSIVE_ETFS = ("XLP", "XLU", "XLV")  # risk_off holds only the best of these
 MIN_TRADE_NOTIONAL = 50.0          # ignore dust rebalances below this
 MAX_SECTOR_PCT_OF_ACCOUNT = 0.35   # hard guardrail: one sector across both sleeves
