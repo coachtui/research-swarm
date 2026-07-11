@@ -1210,15 +1210,24 @@ async def _decide_and_execute(
     # ── Stage A: review triggers (pure — a trigger NEVER trades, it earns a
     # review). For each holding compute dd/weight/earnings-recency and collect
     # the fired triggers; journal one review_trigger row per triggered name.
-    # A rung fire is consumed by being REVIEWED (once per episode) — persist the
-    # new dcaState immediately, whatever the review's later outcome. Wrapped:
-    # any failure journals engine_failure and the pass continues with no
-    # triggers (never a phantom trade).
-    triggered: Dict[str, Dict[str, Any]] = {}
+    #
+    # The WHOLE stage runs inside ONE memoized step (C2). Inngest re-executes
+    # the function body on every step boundary, so an unmemoized trigger scan
+    # would recompute — and DRIFT — on each replay: a rung consumed on the first
+    # execution vanishes before the post-review replay (killing the ADD), the
+    # earnings-cache DataFrame changes shape on the same-day second call
+    # (flipping earnings_divergence off), and a staleness/run-up trigger
+    # self-negates once its own review persists a fresh row. Memoizing the map
+    # pins trigger membership identical across every replay; the review_trigger
+    # journals live INSIDE the step so they fire exactly once. Rungs are NOT
+    # durably consumed here (C2b) — a budget-deferred review must leave the rung
+    # for next week — so dcaState is persisted in stage B only when a review
+    # outcome is actually reached. Any failure journals engine_failure and the
+    # pass continues with no triggers (never a phantom trade).
     reviewed_this_pass: set = set()
-    try:
+
+    async def _collect_triggers_stage() -> Dict[str, Dict[str, Any]]:
         import asyncio  # noqa: PLC0415
-        from prisma import Json  # noqa: PLC0415
         from research_swarm.data.market_data_client import (  # noqa: PLC0415
             MarketDataClient,
         )
@@ -1230,15 +1239,39 @@ async def _decide_and_execute(
         async def _days_since_earnings(sym: str) -> Optional[float]:
             # ANY failure → None: the trigger degrades (no earnings signal), it
             # never blocks. Only fetched when dd ≥ EARNINGS_DIVERGENCE_DD.
+            # Robust to BOTH shapes get_earnings_dates returns: a fresh fetch
+            # (DatetimeIndex named "Earnings Date") and a same-day cache hit
+            # (reset-index RangeIndex + stringified "Earnings Date" column). The
+            # old index-only read raised on the cache shape → trigger silently
+            # off; running inside the memoized step also pins the answer across
+            # replays regardless of who warmed the cache (C2b).
             try:
                 edf = await asyncio.to_thread(market_client.get_earnings_dates, sym)
-                if edf is None:
+                if edf is None or getattr(edf, "empty", False):
                     return None
-                past = [d for d in edf.index if d <= now]
-                return float((now - max(past)).days) if past else None
+                import pandas as pd  # noqa: PLC0415
+                idx = edf.index
+                if pd.api.types.is_datetime64_any_dtype(idx):
+                    raw = list(idx)
+                elif "Earnings Date" in getattr(edf, "columns", []):
+                    raw = list(pd.to_datetime(edf["Earnings Date"], errors="coerce"))
+                else:
+                    return None
+                now_ts = pd.Timestamp(now)
+                past = []
+                for d in raw:
+                    if d is None or pd.isna(d):
+                        continue
+                    ts = pd.Timestamp(d)
+                    ts = (ts.tz_localize("UTC") if ts.tzinfo is None
+                          else ts.tz_convert("UTC"))
+                    if ts <= now_ts:
+                        past.append(ts)
+                return float((now_ts - max(past)).days) if past else None
             except Exception:  # noqa: BLE001
                 return None
 
+        collected: Dict[str, Dict[str, Any]] = {}
         for h in holdings:
             sym = h["symbol"]
             pos = pos_rows.get(sym)
@@ -1258,8 +1291,10 @@ async def _decide_and_execute(
             )
             if not names:
                 continue
-            triggered[sym] = {"triggers": names, "dd": dd, "weight": weight,
-                              "dca_state": new_state}
+            # JSON-round-trippable (no sets/dates): the step's return value is
+            # serialized into the durable log and re-read on every replay.
+            collected[sym] = {"triggers": names, "dd": dd, "weight": weight,
+                              "dca_state": new_state, "has_position": pos is not None}
             await _journal(
                 db, "review_trigger", "info",
                 f"{sym}: review triggered — {', '.join(names)}",
@@ -1268,18 +1303,17 @@ async def _decide_and_execute(
                  "report_age_days": (latest.get(sym) or {}).get("report_age_days"),
                  "dist_200wma": by_symbol.get(sym, {}).get("dist_200wma")},
             )
-            # The rung is consumed by the review (once per episode) — persist now.
-            if "ladder_rung" in names and pos is not None:
-                await db.engineposition.update(
-                    where={"sleeve_symbol": {"sleeve": SLEEVE_A, "symbol": sym}},
-                    data={"dcaState": Json(new_state)},
-                )
+        return collected
+
+    try:
+        triggered: Dict[str, Dict[str, Any]] = await _run_step(
+            step, "thesis-triggers", _collect_triggers_stage,
+        )
     except Exception:  # noqa: BLE001 — never block the pass on trigger failure
         logger.exception("funnel: trigger computation failed")
         await _journal(db, "engine_failure", "warning",
                        "Review-trigger computation failed", {"stage": "triggers"})
         triggered = {}
-        reviewed_this_pass = set()
 
     # ── Stage B: budget-prioritized reviews. Triggered holdings claim the SAME
     # weekly full-run budget as new entries and run BEFORE them (stalest first).
@@ -1288,6 +1322,7 @@ async def _decide_and_execute(
     # outcome this week. After the loop, refresh verdicts and REBUILD holdings
     # so a fresh SELL/AVOID exits via the plan's sell_verdict path.
     if triggered:
+        from prisma import Json  # noqa: PLC0415
         try:
             for sym in sorted(
                 triggered,
@@ -1302,6 +1337,21 @@ async def _decide_and_execute(
                                     "reason": gate.get("reason")})
                     triggered[sym]["deferred"] = True
                     continue
+                # A review outcome WILL be reached (reuse verdict or paid run) →
+                # durably consume any ladder rung NOW (C2b). The skip branch
+                # above leaves the rung untouched so it re-fires next week. The
+                # overwrite is idempotent (same memoized new_state every replay),
+                # so re-running stage B on a replay is safe.
+                tinfo = triggered[sym]
+                if ("ladder_rung" in tinfo.get("triggers", [])
+                        and tinfo.get("has_position") and tinfo.get("dca_state")):
+                    try:
+                        await db.engineposition.update(
+                            where={"sleeve_symbol": {"sleeve": SLEEVE_A, "symbol": sym}},
+                            data={"dcaState": Json(tinfo["dca_state"])},
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("funnel: dcaState persist failed for %s", sym)
                 if gate.get("action") == "analyze":
                     if step is not None:
                         result = await step.run(
@@ -1402,23 +1452,48 @@ async def _decide_and_execute(
                 )
                 qty = int(notional // close) if close > 0 else 0
                 if qty >= 1 and qty * close >= MIN_TRADE_NOTIONAL:
-                    try:
-                        await client.submit_market_buy(
+                    # Submit + journal live in ONE memoized step (I4): stage C
+                    # replays outside step.run, so an unmemoized journal would
+                    # re-write on every boundary (the coid dedup stops the
+                    # ORDER, not the journal row). The step returns the ACTUAL
+                    # fill so the ledger debits what really executed (I1): a
+                    # rejected market buy debits nothing, a partial debits only
+                    # the filled portion, a live fill debits filled_qty *
+                    # filled_avg_price (never the Friday-close hint).
+                    async def _do_dca_add(sym=sym, qty=qty, close=close,
+                                          conv=conv, trigs=t["triggers"]):
+                        res = await client.submit_market_buy(
                             symbol=sym, qty=qty, price_hint=close,
-                            journal={"reason": "dca_add", "triggers": t["triggers"]},
+                            journal={"reason": "dca_add", "triggers": trigs},
                             client_order_id=f"paper-A-{sym}-{run_date:%Y%m%d}-dca",
                         )
+                        fq = float(res.filled_qty or 0.0)
+                        fp = res.filled_avg_price
+                        if fq > 0 and fp is not None:
+                            await _journal(db, "dca_add", "info",
+                                           f"{sym}: ladder add {fq:g} @ ~{float(fp):.2f}",
+                                           {"symbol": sym, "qty": fq,
+                                            "fill_price": float(fp),
+                                            "notional": round(fq * float(fp), 2),
+                                            "conviction": conv, "triggers": trigs})
+                        else:
+                            await _journal(db, "engine_failure", "warning",
+                                           f"{sym}: DCA add did not fill "
+                                           f"(status={res.status})",
+                                           {"symbol": sym, "qty": qty,
+                                            "status": res.status})
+                        return {"filled_qty": fq,
+                                "filled_avg_price": float(fp) if fp is not None else None}
+                    try:
+                        fill = await _run_step(
+                            step, f"dca-add-{sym.lower()}", _do_dca_add)
                     except Exception:  # noqa: BLE001
                         logger.exception("funnel: DCA add failed for %s", sym)
                         await _journal(db, "engine_failure", "warning",
                                        f"{sym}: DCA add submit failed", {"symbol": sym})
                         continue
-                    await _journal(db, "dca_add", "info",
-                                   f"{sym}: ladder add {qty} @ ~{close:.2f}",
-                                   {"symbol": sym, "qty": qty,
-                                    "notional": round(qty * close, 2),
-                                    "conviction": conv, "triggers": t["triggers"]})
-                    spent = qty * close
+                    spent = (float(fill.get("filled_qty") or 0.0)
+                             * float(fill.get("filled_avg_price") or 0.0))
                     deployable = max(0.0, deployable - spent)
                     cash_available = max(0.0, cash_available - spent)
                     add_spend += spent

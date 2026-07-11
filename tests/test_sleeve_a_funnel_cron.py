@@ -834,3 +834,135 @@ def test_verdict_downgrade_releases_a_tranche_not_the_position():
     assert len(sells) == 1 and abs(sells[0].qty - 25.0) < 1e-6
     assert sink.count("thesis_reduce") == 1
     assert db.positions[("A", "MU")]["qty"] == 75
+
+
+# ── C2 replay-model / C2b rung durability / I1 fill-accurate ADD ─────────────
+# The failure class the review surfaced was invisible to inline (step=None)
+# tests: production runs under the Inngest replay model, where the function body
+# re-executes on every step boundary and only step.run results are memoized.
+
+
+class _MemoStep:
+    """Simulates the Inngest replay model: step.run memoizes by id across the
+    (re-executing) function body AND across explicit re-invocations, and return
+    values round-trip through JSON to mirror the durable-log serialization."""
+
+    def __init__(self):
+        self._log = {}
+
+    async def run(self, step_id, fn):
+        import json
+        if step_id in self._log:
+            return json.loads(self._log[step_id])
+        val = await fn()
+        self._log[step_id] = json.dumps(val)
+        return json.loads(self._log[step_id])
+
+
+class _RejectBroker(_ThBroker):
+    """submit_market_buy that the broker REJECTS (zero fill) — the market never
+    accepted the order, so nothing may be debited from the sleeve."""
+
+    async def submit_market_buy(self, symbol, qty, price_hint, journal, client_order_id):
+        self.market_buys.append(SimpleNamespace(
+            symbol=symbol, qty=qty, price_hint=price_hint, journal=journal,
+            client_order_id=client_order_id))
+        return BrokerOrderResult(order_id="", symbol=symbol, side="buy",
+                                 status="rejected", filled_qty=0.0,
+                                 filled_avg_price=None)
+
+
+def _rung_screened():
+    return {"ranked": [_screen_row("DIPN", price=75.0, liquidity_adv_usd=1e7,
+                                   atr_pct=0.05)],
+            "close_by_symbol": {"DIPN": 75.0}, "sector_by_symbol": {}}
+
+
+def test_replay_memoized_triggers_single_add_and_journal():
+    """C2/I4: two _decide_and_execute runs under a memoizing step fake (first
+    executes, replay returns cached) must yield IDENTICAL triggers, exactly one
+    review_trigger journal, exactly one dca_add order+journal, and the ladder
+    ADD must actually execute on the PAID review path — the end-to-end scenario
+    C2 broke (a rung consumed on exec 1 vanished before the post-review replay)."""
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    latest = {"DIPN": _th_meta("buy", 2.0)}     # fresh (no staleness) → rung only
+    sink = _ReportSink()
+    step = _MemoStep()
+
+    def _decide():
+        return _run(saf._decide_and_execute(
+            db, broker, NOW, "neutral",
+            sleeve_ctx={"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                        "allow_buys": True, "status": "active"},
+            assembled={"active_themes": []}, screened=_rung_screened(),
+            lights={"light_rows": {}, "spent": 0}, step=step))
+
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)], latest,
+                     {"action": "analyze"}, sink):
+        out1 = _decide()
+        out2 = _decide()                         # the replay
+
+    assert out1["reviews"]["triggered"] == {"DIPN": ["ladder_rung"]}
+    assert out1["reviews"]["triggered"] == out2["reviews"]["triggered"]
+    assert sink.count("review_trigger") == 1     # journalled exactly once
+    assert sink.count("dca_add") == 1            # journalled exactly once
+    add = [b for b in broker.market_buys if b.symbol == "DIPN"]
+    assert len(add) == 1                         # ONE ADD order on the paid path
+    st = db.positions[("A", "DIPN")]["dcaState"]
+    assert 0.20 in st["used"]                    # rung durably consumed
+
+
+def test_i1_rejected_dca_add_debits_nothing():
+    """I1: a rejected market buy (zero fill) must debit NOTHING from the ADD
+    ledger and journal an engine_failure — not a phantom dca_add at the hint."""
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _RejectBroker(db)
+    latest = {"DIPN": _th_meta("buy", 2.0)}
+    sink = _ReportSink()
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)], latest,
+                     {"action": "reuse", "signals": {"verdict": "buy"}}, sink):
+        out = _run_decide(db, broker,
+                          {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                           "allow_buys": True, "status": "active"}, _rung_screened())
+    assert len(broker.market_buys) == 1          # order attempted
+    assert db.positions[("A", "DIPN")]["qty"] == 10.0   # rejected → no shares
+    assert sink.count("dca_add") == 0            # nothing filled → not journalled
+    assert sink.count("engine_failure") >= 1     # no-fill journalled
+    assert out["reviews"]["add_notional"] == 0.0  # ledger debited nothing
+
+
+def test_c2b_deferred_review_leaves_rung_for_next_week():
+    """C2b: a budget-deferred review must NOT durably consume the ladder rung —
+    the rung fires again the following week when budget frees up."""
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = _rung_screened()
+
+    # Week 1: budget exhausted → review deferred; rung must NOT be consumed.
+    sink1 = _ReportSink()
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)},
+                     {"action": "skip", "reason": "budget_exhausted"}, sink1):
+        _run_decide(db, broker,
+                    {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                     "allow_buys": True, "status": "active"}, screened)
+    assert sink1.count("review_trigger") == 1
+    assert broker.market_buys == []                       # deferred → no ADD
+    assert db.positions[("A", "DIPN")].get("dcaState") is None  # rung intact
+
+    # Week 2: budget available (reuse) → rung fires AGAIN and is consumed now.
+    sink2 = _ReportSink()
+    pos2 = _th_pos_row("DIPN", db.positions[("A", "DIPN")]["qty"],
+                       high_water=100.0,
+                       dca_state=db.positions[("A", "DIPN")].get("dcaState"))
+    with _thesis_ctx([pos2], {"DIPN": _th_meta("buy", 2.0)},
+                     {"action": "reuse", "signals": {"verdict": "buy"}}, sink2):
+        _run_decide(db, broker,
+                    {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                     "allow_buys": True, "status": "active"}, screened)
+    assert sink2.count("review_trigger") == 1
+    add = [b for b in broker.market_buys if b.symbol == "DIPN"]
+    assert len(add) == 1                                  # rung re-fired → ADD
+    st = db.positions[("A", "DIPN")]["dcaState"]
+    assert 0.20 in st["used"]                             # now consumed
