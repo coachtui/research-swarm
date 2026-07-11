@@ -61,3 +61,38 @@ def test_exit_frees_slot_for_entry():
         [_c("NEW", 60.0)], SLEEVE, max_positions=2,
     )
     assert out["entry_queue"] == ["NEW"]
+
+
+def test_evictions_false_never_outcompetes_full_book():
+    holdings = [{"symbol": f"H{i}", "conviction": 50.0, "market_value": 10_000.0}
+                for i in range(3)]
+    candidates = [{"symbol": "NEW", "conviction": 99.0}]
+    plan = plan_decisions(holdings, candidates, 100_000.0, 3, evictions=False)
+    assert plan["exits"] == []
+    assert plan["entry_queue"] == []          # book full, no eviction allowed
+
+
+def test_evictions_false_still_fills_empty_slots():
+    holdings = [{"symbol": "H0", "conviction": 50.0, "market_value": 10_000.0}]
+    candidates = [{"symbol": "NEW", "conviction": 55.0}]
+    plan = plan_decisions(holdings, candidates, 100_000.0, 3, evictions=False)
+    assert plan["entry_queue"] == ["NEW"]
+
+
+def test_trim_ceiling_none_disables_mechanical_trims():
+    holdings = [{"symbol": "BIG", "conviction": 80.0, "market_value": 30_000.0}]
+    plan = plan_decisions(holdings, [], 100_000.0, 15,
+                          evictions=False, trim_ceiling=None)
+    assert plan["trims"] == []
+
+
+def test_defaults_keep_old_behavior_for_the_backtest_harness():
+    # Verify defaults maintain old behavior: evictions enabled + trims enabled
+    holdings = [
+        {"symbol": "WEAK", "conviction": 40.0, "market_value": 5_000.0},
+        {"symbol": "BIG", "conviction": 80.0, "market_value": 30_000.0},
+    ]
+    candidates = [{"symbol": "STRONG", "conviction": 50.1}]  # clears margin vs WEAK (40 + 10)
+    plan = plan_decisions(holdings, candidates, 100_000.0, 2)
+    assert [e["symbol"] for e in plan["exits"]] == ["WEAK"]   # eviction intact
+    assert plan["trims"] and plan["trims"][0]["symbol"] == "BIG" and plan["trims"][0]["reason"] == "risk_trim"

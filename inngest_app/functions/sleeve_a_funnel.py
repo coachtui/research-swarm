@@ -1146,7 +1146,8 @@ async def _decide_and_execute(
     }
     max_positions = max(0, SLEEVE_A_MAX_POSITIONS - open_buys["count"])
 
-    decisions = plan_decisions(holdings, candidates, sleeve_equity, max_positions)
+    decisions = plan_decisions(holdings, candidates, sleeve_equity, max_positions,
+                               evictions=False, trim_ceiling=None)
 
     # Sells (exits + trims) first — their proceeds fund entries. Wrapped in its
     # own step (no internal step.run) so the shadow sells + cash update are
