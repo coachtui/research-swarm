@@ -119,12 +119,20 @@ ordering of configs is the evidence.
     (`docs/research/2026-07-10-salp-13f-reasoning-study.md`) — the
     monthly theme-discovery prompt (`execution/themes/prompts.py`) gains
     a revealed-behavior block alongside the SA method: buy the binding
-    constraint not the beneficiary; each pass must answer "what binds
-    NEXT" (constraint migration); time-to-solve is a selection criterion
-    (fast-deployable supply wins short-time-frame demand); express every
-    theme across the cap spectrum (megacap anchors + pre-consensus
-    small/mid pure-plays); name the theme's second-order losers in
-    metadata. Prompt-only change; parser/schema untouched.
+    constraint not the beneficiary; time-to-solve is a selection
+    criterion (fast-deployable supply wins short-time-frame demand);
+    express every theme across the cap spectrum (megacap anchors +
+    pre-consensus small/mid pure-plays); name the theme's second-order
+    losers in metadata. **Owner-directed emphasis: the pass's primary
+    deliverable is FORWARD — every monthly run must answer "what binds
+    NEXT after the current constraints are priced?" and propose 1–3
+    next-constraint hypotheses** (each with pre-consensus candidates,
+    2–4 leading indicators, and a falsification condition), graduating a
+    hypothesis to an active theme when its indicators confirm. The study
+    was a one-time curriculum: the system generates the next thesis
+    itself rather than waiting to read anyone's filing. Future 13Fs are
+    a *scorecard* (did our hypothesis precede their position?), never an
+    input. Prompt-only change; parser/schema untouched.
 12. **New screen input: 200-week MA distance** — computed for every
     screened symbol with ≥4y of history (null otherwise), surfaced to
     the LLM in light/full run context and in reports. Advisory only —
