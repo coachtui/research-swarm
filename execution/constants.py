@@ -133,7 +133,7 @@ DCA_TRANCHE_FRACTION = 0.5           # ADD buys half a fresh entry's notional
 EARNINGS_DIVERGENCE_DD = 0.15        # drawdown floor for the "MU signal"
 EARNINGS_DIVERGENCE_MAX_DAYS = 14    # two weekly passes wide (Mon-cutoff leak)
 CONCENTRATION_REVIEW_WEIGHT = 0.20   # weight that TRIGGERS a review (never sells)
-TRIM_FALLBACK_TARGET = 0.12          # TRIM target if the review states none
+TRIM_FALLBACK_TARGET = 0.15          # owner ruling 2026-07-11: 20% triggers, trim to 15%
 RUNUP_REVIEW_GAIN = 0.25             # price gain threshold for review trigger
 REDUCE_TRANCHE_FRACTION = 0.25       # REDUCE buys this fraction of a tranche
 
