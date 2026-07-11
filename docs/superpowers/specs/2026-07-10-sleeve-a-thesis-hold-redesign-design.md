@@ -58,9 +58,16 @@ ordering of configs is the evidence.
    removed for Sleeve A positions. High-water tracking stays (it anchors
    the DCA ladder). Exits move entirely to the weekly thesis review
    (below). Sleeve B's engine is untouched.
-4. **Risk trims stay exactly as-is** (>20% of sleeve → trim to 12%).
-   Proven the most profitable rule per trade; matches the owner's
-   trim-the-runners behavior.
+4. **The mechanical risk trim is removed** (owner ruling 2026-07-10:
+   winners run until the thesis breaks — the 20%→12% weight rule is
+   superseded). Trimming becomes an LLM judgment: position weight and
+   extension are surfaced in every review's context, a weight crossing
+   20% of sleeve *triggers* a review, and `TRIM` joins the review
+   outcomes (LLM concludes "thesis intact but too hot" → partial sell to
+   an LLM-stated target; proceeds recycle through the normal entry
+   queue). Backtest note: the mechanical trim fired only 2–4 times per
+   11.5y run, so removing it is low-impact mechanically; the change is
+   philosophical — no weight level ever sells by itself.
 5. **Entry mechanics unchanged** — extension check, patient limits, TTLs,
    sizing band (3–12%), ADV/vol caps all stay. The entry-mechanics race
    falsified every change we tried; missed fills are accepted as entry
@@ -94,12 +101,16 @@ ordering of configs is the evidence.
    - **Ladder rung** — price crosses 20% / 30% / 40% below position
      high-water (each rung once per episode; rungs re-arm on a new high).
    - **Theme review failure** — existing path, unchanged.
+   - **Concentration** — position weight crosses 20% of sleeve equity
+     (a review *prompt*, never a sale; see mechanical change 4).
 9. **Review outcomes:** `HOLD` (default), `SELL` (thesis broken → full
-   exit at next open), or `ADD` (thesis intact at a discount → buy a
+   exit at next open), `ADD` (thesis intact at a discount → buy a
    half-tranche, `DCA_TRANCHE_FRACTION = 0.5` of a fresh `size_entry`
-   notional, market order, cash permitting). ADD is only reachable from
-   an earnings-divergence or ladder-rung trigger. Adds take cash
-   priority over new entries in the same weekly pass.
+   notional, market order, cash permitting), or `TRIM` (thesis intact
+   but over-extended → partial sell to the LLM-stated target weight).
+   ADD is only reachable from an earnings-divergence or ladder-rung
+   trigger; TRIM only from a concentration or staleness trigger. Adds
+   take cash priority over new entries in the same weekly pass.
 10. **Budget:** triggered reviews share the existing weekly full-run
     budget. Priority when constrained: suspected thesis break >
     rung/earnings ADD candidates > new-entry handshakes. Deferrals roll
@@ -132,8 +143,15 @@ history accumulates — that remains the path to "beats me."
 - **LEAPS/options sleeve** — future phase with its own risk design.
 - **Concentration band change** (ENTRY_WEIGHT_MAX 12%, SALP-style 20%+
   positions): untested in the harness; separate experiment first.
-- **13F trusted-fund ingestion** (SALP CIK 0002045724 et al. as theme
-  discovery inputs): separate spec; parsing already proven trivial.
+- **13F trusted-fund study** (SALP CIK 0002045724 et al.): separate
+  spec; parsing already proven trivial. Owner-clarified purpose: NOT
+  copy-trading — a quarterly LLM *study* of what a trusted fund bought,
+  when, at what cap size, and inferably why, whose output is
+  improvements to OUR discovery strategy (e.g., theme constituents must
+  span small/mid/large; small caps inside a confirmed theme deserve
+  earlier research). Their Q1-2026 filing also shows options both ways
+  (hedged-long: $1.5B+ NVDA puts against long equity) — relevant to the
+  future options sleeve, not to this redesign.
 - **Backtest harness changes** — done (flags `dca_ladder`,
   `thesis_break_exit` already on the branch).
 
@@ -157,10 +175,10 @@ history accumulates — that remains the path to "beats me."
 
 - Unit: eviction removal (challengers fill slots only), new invested
   fractions, trigger predicates (staleness/earnings-divergence/rung/theme)
-  each firing and journaling, ADD sizing + cash priority, SELL-only-from-
-  review invariant (no code path from a price level to a *full-position*
-  Sleeve A exit — the weight-triggered risk trim, a partial sell, is the
-  sole mechanical exception), 200wk MA
+  each firing and journaling, ADD sizing + cash priority, review-only-sells invariant
+  (no code path from any price or weight level to a Sleeve A sell of any
+  size — delisting/corporate action is the sole mechanical exception;
+  concentration and rungs only *trigger reviews*), 200wk MA
   null-safety (<4y history).
 - The existing funnel/backtest suites must stay green; the Tier 2
   simulator's flags-off behavior is unaffected (it models the *old*
