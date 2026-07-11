@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from execution.constants import TRAILING_STOP_ATR_MULT
 
@@ -48,15 +48,6 @@ def stop_levels(high_water: float, today_close: float, atr: float) -> Tuple[floa
     that column is still null (first day after fill)."""
     hw = max(high_water, today_close)
     return hw, round(hw - TRAILING_STOP_ATR_MULT * atr, 2)
-
-
-def stop_fill_price(stop: float, today_open: float, today_low: float) -> Optional[float]:
-    """Honesty-rule fill: None when the day never traded through the stop;
-    otherwise the stop itself, or the open if the day gapped below the stop
-    (you cannot fill above the open)."""
-    if today_low > stop:
-        return None
-    return round(min(stop, today_open), 2)
 
 
 async def _persist_position_provenance(db, order: Any) -> None:
@@ -508,7 +499,7 @@ def _register_inngest_function():
                 from execution.funnel.screen import compute_atr  # noqa: PLC0415
                 from execution.market_data import fetch_ohlcv_batch  # noqa: PLC0415
                 from execution.sleeve_service import (  # noqa: PLC0415
-                    get_engine_positions, get_sleeve_state, update_sleeve_cash,
+                    get_engine_positions, get_sleeve_state,
                 )
 
                 db = await get_db()
@@ -522,7 +513,6 @@ def _register_inngest_function():
                 symbols = sorted({p.symbol for p in positions})
                 ohlcv = await asyncio.to_thread(fetch_ohlcv_batch, symbols)
 
-                now = datetime.fromisoformat(run_date_iso)
                 # shadow -> ShadowBrokerClient; live -> AlpacaFunnelBroker.
                 state = await get_sleeve_state(db, SLEEVE_A)
                 broker = await sleeve_a_broker(db, state)
@@ -533,8 +523,6 @@ def _register_inngest_function():
                         {"stage": "sleeve-a-stops"}, db=db,
                     )
                     return {"active": False, "error": True}
-                cash_delta_total = 0.0
-                exits = 0
                 for pos in positions:
                     df = ohlcv.get(pos.symbol)
                     if df is None or len(df) < 15:  # need 15 rows for ATR(14)
@@ -543,64 +531,19 @@ def _register_inngest_function():
                     if atr is None:
                         continue
                     today = df.iloc[-1]
-                    today_open = float(today["Open"])
-                    today_low = float(today["Low"])
                     today_close = float(today["Close"])
                     hw_in = (
                         pos.highWaterClose if pos.highWaterClose is not None
                         else pos.avgEntryPrice
                     )
-                    new_hw, stop = stop_levels(hw_in, today_close, atr)
-                    # Persist the ratcheted anchor BEFORE any exit below — a
-                    # full exit deletes the EnginePosition row, so this must
-                    # land first or it never lands at all.
+                    new_hw, _stop = stop_levels(hw_in, today_close, atr)
                     await db.engineposition.update(
                         where={"sleeve_symbol": {"sleeve": SLEEVE_A, "symbol": pos.symbol}},
-                        data={"highWaterClose": new_hw, "stopPrice": stop},
+                        data={"highWaterClose": new_hw, "stopPrice": None},
                     )
-                    fill_price = stop_fill_price(stop, today_open, today_low)
-                    if fill_price is None:
-                        continue
-                    client_order_id = f"shadow-A-{pos.symbol}-{now:%Y%m%d}-stop"
-                    res = await broker.submit_sell(
-                        symbol=pos.symbol, qty=pos.qty, price_hint=fill_price,
-                        journal={"reason": "trailing_stop", "stop": stop, "atr": atr,
-                                 "high_water": new_hw},
-                        client_order_id=client_order_id,
-                    )
-                    # Credit the ACTUAL fill (I1): in live mode the market —
-                    # not the stop-level hint — decides the price. Shadow
-                    # returns hint values, so shadow behavior is unchanged.
-                    actual_qty = float(res.filled_qty or 0.0)
-                    actual_price = res.filled_avg_price
-                    if actual_qty > 0 and actual_price is not None:
-                        cash_delta_total += round(actual_qty * float(actual_price), 2)
-                        exits += 1
-                        await write_report(
-                            "exit_stop", "info", "execution_daily",
-                            f"Sleeve A trailing stop: {pos.symbol}",
-                            {"symbol": pos.symbol, "qty": actual_qty, "stop": stop,
-                             "fill_price": float(actual_price), "high_water": new_hw},
-                            db=db,
-                        )
-                    if actual_price is None or actual_qty < pos.qty - 1e-9:
-                        # zero fill (timeout) or partial: the position row
-                        # already reflects reality via position_after_fill in
-                        # the broker — journal for visibility, book nothing
-                        # beyond what actually filled.
-                        await write_report(
-                            "engine_failure", "warning", "execution_daily",
-                            f"Sleeve A stop sell incomplete: {pos.symbol}",
-                            {"symbol": pos.symbol, "requested_qty": pos.qty,
-                             "filled_qty": actual_qty, "status": res.status,
-                             "stop": stop},
-                            db=db,
-                        )
-                if cash_delta_total != 0.0:
-                    state = await get_sleeve_state(db, SLEEVE_A)
-                    base_cash = float(state.cashBalance) if state else 0.0
-                    await update_sleeve_cash(db, SLEEVE_A, base_cash + cash_delta_total)
-                return {"active": True, "exits": exits}
+                    # Thesis-hold (spec 2026-07-10): price levels never sell.
+                    # The high-water ratchet stays — it anchors the DCA ladder.
+                return {"active": True, "exits": 0}
             except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return
                 logger.exception("sleeve-a-stops failed")
                 await write_report(

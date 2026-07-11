@@ -210,9 +210,9 @@ def test_open_shadow_buys_reduce_spend_and_no_cash_write_at_buy_submit():
 
     # Committed $1,000 comes off both spendable envelopes:
     # cash: 10,000 (post-sells ledger) − 1,000 = 9,000
-    # deployable: 0.7 (neutral) × 10,000 equity − 0 MV − 1,000 = 6,000
+    # deployable: 0.9 (Sleeve A neutral floor) × 10,000 equity − 0 MV − 1,000 = 8,000
     assert captured["cash_available"] == 9000.0
-    assert captured["deployable"] == 6000.0
+    assert captured["deployable"] == 8000.0
     # And placing a buy writes NO cash — the daily fill (or expiry) decides.
     cash_write.assert_not_called()
     assert len(out["placed"]) == 1
@@ -238,7 +238,7 @@ def test_c2_holding_verdict_and_staleness_reach_conviction():
 
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos):
+    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
         captured["holdings"] = holdings
         captured["max_positions"] = maxpos
         return real_plan(holdings, candidates, equity, maxpos)
@@ -387,7 +387,7 @@ def test_i3_standing_order_excluded_and_counts_to_cap():
 
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos):
+    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
         captured["symbols"] = [c["symbol"] for c in candidates]
         captured["max_positions"] = maxpos
         return {"exits": [], "trims": [], "entry_queue": [], "notes": []}
@@ -495,7 +495,7 @@ def test_theme_review_skipped_when_theme_membership_unavailable():
 
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos):
+    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
         captured["holdings"] = holdings
         return {"exits": [], "trims": [], "entry_queue": [], "notes": []}
 
@@ -608,3 +608,464 @@ def test_execute_sells_zero_fill_credits_nothing_and_journals_failure():
     kinds = [c.args[1] for c in journal.call_args_list]
     assert kinds.count("engine_failure") == 2           # exit AND trim no-fill
     assert "exit_sell_verdict" not in kinds and "risk_trim" not in kinds
+
+
+# ── Task 8: thesis-hold review triggers → ADD / TRIM / REDUCE / SELL ─────────
+# The five contracts wire pure triggers (Task 7) + market-buy (Task 5) into the
+# weekly pass. A trigger NEVER trades — it earns a review; the review's verdict
+# (or an outcome built from it) is the only authority to buy/sell.
+import contextlib
+from types import SimpleNamespace
+
+from execution.broker.base import BrokerOrderResult
+
+
+class _ReportSink:
+    """Async stand-in for write_report that records every journalled type."""
+    def __init__(self):
+        self.types = []
+        self.titles = []
+
+    async def __call__(self, report_type, severity, source, title, body, db=None):
+        self.types.append(report_type)
+        self.titles.append(title)
+        return "rep"
+
+    def count(self, t):
+        return self.types.count(t)
+
+
+class _ThDB:
+    """Minimal fake db: engineposition.update records dcaState (unwrapping the
+    prisma Json wrapper); the broker mutates a shared (sleeve, symbol) qty map."""
+    def __init__(self, positions):
+        self.positions = {("A", s): {"qty": float(v["qty"]),
+                                      "dcaState": v.get("dcaState")}
+                          for s, v in positions.items()}
+        self.engineposition = SimpleNamespace(update=self._update)
+        # (ticker, runDate) -> row; the R1 stage-B short-circuit reads its own
+        # (ticker, run_date) full-tier row via weeklysignal.find_unique.
+        self._ws_rows = {}
+        self.weeklysignal = SimpleNamespace(find_unique=self._ws_find_unique)
+
+    async def _ws_find_unique(self, where):
+        key = where["ticker_runDate"]
+        return self._ws_rows.get((key["ticker"], key["runDate"]))
+
+    async def _update(self, where, data):
+        key = ("A", where["sleeve_symbol"]["symbol"])
+        rec = self.positions.setdefault(key, {})
+        val = data.get("dcaState")
+        rec["dcaState"] = getattr(val, "data", val)
+
+    def _increase(self, symbol, qty):
+        self.positions[("A", symbol)]["qty"] += qty
+
+    def _reduce(self, symbol, qty):
+        self.positions[("A", symbol)]["qty"] -= qty
+
+
+class _ThBroker:
+    """Records market buys / sells and reflects them onto the fake db."""
+    def __init__(self, db):
+        self._db = db
+        self.market_buys = []
+        self.sells = []
+
+    async def submit_market_buy(self, symbol, qty, price_hint, journal, client_order_id):
+        self.market_buys.append(SimpleNamespace(
+            symbol=symbol, qty=qty, price_hint=price_hint, journal=journal,
+            client_order_id=client_order_id))
+        self._db._increase(symbol, qty)
+        return BrokerOrderResult(order_id=client_order_id, symbol=symbol, side="buy",
+                                 status="shadow_filled", filled_qty=qty,
+                                 filled_avg_price=price_hint)
+
+    async def submit_sell(self, symbol, qty, price_hint, journal, client_order_id):
+        self.sells.append(SimpleNamespace(
+            symbol=symbol, qty=qty, price_hint=price_hint, journal=journal,
+            client_order_id=client_order_id))
+        self._db._reduce(symbol, qty)
+        return BrokerOrderResult(order_id=client_order_id, symbol=symbol, side="sell",
+                                 status="shadow_filled", filled_qty=qty,
+                                 filled_avg_price=price_hint)
+
+
+def _th_pos_row(symbol, qty, high_water=None, dca_state=None):
+    return SimpleNamespace(symbol=symbol, qty=float(qty),
+                           highWaterClose=high_water, dcaState=dca_state)
+
+
+@contextlib.contextmanager
+def _thesis_ctx(pos_rows, latest, reuse_action, sink):
+    """Patch every collaborator so the REAL _decide_and_execute + _execute_sells
+    run end to end while stage A/B inputs are controlled. `latest` may be a list
+    (side_effect: initial then post-review refresh) or a single dict."""
+    import importlib
+    # NB: `research_swarm.data` re-exports a lowercase singleton that shadows the
+    # submodule under attribute access, so `import ... as` binds the instance.
+    # import_module returns the real module object from sys.modules.
+    mdc_mod = importlib.import_module("research_swarm.data.market_data_client")
+    mc = MagicMock()
+    mc.get_earnings_dates.return_value = None
+    latest_mock = (AsyncMock(side_effect=latest) if isinstance(latest, list)
+                   else AsyncMock(return_value=latest))
+    with patch.object(saf, "_load_latest_signals", new=latest_mock), \
+         patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_open_shadow_buys",
+                      new=AsyncMock(return_value={"notional": 0.0, "symbols": set(),
+                                                 "count": 0})), \
+         patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_handshake_and_enter", new=AsyncMock(return_value=[])), \
+         patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)), \
+         patch.object(saf, "reuse_or_budget", new=AsyncMock(return_value=reuse_action)), \
+         patch.object(saf, "run_paid_analysis", new=AsyncMock(return_value={})), \
+         patch.object(saf, "persist_full",
+                      new=AsyncMock(return_value={"status": "upgraded", "signals": {}})), \
+         patch.object(saf, "write_report", new=sink), \
+         patch("execution.sleeve_service.get_engine_positions",
+               new=AsyncMock(return_value=pos_rows)), \
+         patch("execution.sleeve_service.update_sleeve_cash", new=AsyncMock()), \
+         patch.object(mdc_mod, "MarketDataClient", return_value=mc):
+        yield
+
+
+def _th_meta(verdict, age, prior=None, last_price=None, rec=None):
+    return {"verdict": verdict, "report_age_days": age, "prior_verdict": prior,
+            "last_review_price": last_price, "position_size_rec": rec}
+
+
+def _run_decide(db, broker, sleeve_ctx, screened):
+    return _run(saf._decide_and_execute(
+        db, broker, NOW, "neutral", sleeve_ctx=sleeve_ctx,
+        assembled={"active_themes": []}, screened=screened,
+        lights={"light_rows": {}, "spent": 0}, step=None,
+    ))
+
+
+def test_triggered_holding_gets_review_before_plan():
+    """A stale holding claims a full-run slot ahead of new entries; the review's
+    AVOID verdict exits it through the existing sell_verdict path."""
+    db = _ThDB({"OLDN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("OLDN", price=20.0)],
+                "close_by_symbol": {"OLDN": 20.0}, "sector_by_symbol": {}}
+    latest = [{"OLDN": _th_meta("buy", 60.0)},          # stale → review triggered
+              {"OLDN": _th_meta("avoid", 0.0, prior="buy")}]   # review → AVOID
+    sink = _ReportSink()
+    with _thesis_ctx([_th_pos_row("OLDN", 10.0)], latest, {"action": "analyze"}, sink):
+        _run_decide(db, broker,
+                    {"cash": 5000.0, "positions": {"OLDN": 10.0},
+                     "allow_buys": True, "status": "active"}, screened)
+    assert sink.count("review_trigger") == 1
+    assert broker.sells and broker.sells[0].symbol == "OLDN"
+    assert sink.count("exit_sell_verdict") == 1
+    assert broker.market_buys == []
+
+
+def test_rung_trigger_with_buy_verdict_adds_half_tranche():
+    """A 25% drawdown fires the 0.20 ladder rung; a still-buy verdict adds half a
+    tranche and the consumed rung is persisted to dcaState."""
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("DIPN", price=75.0, liquidity_adv_usd=1e7,
+                                       atr_pct=0.05)],
+                "close_by_symbol": {"DIPN": 75.0}, "sector_by_symbol": {}}
+    latest = {"DIPN": _th_meta("buy", 2.0)}
+    sink = _ReportSink()
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)], latest,
+                     {"action": "reuse", "signals": {"verdict": "buy"}}, sink):
+        _run_decide(db, broker,
+                    {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                     "allow_buys": True, "status": "active"}, screened)
+    add = [b for b in broker.market_buys if b.symbol == "DIPN"]
+    assert len(add) == 1
+    assert sink.count("dca_add") == 1
+    st = db.positions[("A", "DIPN")]["dcaState"]
+    assert 0.20 in st["used"]
+    assert broker.sells == []
+
+
+def test_concentration_trigger_trims_only_via_review():
+    """A 30% weight triggers a review; the still-hold verdict shaves the excess
+    back to TRIM_FALLBACK_TARGET (0.12) via decisions['trims'] → risk_trim."""
+    db = _ThDB({"BIGW": {"qty": 100.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("BIGW", price=300.0)],
+                "close_by_symbol": {"BIGW": 300.0}, "sector_by_symbol": {}}
+    latest = {"BIGW": _th_meta("hold", 2.0)}
+    sink = _ReportSink()
+    with _thesis_ctx([_th_pos_row("BIGW", 100.0)], latest,
+                     {"action": "reuse", "signals": {"verdict": "hold"}}, sink):
+        _run_decide(db, broker,
+                    {"cash": 70_000.0, "positions": {"BIGW": 100.0},
+                     "allow_buys": True, "status": "active"}, screened)
+    trims = [s for s in broker.sells if s.journal["reason"] == "risk_trim"]
+    assert len(trims) == 1
+    assert abs(trims[0].qty * 300.0 - (0.30 - 0.12) * 100_000.0) < 300.0
+    assert broker.market_buys == []
+
+
+def test_no_trigger_no_spend_no_trade():
+    """A fresh, in-band, low-drawdown holding fires no trigger: no review, no
+    ADD, no TRIM, no sell."""
+    db = _ThDB({"CALM": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("CALM", price=100.0)],
+                "close_by_symbol": {"CALM": 100.0}, "sector_by_symbol": {}}
+    latest = {"CALM": _th_meta("buy", 2.0)}
+    sink = _ReportSink()
+    with _thesis_ctx([_th_pos_row("CALM", 10.0, high_water=105.0)], latest,
+                     {"action": "reuse", "signals": {"verdict": "buy"}}, sink):
+        _run_decide(db, broker,
+                    {"cash": 5000.0, "positions": {"CALM": 10.0},
+                     "allow_buys": True, "status": "active"}, screened)
+    assert sink.count("review_trigger") == 0
+    assert broker.sells == [] and broker.market_buys == []
+
+
+def test_verdict_downgrade_releases_a_tranche_not_the_position():
+    """A fresh review that downgrades buy→hold releases one 25% tranche (the DCA
+    ladder's mirror) — the position is reduced, not exited."""
+    db = _ThDB({"MU": {"qty": 100.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("MU", price=300.0)],
+                "close_by_symbol": {"MU": 300.0}, "sector_by_symbol": {}}
+    latest = [{"MU": _th_meta("buy", 60.0)},                    # stale → review
+              {"MU": _th_meta("hold", 0.0, prior="buy")}]       # buy→hold downgrade
+    sink = _ReportSink()
+    # cash large enough that MU's 30k position is < CONCENTRATION_REVIEW_WEIGHT
+    # of equity — isolates the buy→hold REDUCE from the concentration TRIM.
+    with _thesis_ctx([_th_pos_row("MU", 100.0)], latest, {"action": "analyze"}, sink):
+        _run_decide(db, broker,
+                    {"cash": 200_000.0, "positions": {"MU": 100.0},
+                     "allow_buys": True, "status": "active"}, screened)
+    sells = [s for s in broker.sells if s.symbol == "MU"]
+    assert len(sells) == 1 and abs(sells[0].qty - 25.0) < 1e-6
+    assert sink.count("thesis_reduce") == 1
+    assert db.positions[("A", "MU")]["qty"] == 75
+
+
+# ── C2 replay-model / C2b rung durability / I1 fill-accurate ADD ─────────────
+# The failure class the review surfaced was invisible to inline (step=None)
+# tests: production runs under the Inngest replay model, where the function body
+# re-executes on every step boundary and only step.run results are memoized.
+
+
+class _MemoStep:
+    """Simulates the Inngest replay model: step.run memoizes by id across the
+    (re-executing) function body AND across explicit re-invocations, and return
+    values round-trip through JSON to mirror the durable-log serialization."""
+
+    def __init__(self):
+        self._log = {}
+
+    async def run(self, step_id, fn):
+        import json
+        if step_id in self._log:
+            return json.loads(self._log[step_id])
+        val = await fn()
+        self._log[step_id] = json.dumps(val)
+        return json.loads(self._log[step_id])
+
+
+class _RejectBroker(_ThBroker):
+    """submit_market_buy that the broker REJECTS (zero fill) — the market never
+    accepted the order, so nothing may be debited from the sleeve."""
+
+    async def submit_market_buy(self, symbol, qty, price_hint, journal, client_order_id):
+        self.market_buys.append(SimpleNamespace(
+            symbol=symbol, qty=qty, price_hint=price_hint, journal=journal,
+            client_order_id=client_order_id))
+        return BrokerOrderResult(order_id="", symbol=symbol, side="buy",
+                                 status="rejected", filled_qty=0.0,
+                                 filled_avg_price=None)
+
+
+def _rung_screened():
+    return {"ranked": [_screen_row("DIPN", price=75.0, liquidity_adv_usd=1e7,
+                                   atr_pct=0.05)],
+            "close_by_symbol": {"DIPN": 75.0}, "sector_by_symbol": {}}
+
+
+def test_replay_memoized_triggers_single_add_and_journal():
+    """C2/I4: two _decide_and_execute runs under a memoizing step fake (first
+    executes, replay returns cached) must yield IDENTICAL triggers, exactly one
+    review_trigger journal, exactly one dca_add order+journal, and the ladder
+    ADD must actually execute on the PAID review path — the end-to-end scenario
+    C2 broke (a rung consumed on exec 1 vanished before the post-review replay)."""
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    latest = {"DIPN": _th_meta("buy", 2.0)}     # fresh (no staleness) → rung only
+    sink = _ReportSink()
+    step = _MemoStep()
+
+    def _decide():
+        return _run(saf._decide_and_execute(
+            db, broker, NOW, "neutral",
+            sleeve_ctx={"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                        "allow_buys": True, "status": "active"},
+            assembled={"active_themes": []}, screened=_rung_screened(),
+            lights={"light_rows": {}, "spent": 0}, step=step))
+
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)], latest,
+                     {"action": "analyze"}, sink):
+        out1 = _decide()
+        out2 = _decide()                         # the replay
+
+    assert out1["reviews"]["triggered"] == {"DIPN": ["ladder_rung"]}
+    assert out1["reviews"]["triggered"] == out2["reviews"]["triggered"]
+    assert sink.count("review_trigger") == 1     # journalled exactly once
+    assert sink.count("dca_add") == 1            # journalled exactly once
+    add = [b for b in broker.market_buys if b.symbol == "DIPN"]
+    assert len(add) == 1                         # ONE ADD order on the paid path
+    st = db.positions[("A", "DIPN")]["dcaState"]
+    assert 0.20 in st["used"]                    # rung durably consumed
+
+
+def test_i1_rejected_dca_add_debits_nothing():
+    """I1: a rejected market buy (zero fill) must debit NOTHING from the ADD
+    ledger and journal an engine_failure — not a phantom dca_add at the hint."""
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _RejectBroker(db)
+    latest = {"DIPN": _th_meta("buy", 2.0)}
+    sink = _ReportSink()
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)], latest,
+                     {"action": "reuse", "signals": {"verdict": "buy"}}, sink):
+        out = _run_decide(db, broker,
+                          {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                           "allow_buys": True, "status": "active"}, _rung_screened())
+    assert len(broker.market_buys) == 1          # order attempted
+    assert db.positions[("A", "DIPN")]["qty"] == 10.0   # rejected → no shares
+    assert sink.count("dca_add") == 0            # nothing filled → not journalled
+    assert sink.count("engine_failure") >= 1     # no-fill journalled
+    assert out["reviews"]["add_notional"] == 0.0  # ledger debited nothing
+
+
+def test_c2b_deferred_review_leaves_rung_for_next_week():
+    """C2b: a budget-deferred review must NOT durably consume the ladder rung —
+    the rung fires again the following week when budget frees up."""
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = _rung_screened()
+
+    # Week 1: budget exhausted → review deferred; rung must NOT be consumed.
+    sink1 = _ReportSink()
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)},
+                     {"action": "skip", "reason": "budget_exhausted"}, sink1):
+        _run_decide(db, broker,
+                    {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                     "allow_buys": True, "status": "active"}, screened)
+    assert sink1.count("review_trigger") == 1
+    assert broker.market_buys == []                       # deferred → no ADD
+    assert db.positions[("A", "DIPN")].get("dcaState") is None  # rung intact
+
+    # Week 2: budget available (reuse) → rung fires AGAIN and is consumed now.
+    sink2 = _ReportSink()
+    pos2 = _th_pos_row("DIPN", db.positions[("A", "DIPN")]["qty"],
+                       high_water=100.0,
+                       dca_state=db.positions[("A", "DIPN")].get("dcaState"))
+    with _thesis_ctx([pos2], {"DIPN": _th_meta("buy", 2.0)},
+                     {"action": "reuse", "signals": {"verdict": "buy"}}, sink2):
+        _run_decide(db, broker,
+                    {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                     "allow_buys": True, "status": "active"}, screened)
+    assert sink2.count("review_trigger") == 1
+    add = [b for b in broker.market_buys if b.symbol == "DIPN"]
+    assert len(add) == 1                                  # rung re-fired → ADD
+    st = db.positions[("A", "DIPN")]["dcaState"]
+    assert 0.20 in st["used"]                             # now consumed
+
+
+# ── R1: budget-gate re-evaluation must not flip a completed review to deferred
+# on the exec AFTER this pass's own persist_full created the full-tier row ─────
+
+
+class _StepInterrupt(BaseException):
+    """A BaseException (like an Inngest step suspension) — escapes the funnel's
+    `except Exception` guards so exec 1 stops AT the interrupt step, mirroring a
+    real replay boundary rather than the local degrade path."""
+
+
+class _InterruptStep(_MemoStep):
+    """Memoizing step fake that raises a suspension the FIRST time it reaches
+    `interrupt_at` (after earlier steps have already run + persisted), then
+    executes that step normally on the replay."""
+
+    def __init__(self, interrupt_at):
+        super().__init__()
+        self._interrupt_at = interrupt_at
+        self._fired = False
+
+    async def run(self, step_id, fn):
+        if step_id == self._interrupt_at and not self._fired:
+            self._fired = True
+            raise _StepInterrupt(step_id)
+        return await super().run(step_id, fn)
+
+
+async def _ws_writing_persist(db, ticker, run_date, result, current_price, screen_score):
+    """persist_full stand-in that actually writes the full-tier funnel row the
+    stage-B short-circuit reads back on the replay exec."""
+    db._ws_rows[(ticker, run_date)] = SimpleNamespace(
+        tier="full", escalationReasons=["sleeve_a_funnel"])
+    return {"status": "upgraded", "signals": {}}
+
+
+def test_r1_gate_flip_replay_keeps_review_not_deferred():
+    """R1: exec 1 persists a paid review then interrupts at the dca-add step;
+    on exec 2 the budget gate would return skip (the just-created full row
+    saturates the cap), but the stage-B short-circuit must classify the symbol
+    as reviewed — identical add_spend/trims to a no-interrupt run, and NO
+    spurious budget_exhausted deferral journal."""
+    analyze = {"action": "analyze"}
+    skip = {"action": "skip", "reason": "budget_exhausted"}
+    ctx = {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+           "allow_buys": True, "status": "active"}
+
+    # Reference: one clean no-interrupt run (gate stays analyze throughout).
+    ref_db = _ThDB({"DIPN": {"qty": 10.0}})
+    ref_broker = _ThBroker(ref_db)
+    ref_sink = _ReportSink()
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)}, analyze, ref_sink), \
+         patch.object(saf, "persist_full", new=_ws_writing_persist):
+        ref = _run_decide(ref_db, ref_broker, ctx, _rung_screened())
+    assert ref["reviews"]["add_notional"] > 0             # baseline ADD fired
+
+    # Interrupt-after-persist replay: gate flips analyze→skip; the fix must
+    # never consult it on exec 2 (short-circuit fires first).
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    sink = _ReportSink()
+    step = _InterruptStep(interrupt_at="dca-add-dipn")
+    gate = AsyncMock(side_effect=[analyze, skip, skip, skip])
+
+    def _decide():
+        return _run(saf._decide_and_execute(
+            db, broker, NOW, "neutral", sleeve_ctx=ctx,
+            assembled={"active_themes": []}, screened=_rung_screened(),
+            lights={"light_rows": {}, "spent": 0}, step=step))
+
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)}, analyze, sink), \
+         patch.object(saf, "reuse_or_budget", new=gate), \
+         patch.object(saf, "persist_full", new=_ws_writing_persist):
+        interrupted = False
+        try:
+            _decide()                    # exec 1: persists, interrupts at dca-add
+        except _StepInterrupt:
+            interrupted = True
+        assert interrupted               # exec 1 suspended AFTER persist
+        out2 = _decide()                 # exec 2: the replay
+
+    # (a) reviewed, not deferred
+    assert out2["reviews"]["reviewed"] == ["DIPN"]
+    assert out2["reviews"]["deferred"] == []
+    # (b) identical add_spend / trims to the no-interrupt reference
+    assert out2["reviews"]["add_notional"] == ref["reviews"]["add_notional"]
+    assert (out2["decisions"].get("trims", [])
+            == ref["decisions"].get("trims", []))
+    # (c) no spurious "review deferred — budget_exhausted" journal
+    assert not any("deferred" in t for t in sink.titles)

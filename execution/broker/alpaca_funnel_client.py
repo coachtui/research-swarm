@@ -144,6 +144,58 @@ class AlpacaFunnelBroker:
             await self._reduce_position(symbol, filled_qty, float(fill_price))
         return result
 
+    async def submit_market_buy(
+        self, symbol: str, qty: float, price_hint: float,
+        journal: Dict[str, Any], client_order_id: str,
+    ) -> BrokerOrderResult:
+        """Market buy for DCA ADD tranches (thesis-hold redesign). notional =
+        qty * price_hint is what's SENT to Alpaca as a market DAY order;
+        Alpaca fills at the ACTUAL live price (price_hint only sizes the
+        notional), and the EngineTrade row records that actual fill. Qty is
+        floored to whole shares for ledger consistency with submit_limit_buy
+        (market DAY orders allow fractional qty, but a fractional position
+        would be inconsistent with the rest of the book).
+
+        Idempotent like submit_sell (C1): the funnel's decide/execute stage
+        replays outside step.run, so a repeated client_order_id must NOT fire
+        a second real market buy (double position size, double cash debit)."""
+        from prisma import Json  # noqa: PLC0415
+
+        existing = await self._find_by_client_order_id(symbol, "buy", client_order_id)
+        if existing is not None:
+            return BrokerOrderResult(
+                order_id=str(existing.brokerOrderId), symbol=symbol, side="buy",
+                status=existing.status, filled_qty=float(existing.qty or 0.0),
+                filled_avg_price=existing.fillPrice,
+            )
+
+        qty = float(int(qty))
+        if qty < 1:
+            return BrokerOrderResult(
+                order_id="", symbol=symbol, side="buy",
+                status="rejected", filled_qty=0.0, filled_avg_price=None,
+            )
+
+        result = await asyncio.to_thread(
+            self._alpaca.submit_market_buy_notional, symbol, qty * price_hint,
+        )
+        fill_price = result.filled_avg_price
+        filled_qty = float(result.filled_qty or 0.0)
+        await self._db.enginetrade.create(data={
+            "sleeve": self._sleeve, "symbol": symbol, "side": "buy",
+            "qty": filled_qty if filled_qty > 0 else qty,
+            "fillPrice": fill_price, "limitPrice": None,
+            "brokerOrderId": result.order_id, "status": result.status,
+            "journal": Json({**(journal or {}), "client_order_id": client_order_id}),
+        })
+        if fill_price is not None and filled_qty > 0:
+            # _increase_position's update branch preserves an EXISTING
+            # position's other fields (highWaterClose, stopPrice) untouched —
+            # only the create branch seeds highWaterClose, so a DCA ADD never
+            # resets the ratchet.
+            await self._increase_position(symbol, filled_qty, float(fill_price))
+        return result
+
     async def get_open_orders(self) -> List[Any]:
         return await self._db.enginetrade.find_many(
             where={"sleeve": self._sleeve, "status": "open"}

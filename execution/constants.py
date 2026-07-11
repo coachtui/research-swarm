@@ -66,6 +66,9 @@ SLEEVE_B_TOP_N = 3                 # ETFs held in risk_on / neutral
 SLEEVE_B_BASE_WEIGHTS = (0.5, 0.3, 0.2)  # rank-proportional base weights
 HYSTERESIS_RANKS = 2               # challenger must out-rank an incumbent by >= this
 REGIME_INVESTED_FRACTION = {"risk_on": 1.0, "neutral": 0.7, "risk_off": 0.4}
+# Sleeve A thesis-hold exposure floors (owner ruling 2026-07-10). Sleeve B
+# (control) keeps REGIME_INVESTED_FRACTION above — never merge these.
+SLEEVE_A_INVESTED_FRACTION = {"risk_on": 1.0, "neutral": 0.9, "risk_off": 0.75}
 DEFENSIVE_ETFS = ("XLP", "XLU", "XLV")  # risk_off holds only the best of these
 MIN_TRADE_NOTIONAL = 50.0          # ignore dust rebalances below this
 MAX_SECTOR_PCT_OF_ACCOUNT = 0.35   # hard guardrail: one sector across both sleeves
@@ -123,6 +126,16 @@ STALENESS_DECAY_FLOOR = 0.60
 CONVICTION_BUY_BONUS = 5.0          # points (0–100 scale); SELL is a veto, not a score
 LIGHT_SENTIMENT_MODEL = "claude-haiku-4-5"
 LIGHT_SENTIMENT_MAX_HEADLINES = 25
+
+# ── Thesis-hold review triggers (spec 2026-07-10-sleeve-a-thesis-hold-redesign) ─
+DCA_RUNGS = (0.20, 0.30, 0.40)       # drawdown-from-high add/review levels
+DCA_TRANCHE_FRACTION = 0.5           # ADD buys half a fresh entry's notional
+EARNINGS_DIVERGENCE_DD = 0.15        # drawdown floor for the "MU signal"
+EARNINGS_DIVERGENCE_MAX_DAYS = 14    # two weekly passes wide (Mon-cutoff leak)
+CONCENTRATION_REVIEW_WEIGHT = 0.20   # weight that TRIGGERS a review (never sells)
+TRIM_FALLBACK_TARGET = 0.12          # TRIM target if the review states none
+RUNUP_REVIEW_GAIN = 0.25             # price gain threshold for review trigger
+REDUCE_TRANCHE_FRACTION = 0.25       # REDUCE buys this fraction of a tranche
 
 # Weights must each sum to 1.0 (tested).
 CONVICTION_WEIGHTS = {

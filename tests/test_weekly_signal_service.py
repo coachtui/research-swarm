@@ -251,6 +251,29 @@ class TestUpgradeToFull:
         assert ok is False
         db.weeklysignal.update.assert_not_awaited()
 
+    @pytest.mark.asyncio
+    async def test_funnel_persist_captures_prior_full_verdict(self):
+        """C1: the funnel's persist path (ensure_signal_row → upgrade_to_full)
+        must stamp priorVerdict from the symbol's PREVIOUS full verdict, exactly
+        as the weekly_batch writers do, so the buy→hold REDUCE edge is visible."""
+        db = _mock_db()
+        # Prior full row said "buy"; the current fresh full row overwrites the
+        # verdict but must preserve the prior into priorVerdict.
+        db.weeklysignal.find_first = AsyncMock(
+            return_value=MagicMock(verdict="buy", evProbability=0.66))
+        service = WeeklySignalService(db=db)
+        ok = await service.upgrade_to_full(
+            ticker="AAPL", run_date=RUN_DATE, result=SAMPLE_RESULT,
+            escalation_score=0.0, escalation_reasons=["sleeve_a_funnel"])
+        assert ok is True
+        data = db.weeklysignal.update.call_args.kwargs["data"]
+        assert data["priorVerdict"] == "buy"
+        assert data["priorEvProbability"] == 0.66
+        # the prior lookup must exclude verdict-less quant rows (continuity source)
+        where = db.weeklysignal.find_first.call_args.kwargs["where"]
+        assert where["verdict"] == {"not": None}
+        assert where["runDate"] == {"lt": RUN_DATE}
+
 
 class TestFindFreshResult:
     @pytest.mark.asyncio

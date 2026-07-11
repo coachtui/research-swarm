@@ -99,7 +99,11 @@ def parse_monthly_response(text: str) -> Dict[str, Any]:
             "thesis": thesis.strip(), "confidence": confidence,
             "metadata": metadata, "constituents": constituents,
         })
-    return {"themes": themes, "skipped": skipped}
+    next_constraints = [
+        h for h in (obj.get("next_constraints") or [])
+        if isinstance(h, dict) and h.get("hypothesis")
+    ]
+    return {"themes": themes, "skipped": skipped, "next_constraints": next_constraints}
 
 
 def parse_delta_response(text: str) -> Dict[str, Any]:

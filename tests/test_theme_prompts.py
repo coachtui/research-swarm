@@ -44,3 +44,11 @@ def test_delta_prompt_is_constituent_only():
     assert "photonics" in p and "LASR" in p
     assert '"add"' in p and '"remove"' in p
     assert "retire" not in p.lower().replace('"remove"', "")  # no theme-level actions
+
+
+def test_monthly_prompt_demands_forward_hypotheses_and_roles():
+    md = build_monthly_prompt({})
+    for phrase in ("what binds NEXT", "next_constraints", "time-to-solve",
+                   "anchor", "pure-play", "catalyst", "time-to-survive",
+                   "second-order losers"):
+        assert phrase in md, phrase

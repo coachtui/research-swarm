@@ -39,6 +39,35 @@ _SA_METHOD = """## Method (follow it in order — this is how you reason)
    indicators to watch for every theme you propose.
 """
 
+_REVEALED_BEHAVIOR = """## Revealed behavior of the best thematic investors (13F study, 2026-07-10)
+- Buy the BINDING CONSTRAINT, not the beneficiary. Consensus buys who
+  sells the theme; the re-rating lives in what the theme cannot proceed
+  without (power -> cooling -> energized shells -> memory/storage ->
+  optics -> fiber -> bridge power).
+- The constraint MIGRATES. Your primary deliverable each month is FORWARD:
+  answer "what binds NEXT once today's constraints are priced?" A
+  constraint that has become a consensus headline is priced — rotate the
+  reasoning to its successor.
+- Speed matters: time-to-solve is a selection criterion. Short-time-frame
+  demand accrues to whoever can deliver NOW (fuel cells, gensets, converted
+  capacity) over elegant solutions that take a decade.
+- Express every theme across the cap spectrum and by ROLE — state the
+  role in each constituent's exposure sentence: anchor
+  (contracted/profitable floor with thesis optionality), pure-play
+  (asymmetric constraint exposure), or catalyst (identifiable pending
+  repricing event). For pure-plays and catalysts also state
+  time-to-survive: whether the balance sheet reaches the catalyst.
+- Name the theme's second-order losers in metadata (who is disrupted or
+  squeezed if the thesis plays out).
+
+In addition to "themes", return a top-level "next_constraints" array with
+1-3 FORWARD hypotheses — constraints not yet investable-obvious:
+  {"hypothesis": "<one sentence>", "candidates": ["TICK", ...],
+   "leading_indicators": ["<2-4 observable signals>", ...],
+   "falsification": "<what kills the hypothesis>"}
+A hypothesis graduates to a proposed theme in a LATER month only when its
+leading indicators confirm."""
+
 
 def _themes_block(themes: List[Dict[str, Any]]) -> str:
     if not themes:
@@ -61,6 +90,8 @@ demand chain where a binding constraint creates a multi-year re-rating — and
 the public-company CONSTITUENTS with material exposure to each.
 
 {_SA_METHOD}
+
+{_REVEALED_BEHAVIOR}
 
 ## Current theme list (you maintain this — seeds compete equally)
 {_themes_block(context.get("active_themes") or [])}
@@ -112,6 +143,11 @@ Respond with ONLY a JSON object, no other text:
         {{"ticker": "<SYMBOL>", "exposure": "<one falsifiable sentence>", "confidence": <float>}}
       ]
     }}
+  ],
+  "next_constraints": [
+    {{"hypothesis": "<one sentence>", "candidates": ["<SYMBOL>", ...],
+      "leading_indicators": ["<2-4 observable signals>", ...],
+      "falsification": "<what kills the hypothesis>"}}
   ]
 }}"""
 

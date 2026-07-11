@@ -1026,6 +1026,7 @@ model EnginePosition {
   highWaterClose  Float?   // trailing-stop anchor
   sourceTags      Json?    // {themes: [slug], industries: [key], watchlist: bool}
   reportRef       String?  // WeeklySignal id of the full run that justified entry
+  dcaState        Json?    // thesis-hold ladder: {"armed_high": float, "used": [0.2,...]}
 
   @@unique([sleeve, symbol])
 }

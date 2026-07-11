@@ -6,7 +6,7 @@ raise OutlookDataError so the weekly job skips the week instead of
 producing an outlook from partial data.
 """
 import logging
-from typing import Dict, Iterable
+from typing import Dict, Iterable, Optional
 
 import pandas as pd
 
@@ -121,3 +121,50 @@ def fetch_ohlcv_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, p
         except (KeyError, IndexError):  # one bad ticker must not sink the batch
             continue
     return out
+
+
+def fetch_weekly_closes(tickers: Iterable[str], period: str = "5y") -> Dict[str, pd.Series]:
+    """Weekly closes for the 200-week MA advisory input. Small symbol sets
+    ONLY — holdings + top-ranked candidates, never the full screening
+    universe. Mirrors fetch_ohlcv_batch's batched-download / best-effort
+    posture, just at interval='1wk'."""
+    import yfinance as yf  # noqa: PLC0415 — heavy import stays local
+
+    symbols = list(dict.fromkeys(t.upper() for t in tickers if t))
+    if not symbols:
+        return {}
+    try:
+        raw = yf.download(
+            tickers=" ".join(symbols), period=period, interval="1wk",
+            group_by="ticker", auto_adjust=True, progress=False, threads=True,
+        )
+    except Exception:
+        logger.exception("fetch_weekly_closes: download failed")
+        return {}
+    if raw is None or raw.empty:
+        return {}
+    out: Dict[str, pd.Series] = {}
+    if not isinstance(raw.columns, pd.MultiIndex):  # single-ticker shape
+        series = raw.get("Close")
+        if series is not None and not series.dropna().empty:
+            out[symbols[0]] = series.dropna()
+        return out
+    for sym in symbols:
+        try:
+            series = raw[sym]["Close"].dropna()
+        except (KeyError, IndexError):  # one bad ticker must not sink the batch
+            continue
+        if not series.empty:
+            out[sym] = series
+    return out
+
+
+def dist_200wma(weekly_closes: Optional[pd.Series]) -> Optional[float]:
+    """Price distance from the 200-week SMA: price / 200w-SMA - 1.
+    None when there aren't yet 200 weekly bars (new listing) or the series
+    is absent (fetch failure) — an advisory input degrades to null, never
+    blocks the screen."""
+    if weekly_closes is None or len(weekly_closes) < 200:
+        return None
+    sma = float(weekly_closes.rolling(200).mean().iloc[-1])
+    return float(weekly_closes.iloc[-1] / sma - 1.0) if sma > 0 else None

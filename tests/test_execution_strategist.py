@@ -41,8 +41,11 @@ def test_prompt_isolated_from_sleeve_a_extended_signals():
     """Control-group contract: the strategist prompt must be identical whether
     or not Sleeve-A-only extended signals (industry, size_style) — or, as of
     Phase 3C, funnel signals (entry_queue, shadow positions, engine_light
-    rows) — are present on the indicators payload. The strategist's override
-    feeds the shared regime that Sleeve B (the control group) trades on."""
+    rows) — or, as of the thesis-hold redesign (Phase 3D+), Sleeve-A
+    thesis-hold signals (200wMA distance, DCA adds, review triggers, theme
+    discovery constraints, the invested-fraction schedule) — are present on
+    the indicators payload. The strategist's override feeds the shared
+    regime that Sleeve B (the control group) trades on."""
     base_prompt = build_strategist_prompt(PAYLOAD)
 
     payload_with_extended = {
@@ -57,6 +60,11 @@ def test_prompt_isolated_from_sleeve_a_extended_signals():
         "entry_queue": ["ABCD"],
         "shadow_positions": [{"symbol": "ABCD", "qty": 10}],
         "engine_light": [{"symbol": "ABCD", "tier": "engine_light"}],
+        "dist_200wma": {"ABCD": 0.12},
+        "dca_add": {"reason": "dca_add", "triggers": ["staleness"]},
+        "review_trigger": [{"symbol": "ABCD", "reason": "review_trigger"}],
+        "next_constraints": ["avoid re-pitching Photonics for 90 days"],
+        "SLEEVE_A_INVESTED_FRACTION": {"risk_on": 1.0, "neutral": 0.9, "risk_off": 0.75},
     }
     extended_prompt = build_strategist_prompt(payload_with_extended)
 
@@ -70,6 +78,11 @@ def test_prompt_isolated_from_sleeve_a_extended_signals():
     assert "shadow_positions" not in extended_prompt
     assert "engine_light" not in extended_prompt
     assert "ABCD" not in extended_prompt
+    assert "dist_200wma" not in extended_prompt
+    assert "dca_add" not in extended_prompt
+    assert "review_trigger" not in extended_prompt
+    assert "next_constraints" not in extended_prompt
+    assert "SLEEVE_A_INVESTED_FRACTION" not in extended_prompt
 
 
 VALID_RESPONSE = json.dumps({

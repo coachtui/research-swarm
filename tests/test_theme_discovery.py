@@ -103,6 +103,17 @@ def test_parse_and_validate_monthly(monkeypatch):
     assert len(bundle["proposals"]) == 1
     assert len(bundle["validation"]) == 6
     assert bundle["skipped"] == []
+    assert bundle["next_constraints"] == []
+
+
+RAW_WITH_HYPOTHESES = ('{"themes": [], "next_constraints": ['
+                       '{"hypothesis": "grid labor binds", "candidates": ["MYRG"], '
+                       '"leading_indicators": ["backlogs"], "falsification": "wages flat"}]}')
+
+
+def test_parse_and_validate_monthly_passes_next_constraints():
+    bundle = discovery.parse_and_validate_monthly(RAW_WITH_HYPOTHESES)
+    assert bundle["next_constraints"][0]["hypothesis"] == "grid labor binds"
 
 
 def test_reason_delta_uses_cheap_model_no_search(monkeypatch):
@@ -168,6 +179,56 @@ async def test_apply_monthly_journals_skips_and_applies(monkeypatch):
     assert summary["applied"] == 1
     assert any(t == "validation_failure" for t, _ in reports)  # skips journaled
     assert planned["actions"][0]["kind"] == "activate_theme"
+
+
+@pytest.mark.asyncio
+async def test_apply_monthly_journals_next_constraint_hypotheses(monkeypatch):
+    reports = []
+
+    async def fake_write_report(t, sev, src, title, body, db=None):
+        reports.append((t, sev, src, title, body))
+        return "rep"
+
+    async def fake_apply_actions(db, actions, source):
+        return {"applied": len(actions), "reports": len(actions)}
+
+    monkeypatch.setattr(discovery, "write_report", fake_write_report)
+    monkeypatch.setattr(discovery, "apply_actions", fake_apply_actions)
+
+    class Db:
+        themebasket = _Themes([])
+
+    hypothesis = {"hypothesis": "grid labor binds", "candidates": ["MYRG"],
+                  "leading_indicators": ["backlogs"], "falsification": "wages flat"}
+    bundle = {"proposals": [], "validation": {}, "skipped": [],
+              "next_constraints": [hypothesis]}
+    await discovery.apply_monthly(Db(), bundle)
+    proposal_reports = [r for r in reports if r[0] == "theme_proposal"]
+    assert len(proposal_reports) == 1
+    _, sev, src, title, body = proposal_reports[0]
+    assert sev == "info" and src == discovery.SOURCE
+    assert "grid labor binds" in title
+    assert body == hypothesis
+
+
+@pytest.mark.asyncio
+async def test_apply_monthly_missing_next_constraints_key_is_safe(monkeypatch):
+    async def fake_write_report(t, sev, src, title, body, db=None):
+        return "rep"
+
+    async def fake_apply_actions(db, actions, source):
+        return {"applied": len(actions), "reports": len(actions)}
+
+    monkeypatch.setattr(discovery, "write_report", fake_write_report)
+    monkeypatch.setattr(discovery, "apply_actions", fake_apply_actions)
+
+    class Db:
+        themebasket = _Themes([])
+
+    # No "next_constraints" key at all — must not crash (byte-identical old-shape bundle).
+    bundle = {"proposals": [], "validation": {}, "skipped": []}
+    summary = await discovery.apply_monthly(Db(), bundle)
+    assert summary["applied"] == 0
 
 
 DELTA_RAW = ('{"themes": [{"slug": "gas-turbines", '
