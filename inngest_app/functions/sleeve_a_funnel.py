@@ -537,6 +537,7 @@ async def _handshake_and_enter(
                 "ttl_days": ttl, "guardrail_notes": notes,
                 "sourceTags": source_tags, "convictionScore": conviction,
                 "reportRef": report_ref,
+                "dist_200wma": screen.get("dist_200wma"),
             }
             try:
                 await client.submit_limit_buy(
@@ -947,6 +948,47 @@ async def _screen(
     ranked = await _quality_rerank(ranked)
     ranked = rank_candidates(ranked)
 
+    # 200-week MA advisory distance (Task 9): a DEDICATED small weekly fetch
+    # for holdings + the top-ranked candidate pool ONLY — never the full
+    # screening universe (that's the daily OHLCV fetch above). "Top-ranked
+    # candidate pool" = the same ranked[:_QUALITY_RERANK_TOP_N] window the
+    # quality re-rank already uses as the funnel's candidate cap. Guarded:
+    # any failure degrades to dist_200wma=None on every intended row and
+    # journals engine_failure — advisory input, never blocks the pass (3A
+    # degrade-never-block posture, mirroring _sectors_for's local-db journal).
+    by_symbol_for_wma = {r["symbol"]: r for r in ranked}
+    wma_symbols = list(dict.fromkeys(
+        list(sleeve_ctx.get("positions", {}))
+        + [r["symbol"] for r in ranked[:_QUALITY_RERANK_TOP_N]]
+    ))
+    try:
+        from execution.market_data import (  # noqa: PLC0415
+            dist_200wma, fetch_weekly_closes,
+        )
+
+        weekly = await asyncio.to_thread(fetch_weekly_closes, wma_symbols)
+        for sym in wma_symbols:
+            row = by_symbol_for_wma.get(sym)
+            if row is not None:
+                row["dist_200wma"] = dist_200wma(weekly.get(sym))
+    except Exception:  # noqa: BLE001 — advisory input degrades, never blocks
+        logger.exception("funnel: 200-week MA fetch failed")
+        for sym in wma_symbols:
+            row = by_symbol_for_wma.get(sym)
+            if row is not None:
+                row["dist_200wma"] = None
+        try:
+            from api.lib.db import get_db  # noqa: PLC0415
+
+            db = await get_db()
+            await _journal(
+                db, "engine_failure", "warning",
+                "200-week MA fetch failed — dist_200wma unavailable this pass",
+                {"stage": "screen-200wma", "symbols": len(wma_symbols)},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     fresh_symbols, stale_holdings = _light_slot_policy(
         ranked, sleeve_ctx.get("positions", {}), latest_signals or {},
     )
@@ -1222,7 +1264,8 @@ async def _decide_and_execute(
                 f"{sym}: review triggered — {', '.join(names)}",
                 {"symbol": sym, "triggers": names, "dd": round(dd, 4),
                  "weight": round(weight, 4),
-                 "report_age_days": (latest.get(sym) or {}).get("report_age_days")},
+                 "report_age_days": (latest.get(sym) or {}).get("report_age_days"),
+                 "dist_200wma": by_symbol.get(sym, {}).get("dist_200wma")},
             )
             # The rung is consumed by the review (once per episode) — persist now.
             if "ladder_rung" in names and pos is not None:
