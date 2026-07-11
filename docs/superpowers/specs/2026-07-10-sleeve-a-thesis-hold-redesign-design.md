@@ -103,14 +103,39 @@ ordering of configs is the evidence.
    - **Theme review failure** — existing path, unchanged.
    - **Concentration** — position weight crosses 20% of sleeve equity
      (a review *prompt*, never a sale; see mechanical change 4).
+   - **Run-up** — price ≥ +25% above the last full review's recorded
+     price (`WeeklySignal.currentPrice`): a fast climb must re-ask
+     whether the move is outrunning the thesis (owner's MSFT case —
+     +80% in a quarter with fundamentals still solid deserves a fresh
+     look, not a coast to the staleness clock).
 9. **Review outcomes:** `HOLD` (default), `SELL` (thesis broken → full
    exit at next open), `ADD` (thesis intact at a discount → buy a
    half-tranche, `DCA_TRANCHE_FRACTION = 0.5` of a fresh `size_entry`
-   notional, market order, cash permitting), or `TRIM` (thesis intact
-   but over-extended → partial sell to the LLM-stated target weight).
-   ADD is only reachable from an earnings-divergence or ladder-rung
-   trigger; TRIM only from a concentration or staleness trigger. Adds
-   take cash priority over new entries in the same weekly pass.
+   notional, market order, cash permitting), `TRIM` (thesis intact
+   but over-extended → partial sell to the LLM-stated target weight),
+   or `REDUCE` (thesis intact but **eroding** — the reasoning sees the
+   end approaching: supply catching demand, capex cycle rolling over,
+   structural profit-slowing → release `REDUCE_TRANCHE_FRACTION = 0.25`
+   of the position, keep the rest). ADD is only reachable from an
+   earnings-divergence or ladder-rung trigger; TRIM only from a
+   concentration or staleness trigger. Adds take cash priority over new
+   entries in the same weekly pass.
+   **REDUCE mapping (v1, owner's MU doctrine — "start releasing when
+   the signs are out"):** the generic pipeline emits `buy`/`hold`/
+   `avoid`, so anticipatory distribution is expressed as the LLM's own
+   verdict *trajectory*: a fresh full review downgrading a position
+   from `buy` to `hold` releases one tranche (the position's prior
+   verdict is already stored as `WeeklySignal.priorVerdict`); a further
+   downgrade to `avoid` exits the remainder via SELL. Re-affirmed `buy`
+   resets the trajectory. The staged-release path is thus the exact
+   mirror of the DCA ladder: conviction climbing a wall of price
+   weakness buys tranches; conviction slipping under price strength
+   sells them. **v2 rider (post-Tier-1):** a funnel-specific thesis-
+   review prompt that asks for explicit thesis-expiry indicators
+   ("what observable signs mean this thesis is ending?") stored
+   per-position and checked at each review — deferred because it
+   touches the swarm output schema (see manager-formatter drift
+   history) and deserves its own spec once live review data exists.
 10. **Budget:** triggered reviews share the existing weekly full-run
     budget. Priority when constrained: suspected thesis break >
     rung/earnings ADD candidates > new-entry handshakes. Deferrals roll

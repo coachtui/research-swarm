@@ -334,8 +334,37 @@ ALTER TABLE "engine_positions" ADD COLUMN "dcaState" JSONB;
   - `earnings_divergence(days_since_earnings: Optional[float], dd: float) -> bool`
   - `staleness(report_age_days: Optional[float]) -> bool`
   - `concentration(weight: float) -> bool`
-  - `collect_triggers(*, dd, days_since_earnings, report_age_days, weight, dca_state, high_water) -> Tuple[List[str], dict]` — ordered trigger names + updated dca state
-- Constants produced: `DCA_RUNGS = (0.20, 0.30, 0.40)`, `DCA_TRANCHE_FRACTION = 0.5`, `EARNINGS_DIVERGENCE_DD = 0.15`, `EARNINGS_DIVERGENCE_MAX_DAYS = 14` (calendar ≈ two weekly passes), `CONCENTRATION_REVIEW_WEIGHT = 0.20`, `TRIM_FALLBACK_TARGET = 0.12`.
+  - `runup(price: float, last_review_price: Optional[float]) -> bool` — `price >= (1 + RUNUP_REVIEW_GAIN) * last_review_price`; False when no prior review price
+  - `collect_triggers(*, dd, days_since_earnings, report_age_days, weight, dca_state, high_water, price, last_review_price) -> Tuple[List[str], dict]` — ordered trigger names + updated dca state
+- Constants produced: `DCA_RUNGS = (0.20, 0.30, 0.40)`, `DCA_TRANCHE_FRACTION = 0.5`, `EARNINGS_DIVERGENCE_DD = 0.15`, `EARNINGS_DIVERGENCE_MAX_DAYS = 14` (calendar ≈ two weekly passes), `CONCENTRATION_REVIEW_WEIGHT = 0.20`, `TRIM_FALLBACK_TARGET = 0.12`, `RUNUP_REVIEW_GAIN = 0.25`, `REDUCE_TRANCHE_FRACTION = 0.25`.
+
+Additional test for the run-up predicate (include in Step 1's test file):
+
+```python
+def test_runup_triggers_on_25pct_gain_since_last_review():
+    from execution.funnel.review_triggers import runup
+    assert runup(price=126.0, last_review_price=100.0)
+    assert not runup(price=124.0, last_review_price=100.0)
+    assert not runup(price=200.0, last_review_price=None)   # never reviewed
+
+
+def test_collect_triggers_includes_runup():
+    names, _ = collect_triggers(dd=0.0, days_since_earnings=None,
+                                report_age_days=2, weight=0.10,
+                                dca_state=None, high_water=130.0,
+                                price=130.0, last_review_price=100.0)
+    assert names == ["runup"]
+```
+
+And the implementation additions to `review_triggers.py`:
+
+```python
+def runup(price: float, last_review_price: Optional[float]) -> bool:
+    return (last_review_price is not None and last_review_price > 0
+            and price >= (1.0 + RUNUP_REVIEW_GAIN) * last_review_price)
+```
+
+(`collect_triggers` gains `price`/`last_review_price` kwargs and appends `"runup"` after `"concentration"`; import `RUNUP_REVIEW_GAIN`.) In Task 8's trigger loop, `last_review_price` comes from the most recent `tier=="full"` WeeklySignal row's `currentPrice` (extend `_load_latest_signals` to also return it — it already queries the rows).
 
 - [ ] **Step 1: Write the failing tests** — `tests/test_funnel_review_triggers.py`:
 
@@ -642,7 +671,44 @@ Then REBUILD the `holdings` list (rerun the existing holdings loop) so fresh ver
 
 `_parse_trim_target(meta)`: regex a percent out of the review's `positionSizeRec` string (`re.search(r"(\d+(?:\.\d+)?)\s*%", ...)` → `float/100` if `0 < x < CONCENTRATION_REVIEW_WEIGHT`), else None. TRIM rows flow through the existing `_execute_sells` trim branch unchanged.
 
-- [ ] **Step 6: REPORT_TYPES** — in `execution/reporting.py`, add `"dca_add", "review_trigger"` to the frozenset. Check the vocab test (`grep -rn "REPORT_TYPES" tests/`) — it pins the count (18 types after 3C); update to 20 with the two new names.
+- [ ] **Step 5b: Implement — stage D (REDUCE: staged release on verdict downgrade).** In the same post-plan block as stage C, after the ADD/TRIM branches — the mirror of the DCA ladder (owner's MU doctrine: "start releasing when the signs are out"). A fresh full review this pass that downgrades the position from `buy` to `hold` releases one tranche; `avoid` already exits fully via the plan's sell_verdict path:
+
+```python
+        elif (sym in reviewed_this_pass
+              and meta.get("verdict") == "hold"
+              and meta.get("prior_verdict") == "buy"):
+            close = close_by_symbol.get(sym, 0.0)
+            qty = round(REDUCE_TRANCHE_FRACTION * positions[sym], 4)
+            if qty > 0 and close > 0 and qty * close >= MIN_TRADE_NOTIONAL:
+                decisions["trims"].append({
+                    "symbol": sym, "reason": "thesis_reduce",
+                    "sell_notional": round(qty * close, 2)})
+                await _journal(db, "thesis_reduce", "info",
+                               f"{sym}: verdict buy→hold — releasing "
+                               f"{REDUCE_TRANCHE_FRACTION:.0%} tranche",
+                               {"symbol": sym, "qty": qty,
+                                "triggers": t["triggers"]})
+```
+
+`reviewed_this_pass` is the set of symbols stage B actually analyzed (not reused); `prior_verdict` comes from `WeeklySignal.priorVerdict` on the fresh row (extend `_load_latest_signals` to return it alongside `verdict`). The `_execute_sells` trim branch executes the tranche; add `"thesis_reduce"` to its reason→report mapping (journals as its own type, not `risk_trim`). A later review that re-affirms `buy` resets the trajectory naturally (the next downgrade is a fresh buy→hold edge); a downgrade to `avoid` exits the remainder via the existing sell_verdict path.
+
+Corresponding test to add in Step 1:
+
+```python
+async def test_verdict_downgrade_releases_a_tranche_not_the_position(funnel_env):
+    env = funnel_env(holdings={"MU": dict(qty=100, close=300.0,
+                                          report_age_days=60,      # staleness triggers
+                                          verdict="buy")},
+                     review_results={"MU": {"verdict": "hold",
+                                            "prior_verdict": "buy"}})
+    out = await run_decide_and_execute(env)
+    sells = [s for s in env.broker.sells if s.symbol == "MU"]
+    assert len(sells) == 1 and abs(sells[0].qty - 25.0) < 1e-6   # 25% tranche
+    assert env.reports.count("thesis_reduce") == 1
+    assert env.db.positions[("A", "MU")]["qty"] == 75            # still held
+```
+
+- [ ] **Step 6: REPORT_TYPES** — in `execution/reporting.py`, add `"dca_add", "review_trigger", "thesis_reduce"` to the frozenset. Check the vocab test (`grep -rn "REPORT_TYPES" tests/`) — it pins the count (18 types after 3C); update to 21 with the three new names.
 - [ ] **Step 7: Run the full funnel + backtest suites** — `python3 -m pytest tests/test_funnel_*.py tests/test_backtest_*.py tests/test_execution_*.py tests/test_theme_*.py -q --no-cov` → green.
 - [ ] **Step 8: Commit** — `git add inngest_app/functions/sleeve_a_funnel.py execution/reporting.py tests/ && git commit -m "feat(funnel): thesis reviews with ADD/TRIM/SELL outcomes wired into the weekly pass"`
 
