@@ -1,10 +1,12 @@
 """Phase 3D Tier 2 backtest CLI. Local only — never Railway, never cron.
 
-  python3 scripts/backtest_sleeve_a.py fetch   # universe CSVs + OHLCV cache
-  python3 scripts/backtest_sleeve_a.py run     # base run + baselines + report
-  python3 scripts/backtest_sleeve_a.py sweep   # + sensitivity suite + gate
+  python3 scripts/backtest_sleeve_a.py fetch        # universe CSVs + OHLCV cache
+  python3 scripts/backtest_sleeve_a.py run          # base run + baselines + report
+  python3 scripts/backtest_sleeve_a.py sweep        # + sensitivity suite + gate
+  python3 scripts/backtest_sleeve_a.py experiments  # entry-mechanics race + gate
 """
 import argparse
+import json
 import logging
 import sys
 import urllib.request
@@ -20,11 +22,14 @@ from execution.backtest.baselines import (          # noqa: E402
 from execution.backtest.data import (               # noqa: E402
     MARKET_SYMBOLS, fetch_ohlcv, load_ohlcv,
 )
+from execution.backtest.experiments import (        # noqa: E402
+    VARIANTS, race_row, run_combined_sweep, run_variant,
+)
 from execution.backtest.metrics import (            # noqa: E402
     compute_metrics, trade_stats, yearly_log_outperformance,
 )
 from execution.backtest.report import (             # noqa: E402
-    gate_verdict, render_report, write_report,
+    gate_verdict, render_experiments_report, render_report, write_report,
 )
 from execution.backtest.sensitivity import run_sweep     # noqa: E402
 from execution.backtest.simulator import BacktestConfig, run_backtest  # noqa: E402
@@ -76,7 +81,7 @@ def _download_index_holdings(name: str, url: str, dest: Path) -> None:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Sleeve A Tier 2 backtest")
     sub = p.add_subparsers(dest="command", required=True)
-    for name in ("fetch", "run", "sweep"):
+    for name in ("fetch", "run", "sweep", "experiments"):
         s = sub.add_parser(name)
         s.add_argument("--start", default="2015-01-01")
         s.add_argument("--end", default="2026-06-30")
@@ -148,6 +153,88 @@ def _load_all(ns):
     return ohlcv, cfg, pit, static
 
 
+REFERENCE_RUN = REPORTS_DIR / "20260710-115422" / "metrics.json"
+
+
+def _check_base_integrity(base_m: dict, reference: Path = REFERENCE_RUN):
+    """The race re-runs base in-process; if it no longer reproduces the
+    committed 2026-07-10 gate run, say so loudly (code drift on the base
+    path) but keep going — the race stays internally consistent."""
+    if not reference.exists():
+        print("base integrity: no reference run to compare against")
+        return None
+    ref = json.loads(reference.read_text())["base"]
+    ok = all(abs(base_m[k] - ref[k]) < 1e-9
+             for k in ("cagr", "sharpe", "max_drawdown"))
+    print(f"base integrity vs {reference.parent.name}: "
+          + ("MATCH" if ok else
+             f"MISMATCH — sharpe {base_m['sharpe']:.4f} vs ref {ref['sharpe']:.4f}"))
+    return ok
+
+
+def cmd_experiments(ns) -> None:
+    ohlcv, cfg, pit, static = _load_all(ns)
+    print(f"universe: {len(ohlcv)} symbols; entry-mechanics race "
+          f"(6 runs + 9-run combined sweep)…")
+    base_res = run_backtest(ohlcv, cfg, pit=pit, static_universe=static)
+    base_m = compute_metrics(base_res.equity)
+    integrity = _check_base_integrity(base_m)
+    print("base done; naive momentum…")
+    naive_eq = naive_momentum(ohlcv, cfg, pit=pit, static_universe=static)
+    naive_m = compute_metrics(naive_eq)
+    rows = [race_row("base", base_res, naive_m["sharpe"], cfg.starting_cash)]
+    results = {"base": base_res}
+    for variant in VARIANTS:
+        print(f"variant: {variant['name']}…")
+        res = run_variant(ohlcv, cfg, variant, pit=pit, static_universe=static)
+        results[variant["name"]] = res
+        rows.append(race_row(variant["name"], res, naive_m["sharpe"],
+                             cfg.starting_cash))
+    print("combined-config sensitivity sweep (9 runs)…")
+    sweep_rows = run_combined_sweep(ohlcv, cfg, naive_m["sharpe"],
+                                    pit=pit, static_universe=static)
+
+    combined_res = results["combined"]
+    combined_m = compute_metrics(combined_res.equity)
+    yearly = yearly_log_outperformance(combined_res.equity, naive_eq)
+    edges = [r["sharpe_edge"] for r in sweep_rows
+             if r["name"] != "flat_conviction_60"]
+    verdict = gate_verdict(combined_m, naive_m, yearly, edges)
+    baselines = {
+        "naive_momentum": naive_m,
+        "equal_weight": compute_metrics(
+            equal_weight_universe(ohlcv, cfg, pit=pit, static_universe=static)),
+        "spy": compute_metrics(spy_buy_hold(ohlcv, cfg)),
+    }
+    gate_meta = {"config": "combined — requote (TTL 1w) + capitulation valve "
+                 "+ OUTCOMPETE_MARGIN 8",
+                 "window": f"{cfg.start} → {cfg.end}",
+                 **trade_stats(combined_res.journal, combined_res.equity,
+                               cfg.starting_cash)}
+    gate_md = render_report(gate_meta, combined_m, baselines, yearly,
+                            sweep_rows, verdict)
+
+    meta = {"window": f"{cfg.start} → {cfg.end}",
+            "starting_cash": cfg.starting_cash, "symbols": len(ohlcv),
+            "base_matches_20260710-115422": integrity,
+            "spec": "docs/superpowers/specs/"
+                    "2026-07-10-phase3d-entry-mechanics-experiments-design.md"}
+    md = render_experiments_report(meta, rows, gate_md)
+    out = REPORTS_DIR / (datetime.now().strftime("%Y%m%d-%H%M%S") + "-experiments")
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "experiments.md").write_text(md)
+    (out / "experiments.json").write_text(json.dumps(
+        {"meta": meta, "race": rows, "combined_gate": {
+            "metrics": combined_m, "baselines": baselines,
+            "yearly_log_outperformance": yearly, "sweep": sweep_rows,
+            "verdict": verdict}}, indent=2, default=str))
+    import pandas as pd
+    for name, res in results.items():
+        pd.DataFrame(res.journal).to_csv(out / f"trades_{name}.csv", index=False)
+    print(md)
+    print(f"written: {out}/experiments.md")
+
+
 def cmd_run(ns, with_sweep: bool) -> None:
     ohlcv, cfg, pit, static = _load_all(ns)
     pit_coverage = None
@@ -200,6 +287,8 @@ def main() -> None:
     ns = build_parser().parse_args()
     if ns.command == "fetch":
         cmd_fetch(ns)
+    elif ns.command == "experiments":
+        cmd_experiments(ns)
     else:
         cmd_run(ns, with_sweep=(ns.command == "sweep"))
 

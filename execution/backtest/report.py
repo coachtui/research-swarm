@@ -83,6 +83,34 @@ def render_report(run_meta: dict, base: dict, baselines: Dict[str, dict],
     return "\n".join(lines) + "\n"
 
 
+SCOPE_LOCK = ("> **Scope lock:** backtest-only. No production funnel or "
+              "live-engine change follows from this report regardless of "
+              "the verdict; promotion is a separate owner decision.")
+
+
+def render_experiments_report(run_meta: dict, race_rows: List[dict],
+                              gate_md: str) -> str:
+    lines = ["# Sleeve A Tier 2 Backtest — Entry-Mechanics Experiments", ""]
+    lines += [f"- **{k}:** {v}" for k, v in run_meta.items()]
+    lines += ["", SCOPE_LOCK, "", DISCLAIMER, "", "## Race", "",
+              "| variant | CAGR | maxDD | Sharpe | MAR | edge vs naive "
+              "| fills | valve | missed | requotes | missed rate | exposure |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for r in race_rows:
+        rate = (f"{r['missed_fill_rate']:.1%}"
+                if r["missed_fill_rate"] is not None else "n/a")
+        lines.append(
+            f"| {r['name']} | {r['cagr']:+.2%} | {r['max_drawdown']:.2%} "
+            f"| {r['sharpe']:.2f} | {r['mar']:.2f} | {r['sharpe_edge']:+.2f} "
+            f"| {r['entry_fills']} | {r['valve_entries']} "
+            f"| {r['missed_fill_cancels']} | {r['requote_cancels']} "
+            f"| {rate} | {r['avg_exposure']} |")
+    lines += ["", "## Combined-config gate "
+              "(pre-committed criteria, sweep recentred on the combined constants)",
+              "", gate_md]
+    return "\n".join(lines) + "\n"
+
+
 def write_report(out_dir: Path, markdown: str, payload: dict) -> Path:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

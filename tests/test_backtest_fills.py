@@ -34,6 +34,13 @@ def test_check_stop_ratchets_high_water_up_only():
     assert (hw, hit) == (104.0, False)          # stop = 104 - 2.5*2 = 99
 
 
+def test_buy_fill_price_adds_adverse_slippage():
+    from execution.backtest.fills import buy_fill_price
+    assert buy_fill_price(100.0) == 100.1          # default 10 bps against us
+    assert buy_fill_price(100.0, 0.0) == 100.0
+    assert buy_fill_price(33.3333, 10.0) == 33.3666
+
+
 def test_check_stop_triggers_below_trail():
     # production constant TRAILING_STOP_ATR_MULT = 2.5 → stop = 104 - 5 = 99
     hw, hit = check_stop(high_water=104.0, today_close=98.9, atr=2.0)

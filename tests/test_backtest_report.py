@@ -66,3 +66,18 @@ def test_render_report_with_no_sweep_is_incomplete_not_pass():
     assert "INCOMPLETE" in md
     assert "Overall: PASS" not in md
     assert "N/A" in md and "sweep not run" in md
+
+
+def test_render_experiments_report_race_table_and_embedded_gate():
+    from execution.backtest.report import render_experiments_report
+    row = {"name": "combined", "cagr": 0.13, "max_drawdown": -0.16,
+           "sharpe": 1.05, "mar": 0.8, "sharpe_edge": 0.28,
+           "entry_fills": 900, "valve_entries": 40, "missed_fill_cancels": 200,
+           "requote_cancels": 800, "missed_fill_rate": 0.1754,
+           "avg_exposure": 0.51, "yearly_returns": {"2020": 0.2}}
+    md = render_experiments_report({"window": "w"}, [row], "GATE-SECTION")
+    assert "Entry-Mechanics Experiments" in md
+    assert "| combined | +13.00% | -16.00% | 1.05 | 0.80 | +0.28 " in md
+    assert "| 900 | 40 | 200 | 800 | 17.5% | 0.51 |" in md
+    assert md.rstrip().endswith("GATE-SECTION")
+    assert "backtest-only" in md.lower()

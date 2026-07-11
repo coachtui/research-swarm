@@ -32,6 +32,11 @@ def sell_fill_price(day_open: float, slippage_bps: float = SELL_SLIPPAGE_BPS) ->
     return round(day_open * (1.0 - slippage_bps / 10_000.0), 4)
 
 
+def buy_fill_price(day_open: float, slippage_bps: float = SELL_SLIPPAGE_BPS) -> float:
+    """Market buys pay slippage; limit buys don't (the limit is the bound)."""
+    return round(day_open * (1.0 + slippage_bps / 10_000.0), 4)
+
+
 def check_stop(high_water: float, today_close: float, atr: float) -> Tuple[float, bool]:
     """(new_high_water, triggered). A close that sets a new high-water can
     never trigger — stop_levels ratchets first, exactly as the live cron."""
