@@ -22,17 +22,22 @@ any step needing the broker rebuilds the client inside the step.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from execution.constants import (
     BENCHMARK,
+    CONCENTRATION_REVIEW_WEIGHT,
+    DCA_TRANCHE_FRACTION,
+    EARNINGS_DIVERGENCE_DD,
     FRESH_REPORT_DAYS,
     FULL_RUNS_PER_WEEK,
     HOLDING_STALE_WEEKS,
     LIGHT_RUNS_PER_WEEK,
     MIN_TRADE_NOTIONAL,
     OUTLOOK_MAX_AGE_DAYS,
+    REDUCE_TRANCHE_FRACTION,
     SLEEVE_A_INVESTED_FRACTION,
     RETIRED_THEME_EXIT_CONVICTION,
     SCREEN_WEIGHTS,
@@ -40,6 +45,7 @@ from execution.constants import (
     SLEEVE_A_FRACTION,
     SLEEVE_A_MAX_POSITIONS,
     SLEEVE_B,
+    TRIM_FALLBACK_TARGET,
 )
 from execution.engine.guardrails import enforce_funnel_guardrails
 from execution.funnel.conviction import compute_conviction
@@ -50,6 +56,7 @@ from execution.funnel.entries import (
 from execution.funnel.research_budget import (
     full_runs_used, persist_full, reuse_or_budget, run_paid_analysis,
 )
+from execution.funnel.review_triggers import collect_triggers, drawdown
 from execution.outlook_service import get_latest_outlook
 from execution.reporting import write_report
 
@@ -166,12 +173,17 @@ def _age_days(created: Any, now: datetime) -> Optional[float]:
 async def _load_latest_signals(
     db, symbols: List[str], now: datetime,
 ) -> Dict[str, Dict[str, Any]]:
-    """ONE query for ALL symbols → per-symbol {verdict, report_age_days}.
+    """ONE query for ALL symbols → per-symbol {verdict, report_age_days,
+    prior_verdict, last_review_price}.
 
-    verdict comes from the most recent tier='full' row (the categorical call
-    only a paid run makes); report_age_days comes from the most recent row of
-    ANY tier — a light run that refreshed the numbers this week counts as
-    fresh for the staleness multiplier (§7.1) and the free-ride slot (§5)."""
+    verdict/prior_verdict/last_review_price all come from the most recent
+    tier='full' row (the categorical call only a paid run makes): verdict is
+    this pass's call, prior_verdict is last pass's (the buy→hold downgrade edge
+    that releases a REDUCE tranche), last_review_price is the currentPrice that
+    full run recorded (the run-up review anchor). report_age_days comes from
+    the most recent row of ANY tier — a light run that refreshed the numbers
+    this week counts as fresh for the staleness multiplier (§7.1) and the
+    free-ride slot (§5)."""
     out: Dict[str, Dict[str, Any]] = {}
     syms = list({s for s in symbols if s})
     if not syms:
@@ -190,6 +202,8 @@ async def _load_latest_signals(
             continue
         entry = out.setdefault(
             sym, {"verdict": None, "report_age_days": None,
+                  "prior_verdict": None, "last_review_price": None,
+                  "position_size_rec": None,
                   "_have_age": False, "_have_verdict": False},
         )
         if not entry["_have_age"]:
@@ -197,6 +211,9 @@ async def _load_latest_signals(
             entry["_have_age"] = True
         if not entry["_have_verdict"] and getattr(r, "tier", None) == "full":
             entry["verdict"] = getattr(r, "verdict", None)
+            entry["prior_verdict"] = getattr(r, "priorVerdict", None)
+            entry["last_review_price"] = getattr(r, "currentPrice", None)
+            entry["position_size_rec"] = getattr(r, "positionSizeRec", None)
             entry["_have_verdict"] = True
     for entry in out.values():
         entry.pop("_have_age", None)
@@ -607,36 +624,42 @@ async def _execute_sells(
                        {"symbol": sym, "qty": fq, "fill_price": float(fp),
                         "reason": ex.get("reason")})
 
+    # reason → EngineReport type. A concentration trim journals risk_trim; a
+    # verdict-downgrade REDUCE tranche journals its own thesis_reduce type so
+    # the owner can tell a risk-driven trim from a thesis-driven staged release.
+    _TRIM_REPORT = {"risk_trim": "risk_trim", "thesis_reduce": "thesis_reduce"}
     for tr in decisions.get("trims", []):
         sym = tr["symbol"]
         close = close_by_symbol.get(sym)
         sell_notional = float(tr.get("sell_notional") or 0.0)
         if close is None or close <= 0 or sell_notional < MIN_TRADE_NOTIONAL:
             continue
+        reason = tr.get("reason") or "risk_trim"
+        report_type = _TRIM_REPORT.get(reason, "risk_trim")
         qty = round(sell_notional / close, 4)
         coid = f"shadow-A-{sym}-{run_date:%Y%m%d}-sell"
         try:
             res = await client.submit_sell(
                 symbol=sym, qty=qty, price_hint=close,
-                journal={"reason": "risk_trim"}, client_order_id=coid,
+                journal={"reason": reason}, client_order_id=coid,
             )
         except Exception:  # noqa: BLE001
-            logger.exception("funnel: risk trim failed for %s", sym)
+            logger.exception("funnel: trim (%s) failed for %s", reason, sym)
             await _journal(db, "engine_failure", "warning",
-                           f"{sym}: risk-trim shadow-sell failed", {"symbol": sym})
+                           f"{sym}: {reason} shadow-sell failed", {"symbol": sym})
             continue
         fq = float(res.filled_qty or 0.0)
         fp = res.filled_avg_price
         if fq <= 0 or fp is None:
             await _journal(db, "engine_failure", "warning",
-                           f"{sym}: risk-trim sell did not fill (status={res.status})",
+                           f"{sym}: {reason} sell did not fill (status={res.status})",
                            {"symbol": sym, "qty": qty, "status": res.status})
             continue
         proceeds += fq * float(fp)
         cash += fq * float(fp)
-        await _journal(db, "risk_trim", "info", f"{sym}: risk trim",
+        await _journal(db, report_type, "info", f"{sym}: {reason}",
                        {"symbol": sym, "qty": fq, "fill_price": float(fp),
-                        "sell_notional": sell_notional})
+                        "sell_notional": sell_notional, "reason": reason})
 
     try:
         await update_sleeve_cash(db, SLEEVE_A, cash)
@@ -815,6 +838,7 @@ def _register_inngest_function():
                     "decisions": outcome.get("decisions", {}),
                     "guardrail_notes": outcome.get("guardrail_notes", []),
                     "placed": outcome.get("placed", []),
+                    "reviews": outcome.get("reviews", {}),
                     "budget_used": outcome.get("budget_used", {}),
                 },
                 db=db,
@@ -1045,6 +1069,24 @@ async def _run_lights(db, run_date: datetime, screened: Dict[str, Any]) -> Dict[
     return {"light_rows": light_rows, "spent": spent}
 
 
+def _parse_trim_target(meta: Dict[str, Any]) -> Optional[float]:
+    """Pull an explicit target weight from the review's positionSizeRec string
+    (e.g. "trim to 8%") for a concentration trim. Honored only when
+    0 < x < CONCENTRATION_REVIEW_WEIGHT — a review that says "hold 25%" is not
+    a trim instruction. None ⇒ the caller uses TRIM_FALLBACK_TARGET."""
+    rec = meta.get("position_size_rec")
+    if not rec:
+        return None
+    m = re.search(r"(\d+(?:\.\d+)?)\s*%", str(rec))
+    if not m:
+        return None
+    try:
+        x = float(m.group(1)) / 100.0
+    except ValueError:
+        return None
+    return x if 0.0 < x < CONCENTRATION_REVIEW_WEIGHT else None
+
+
 async def _decide_and_execute(
     db, client, run_date: datetime, regime: str, sleeve_ctx: Dict[str, Any],
     assembled: Dict[str, Any], screened: Dict[str, Any], lights: Dict[str, Any], step,
@@ -1095,22 +1137,149 @@ async def _decide_and_execute(
         qty * close_by_symbol.get(sym, 0.0) for sym, qty in positions.items()
     )
 
-    holdings: List[Dict[str, Any]] = []
-    for sym, qty in positions.items():
-        close = close_by_symbol.get(sym, 0.0)
-        screen = by_symbol.get(sym, {})
-        light = light_rows.get(sym)
-        meta = latest.get(sym) or {}
-        age = meta.get("report_age_days") or 0.0
-        conv = compute_conviction(_conviction_input_from_light(
-            light or {}, screen, report_age_days=age, verdict=meta.get("verdict"),
-        ))
-        holdings.append({
-            "symbol": sym, "qty": qty, "market_value": qty * close,
-            "conviction": conv["score"], "vetoed": conv["vetoed"],
-            "tags": screen.get("tags") or {}, "source_tags": stored_tags.get(sym) or {},
-            "sector": screened.get("sector_by_symbol", {}).get(sym),
-        })
+    def _build_holdings() -> List[Dict[str, Any]]:
+        """Rebuild the holdings table from the CURRENT `latest` verdicts. Called
+        once up front and again after stage B so a fresh review's verdict flows
+        into vetoed/conviction → plan_decisions (SELL/AVOID exits ride the
+        existing sell_verdict path). Reads `latest` as a free variable so the
+        stage-B refresh is picked up on the second call."""
+        result: List[Dict[str, Any]] = []
+        for sym, qty in positions.items():
+            close = close_by_symbol.get(sym, 0.0)
+            screen = by_symbol.get(sym, {})
+            light = light_rows.get(sym)
+            meta = latest.get(sym) or {}
+            age = meta.get("report_age_days") or 0.0
+            conv = compute_conviction(_conviction_input_from_light(
+                light or {}, screen, report_age_days=age, verdict=meta.get("verdict"),
+            ))
+            result.append({
+                "symbol": sym, "qty": qty, "market_value": qty * close,
+                "conviction": conv["score"], "vetoed": conv["vetoed"],
+                "tags": screen.get("tags") or {},
+                "source_tags": stored_tags.get(sym) or {},
+                "sector": screened.get("sector_by_symbol", {}).get(sym),
+            })
+        return result
+
+    holdings = _build_holdings()
+
+    # ── Stage A: review triggers (pure — a trigger NEVER trades, it earns a
+    # review). For each holding compute dd/weight/earnings-recency and collect
+    # the fired triggers; journal one review_trigger row per triggered name.
+    # A rung fire is consumed by being REVIEWED (once per episode) — persist the
+    # new dcaState immediately, whatever the review's later outcome. Wrapped:
+    # any failure journals engine_failure and the pass continues with no
+    # triggers (never a phantom trade).
+    triggered: Dict[str, Dict[str, Any]] = {}
+    reviewed_this_pass: set = set()
+    try:
+        import asyncio  # noqa: PLC0415
+        from prisma import Json  # noqa: PLC0415
+        from research_swarm.data.market_data_client import (  # noqa: PLC0415
+            MarketDataClient,
+        )
+        from execution.sleeve_service import get_engine_positions  # noqa: PLC0415
+
+        market_client = MarketDataClient()
+        pos_rows = {p.symbol: p for p in await get_engine_positions(db, SLEEVE_A)}
+
+        async def _days_since_earnings(sym: str) -> Optional[float]:
+            # ANY failure → None: the trigger degrades (no earnings signal), it
+            # never blocks. Only fetched when dd ≥ EARNINGS_DIVERGENCE_DD.
+            try:
+                edf = await asyncio.to_thread(market_client.get_earnings_dates, sym)
+                if edf is None:
+                    return None
+                past = [d for d in edf.index if d <= now]
+                return float((now - max(past)).days) if past else None
+            except Exception:  # noqa: BLE001
+                return None
+
+        for h in holdings:
+            sym = h["symbol"]
+            pos = pos_rows.get(sym)
+            close = close_by_symbol.get(sym, 0.0)
+            hw = (getattr(pos, "highWaterClose", None) if pos else None) or close
+            dd = drawdown(close, hw)
+            weight = (h["market_value"] / sleeve_equity) if sleeve_equity > 0 else 0.0
+            dse = await _days_since_earnings(sym) if dd >= EARNINGS_DIVERGENCE_DD else None
+            names, new_state = collect_triggers(
+                dd=dd, days_since_earnings=dse,
+                report_age_days=(latest.get(sym) or {}).get("report_age_days"),
+                weight=weight,
+                dca_state=(getattr(pos, "dcaState", None) if pos else None),
+                high_water=hw,
+                price=close,
+                last_review_price=(latest.get(sym) or {}).get("last_review_price"),
+            )
+            if not names:
+                continue
+            triggered[sym] = {"triggers": names, "dd": dd, "weight": weight,
+                              "dca_state": new_state}
+            await _journal(
+                db, "review_trigger", "info",
+                f"{sym}: review triggered — {', '.join(names)}",
+                {"symbol": sym, "triggers": names, "dd": round(dd, 4),
+                 "weight": round(weight, 4),
+                 "report_age_days": (latest.get(sym) or {}).get("report_age_days")},
+            )
+            # The rung is consumed by the review (once per episode) — persist now.
+            if "ladder_rung" in names and pos is not None:
+                await db.engineposition.update(
+                    where={"sleeve_symbol": {"sleeve": SLEEVE_A, "symbol": sym}},
+                    data={"dcaState": Json(new_state)},
+                )
+    except Exception:  # noqa: BLE001 — never block the pass on trigger failure
+        logger.exception("funnel: trigger computation failed")
+        await _journal(db, "engine_failure", "warning",
+                       "Review-trigger computation failed", {"stage": "triggers"})
+        triggered = {}
+        reviewed_this_pass = set()
+
+    # ── Stage B: budget-prioritized reviews. Triggered holdings claim the SAME
+    # weekly full-run budget as new entries and run BEFORE them (stalest first).
+    # Each paid review is its OWN top-level step.run (nested step.run is a
+    # non-retriable SDK error). A deferred (budget-exhausted) review produces no
+    # outcome this week. After the loop, refresh verdicts and REBUILD holdings
+    # so a fresh SELL/AVOID exits via the plan's sell_verdict path.
+    if triggered:
+        try:
+            for sym in sorted(
+                triggered,
+                key=lambda s: -((latest.get(s) or {}).get("report_age_days") or 999),
+            ):
+                screen = by_symbol.get(sym, {})
+                gate = await reuse_or_budget(db, sym, run_date)
+                if gate.get("action") == "skip":
+                    await _journal(db, "theme_review", "info",
+                                   f"{sym}: review deferred — {gate.get('reason')}",
+                                   {"symbol": sym, "stage": "thesis_review",
+                                    "reason": gate.get("reason")})
+                    triggered[sym]["deferred"] = True
+                    continue
+                if gate.get("action") == "analyze":
+                    if step is not None:
+                        result = await step.run(
+                            f"thesis-review-{sym.lower()}",
+                            lambda s=sym: run_paid_analysis(s),
+                        )
+                    else:
+                        result = await run_paid_analysis(sym)
+                    await persist_full(
+                        db, sym, run_date, result,
+                        float(screen.get("price") or close_by_symbol.get(sym, 0.0) or 0.0),
+                        float(screen.get("screen_score") or 0.0),
+                    )
+                    reviewed_this_pass.add(sym)
+            latest = await _load_latest_signals(
+                db, list(by_symbol) + list(positions), now,
+            )
+            holdings = _build_holdings()
+        except Exception:  # noqa: BLE001
+            logger.exception("funnel: triggered reviews failed")
+            await _journal(db, "engine_failure", "warning",
+                           "Triggered reviews failed", {"stage": "thesis_reviews"})
 
     # Theme review: holdings whose EVERY sourcing theme (from persisted tags)
     # is retired. A deferred/failed review NEVER exits — only a completed run.
@@ -1149,26 +1318,112 @@ async def _decide_and_execute(
     decisions = plan_decisions(holdings, candidates, sleeve_equity, max_positions,
                                evictions=False, trim_ceiling=None)
 
-    # Sells (exits + trims) first — their proceeds fund entries. Wrapped in its
-    # own step (no internal step.run) so the shadow sells + cash update are
-    # memoized and never replay on a later step boundary.
+    # Spend envelopes, computed BEFORE stage C so a same-pass ADD draws from
+    # them and shrinks what new entries may spend. Deployable = regime fraction
+    # × equity − position MV − standing orders, and has NO dependence on this
+    # pass's sell proceeds. cash_available starts from the PRE-sells ledger (an
+    # ADD is funded from cash on hand); sell proceeds are folded back in below,
+    # after the trims/exits execute. Buys move the ledger only at daily fill, so
+    # committed standing-order notional comes off BOTH envelopes.
+    invested_fraction = SLEEVE_A_INVESTED_FRACTION.get(regime, 0.9)
+    position_mv = sum(qty * close_by_symbol.get(sym, 0.0) for sym, qty in positions.items())
+    deployable = max(0.0, invested_fraction * sleeve_equity - position_mv - committed)
+    cash_available = max(0.0, sleeve_ctx["cash"] - committed)
+
+    # ── Stage C/D: review OUTCOMES (ADD / TRIM / REDUCE). A trigger only ever
+    # earns a review; every outcome here is gated on the REVIEW's verdict, never
+    # on a price/weight level directly. A symbol already exiting this pass, or
+    # whose review was deferred on budget, gets no outcome. Wrapped so a failure
+    # journals engine_failure and the pass continues.
+    add_spend = 0.0
+    try:
+        exiting = {e["symbol"] for e in decisions.get("exits", [])}
+        for sym, t in triggered.items():
+            if t.get("deferred") or sym in exiting:
+                continue
+            meta = latest.get(sym) or {}
+            row = by_symbol.get(sym) or {}
+            trigs = set(t["triggers"])
+            close = close_by_symbol.get(sym, 0.0)
+            # ADD: a dip rung or the earnings-divergence signal, but ONLY while
+            # the fresh verdict still says buy — half a fresh entry's notional.
+            if ({"ladder_rung", "earnings_divergence"} & trigs
+                    and meta.get("verdict") == "buy"):
+                conv = next((h["conviction"] for h in holdings
+                             if h["symbol"] == sym), 0.0)
+                notional = DCA_TRANCHE_FRACTION * size_entry(
+                    conv, sleeve_equity,
+                    float(row.get("liquidity_adv_usd") or 0.0),
+                    float(row.get("atr_pct") or 0.0), deployable, cash_available,
+                )
+                qty = int(notional // close) if close > 0 else 0
+                if qty >= 1 and qty * close >= MIN_TRADE_NOTIONAL:
+                    try:
+                        await client.submit_market_buy(
+                            symbol=sym, qty=qty, price_hint=close,
+                            journal={"reason": "dca_add", "triggers": t["triggers"]},
+                            client_order_id=f"paper-A-{sym}-{run_date:%Y%m%d}-dca",
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("funnel: DCA add failed for %s", sym)
+                        await _journal(db, "engine_failure", "warning",
+                                       f"{sym}: DCA add submit failed", {"symbol": sym})
+                        continue
+                    await _journal(db, "dca_add", "info",
+                                   f"{sym}: ladder add {qty} @ ~{close:.2f}",
+                                   {"symbol": sym, "qty": qty,
+                                    "notional": round(qty * close, 2),
+                                    "conviction": conv, "triggers": t["triggers"]})
+                    spent = qty * close
+                    deployable = max(0.0, deployable - spent)
+                    cash_available = max(0.0, cash_available - spent)
+                    add_spend += spent
+            # TRIM: concentration above the review weight while the verdict is
+            # still buy/hold → shave the excess to the review's stated target
+            # (or TRIM_FALLBACK_TARGET). Routed through decisions["trims"].
+            elif "concentration" in trigs and meta.get("verdict") in ("buy", "hold"):
+                target = _parse_trim_target(meta) or TRIM_FALLBACK_TARGET
+                excess = t["weight"] - target
+                if excess > 0 and close > 0:
+                    qty = round(excess * sleeve_equity / close, 4)
+                    decisions.setdefault("trims", []).append(
+                        {"symbol": sym, "reason": "risk_trim",
+                         "sell_notional": round(qty * close, 2), "origin": "llm_trim"})
+            # REDUCE: a fresh review this pass downgraded buy→hold — release one
+            # tranche (the DCA ladder's mirror). avoid already fully exits via
+            # the plan's sell_verdict path.
+            elif (sym in reviewed_this_pass
+                  and meta.get("verdict") == "hold"
+                  and meta.get("prior_verdict") == "buy"):
+                qty = round(REDUCE_TRANCHE_FRACTION * positions.get(sym, 0.0), 4)
+                if qty > 0 and close > 0 and qty * close >= MIN_TRADE_NOTIONAL:
+                    # Mirror of the TRIM branch: append to decisions["trims"] and
+                    # let _execute_sells journal the single thesis_reduce row at
+                    # execution time (its reason→report map owns the type).
+                    decisions.setdefault("trims", []).append(
+                        {"symbol": sym, "reason": "thesis_reduce",
+                         "sell_notional": round(qty * close, 2)})
+    except Exception:  # noqa: BLE001
+        logger.exception("funnel: review-outcome stage failed")
+        await _journal(db, "engine_failure", "warning",
+                       "Review-outcome (ADD/TRIM/REDUCE) stage failed",
+                       {"stage": "review_outcomes"})
+
+    # Sells (exits + trims — now including any concentration trim / REDUCE
+    # tranche) first: their proceeds fund entries. The starting ledger is
+    # debited by any ADD that already filled this pass (a market buy fills
+    # immediately, unlike a standing limit buy). Wrapped in its own step (no
+    # internal step.run) so the shadow sells + cash update are memoized.
     sell_out = await _run_step(
         step, "execute-sells",
         lambda: _execute_sells(
             db, client, decisions, close_by_symbol, positions, run_date,
-            sleeve_ctx["cash"],
+            max(0.0, sleeve_ctx["cash"] - add_spend),
         ),
     )
 
-    # Deployable = regime fraction × equity − position MV − standing orders.
-    # Buys move cash ONLY when the daily cron fills them (single cash mover:
-    # execution_daily's sleeve-a-fills step; expiry deducts nothing), so open
-    # shadow buy orders are committed capital the cash ledger doesn't show —
-    # subtract their notional from BOTH envelopes or this pass would re-spend
-    # capital a standing order already claimed.
-    invested_fraction = SLEEVE_A_INVESTED_FRACTION.get(regime, 0.9)
-    position_mv = sum(qty * close_by_symbol.get(sym, 0.0) for sym, qty in positions.items())
-    deployable = max(0.0, invested_fraction * sleeve_equity - position_mv - committed)
+    # Fold sell proceeds into the entry cash envelope. Deployable already
+    # reflects the ADD draw above; committed standing orders already netted.
     cash_available = max(0.0, sell_out["cash"] - committed)
 
     other_sleeve_sector_notional = await _sleeve_b_sector_notional(db)
@@ -1200,6 +1455,12 @@ async def _decide_and_execute(
         "budget_used": {"full_runs_used": full_used,
                         "full_runs_cap": FULL_RUNS_PER_WEEK,
                         "light_runs": lights.get("spent", 0)},
+        "reviews": {
+            "triggered": {s: t["triggers"] for s, t in triggered.items()},
+            "reviewed": sorted(reviewed_this_pass),
+            "deferred": sorted(s for s, t in triggered.items() if t.get("deferred")),
+            "add_notional": round(add_spend, 2),
+        },
         "sleeve_equity": round(sleeve_equity, 2),
     }
 
