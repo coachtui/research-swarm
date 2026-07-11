@@ -624,9 +624,11 @@ class _ReportSink:
     """Async stand-in for write_report that records every journalled type."""
     def __init__(self):
         self.types = []
+        self.titles = []
 
     async def __call__(self, report_type, severity, source, title, body, db=None):
         self.types.append(report_type)
+        self.titles.append(title)
         return "rep"
 
     def count(self, t):
@@ -641,6 +643,14 @@ class _ThDB:
                                       "dcaState": v.get("dcaState")}
                           for s, v in positions.items()}
         self.engineposition = SimpleNamespace(update=self._update)
+        # (ticker, runDate) -> row; the R1 stage-B short-circuit reads its own
+        # (ticker, run_date) full-tier row via weeklysignal.find_unique.
+        self._ws_rows = {}
+        self.weeklysignal = SimpleNamespace(find_unique=self._ws_find_unique)
+
+    async def _ws_find_unique(self, where):
+        key = where["ticker_runDate"]
+        return self._ws_rows.get((key["ticker"], key["runDate"]))
 
     async def _update(self, where, data):
         key = ("A", where["sleeve_symbol"]["symbol"])
@@ -966,3 +976,96 @@ def test_c2b_deferred_review_leaves_rung_for_next_week():
     assert len(add) == 1                                  # rung re-fired → ADD
     st = db.positions[("A", "DIPN")]["dcaState"]
     assert 0.20 in st["used"]                             # now consumed
+
+
+# ── R1: budget-gate re-evaluation must not flip a completed review to deferred
+# on the exec AFTER this pass's own persist_full created the full-tier row ─────
+
+
+class _StepInterrupt(BaseException):
+    """A BaseException (like an Inngest step suspension) — escapes the funnel's
+    `except Exception` guards so exec 1 stops AT the interrupt step, mirroring a
+    real replay boundary rather than the local degrade path."""
+
+
+class _InterruptStep(_MemoStep):
+    """Memoizing step fake that raises a suspension the FIRST time it reaches
+    `interrupt_at` (after earlier steps have already run + persisted), then
+    executes that step normally on the replay."""
+
+    def __init__(self, interrupt_at):
+        super().__init__()
+        self._interrupt_at = interrupt_at
+        self._fired = False
+
+    async def run(self, step_id, fn):
+        if step_id == self._interrupt_at and not self._fired:
+            self._fired = True
+            raise _StepInterrupt(step_id)
+        return await super().run(step_id, fn)
+
+
+async def _ws_writing_persist(db, ticker, run_date, result, current_price, screen_score):
+    """persist_full stand-in that actually writes the full-tier funnel row the
+    stage-B short-circuit reads back on the replay exec."""
+    db._ws_rows[(ticker, run_date)] = SimpleNamespace(
+        tier="full", escalationReasons=["sleeve_a_funnel"])
+    return {"status": "upgraded", "signals": {}}
+
+
+def test_r1_gate_flip_replay_keeps_review_not_deferred():
+    """R1: exec 1 persists a paid review then interrupts at the dca-add step;
+    on exec 2 the budget gate would return skip (the just-created full row
+    saturates the cap), but the stage-B short-circuit must classify the symbol
+    as reviewed — identical add_spend/trims to a no-interrupt run, and NO
+    spurious budget_exhausted deferral journal."""
+    analyze = {"action": "analyze"}
+    skip = {"action": "skip", "reason": "budget_exhausted"}
+    ctx = {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+           "allow_buys": True, "status": "active"}
+
+    # Reference: one clean no-interrupt run (gate stays analyze throughout).
+    ref_db = _ThDB({"DIPN": {"qty": 10.0}})
+    ref_broker = _ThBroker(ref_db)
+    ref_sink = _ReportSink()
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)}, analyze, ref_sink), \
+         patch.object(saf, "persist_full", new=_ws_writing_persist):
+        ref = _run_decide(ref_db, ref_broker, ctx, _rung_screened())
+    assert ref["reviews"]["add_notional"] > 0             # baseline ADD fired
+
+    # Interrupt-after-persist replay: gate flips analyze→skip; the fix must
+    # never consult it on exec 2 (short-circuit fires first).
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    sink = _ReportSink()
+    step = _InterruptStep(interrupt_at="dca-add-dipn")
+    gate = AsyncMock(side_effect=[analyze, skip, skip, skip])
+
+    def _decide():
+        return _run(saf._decide_and_execute(
+            db, broker, NOW, "neutral", sleeve_ctx=ctx,
+            assembled={"active_themes": []}, screened=_rung_screened(),
+            lights={"light_rows": {}, "spent": 0}, step=step))
+
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)}, analyze, sink), \
+         patch.object(saf, "reuse_or_budget", new=gate), \
+         patch.object(saf, "persist_full", new=_ws_writing_persist):
+        interrupted = False
+        try:
+            _decide()                    # exec 1: persists, interrupts at dca-add
+        except _StepInterrupt:
+            interrupted = True
+        assert interrupted               # exec 1 suspended AFTER persist
+        out2 = _decide()                 # exec 2: the replay
+
+    # (a) reviewed, not deferred
+    assert out2["reviews"]["reviewed"] == ["DIPN"]
+    assert out2["reviews"]["deferred"] == []
+    # (b) identical add_spend / trims to the no-interrupt reference
+    assert out2["reviews"]["add_notional"] == ref["reviews"]["add_notional"]
+    assert (out2["decisions"].get("trims", [])
+            == ref["decisions"].get("trims", []))
+    # (c) no spurious "review deferred — budget_exhausted" journal
+    assert not any("deferred" in t for t in sink.titles)

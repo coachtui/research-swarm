@@ -54,7 +54,8 @@ from execution.funnel.entries import (
     entry_limit_price, entry_ttl_days, extension_state, size_entry,
 )
 from execution.funnel.research_budget import (
-    full_runs_used, persist_full, reuse_or_budget, run_paid_analysis,
+    _FUNNEL_MARKER, full_runs_used, persist_full, reuse_or_budget,
+    run_paid_analysis,
 )
 from execution.funnel.review_triggers import collect_triggers, drawdown
 from execution.outlook_service import get_latest_outlook
@@ -1254,7 +1255,8 @@ async def _decide_and_execute(
                 if pd.api.types.is_datetime64_any_dtype(idx):
                     raw = list(idx)
                 elif "Earnings Date" in getattr(edf, "columns", []):
-                    raw = list(pd.to_datetime(edf["Earnings Date"], errors="coerce"))
+                    raw = list(pd.to_datetime(edf["Earnings Date"], errors="coerce",
+                                              utc=True))
                 else:
                     return None
                 now_ts = pd.Timestamp(now)
@@ -1329,6 +1331,23 @@ async def _decide_and_execute(
                 key=lambda s: -((latest.get(s) or {}).get("report_age_days") or 999),
             ):
                 screen = by_symbol.get(sym, {})
+                # R1: Inngest replays the whole body on every step boundary. On
+                # the exec AFTER this pass's own persist_full created the full
+                # row, re-consulting reuse_or_budget counts that just-created row
+                # against FULL_RUNS_PER_WEEK and flips a completed review to
+                # "skip" → deferred (zeroing its ADD, dropping its trims, and
+                # stranding a rung already consumed). Short-circuit: if the
+                # symbol's own (ticker, run_date) row is already full-tier with
+                # the funnel marker, it was analyzed THIS pass (the memoized
+                # step.run returns the cached analysis; persist_full is
+                # idempotent) → treat as reviewed and skip the gate.
+                own_row = await db.weeklysignal.find_unique(
+                    where={"ticker_runDate": {"ticker": sym, "runDate": run_date}}
+                )
+                if (own_row is not None and own_row.tier == "full"
+                        and _FUNNEL_MARKER in (own_row.escalationReasons or [])):
+                    reviewed_this_pass.add(sym)
+                    continue
                 gate = await reuse_or_budget(db, sym, run_date)
                 if gate.get("action") == "skip":
                     await _journal(db, "theme_review", "info",
