@@ -339,9 +339,20 @@ class WeeklySignalService:
                     (signals["fairValue"] - row_price) / row_price * 100, 2
                 )
 
+        # Continuity (C1): the funnel's persist path must capture the symbol's
+        # PREVIOUS full verdict into priorVerdict before this fresh full row
+        # overwrites it — exactly as store_signal/store_quant_snapshot do. Without
+        # it prior_verdict is always None on the funnel path and the buy→hold
+        # downgrade edge (the REDUCE tranche) can never be detected.
+        prior_full = await self._get_prior_full_signal(ticker, before=run_date)
+
         data = {
                 "tier": "full",
                 "verdict": signals.get("verdict"),
+                "priorVerdict": prior_full.verdict if prior_full else None,
+                "priorEvProbability": (
+                    prior_full.evProbability if prior_full else None
+                ),
                 "fairValue": signals.get("fairValue"),
                 "fairValueGapPct": fair_value_gap_pct,
                 "evProbability": signals.get("ev_probability"),

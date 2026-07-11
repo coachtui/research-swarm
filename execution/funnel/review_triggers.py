@@ -1,6 +1,6 @@
 """Thesis-hold review triggers (pure). A trigger NEVER trades — it earns a
 holding a thesis review; the review's verdict is the only sell authority."""
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from execution.constants import (
     CONCENTRATION_REVIEW_WEIGHT, DCA_RUNGS, EARNINGS_DIVERGENCE_DD,

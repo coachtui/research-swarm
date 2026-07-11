@@ -660,7 +660,8 @@ async def _execute_sells(
         cash += fq * float(fp)
         await _journal(db, report_type, "info", f"{sym}: {reason}",
                        {"symbol": sym, "qty": fq, "fill_price": float(fp),
-                        "sell_notional": sell_notional, "reason": reason})
+                        "sell_notional": sell_notional, "reason": reason,
+                        "origin": tr.get("origin"), "triggers": tr.get("triggers")})
 
     try:
         await update_sleeve_cash(db, SLEEVE_A, cash)
@@ -1431,7 +1432,8 @@ async def _decide_and_execute(
                     qty = round(excess * sleeve_equity / close, 4)
                     decisions.setdefault("trims", []).append(
                         {"symbol": sym, "reason": "risk_trim",
-                         "sell_notional": round(qty * close, 2), "origin": "llm_trim"})
+                         "sell_notional": round(qty * close, 2), "origin": "llm_trim",
+                         "triggers": t["triggers"]})
             # REDUCE: a fresh review this pass downgraded buy→hold — release one
             # tranche (the DCA ladder's mirror). avoid already fully exits via
             # the plan's sell_verdict path.
@@ -1445,7 +1447,8 @@ async def _decide_and_execute(
                     # execution time (its reason→report map owns the type).
                     decisions.setdefault("trims", []).append(
                         {"symbol": sym, "reason": "thesis_reduce",
-                         "sell_notional": round(qty * close, 2)})
+                         "sell_notional": round(qty * close, 2),
+                         "origin": "thesis_reduce", "triggers": t["triggers"]})
     except Exception:  # noqa: BLE001
         logger.exception("funnel: review-outcome stage failed")
         await _journal(db, "engine_failure", "warning",
