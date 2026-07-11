@@ -45,15 +45,8 @@ ordering of configs is the evidence.
 
 ## What changes (mechanical layer)
 
-1. **Exposure floors** — `REGIME_INVESTED_FRACTION` becomes
-   `{"risk_on": 1.0, "neutral": 0.9, "risk_off": 0.75}` (was 1.0/0.7/0.4).
-   Owner: "90% invested at least; at most 25% cash." The regime gate
-   still throttles *new deployment* via the deployable calculation; it
-   never forces exposure down.
-2. **No outcompete evictions** — the eviction branch is removed from
-   `plan_decisions` (challengers fill empty slots only; hysteresis notes
-   retired with it). `OUTCOMPETE_MARGIN` is deleted. This closes the
-   margin-8 question: with no evictions the constant has no meaning.
+1. **Exposure floors** — a new Sleeve-A-only constant `SLEEVE_A_INVESTED_FRACTION = {"risk_on": 1.0, "neutral": 0.9, "risk_off": 0.75}` is added and read solely by the Sleeve A funnel; `REGIME_INVESTED_FRACTION` is untouched because `execution/engine/sleeve_b.py` (the frozen control) reads it.
+2. **No outcompete evictions** — `plan_decisions` gains `evictions: bool = True` and `trim_ceiling: Optional[float] = RISK_TRIM_CEILING` parameters; the live funnel calls it with `evictions=False, trim_ceiling=None`. Defaults preserve the Tier 2 backtest harness's old-mechanics fidelity; `OUTCOMPETE_MARGIN` survives for the harness only.
 3. **No trailing stops for Sleeve A** — the daily cron's stop duty is
    removed for Sleeve A positions. High-water tracking stays (it anchors
    the DCA ladder). Exits move entirely to the weekly thesis review
@@ -161,11 +154,8 @@ ordering of configs is the evidence.
     was a one-time curriculum: the system generates the next thesis
     itself rather than waiting to read anyone's filing. Future 13Fs are
     a *scorecard* (did our hypothesis precede their position?), never an
-    input. Prompt-only change; parser/schema untouched.
-12. **New screen input: 200-week MA distance** — computed for every
-    screened symbol with ≥4y of history (null otherwise), surfaced to
-    the LLM in light/full run context and in reports. Advisory only —
-    no mechanical gate. Encodes the owner's MSFT/ORCL deep-anchor entry.
+    input. Prompt change plus a minimal parser passthrough: an optional top-level `next_constraints` array in the monthly response is journaled as `theme_proposal` EngineReports (no lifecycle effect, no DB schema change); absent key ⇒ old behavior.
+12. **New screen input: 200-week MA distance** — computed for holdings + ranked candidates from a dedicated 5-year weekly fetch, attached to screen rows as `dist_200wma` (null when <4y history), and surfaced in engine journals (entry orders, review triggers, funnel summary). Threading it into the paid swarm prompt is an explicit rider for a later PR.
 
 ## Pre-committed evaluation (replaces the 3D gate for Sleeve A)
 
