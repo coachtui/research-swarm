@@ -121,9 +121,13 @@ ordering of configs is the evidence.
     a revealed-behavior block alongside the SA method: buy the binding
     constraint not the beneficiary; time-to-solve is a selection
     criterion (fast-deployable supply wins short-time-frame demand);
-    express every theme across the cap spectrum (megacap anchors +
-    pre-consensus small/mid pure-plays); name the theme's second-order
-    losers in metadata. **Owner-directed emphasis: the pass's primary
+    express every theme across the cap spectrum and by ROLE — anchor
+    (contracted/profitable floor with thesis optionality), pure-play
+    (asymmetric constraint exposure), catalyst-name (identifiable
+    pending repricing event) — with each constituent's role and its
+    time-to-survive (balance-sheet runway to the catalyst) stated in
+    the exposure rationale; name the theme's second-order losers in
+    metadata. **Owner-directed emphasis: the pass's primary
     deliverable is FORWARD — every monthly run must answer "what binds
     NEXT after the current constraints are priced?" and propose 1–3
     next-constraint hypotheses** (each with pre-consensus candidates,

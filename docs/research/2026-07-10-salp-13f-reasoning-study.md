@@ -83,6 +83,16 @@ thesis.
    puts. Two valid ways down from a winner; "stop-loss" is neither.
 7. **Trade the second-order effects too.** AI disrupts as well as
    demands (INFY puts). A theme's losers are part of the theme.
+8. **Survivability and role (owner addition, 2026-07-10).** Every
+   constituent plays a role: *anchor* (contracted/profitable floor with
+   thesis optionality — BWXT's naval-nuclear revenue under an
+   enrichment thesis), *pure-play* (asymmetric constraint exposure), or
+   *catalyst-name* (a pending, identifiable repricing event — HIVE's
+   to-be-announced HPC contracts, the CoreWeave/Core Scientific deal as
+   the template). Time-to-solve has a mirror: **time-to-survive** — a
+   pre-consensus name only pays if its balance sheet reaches the
+   catalyst; profitability and funding runway are thesis parameters,
+   stated explicitly in research, not style preferences.
 
 ## Where this lands in the system
 
