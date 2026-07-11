@@ -127,6 +127,16 @@ CONVICTION_BUY_BONUS = 5.0          # points (0–100 scale); SELL is a veto, no
 LIGHT_SENTIMENT_MODEL = "claude-haiku-4-5"
 LIGHT_SENTIMENT_MAX_HEADLINES = 25
 
+# ── Thesis-hold review triggers (spec 2026-07-10-sleeve-a-thesis-hold-redesign) ─
+DCA_RUNGS = (0.20, 0.30, 0.40)       # drawdown-from-high add/review levels
+DCA_TRANCHE_FRACTION = 0.5           # ADD buys half a fresh entry's notional
+EARNINGS_DIVERGENCE_DD = 0.15        # drawdown floor for the "MU signal"
+EARNINGS_DIVERGENCE_MAX_DAYS = 14    # two weekly passes wide (Mon-cutoff leak)
+CONCENTRATION_REVIEW_WEIGHT = 0.20   # weight that TRIGGERS a review (never sells)
+TRIM_FALLBACK_TARGET = 0.12          # TRIM target if the review states none
+RUNUP_REVIEW_GAIN = 0.25             # price gain threshold for review trigger
+REDUCE_TRANCHE_FRACTION = 0.25       # REDUCE buys this fraction of a tranche
+
 # Weights must each sum to 1.0 (tested).
 CONVICTION_WEIGHTS = {
     "fair_value_gap": 0.30,
