@@ -788,7 +788,7 @@ def test_rung_trigger_with_buy_verdict_adds_half_tranche():
 
 def test_concentration_trigger_trims_only_via_review():
     """A 30% weight triggers a review; the still-hold verdict shaves the excess
-    back to TRIM_FALLBACK_TARGET (0.12) via decisions['trims'] → risk_trim."""
+    back to TRIM_FALLBACK_TARGET (0.15) via decisions['trims'] → risk_trim."""
     db = _ThDB({"BIGW": {"qty": 100.0}})
     broker = _ThBroker(db)
     screened = {"ranked": [_screen_row("BIGW", price=300.0)],
@@ -802,7 +802,7 @@ def test_concentration_trigger_trims_only_via_review():
                      "allow_buys": True, "status": "active"}, screened)
     trims = [s for s in broker.sells if s.journal["reason"] == "risk_trim"]
     assert len(trims) == 1
-    assert abs(trims[0].qty * 300.0 - (0.30 - 0.12) * 100_000.0) < 300.0
+    assert abs(trims[0].qty * 300.0 - (0.30 - 0.15) * 100_000.0) < 300.0
     assert broker.market_buys == []
 
 
