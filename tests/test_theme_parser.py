@@ -1,4 +1,6 @@
 """LLM output parsing: manager-schema-drift lesson — skip, never guess."""
+import json
+
 import pytest
 
 from execution.themes.parser import (
@@ -104,3 +106,27 @@ Final:
     out = parse_monthly_response(raw)
     assert out["themes"] == []
     assert out["skipped"] == []
+
+
+def test_parser_passes_next_constraints_through():
+    raw = json.dumps({"themes": [], "next_constraints": [
+        {"hypothesis": "grid labor binds", "candidates": ["MYRG"],
+         "leading_indicators": ["backlogs"], "falsification": "wages flat"}]})
+    out = parse_monthly_response(raw)
+    assert out["next_constraints"][0]["hypothesis"] == "grid labor binds"
+
+
+def test_parser_tolerates_missing_next_constraints():
+    out = parse_monthly_response(json.dumps({"themes": []}))
+    assert out["next_constraints"] == []
+
+
+def test_parser_drops_malformed_next_constraints_entries():
+    raw = json.dumps({"themes": [], "next_constraints": [
+        "not a dict",
+        {"candidates": ["MYRG"]},  # missing hypothesis
+        {"hypothesis": ""},  # falsy hypothesis
+        {"hypothesis": "grid labor binds"},
+    ]})
+    out = parse_monthly_response(raw)
+    assert [h["hypothesis"] for h in out["next_constraints"]] == ["grid labor binds"]

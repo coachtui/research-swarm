@@ -102,7 +102,18 @@ def parse_and_validate_monthly(raw: str) -> Dict[str, Any]:
     tickers = [c["ticker"] for p in parsed["themes"] for c in p["constituents"]]
     validation = validate_tickers(tickers) if tickers else {}
     return {"proposals": parsed["themes"], "validation": validation,
-            "skipped": parsed["skipped"]}
+            "skipped": parsed["skipped"],
+            "next_constraints": parsed["next_constraints"]}
+
+
+async def _journal_next_constraints(db, hypotheses: list) -> None:
+    """Journal each forward hypothesis as an informational theme_proposal
+    report. Pure logging — never touches theme lifecycle/validation, and
+    write_report itself never raises (it swallows and logs failures)."""
+    for h in hypotheses:
+        await write_report(
+            "theme_proposal", "info", SOURCE,
+            f"next-constraint hypothesis: {h['hypothesis'][:80]}", h, db=db)
 
 
 async def apply_monthly(db, bundle: Dict[str, Any]) -> Dict[str, Any]:
@@ -118,4 +129,6 @@ async def apply_monthly(db, bundle: Dict[str, Any]) -> Dict[str, Any]:
             f"monthly pass: {len(problems)} skipped/rejected, "
             f"{len(rejected_tickers)} tickers failed validation",
             {"skipped": problems, "failed_tickers": rejected_tickers}, db=db)
+
+    await _journal_next_constraints(db, bundle.get("next_constraints") or [])
     return {**summary, "rejected": len(problems), "failed_tickers": len(rejected_tickers)}
