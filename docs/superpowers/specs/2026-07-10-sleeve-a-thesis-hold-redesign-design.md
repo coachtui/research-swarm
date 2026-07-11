@@ -115,7 +115,17 @@ ordering of configs is the evidence.
     budget. Priority when constrained: suspected thesis break >
     rung/earnings ADD candidates > new-entry handshakes. Deferrals roll
     to next week (existing `entry_deferred` pattern).
-11. **New screen input: 200-week MA distance** — computed for every
+11. **Reasoning-layer principles from the SALP 13F study**
+    (`docs/research/2026-07-10-salp-13f-reasoning-study.md`) — the
+    monthly theme-discovery prompt (`execution/themes/prompts.py`) gains
+    a revealed-behavior block alongside the SA method: buy the binding
+    constraint not the beneficiary; each pass must answer "what binds
+    NEXT" (constraint migration); time-to-solve is a selection criterion
+    (fast-deployable supply wins short-time-frame demand); express every
+    theme across the cap spectrum (megacap anchors + pre-consensus
+    small/mid pure-plays); name the theme's second-order losers in
+    metadata. Prompt-only change; parser/schema untouched.
+12. **New screen input: 200-week MA distance** — computed for every
     screened symbol with ≥4y of history (null otherwise), surfaced to
     the LLM in light/full run context and in reports. Advisory only —
     no mechanical gate. Encodes the owner's MSFT/ORCL deep-anchor entry.
