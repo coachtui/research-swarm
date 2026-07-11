@@ -8,21 +8,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from inngest_app.functions.execution_daily import stop_fill_price, stop_levels
+from inngest_app.functions.execution_daily import stop_levels
 
 
 def test_stop_ratchets_up_never_down():
+    """stop_levels itself is unchanged — the backtest (execution/backtest/
+    fills.py) still imports it for its own simulated sell logic. Only the
+    live daily cron retired ITS use of the derived stop (see stopPrice=None
+    assertions below); the ratchet math is still exercised here."""
     hw, stop = stop_levels(high_water=100.0, today_close=110.0, atr=4.0)
     assert (hw, stop) == (110.0, 100.0)            # 110 − 2.5×4
     hw2, stop2 = stop_levels(high_water=110.0, today_close=105.0, atr=4.0)
     assert (hw2, stop2) == (110.0, 100.0)          # close dipped: anchor holds
-
-
-def test_stop_fill_honest_on_gap_down():
-    assert stop_fill_price(stop=100.0, today_open=104.0, today_low=101.0) is None
-    assert stop_fill_price(stop=100.0, today_open=104.0, today_low=99.0) == 100.0
-    # gapped below the stop at the open — you cannot fill above the open
-    assert stop_fill_price(stop=100.0, today_open=97.0, today_low=95.0) == 97.0
 
 
 def test_daily_module_still_imports_without_sdk():
@@ -421,7 +418,7 @@ async def test_fills_error_does_not_cascade_to_stops(monkeypatch, execution_dail
         return shadow_db
     monkeypatch.setattr(db_mod, "get_db", fake_get_db)
 
-    # 16 flat bars: ATR(14)=2.0, stop = 100 - 2.5*2 = 95; low 99 > 95 -> no exit.
+    # 16 flat bars — thesis-hold means stops never fire regardless of ATR.
     def fake_fetch_ohlcv_batch(symbols, period="1y"):
         n = 16
         return {"AEHR": pd.DataFrame({
@@ -439,8 +436,10 @@ async def test_fills_error_does_not_cascade_to_stops(monkeypatch, execution_dail
     assert a["snapshot"]["active"] is True               # snapshot still ran
     assert a["breaker"] == {"active": True, "tripped": False}
     # The stop anchor was actually persisted — proof stops did real work.
+    # Thesis-hold (spec 2026-07-10): the ratchet lands, but stopPrice is
+    # always retired to None — price never sells.
     upd = shadow_db.engineposition.update.call_args.kwargs
-    assert upd["data"] == {"highWaterClose": 100.0, "stopPrice": 95.0}
+    assert upd["data"] == {"highWaterClose": 100.0, "stopPrice": None}
     assert ("engine_failure", "Sleeve A fills sweep failed") in reports
 
 
@@ -635,9 +634,10 @@ def _capture_report_bodies(monkeypatch):
     return reports
 
 
-def _live_stops_scenario(monkeypatch, pd, sell_result):
-    """Sleeve A live-mode stops scenario: one position whose stop triggers
-    today; the (mocked live) broker returns `sell_result` from submit_sell."""
+def _live_stops_scenario(monkeypatch, pd):
+    """Sleeve A live-mode stops scenario: a position whose price move would
+    have fired the now-retired ATR trailing stop hard. Wires a mocked live
+    broker so the test can assert broker.submit_sell is never reached."""
     import execution.broker as broker_pkg
     import api.lib.db as db_mod
     import execution.market_data as market_data_mod
@@ -649,7 +649,7 @@ def _live_stops_scenario(monkeypatch, pd, sell_result):
 
     mock_broker = MagicMock()
     mock_broker.get_open_orders = AsyncMock(return_value=[])
-    mock_broker.submit_sell = AsyncMock(return_value=sell_result)
+    mock_broker.submit_sell = AsyncMock()
 
     async def fake_sleeve_a_broker(db, state):
         return mock_broker
@@ -662,7 +662,8 @@ def _live_stops_scenario(monkeypatch, pd, sell_result):
         return shadow_db
     monkeypatch.setattr(db_mod, "get_db", fake_get_db)
 
-    # 16 bars: flat 100 except today's low 90 — safely through any stop.
+    # 16 bars: flat 100 except today's low 90 — would have fired any ATR
+    # trailing stop hard under the retired price-selling rule.
     def fake_fetch_ohlcv_batch(symbols, period="1y"):
         n = 16
         return {"AEHR": pd.DataFrame({
@@ -671,59 +672,34 @@ def _live_stops_scenario(monkeypatch, pd, sell_result):
             "Volume": [1000] * n,
         })}
     monkeypatch.setattr(market_data_mod, "fetch_ohlcv_batch", fake_fetch_ohlcv_batch)
-    return cash_updates, mock_broker
+    return cash_updates, mock_broker, shadow_db
 
 
 @pytest.mark.asyncio
-async def test_live_stop_exit_credits_actual_fill_not_hint(monkeypatch, execution_daily_fn):
-    """I1: in live mode the market decides the sell price. The stop sweep must
-    credit res.filled_qty * res.filled_avg_price (here 94.2), NOT the stop-level
-    hint, and journal the ACTUAL fill price."""
+async def test_live_mode_stops_never_calls_broker_sell(monkeypatch, execution_daily_fn):
+    """Thesis-hold (spec 2026-07-10): converts the former I1 fill-crediting
+    coverage (previously two tests distinguishing a successful vs. a
+    zero-fill live sell) into one no-sell assertion set — with the firing
+    branch retired, both scenarios collapse to the identical observable
+    outcome: submit_sell is never invoked. Engineer a today-low that would
+    have fired the old ATR trailing stop hard, and assert: broker.submit_sell
+    is never called, no cash moves, no exit_stop/engine_failure report, and
+    the ratchet + stopPrice=None still land."""
     import pandas as pd
-    from execution.broker.base import BrokerOrderResult
 
-    sell_result = BrokerOrderResult(
-        order_id="alp-s1", symbol="AEHR", side="sell", status="filled",
-        filled_qty=100.0, filled_avg_price=94.2,
-    )
-    cash_updates, mock_broker = _live_stops_scenario(monkeypatch, pd, sell_result)
-    reports = _capture_report_bodies(monkeypatch)
-
-    result = await execution_daily_fn(_FakeCtx())
-
-    assert result["status"] == "ok"
-    assert result["sleeve_a"]["stops"] == {"active": True, "exits": 1}
-    mock_broker.submit_sell.assert_awaited_once()
-    # Cash credited at the ACTUAL fill: 10000 + 100*94.2
-    assert ("A", 19420.0) in cash_updates
-    exit_bodies = [b for t, _, b in reports if t == "exit_stop"]
-    assert exit_bodies and exit_bodies[0]["fill_price"] == 94.2
-    assert not any(t == "engine_failure" for t, _, _ in reports)
-
-
-@pytest.mark.asyncio
-async def test_live_stop_exit_zero_fill_credits_nothing(monkeypatch, execution_daily_fn):
-    """I1: a timed-out live sell (zero fill) credits NO cash, counts NO exit,
-    and journals engine_failure — never books the hint price."""
-    import pandas as pd
-    from execution.broker.base import BrokerOrderResult
-
-    sell_result = BrokerOrderResult(
-        order_id="alp-s1", symbol="AEHR", side="sell", status="timeout",
-        filled_qty=0.0, filled_avg_price=None,
-    )
-    cash_updates, mock_broker = _live_stops_scenario(monkeypatch, pd, sell_result)
+    cash_updates, mock_broker, shadow_db = _live_stops_scenario(monkeypatch, pd)
     reports = _capture_report_bodies(monkeypatch)
 
     result = await execution_daily_fn(_FakeCtx())
 
     assert result["status"] == "ok"
     assert result["sleeve_a"]["stops"] == {"active": True, "exits": 0}
-    mock_broker.submit_sell.assert_awaited_once()
+    mock_broker.submit_sell.assert_not_called()
     assert not any(s == "A" for s, _ in cash_updates)    # no cash moved
     assert not any(t == "exit_stop" for t, _, _ in reports)
-    assert any(t == "engine_failure" and "AEHR" in title
-               for t, title, _ in reports)
+    assert not any(t == "engine_failure" for t, _, _ in reports)
+    upd = shadow_db.engineposition.update.call_args.kwargs
+    assert upd["data"] == {"highWaterClose": 100.0, "stopPrice": None}
 
 
 @pytest.mark.asyncio
@@ -748,3 +724,56 @@ async def test_unclaimed_broker_symbol_journals_without_freezing(monkeypatch, ex
     assert recon["frozen"] is False
     assert recon.get("unclaimed") == ["ZZZZ"]
     assert ("engine_failure", "unclaimed broker positions: ['ZZZZ']") in reports
+
+
+@pytest.mark.asyncio
+async def test_sleeve_a_stops_step_ratchets_but_never_sells(monkeypatch, execution_daily_fn):
+    """Thesis-hold (spec 2026-07-10): Sleeve A never sells on price. Engineer
+    a today-close far below the position's existing high-water mark — the
+    now-retired ATR trailing stop would have fired hard here — and assert
+    the step still: never calls broker.submit_sell, persists the high-water
+    ratchet (unchanged here, since a lower close never ratchets it down),
+    persists stopPrice=None, and reports zero exits."""
+    import pandas as pd
+
+    import api.lib.db as db_mod
+    import execution.broker.shadow_client as shadow_mod
+    import execution.market_data as market_data_mod
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    pos = types.SimpleNamespace(symbol="NVDA", qty=10.0,
+                                highWaterClose=200.0, avgEntryPrice=100.0)
+    _sleeve_a_state_mocks(monkeypatch, positions_a=[pos])
+    reports = _capture_reports(monkeypatch)
+
+    submit_sell_mock = AsyncMock()
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "submit_sell", submit_sell_mock)
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
+                        AsyncMock(return_value=[]))
+
+    shadow_db = MagicMock()
+    shadow_db.engineposition.update = AsyncMock()
+
+    async def fake_get_db():
+        return shadow_db
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+
+    # 16 bars, today's close/low far below the 200 high-water mark — the
+    # retired ATR trailing stop would have fired hard on this bar.
+    def fake_fetch_ohlcv_batch(symbols, period="1y"):
+        n = 16
+        return {"NVDA": pd.DataFrame({
+            "Open": [100.0] * n, "High": [101.0] * (n - 1) + [100.0],
+            "Low": [99.0] * (n - 1) + [95.0], "Close": [100.0] * (n - 1) + [96.0],
+            "Volume": [1000] * n,
+        })}
+    monkeypatch.setattr(market_data_mod, "fetch_ohlcv_batch", fake_fetch_ohlcv_batch)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"
+    assert result["sleeve_a"]["stops"] == {"active": True, "exits": 0}
+    submit_sell_mock.assert_not_called()                 # never sells on price
+    upd = shadow_db.engineposition.update.call_args.kwargs
+    assert upd["data"] == {"highWaterClose": 200.0, "stopPrice": None}
+    assert not any(t == "exit_stop" for t, _ in reports)
