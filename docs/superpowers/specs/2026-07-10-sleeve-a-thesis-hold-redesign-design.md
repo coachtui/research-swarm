@@ -81,9 +81,16 @@ ordering of configs is the evidence.
 8. **Review triggers** (a holding gets a full thesis review when any
    fires; otherwise it holds without spend):
    - **Staleness** — existing report-age decay schedule (unchanged).
-   - **Earnings-divergence** — earnings event within the last 5 trading
-     days AND drawdown ≥ 15% from position high: the "MU signal."
-     Review asks explicitly: results vs price — accumulation or break?
+   - **Earnings-divergence** — earnings event within the last **10
+     trading days** AND drawdown ≥ 15% from position high: the "MU
+     signal." Review asks explicitly: results vs price — accumulation or
+     break? The window is two weekly passes wide on purpose: the pass
+     runs Mondays 16:00 UTC, so a 5-day window would silently drop any
+     company reporting after that cutoff on a Monday (seen only at the
+     next pass, 7 trading days later) — and it also catches the case
+     where the report is a week old but the 15% threshold is crossed
+     only now. Double-fires across two passes are naturally deduped by
+     the existing fresh-report reuse rule (<7 days → no new spend).
    - **Ladder rung** — price crosses 20% / 30% / 40% below position
      high-water (each rung once per episode; rungs re-arm on a new high).
    - **Theme review failure** — existing path, unchanged.
