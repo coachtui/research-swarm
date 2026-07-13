@@ -1184,6 +1184,39 @@ export interface MarketOutlookResponse {
   theme_history: Record<string, ThemeHistoryPoint[]> | null
 }
 
+// ─── Autopilot weekly batch run (Monday funnel audit, admin) ──────────────
+
+export interface WeeklyBatchRunSummary {
+  id: string
+  run_date: string
+  status: 'completed' | 'aborted'
+  abort_reason: string | null
+  universe_size: number | null
+  advanced_count: number | null
+  watchlist_extras: number | null
+  quant_stored: number | null
+  quant_failed: number | null
+  escalation_swarm: number | null
+  escalation_reuse: number | null
+  escalation_hold: number | null
+  swarm_cap: number | null
+}
+
+export interface WeeklySignalRow {
+  ticker: string
+  tier: string
+  verdict: string | null
+  screener_score: number | null
+  escalation_score: number | null
+  escalation_reasons: string[] | null
+  quant_signals: Record<string, unknown> | null
+}
+
+export interface WeeklyBatchRunDetail extends WeeklyBatchRunSummary {
+  outcomes: Record<string, string> | null
+  signals: WeeklySignalRow[]
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
