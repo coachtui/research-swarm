@@ -11,6 +11,7 @@ import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
 import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
 import { MarketOutlookPanel } from '@/components/autopilot/MarketOutlookPanel'
 import { EngineJournalPanel } from '@/components/autopilot/EngineJournalPanel'
+import { WeeklyBatchPanel } from '@/components/autopilot/WeeklyBatchPanel'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
 import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
@@ -112,10 +113,21 @@ function AdminContent() {
           </TabsContent>
 
           <TabsContent value="outlook">
-            <div className="space-y-6">
-              <MarketOutlookPanel />
-              <EngineJournalPanel />
-            </div>
+            <Tabs defaultValue="sunday" className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="sunday">Sunday Outlook</TabsTrigger>
+                <TabsTrigger value="monday">Monday Batch</TabsTrigger>
+              </TabsList>
+              <TabsContent value="sunday">
+                <div className="space-y-6">
+                  <MarketOutlookPanel />
+                  <EngineJournalPanel />
+                </div>
+              </TabsContent>
+              <TabsContent value="monday">
+                <WeeklyBatchPanel />
+              </TabsContent>
+            </Tabs>
           </TabsContent>
 
           <TabsContent value="users">
