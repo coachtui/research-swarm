@@ -8,6 +8,8 @@ import type {
   CostSummary,
   RevenueTimeSeries,
   MarketOutlookResponse,
+  WeeklyBatchRunSummary,
+  WeeklyBatchRunDetail,
 } from '@/types/api'
 
 // Query keys
@@ -20,6 +22,8 @@ export const adminKeys = {
   analyses: (limit?: number, ticker?: string) => [...adminKeys.all, 'analyses', limit, ticker] as const,
   outlook: () => [...adminKeys.all, 'outlook'] as const,
   engineReports: (type?: string) => [...adminKeys.all, 'engineReports', type ?? 'all'] as const,
+  batchRuns: () => [...adminKeys.all, 'batchRuns'] as const,
+  batchRunDetail: (runDate?: string) => [...adminKeys.all, 'batchRunDetail', runDate ?? 'latest'] as const,
 }
 
 /**
@@ -97,6 +101,30 @@ export function useEngineReports(type?: string) {
     queryKey: adminKeys.engineReports(type),
     queryFn: () => apiClient.getEngineReports({ type, limit: 50 }),
     staleTime: 1000 * 60 * 5,
+  })
+}
+
+/**
+ * History list of past Monday weekly-batch runs, newest first.
+ */
+export function useWeeklyBatchRuns() {
+  return useQuery({
+    queryKey: adminKeys.batchRuns(),
+    queryFn: () => apiClient.getWeeklyBatchRuns(),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  })
+}
+
+/**
+ * One weekly-batch run's funnel summary + ticker rows. Omit runDate for the
+ * most recent run (404 until the first Monday run lands).
+ */
+export function useWeeklyBatchRunDetail(runDate?: string) {
+  return useQuery({
+    queryKey: adminKeys.batchRunDetail(runDate),
+    queryFn: () => apiClient.getWeeklyBatchRunDetail(runDate),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    retry: (failureCount, error) => (error as any)?.status === 404 ? false : failureCount < 1,
   })
 }
 

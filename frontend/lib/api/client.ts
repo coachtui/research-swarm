@@ -21,6 +21,8 @@ import type {
   UserInfo,
   MarketOutlookResponse,
   EngineReportEntry,
+  WeeklyBatchRunSummary,
+  WeeklyBatchRunDetail,
   EntitlementsResponse,
   DeploymentUpdateResponse,
   EligibilityStressTestResponse,
@@ -368,6 +370,15 @@ class ApiClient {
     if (params?.limit) q.set('limit', String(params.limit))
     const suffix = q.toString() ? `?${q.toString()}` : ''
     return this.request(`/api/autopilot/reports${suffix}`)
+  }
+
+  async getWeeklyBatchRuns(limit = 12): Promise<WeeklyBatchRunSummary[]> {
+    return this.request(`/api/autopilot/batch-runs?limit=${limit}`)
+  }
+
+  async getWeeklyBatchRunDetail(runDate?: string): Promise<WeeklyBatchRunDetail> {
+    const suffix = runDate ? `?run_date=${encodeURIComponent(runDate)}` : ''
+    return this.request(`/api/autopilot/batch-runs/detail${suffix}`)
   }
 
   // Stripe subscription methods
