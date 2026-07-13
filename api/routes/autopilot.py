@@ -7,7 +7,7 @@ follow later.
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,6 +16,9 @@ from api.dependencies import require_admin
 from api.lib.db import get_db
 from api.models.auth import User
 from execution.outlook_service import get_latest_outlook
+from execution.batch_run_service import (
+    get_batch_run, get_latest_batch_run, list_batch_runs,
+)
 
 router = APIRouter()
 
@@ -132,6 +135,108 @@ async def get_engine_reports(
         order={"createdAt": "desc"},
     )
     return [engine_report_row_to_response(r) for r in rows]
+
+
+# ── Monday batch audit trail ────────────────────────────────────────────────
+
+class WeeklyBatchRunSummary(BaseModel):
+    """One WeeklyBatchRun row, counts only — powers the history picker."""
+    id: str
+    run_date: datetime
+    status: str
+    abort_reason: Optional[str]
+    universe_size: Optional[int]
+    advanced_count: Optional[int]
+    watchlist_extras: Optional[int]
+    quant_stored: Optional[int]
+    quant_failed: Optional[int]
+    escalation_swarm: Optional[int]
+    escalation_reuse: Optional[int]
+    escalation_hold: Optional[int]
+    swarm_cap: Optional[int]
+
+
+class WeeklySignalRow(BaseModel):
+    """One WeeklySignal row for a batch-run week, admin audit shape."""
+    ticker: str
+    tier: str
+    verdict: Optional[str]
+    screener_score: Optional[float]
+    escalation_score: Optional[float]
+    escalation_reasons: Optional[List[str]]
+    quant_signals: Optional[dict]
+
+
+class WeeklyBatchRunDetail(WeeklyBatchRunSummary):
+    """One WeeklyBatchRun row plus its WeeklySignal rows for that week."""
+    outcomes: Optional[Dict[str, str]]
+    signals: List[WeeklySignalRow]
+
+
+def batch_run_row_to_summary(row) -> WeeklyBatchRunSummary:
+    """Map a Prisma WeeklyBatchRun row (camelCase) to WeeklyBatchRunSummary (snake_case)."""
+    return WeeklyBatchRunSummary(
+        id=row.id,
+        run_date=row.runDate,
+        status=row.status,
+        abort_reason=row.abortReason,
+        universe_size=row.universeSize,
+        advanced_count=row.advancedCount,
+        watchlist_extras=row.watchlistExtras,
+        quant_stored=row.quantStored,
+        quant_failed=row.quantFailed,
+        escalation_swarm=row.escalationSwarm,
+        escalation_reuse=row.escalationReuse,
+        escalation_hold=row.escalationHold,
+        swarm_cap=row.swarmCap,
+    )
+
+
+def weekly_signal_row_to_response(row) -> WeeklySignalRow:
+    """Map a Prisma WeeklySignal row (camelCase) to WeeklySignalRow (snake_case)."""
+    return WeeklySignalRow(
+        ticker=row.ticker,
+        tier=row.tier,
+        verdict=row.verdict,
+        screener_score=row.screenerScore,
+        escalation_score=row.escalationScore,
+        escalation_reasons=row.escalationReasons,
+        quant_signals=row.quantSignals,
+    )
+
+
+def batch_run_row_to_detail(row, signal_rows) -> WeeklyBatchRunDetail:
+    """Combine a WeeklyBatchRun row with its week's WeeklySignal rows."""
+    summary = batch_run_row_to_summary(row)
+    return WeeklyBatchRunDetail(
+        **summary.model_dump(),
+        outcomes=row.outcomes,
+        signals=[weekly_signal_row_to_response(r) for r in signal_rows],
+    )
+
+
+@router.get("/autopilot/batch-runs", response_model=List[WeeklyBatchRunSummary])
+async def get_batch_runs(limit: int = 12, admin: User = Depends(require_admin)):
+    """History list of past weekly-batch runs, newest first."""
+    db = await get_db()
+    rows = await list_batch_runs(db, limit=limit)
+    return [batch_run_row_to_summary(r) for r in rows]
+
+
+@router.get("/autopilot/batch-runs/detail", response_model=WeeklyBatchRunDetail)
+async def get_batch_run_detail(
+    run_date: Optional[datetime] = None, admin: User = Depends(require_admin)
+):
+    """One weekly-batch run with its WeeklySignal rows joined in.
+
+    Omit run_date for the most recent run.
+    """
+    db = await get_db()
+    row = await get_batch_run(db, run_date) if run_date else await get_latest_batch_run(db)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No batch run available yet")
+    signal_rows = await db.weeklysignal.find_many(where={"runDate": row.runDate})
+    return batch_run_row_to_detail(row, signal_rows)
 
 
 # ── Phase 2: broker linking + sleeve control ────────────────────────────────

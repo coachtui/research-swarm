@@ -924,6 +924,30 @@ model MarketOutlook {
   @@index([runDate])
 }
 
+model WeeklyBatchRun {
+  id                 String   @id @default(cuid())
+  runDate            DateTime // Monday the batch ran (UTC)
+
+  status             String   // "completed" | "aborted"
+  abortReason        String?  // e.g. "empty_candidates"
+
+  // Funnel-stage counts (Monday batch audit trail)
+  universeSize       Int?     // raw screener universe size (~191)
+  advancedCount      Int?     // top-N ∪ watchlist that passed the screener stage
+  watchlistExtras    Int?     // subset of advancedCount added via watchlist, not top-N
+  quantStored        Int?
+  quantFailed        Int?
+  escalationSwarm    Int?
+  escalationReuse    Int?
+  escalationHold     Int?
+  swarmCap           Int?     // BATCH_MAX_SWARM_RUNS at run time, for context
+  outcomes           Json?    // {ticker: "full"|"reused"|"step_failed"|...}, escalated tickers only
+
+  createdAt          DateTime @default(now())
+
+  @@index([runDate])
+}
+
 // ── Phase 3B: LLM-discovered theme baskets + engine journal ─────────────────
 // Sleeve-A-only signal objects. Theme membership NEVER buys a stock.
 

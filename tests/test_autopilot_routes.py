@@ -25,7 +25,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.dependencies import require_admin
-from api.routes.autopilot import MarketOutlookResponse, outlook_row_to_response, router
+from api.routes.autopilot import (
+    MarketOutlookResponse, outlook_row_to_response, router,
+    WeeklyBatchRunDetail, WeeklyBatchRunSummary,
+    batch_run_row_to_summary, batch_run_row_to_detail,
+)
 
 RUN_DATE = datetime(2026, 7, 6, tzinfo=timezone.utc)
 
@@ -437,3 +441,151 @@ class TestSleeveResume:
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Sleeve not initialized"
         setter.assert_not_awaited()
+
+
+# ── Monday batch audit trail ────────────────────────────────────────────────
+
+BATCH_RUN_DATE = datetime(2026, 7, 13, tzinfo=timezone.utc)
+
+
+def _make_batch_run_row(**overrides) -> SimpleNamespace:
+    defaults = dict(
+        id="run1",
+        runDate=BATCH_RUN_DATE,
+        status="completed",
+        abortReason=None,
+        universeSize=191,
+        advancedCount=23,
+        watchlistExtras=3,
+        quantStored=22,
+        quantFailed=1,
+        escalationSwarm=3,
+        escalationReuse=2,
+        escalationHold=17,
+        swarmCap=5,
+        outcomes={"AAPL": "full"},
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def _make_signal_row(**overrides) -> SimpleNamespace:
+    defaults = dict(
+        ticker="AAPL",
+        tier="full",
+        verdict="buy",
+        screenerScore=8.2,
+        escalationScore=3.1,
+        escalationReasons=["prior_buy", "post_earnings"],
+        quantSignals={"has_insider_buying": True},
+    )
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+class TestBatchRunRowToSummary:
+    def test_maps_camel_to_snake(self):
+        row = _make_batch_run_row()
+        result = batch_run_row_to_summary(row)
+        assert isinstance(result, WeeklyBatchRunSummary)
+        assert result.id == "run1"
+        assert result.run_date == BATCH_RUN_DATE
+        assert result.status == "completed"
+        assert result.universe_size == 191
+        assert result.advanced_count == 23
+        assert result.watchlist_extras == 3
+        assert result.quant_stored == 22
+        assert result.quant_failed == 1
+        assert result.escalation_swarm == 3
+        assert result.escalation_reuse == 2
+        assert result.escalation_hold == 17
+        assert result.swarm_cap == 5
+
+    def test_aborted_row(self):
+        row = _make_batch_run_row(
+            status="aborted", abortReason="empty_candidates",
+            advancedCount=0, quantStored=None, escalationSwarm=None,
+        )
+        result = batch_run_row_to_summary(row)
+        assert result.status == "aborted"
+        assert result.abort_reason == "empty_candidates"
+        assert result.quant_stored is None
+
+
+class TestBatchRunRowToDetail:
+    def test_includes_outcomes_and_signals(self):
+        row = _make_batch_run_row()
+        signal_rows = [_make_signal_row(), _make_signal_row(ticker="MSFT", tier="quant", verdict=None)]
+        result = batch_run_row_to_detail(row, signal_rows)
+        assert isinstance(result, WeeklyBatchRunDetail)
+        assert result.outcomes == {"AAPL": "full"}
+        assert len(result.signals) == 2
+        assert result.signals[0].ticker == "AAPL"
+        assert result.signals[0].escalation_reasons == ["prior_buy", "post_earnings"]
+        assert result.signals[1].tier == "quant"
+        assert result.signals[1].verdict is None
+
+
+class TestGetBatchRunsEndpoint:
+    def test_returns_summaries_newest_first(self):
+        newer = _make_batch_run_row(id="run2", runDate=datetime(2026, 7, 13, tzinfo=timezone.utc))
+        older = _make_batch_run_row(id="run1", runDate=datetime(2026, 7, 6, tzinfo=timezone.utc))
+        app = _admin_app()
+        mock_db = MagicMock()
+        mock_db.weeklybatchrun.find_many = AsyncMock(return_value=[newer, older])
+        with _patch_db(db=mock_db):
+            resp = TestClient(app).get("/api/autopilot/batch-runs")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert [row["id"] for row in data] == ["run2", "run1"]
+
+    def test_passes_limit_through(self):
+        app = _admin_app()
+        mock_db = MagicMock()
+        mock_db.weeklybatchrun.find_many = AsyncMock(return_value=[])
+        with _patch_db(db=mock_db):
+            resp = TestClient(app).get("/api/autopilot/batch-runs", params={"limit": 4})
+        assert resp.status_code == 200
+        _, kwargs = mock_db.weeklybatchrun.find_many.call_args
+        assert kwargs["take"] == 4
+
+
+class TestGetBatchRunDetailEndpoint:
+    def test_defaults_to_latest_when_no_run_date(self):
+        row = _make_batch_run_row()
+        app = _admin_app()
+        mock_db = MagicMock()
+        mock_db.weeklybatchrun.find_first = AsyncMock(return_value=row)
+        mock_db.weeklysignal.find_many = AsyncMock(return_value=[_make_signal_row()])
+        with _patch_db(db=mock_db):
+            resp = TestClient(app).get("/api/autopilot/batch-runs/detail")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] == "run1"
+        assert data["signals"][0]["ticker"] == "AAPL"
+        _, kwargs = mock_db.weeklybatchrun.find_first.call_args
+        assert kwargs["order"] == {"runDate": "desc"}
+
+    def test_looks_up_specific_run_date(self):
+        row = _make_batch_run_row()
+        app = _admin_app()
+        mock_db = MagicMock()
+        mock_db.weeklybatchrun.find_first = AsyncMock(return_value=row)
+        mock_db.weeklysignal.find_many = AsyncMock(return_value=[])
+        with _patch_db(db=mock_db):
+            resp = TestClient(app).get(
+                "/api/autopilot/batch-runs/detail",
+                params={"run_date": "2026-07-13T00:00:00+00:00"},
+            )
+        assert resp.status_code == 200
+        _, kwargs = mock_db.weeklybatchrun.find_first.call_args
+        assert kwargs["where"] == {"runDate": BATCH_RUN_DATE}
+
+    def test_returns_404_when_no_runs(self):
+        app = _admin_app()
+        mock_db = MagicMock()
+        mock_db.weeklybatchrun.find_first = AsyncMock(return_value=None)
+        with _patch_db(db=mock_db):
+            resp = TestClient(app).get("/api/autopilot/batch-runs/detail")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "No batch run available yet"

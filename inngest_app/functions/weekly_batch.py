@@ -112,7 +112,7 @@ def _register_inngest_function():
         outlook: Dict[str, Any] = await step.run("load-outlook", load_outlook)
 
         # ── Step 2: screen all 191 names; advance top N ∪ watchlisted ────────
-        async def run_screener() -> List[Dict[str, Any]]:
+        async def run_screener() -> Dict[str, Any]:
             screener = StockScreener(
                 market_client=MarketDataClient(),
                 insider_client=OpenInsiderClient(),
@@ -136,26 +136,56 @@ def _register_inngest_function():
                 "Screener advancing %d tickers (%d watchlist extras)",
                 len(advancing), len(extra),
             )
-            return [
-                {
-                    "ticker": st.ticker,
-                    "score": st.score,
-                    "sector": sector_map.get(st.ticker),
-                    "on_watchlist": st.ticker in watchlisted,
-                    "has_insider_buying": st.signals.has_insider_buying,
-                    "weekly_price_change_pct": st.signals.weekly_price_change_pct,
-                    "days_to_earnings": st.signals.days_to_earnings,
-                    "days_since_earnings": st.signals.days_since_earnings,
-                }
-                for st in advancing
-            ]
+            return {
+                "universe_size": len(universe),
+                "watchlist_extras": len(extra),
+                "candidates": [
+                    {
+                        "ticker": st.ticker,
+                        "score": st.score,
+                        "sector": sector_map.get(st.ticker),
+                        "on_watchlist": st.ticker in watchlisted,
+                        "has_insider_buying": st.signals.has_insider_buying,
+                        "weekly_price_change_pct": st.signals.weekly_price_change_pct,
+                        "days_to_earnings": st.signals.days_to_earnings,
+                        "days_since_earnings": st.signals.days_since_earnings,
+                    }
+                    for st in advancing
+                ],
+            }
 
-        candidates: List[Dict[str, Any]] = await step.run(
+        screen_result: Dict[str, Any] = await step.run(
             "screen-universe", run_screener
         )
+        candidates: List[Dict[str, Any]] = screen_result["candidates"]
+        universe_size: int = screen_result["universe_size"]
+        watchlist_extras: int = screen_result["watchlist_extras"]
 
         if not candidates:
             logger.error("Screener returned no candidates — aborting batch")
+
+            async def persist_aborted_summary() -> None:
+                from api.lib.db import get_db  # noqa: PLC0415
+                from execution.batch_run_service import (  # noqa: PLC0415
+                    build_batch_run_record, store_batch_run,
+                )
+                try:
+                    record = build_batch_run_record(
+                        run_date, "aborted",
+                        abort_reason="empty_candidates",
+                        universe_size=universe_size,
+                        advanced_count=0,
+                        watchlist_extras=watchlist_extras,
+                    )
+                    await store_batch_run(await get_db(), record)
+                except Exception as exc:
+                    logger.exception("Failed to persist aborted batch-run summary")
+                    from execution.alerts import send_failure_alert  # noqa: PLC0415
+                    await send_failure_alert(
+                        "Batch-run summary persist failed (aborted path)",
+                        f"{type(exc).__name__}: {exc}", source="weekly_batch")
+
+            await step.run("persist-batch-summary", persist_aborted_summary)
             return {"status": "aborted", "reason": "empty_candidates"}
 
         # ── Step 3: free quant snapshots (tier="quant") ──────────────────────
@@ -342,6 +372,29 @@ def _register_inngest_function():
                 except Exception as e:  # noqa: BLE001 — one ticker must not sink the run
                     logger.error("Persist step failed permanently for %s: %s", d["ticker"], e)
                     outcomes[d["ticker"]] = "step_failed"
+
+        # ── Persist funnel-stage summary for the admin audit view ────────────
+        async def persist_batch_summary() -> None:
+            from api.lib.db import get_db  # noqa: PLC0415
+            from execution.batch_run_service import (  # noqa: PLC0415
+                build_batch_run_record, store_batch_run, summarize_batch_run,
+            )
+            try:
+                counts = summarize_batch_run(
+                    universe_size=universe_size, candidates=candidates,
+                    watchlist_extras=watchlist_extras, quant=quant,
+                    decisions=decisions, swarm_cap=_MAX_SWARM_RUNS, outcomes=outcomes,
+                )
+                record = build_batch_run_record(run_date, "completed", **counts)
+                await store_batch_run(await get_db(), record)
+            except Exception as exc:
+                logger.exception("Failed to persist batch-run summary")
+                from execution.alerts import send_failure_alert  # noqa: PLC0415
+                await send_failure_alert(
+                    "Batch-run summary persist failed", f"{type(exc).__name__}: {exc}",
+                    source="weekly_batch")
+
+        await step.run("persist-batch-summary", persist_batch_summary)
 
         # ── Final step: fire batch/completed for (dormant) downstream fns ────
         # send_event is itself a step tool — never wrap it in step.run
