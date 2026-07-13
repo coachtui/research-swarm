@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -8,10 +9,29 @@ import type {
   IndustryRotationFlag,
   MarketOutlookResponse,
   RotationFlag,
+  SectorRanking,
   SizeStyle,
   ThemeHistoryPoint,
   ThemeRotationFlag,
 } from '@/types/api'
+
+type SortDir = 'asc' | 'desc'
+
+// Default direction on first click of each column — whichever direction
+// surfaces the "most notable" sectors first (strongest score, lowest/best
+// rank number, biggest positive rank change).
+const SECTOR_SORT_DEFAULTS: Partial<Record<keyof SectorRanking, SortDir>> = {
+  score: 'desc',
+  sector: 'asc',
+  rank_1m: 'asc',
+  rank_3m: 'asc',
+  rank_change: 'desc',
+}
+
+function SortIndicator({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return null
+  return <span className="ml-1">{dir === 'asc' ? '▲' : '▼'}</span>
+}
 
 const REGIME_BADGE_VARIANT: Record<string, 'success' | 'warning' | 'error'> = {
   risk_on: 'success',
@@ -140,6 +160,33 @@ function MarketOutlookContent({ outlook }: { outlook: MarketOutlookResponse }) {
 
   const regimeVariant = REGIME_BADGE_VARIANT[regime] ?? 'secondary'
 
+  const [sectorSort, setSectorSort] = useState<{ field: keyof SectorRanking; dir: SortDir }>({
+    field: 'score',
+    dir: 'desc',
+  })
+
+  function toggleSectorSort(field: keyof SectorRanking) {
+    setSectorSort((prev) =>
+      prev.field === field
+        ? { field, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { field, dir: SECTOR_SORT_DEFAULTS[field] ?? 'asc' }
+    )
+  }
+
+  const sortedSectorRankings = useMemo(() => {
+    const rows = [...sector_rankings]
+    const { field, dir } = sectorSort
+    rows.sort((a, b) => {
+      const av = a[field]
+      const bv = b[field]
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av)
+      }
+      return dir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number)
+    })
+    return rows
+  }, [sector_rankings, sectorSort])
+
   return (
     <div className="space-y-6">
       <Card>
@@ -196,16 +243,70 @@ function MarketOutlookContent({ outlook }: { outlook: MarketOutlookResponse }) {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-surface-elevated text-text-secondary uppercase tracking-wide">
-                    <th className="text-left py-2 pr-3 font-medium">Rank</th>
-                    <th className="text-left py-2 px-2 font-medium">Sector</th>
-                    <th className="text-right py-2 px-2 font-medium">1m Rank</th>
-                    <th className="text-right py-2 px-2 font-medium">3m Rank</th>
-                    <th className="text-right py-2 px-2 font-medium">Rank Δ</th>
-                    <th className="text-right py-2 pl-2 font-medium">Score</th>
+                    <th className="text-left py-2 pr-3 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => toggleSectorSort('score')}
+                        className="flex items-center hover:text-text-primary"
+                      >
+                        Rank
+                        <SortIndicator active={sectorSort.field === 'score'} dir={sectorSort.dir} />
+                      </button>
+                    </th>
+                    <th className="text-left py-2 px-2 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => toggleSectorSort('sector')}
+                        className="flex items-center hover:text-text-primary"
+                      >
+                        Sector
+                        <SortIndicator active={sectorSort.field === 'sector'} dir={sectorSort.dir} />
+                      </button>
+                    </th>
+                    <th className="text-right py-2 px-2 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => toggleSectorSort('rank_1m')}
+                        className="flex items-center justify-end w-full hover:text-text-primary"
+                      >
+                        1m Rank
+                        <SortIndicator active={sectorSort.field === 'rank_1m'} dir={sectorSort.dir} />
+                      </button>
+                    </th>
+                    <th className="text-right py-2 px-2 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => toggleSectorSort('rank_3m')}
+                        className="flex items-center justify-end w-full hover:text-text-primary"
+                      >
+                        3m Rank
+                        <SortIndicator active={sectorSort.field === 'rank_3m'} dir={sectorSort.dir} />
+                      </button>
+                    </th>
+                    <th className="text-right py-2 px-2 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => toggleSectorSort('rank_change')}
+                        className="flex items-center justify-end w-full hover:text-text-primary"
+                      >
+                        Rank Δ
+                        <SortIndicator active={sectorSort.field === 'rank_change'} dir={sectorSort.dir} />
+                      </button>
+                    </th>
+                    <th className="text-right py-2 pl-2 font-medium">
+                      <button
+                        type="button"
+                        onClick={() => toggleSectorSort('score')}
+                        className="flex items-center justify-end w-full hover:text-text-primary"
+                      >
+                        Score
+                        <SortIndicator active={sectorSort.field === 'score'} dir={sectorSort.dir} />
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {sector_rankings.map((row, i) => (
+                  {sortedSectorRankings.map((row, i) => (
                     <tr
                       key={row.etf}
                       className="border-b border-surface-elevated/30"
