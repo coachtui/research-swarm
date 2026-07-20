@@ -768,7 +768,8 @@ def _register_inngest_function():
                     list(assembled.get("tagged", {})) + list(sleeve_ctx["positions"]),
                     now,
                 )
-                return await _screen(assembled, outlook, sleeve_ctx, latest)
+                tradable = await _alpaca_tradable_symbols(db)
+                return await _screen(assembled, outlook, sleeve_ctx, latest, tradable)
             except Exception:  # noqa: BLE001
                 logger.exception("funnel: screen failed")
                 await _journal(db, "engine_failure", "warning",
@@ -889,9 +890,20 @@ async def _assemble(db, outlook: Dict[str, Any], holdings: List[str]) -> Dict[st
     }
 
 
+async def _alpaca_tradable_symbols(db) -> Optional[set]:
+    """Alpaca's active+tradable US-equity universe (None on any failure — a
+    data outage degrades to 'don't gate', matching this module's other
+    outage guards, rather than freezing the whole screen). Lives in
+    execution.broker.tradable so the theme passes share one definition."""
+    from execution.broker.tradable import alpaca_tradable_symbols  # noqa: PLC0415
+
+    return await alpaca_tradable_symbols(db)
+
+
 async def _screen(
     assembled: Dict[str, Any], outlook: Dict[str, Any], sleeve_ctx: Dict[str, Any],
     latest_signals: Optional[Dict[str, Dict[str, Any]]] = None,
+    tradable_symbols: Optional[set] = None,
 ) -> Dict[str, Any]:
     """Fetch OHLCV, apply the sanity floors, screen every kept name, quality
     re-rank the top 40, pick light slots. All DataFrames stay LOCAL to this
@@ -929,7 +941,7 @@ async def _screen(
             "adv_usd": float((df["Close"] * df["Volume"]).tail(20).mean()),
             "market_cap": None,
         }
-    kept, excluded = apply_floors(tagged, metrics)
+    kept, excluded = apply_floors(tagged, metrics, tradable_symbols)
 
     top_industries = [r.get("etf") for r in outlook.get("industryRankings", [])[:5] if r.get("etf")]
     top_themes = [r.get("slug") for r in outlook.get("themeRankings", [])[:5] if r.get("slug")]
@@ -1413,7 +1425,7 @@ async def _decide_and_execute(
     # this week's challengers so a patient 14-day limit can't spawn a SECOND
     # order, and reserve their slots against the max-positions cap (I3a).
     try:
-        open_buys = await _open_shadow_buys(db)
+        open_buys = await _open_shadow_buys(client)
     except Exception:  # noqa: BLE001 — degrade + journal
         logger.exception("funnel: open shadow buy query failed")
         await _journal(db, "engine_failure", "warning",
@@ -1689,17 +1701,24 @@ def _all_themes_retired(holding: Dict[str, Any], by_symbol: Dict[str, Any]) -> b
     return bool(tags.get("holding")) and not themes and not tags.get("watchlist")
 
 
-async def _open_shadow_buys(db) -> Dict[str, Any]:
+async def _open_shadow_buys(client) -> Dict[str, Any]:
     """ONE query → {notional, symbols, count} for standing (unfilled) Sleeve A
-    shadow buys. Buys move cash only when the daily cron fills them, so an open
-    order is committed capital the cash ledger doesn't yet reflect AND a pending
-    position that must reserve a slot and block a duplicate challenger (I3)."""
-    orders = await db.enginetrade.find_many(
-        where={"sleeve": SLEEVE_A, "status": "shadow_open", "side": "buy"}
-    )
+    buys. Buys move cash only when the daily cron fills them, so an open order
+    is committed capital the cash ledger doesn't yet reflect AND a pending
+    position that must reserve a slot and block a duplicate challenger (I3).
+
+    Goes through the broker's OWN get_open_orders() rather than hand-rolling a
+    DB query: ShadowBrokerClient's rows are status="shadow_open" but
+    AlpacaFunnelBroker's (the live paper broker, owner ruling 2026-07-10) are
+    status="open" — a hardcoded "shadow_open" filter went blind the moment
+    Sleeve A traded live, silently un-gating the duplicate-order check this
+    function exists to enforce."""
+    orders = await client.get_open_orders()
     total = 0.0
     symbols: set = set()
     for o in orders:
+        if getattr(o, "side", "buy") != "buy":
+            continue
         sym = getattr(o, "symbol", None)
         if sym:
             symbols.add(sym)
@@ -1713,9 +1732,9 @@ async def _open_shadow_buys(db) -> Dict[str, Any]:
     return {"notional": round(total, 2), "symbols": symbols, "count": len(symbols)}
 
 
-async def _open_shadow_buy_notional(db) -> float:
+async def _open_shadow_buy_notional(client) -> float:
     """Back-compat thin wrapper — total notional only."""
-    return (await _open_shadow_buys(db))["notional"]
+    return (await _open_shadow_buys(client))["notional"]
 
 
 async def _latest_full_signal_id(db, symbol: str) -> Optional[str]:

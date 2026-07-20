@@ -50,3 +50,30 @@ def test_floors_exclude_and_journal_reasons():
         "THIN": "adv_below_floor", "TINY": "mcap_below_floor",
         "PENNY": "price_below_floor", "DARK": "no_price_data",
     }
+
+
+def test_floors_exclude_non_alpaca_tradable_symbols():
+    """A foreign listing surfaced by an ETF's top-holdings feed (Air Canada
+    as "AC.TO" via the JETS airline ETF) or a delisted/acquired ticker a data
+    vendor hasn't dropped (e.g. JNPR post-HPE-acquisition) must never reach
+    screening/entry just because it still prices — Alpaca can't trade it."""
+    tagged = {"OK": _tags(), "AC.TO": _tags(), "JNPR": _tags()}
+    metrics = {
+        "OK":    {"adv_usd": 5e6, "market_cap": 5e8, "price": 20.0},
+        "AC.TO": {"adv_usd": 5e6, "market_cap": 5e9, "price": 18.0},
+        "JNPR":  {"adv_usd": 5e6, "market_cap": 5e9, "price": 40.0},
+    }
+    kept, excluded = apply_floors(tagged, metrics, tradable_symbols={"OK"})
+    assert set(kept) == {"OK"}
+    reasons = {e["symbol"]: e["reason"] for e in excluded}
+    assert reasons == {"AC.TO": "not_alpaca_tradable", "JNPR": "not_alpaca_tradable"}
+
+
+def test_floors_skip_tradability_gate_when_lookup_unavailable():
+    """tradable_symbols=None (the default) means the Alpaca lookup failed or
+    wasn't attempted — degrade to no gate rather than freezing the screen."""
+    tagged = {"OK": _tags()}
+    metrics = {"OK": {"adv_usd": 5e6, "market_cap": 5e8, "price": 20.0}}
+    kept, excluded = apply_floors(tagged, metrics, tradable_symbols=None)
+    assert set(kept) == {"OK"}
+    assert excluded == []

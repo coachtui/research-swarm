@@ -168,13 +168,16 @@ def test_full_run_sell_verdict_vetoes_entry():
 def test_open_shadow_buys_reduce_spend_and_no_cash_write_at_buy_submit():
     """F1 (Task 13 review): the daily fills step is the SOLE cash mover for
     buys. The weekly pass (a) never writes the cash ledger at buy submit and
-    (b) treats standing shadow-open buy notionals as committed capital,
-    subtracting them from BOTH cash_available and deployable."""
+    (b) treats standing open buy notionals as committed capital, subtracting
+    them from BOTH cash_available and deployable — sourced from the broker's
+    OWN get_open_orders() (live "open" or shadow "shadow_open" rows alike),
+    not a hardcoded shadow-only DB query."""
     db = MagicMock()
-    # One standing shadow buy worth $1,000 from a previous pass.
-    db.enginetrade.find_many = AsyncMock(return_value=[
+    client = MagicMock()
+    # One standing (live) open buy worth $1,000 from a previous pass.
+    client.get_open_orders = AsyncMock(return_value=[
         MagicMock(qty=50.0, limitPrice=20.0, notional=1000.0, side="buy",
-                  status="shadow_open"),
+                  status="open"),
     ])
     captured = {}
 
@@ -200,7 +203,7 @@ def test_open_shadow_buys_reduce_spend_and_no_cash_write_at_buy_submit():
          patch("execution.sleeve_service.update_sleeve_cash",
                new=AsyncMock()) as cash_write:
         out = _run(saf._decide_and_execute(
-            db, MagicMock(), NOW, "neutral",
+            db, client, NOW, "neutral",
             sleeve_ctx={"cash": 10_000.0, "positions": {},
                         "allow_buys": True, "status": "active"},
             assembled={}, screened={"ranked": [], "close_by_symbol": {},
@@ -216,6 +219,29 @@ def test_open_shadow_buys_reduce_spend_and_no_cash_write_at_buy_submit():
     # And placing a buy writes NO cash — the daily fill (or expiry) decides.
     cash_write.assert_not_called()
     assert len(out["placed"]) == 1
+
+
+def test_open_shadow_buys_sees_live_open_orders_not_just_shadow():
+    """Regression: _open_shadow_buys previously hand-rolled a DB query
+    hardcoded to status="shadow_open", which only ShadowBrokerClient writes.
+    AlpacaFunnelBroker (the LIVE paper broker Sleeve A actually trades through
+    per the 2026-07-10 owner ruling) writes status="open" — the hardcoded
+    query went permanently blind to real outstanding orders, so a symbol with
+    a standing live limit buy was never excluded from next week's candidates
+    and could be bought again (the NVDA/HOOD duplicate-order bug). Now it
+    must go through client.get_open_orders(), whatever the broker actually is."""
+    client = MagicMock()
+    client.get_open_orders = AsyncMock(return_value=[
+        MagicMock(symbol="NVDA", side="buy", qty=2.0, limitPrice=900.0, notional=None),
+        MagicMock(symbol="HOOD", side="buy", qty=10.0, limitPrice=45.0, notional=450.0),
+        MagicMock(symbol="AEHR", side="sell", qty=5.0, limitPrice=None, notional=None),
+    ])
+
+    out = _run(saf._open_shadow_buys(client))
+
+    assert out["symbols"] == {"NVDA", "HOOD"}
+    assert out["count"] == 2
+    assert out["notional"] == 2250.0  # 2*900 (reconstructed) + 450 (stated)
 
 
 # ── Final whole-branch review pins (Phase 3C) ────────────────────────────────
@@ -462,6 +488,37 @@ def test_i5_two_same_theme_entries_jointly_capped():
     theme_total = sum(p["notional"] for p in placed)
     assert theme_total <= MAX_THEME_PCT_OF_SLEEVE * sleeve_equity + 0.01
     assert theme_total > 0.30 * sleeve_equity   # cap actually bound (3×12% wanted 36%)
+
+
+def test_alpaca_tradable_symbols_returns_broker_set():
+    import execution.broker.alpaca_client as alpaca_mod
+    import execution.broker.credentials as creds_mod
+
+    client = MagicMock()
+    client.list_tradable_us_equities = MagicMock(return_value={"AEHR", "NVDA"})
+    with patch.object(creds_mod, "get_active_alpaca_account",
+                      new=AsyncMock(return_value=MagicMock())), \
+         patch.object(alpaca_mod, "client_from_account", new=MagicMock(return_value=client)):
+        out = _run(saf._alpaca_tradable_symbols(MagicMock()))
+    assert out == {"AEHR", "NVDA"}
+
+
+def test_alpaca_tradable_symbols_degrades_to_none_on_no_account():
+    import execution.broker.credentials as creds_mod
+
+    with patch.object(creds_mod, "get_active_alpaca_account",
+                      new=AsyncMock(return_value=None)):
+        out = _run(saf._alpaca_tradable_symbols(MagicMock()))
+    assert out is None
+
+
+def test_alpaca_tradable_symbols_degrades_to_none_on_failure():
+    import execution.broker.credentials as creds_mod
+
+    with patch.object(creds_mod, "get_active_alpaca_account",
+                      new=AsyncMock(side_effect=RuntimeError("db down"))):
+        out = _run(saf._alpaca_tradable_symbols(MagicMock()))
+    assert out is None
 
 
 def test_bootstrap_refuses_when_spy_close_unavailable():

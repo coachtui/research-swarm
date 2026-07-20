@@ -198,8 +198,8 @@ def _register_inngest_function():
             from execution.alerts import send_failure_alert  # noqa: PLC0415
             from execution.broker.alpaca_client import client_from_account  # noqa: PLC0415
             from execution.broker.credentials import get_active_alpaca_account  # noqa: PLC0415
-            from execution.constants import SLEEVE_B  # noqa: PLC0415
-            from execution.engine.reconcile import find_mismatches  # noqa: PLC0415
+            from execution.constants import SECTOR_ETFS, SLEEVE_B  # noqa: PLC0415
+            from execution.engine.reconcile import reconcile_sleeve  # noqa: PLC0415
             from execution.sleeve_service import (  # noqa: PLC0415
                 get_engine_positions, set_sleeve_status,
             )
@@ -213,8 +213,12 @@ def _register_inngest_function():
             engine_rows = await get_engine_positions(db, SLEEVE_B)
             engine_qty = {p.symbol: p.qty for p in engine_rows}
 
-            mismatches = find_mismatches(
-                {p["symbol"]: p["qty"] for p in broker_positions}, engine_qty
+            # Per-sleeve scoped reconciliation (the landmine fix, cacb8c5):
+            # the broker book is shared with Sleeve A's individual stocks, so
+            # a whole-account match would freeze B over A's own holdings.
+            mismatches = reconcile_sleeve(
+                {p["symbol"]: p["qty"] for p in broker_positions}, engine_qty,
+                SECTOR_ETFS.keys(),
             )
             if mismatches:
                 await set_sleeve_status(db, SLEEVE_B, "frozen", "; ".join(mismatches))

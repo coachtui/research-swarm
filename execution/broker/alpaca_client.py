@@ -6,7 +6,7 @@ imported in __init__ and stored on self so unit tests can inject fakes via
 __new__ without alpaca-py installed.
 """
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from execution.broker.base import BrokerOrderResult, BrokerPosition
 
@@ -21,14 +21,19 @@ def _enum_str(value) -> str:
 class AlpacaPaperClient:
     def __init__(self, api_key: str, api_secret: str):
         from alpaca.trading.client import TradingClient  # lazy — runtime dep
-        from alpaca.trading.enums import OrderSide, TimeInForce
-        from alpaca.trading.requests import LimitOrderRequest, MarketOrderRequest
+        from alpaca.trading.enums import AssetClass, AssetStatus, OrderSide, TimeInForce
+        from alpaca.trading.requests import (
+            GetAssetsRequest, LimitOrderRequest, MarketOrderRequest,
+        )
 
         self._client = TradingClient(api_key, api_secret, paper=True)
         self._MarketOrderRequest = MarketOrderRequest
         self._LimitOrderRequest = LimitOrderRequest
+        self._GetAssetsRequest = GetAssetsRequest
         self._OrderSide = OrderSide
         self._TimeInForce = TimeInForce
+        self._AssetClass = AssetClass
+        self._AssetStatus = AssetStatus
 
     def get_account_summary(self) -> Dict[str, float]:
         account = self._client.get_account()
@@ -48,6 +53,20 @@ class AlpacaPaperClient:
 
     def is_market_open(self) -> bool:
         return bool(self._client.get_clock().is_open)
+
+    def list_tradable_us_equities(self) -> Set[str]:
+        """Alpaca's own active + tradable US-equity symbols — the ground
+        truth for "can we submit an order for this." Alpaca's asset universe
+        never contains foreign-exchange listings (a symbol like "AC.TO" is
+        simply absent, not merely untradable), and it drops/flags a company
+        once delisted (acquisition, bankruptcy) even when an upstream data
+        feed (e.g. yfinance fund holdings) hasn't caught up yet."""
+        assets = self._client.get_all_assets(
+            self._GetAssetsRequest(
+                asset_class=self._AssetClass.US_EQUITY, status=self._AssetStatus.ACTIVE,
+            )
+        )
+        return {a.symbol for a in assets if a.tradable}
 
     def submit_market_buy_notional(self, symbol: str, notional: float) -> BrokerOrderResult:
         order = self._client.submit_order(

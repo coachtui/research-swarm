@@ -188,7 +188,7 @@ async def test_weekly_run_writes_rebalance_summary(monkeypatch, execution_weekly
     async def fake_get_engine_positions(db, sleeve):
         return []
 
-    def fake_find_mismatches(broker_qty, engine_qty):
+    def fake_reconcile_sleeve(broker_qty, engine_qty, expected_universe):
         return []
 
     def fake_client_from_account(account):
@@ -232,7 +232,7 @@ async def test_weekly_run_writes_rebalance_summary(monkeypatch, execution_weekly
     monkeypatch.setattr(outlook_mod, "get_latest_outlook", fake_get_latest_outlook)
     monkeypatch.setattr(sleeve_mod, "get_sleeve_state", fake_get_sleeve_state)
     monkeypatch.setattr(sleeve_mod, "get_engine_positions", fake_get_engine_positions)
-    monkeypatch.setattr(reconcile_mod, "find_mismatches", fake_find_mismatches)
+    monkeypatch.setattr(reconcile_mod, "reconcile_sleeve", fake_reconcile_sleeve)
     monkeypatch.setattr(alpaca_mod, "client_from_account", fake_client_from_account)
     monkeypatch.setattr(sleeve_mod, "apply_fill", fake_apply_fill)
     monkeypatch.setattr(sleeve_mod, "update_sleeve_cash", fake_update_sleeve_cash)
@@ -250,3 +250,89 @@ async def test_weekly_run_writes_rebalance_summary(monkeypatch, execution_weekly
     assert (report_type, severity, source) == ("rebalance_summary", "info", "execution_weekly")
     assert "rebalanced" in title
     assert body == result
+
+
+@pytest.mark.asyncio
+async def test_weekly_run_does_not_freeze_over_sleeve_a_stock(monkeypatch, execution_weekly_fn):
+    """The landmine (cacb8c5): Sleeve A holds real stocks in the SAME shared
+    Alpaca paper account. Sleeve B's own reconciliation must scope to its book
+    ∪ sector ETFs (reconcile_sleeve), not the whole account (find_mismatches),
+    or Sleeve A's holdings falsely freeze Sleeve B. Uses the REAL
+    reconcile_sleeve — no monkeypatch on execution.engine.reconcile."""
+    import api.lib.db as db_mod
+    import execution.broker.alpaca_client as alpaca_mod
+    import execution.broker.credentials as creds_mod
+    import execution.outlook_service as outlook_mod
+    import execution.sleeve_service as sleeve_mod
+
+    async def fake_get_db():
+        return object()
+
+    async def fake_get_active_alpaca_account(db):
+        return object()
+
+    async def fake_get_latest_outlook(db):
+        return _OutlookRow(run_date=datetime.now(timezone.utc) - timedelta(days=1))
+
+    async def fake_get_sleeve_state(db, sleeve):
+        return _SleeveState(status="active", cash_balance=30000.0)
+
+    async def fake_get_engine_positions(db, sleeve):
+        return []  # Sleeve B holds nothing yet
+
+    def fake_client_from_account(account):
+        class _Client:
+            def is_market_open(self):
+                return True
+
+            def get_positions(self):
+                # Broker book is SHARED: Sleeve A's NVDA shows up here even
+                # though it belongs to neither Sleeve B's book nor a sector ETF.
+                return [
+                    types.SimpleNamespace(
+                        symbol="NVDA", qty=3.0, market_value=1500.0,
+                        current_price=500.0, avg_entry_price=480.0,
+                        to_dict=lambda: {
+                            "symbol": "NVDA", "qty": 3.0, "market_value": 1500.0,
+                            "current_price": 500.0, "avg_entry_price": 480.0,
+                        },
+                    )
+                ]
+
+            def get_account_summary(self):
+                return {"equity": 100000.0, "cash": 30000.0}
+
+            def submit_market_buy_notional(self, symbol, notional):
+                return _OrderResult({
+                    "side": "buy", "symbol": symbol, "status": "filled",
+                    "brokerOrderId": f"ord-{symbol}", "qty": notional / 100.0,
+                    "notional": notional,
+                })
+
+            def submit_market_sell_qty(self, symbol, qty):
+                raise AssertionError("no sells expected in this fixture")
+        return _Client()
+
+    async def fake_apply_fill(db, sleeve, fill, requested_notional=None, journal=None):
+        return -fill.get("requested_notional", 0.0)
+
+    async def fake_update_sleeve_cash(db, sleeve, cash_balance):
+        return None
+
+    async def fake_write_report(report_type, severity, source, title, body, db=None):
+        return "rep-id"
+
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+    monkeypatch.setattr(creds_mod, "get_active_alpaca_account", fake_get_active_alpaca_account)
+    monkeypatch.setattr(outlook_mod, "get_latest_outlook", fake_get_latest_outlook)
+    monkeypatch.setattr(sleeve_mod, "get_sleeve_state", fake_get_sleeve_state)
+    monkeypatch.setattr(sleeve_mod, "get_engine_positions", fake_get_engine_positions)
+    monkeypatch.setattr(alpaca_mod, "client_from_account", fake_client_from_account)
+    monkeypatch.setattr(sleeve_mod, "apply_fill", fake_apply_fill)
+    monkeypatch.setattr(sleeve_mod, "update_sleeve_cash", fake_update_sleeve_cash)
+    monkeypatch.setattr("execution.reporting.write_report", fake_write_report)
+
+    result = await execution_weekly_fn(_FakeCtx())
+
+    assert result["status"] != "frozen"
+    assert result["status"] == "rebalanced"

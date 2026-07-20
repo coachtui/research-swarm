@@ -14,8 +14,11 @@ def _bare_client(fake_trading_client):
     client = AlpacaPaperClient.__new__(AlpacaPaperClient)
     client._client = fake_trading_client
     client._MarketOrderRequest = lambda **kw: SimpleNamespace(**kw)
+    client._GetAssetsRequest = lambda **kw: SimpleNamespace(**kw)
     client._OrderSide = SimpleNamespace(BUY="buy", SELL="sell")
     client._TimeInForce = SimpleNamespace(DAY="day")
+    client._AssetClass = SimpleNamespace(US_EQUITY="us_equity")
+    client._AssetStatus = SimpleNamespace(ACTIVE="active")
     return client
 
 
@@ -49,6 +52,23 @@ class TestAccountAndPositions:
         fake = MagicMock()
         fake.get_clock.return_value = SimpleNamespace(is_open=True)
         assert _bare_client(fake).is_market_open() is True
+
+    def test_list_tradable_us_equities_filters_untradable_and_requests_active_us_equity(self):
+        # Regression: the funnel's universe feed (ETF top-holdings, theme
+        # membership) can carry a foreign listing (e.g. Air Canada as
+        # "AC.TO") or a name delisted post-acquisition that the data vendor
+        # hasn't dropped. Alpaca's asset list is the ground truth for what's
+        # actually orderable — only tradable=True symbols should survive.
+        fake = MagicMock()
+        fake.get_all_assets.return_value = [
+            SimpleNamespace(symbol="AEHR", tradable=True),
+            SimpleNamespace(symbol="JNPR", tradable=False),  # delisted
+        ]
+        result = _bare_client(fake).list_tradable_us_equities()
+        assert result == {"AEHR"}
+        request = fake.get_all_assets.call_args.args[0]
+        assert request.asset_class == "us_equity"
+        assert request.status == "active"
 
 
 class TestOrders:

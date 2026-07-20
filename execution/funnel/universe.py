@@ -5,7 +5,7 @@ stock. Every symbol keeps provenance tags — the guardrails' theme-overlap
 caps and the journal both need to know WHY a name is in the universe.
 """
 import logging
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from execution.constants import (
     BENCHMARK, EQUAL_WEIGHT, FUNNEL_HOLDINGS_PER_ETF, FUNNEL_INDUSTRY_TOP_N,
@@ -65,12 +65,27 @@ def merge_sources(
 
 def apply_floors(
     tagged: Dict[str, Dict[str, Any]], metrics: Dict[str, Dict[str, Any]],
+    tradable_symbols: Optional[Set[str]] = None,
 ) -> Tuple[Dict[str, Dict[str, Any]], List[Dict[str, str]]]:
     """Sanity floors. Unknown market cap passes (net, not gate); unknown
-    price/ADV excludes — we cannot screen what we cannot price."""
+    price/ADV excludes — we cannot screen what we cannot price.
+
+    tradable_symbols, when given, is Alpaca's own active+tradable US-equity
+    universe — the broker's ground truth for "can we actually submit an
+    order for this." A quant feed (ETF top-holdings via yfinance, theme
+    membership) can carry a name Alpaca will reject outright: a foreign
+    listing reported under its home-exchange ticker (an airline ETF's Air
+    Canada holding surfaces as "AC.TO", not tradable on any US venue), or a
+    delisted/acquired company the feed hasn't dropped yet (still has a
+    quotable last price on the data vendor for a while after the ticker
+    stops trading). None means the lookup was unavailable — degrade to no
+    gate rather than freezing the whole screen over a data outage."""
     kept: Dict[str, Dict[str, Any]] = {}
     excluded: List[Dict[str, str]] = []
     for sym, tags in tagged.items():
+        if tradable_symbols is not None and sym not in tradable_symbols:
+            excluded.append({"symbol": sym, "reason": "not_alpaca_tradable"})
+            continue
         m = metrics.get(sym) or {}
         adv, mcap, price = m.get("adv_usd"), m.get("market_cap"), m.get("price")
         if price is None or adv is None:
