@@ -67,11 +67,17 @@ def _register_inngest_function():
 
         raw = await step.run("reason", reason)
 
-        # Step 3: parse + validate tickers (free, pure)
+        # Step 3: parse + validate tickers (free). Gated on Alpaca's tradable
+        # universe first — the ground truth for delisting, since yfinance still
+        # serves history for names that stopped trading years ago.
         async def parse_validate() -> Dict[str, Any]:
+            from api.lib.db import get_db  # noqa: PLC0415
+            from execution.broker.tradable import alpaca_tradable_symbols  # noqa: PLC0415
             from execution.themes.delta import parse_and_validate_delta  # noqa: PLC0415
 
-            return parse_and_validate_delta(raw)
+            db = await get_db()
+            tradable = await alpaca_tradable_symbols(db)
+            return parse_and_validate_delta(raw, tradable=tradable)
 
         bundle = await step.run("parse-validate", parse_validate)
 

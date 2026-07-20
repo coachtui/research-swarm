@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Dict
 
-from execution.constants import THEME_DELTA_MODEL
+from execution.constants import THEME_DELTA_MODEL, THEME_DELTA_WEB_SEARCH_MAX_USES
 from execution.reporting import write_report
 from execution.themes.discovery import _call_llm, _current_theme_state
 from execution.themes.lifecycle import apply_actions, plan_delta_actions
@@ -23,14 +23,19 @@ async def gather_delta_context(db) -> Dict[str, Any]:
 
 
 def reason_delta(context: Dict[str, Any], llm_call=None) -> str:
+    """Web search is ON despite the cheap model: offline recall proposes symbols
+    that stopped trading years ago (JDSU split in 2015, PSTH liquidated in 2022).
+    max_uses is held below the monthly pass's — this is a verification budget,
+    not a research budget."""
     call = llm_call or _call_llm
-    return call(THEME_DELTA_MODEL, build_delta_prompt(context), use_web_search=False)
+    return call(THEME_DELTA_MODEL, build_delta_prompt(context), use_web_search=True,
+                max_uses=THEME_DELTA_WEB_SEARCH_MAX_USES)
 
 
-def parse_and_validate_delta(raw: str) -> Dict[str, Any]:
+def parse_and_validate_delta(raw: str, tradable=None) -> Dict[str, Any]:
     parsed = parse_delta_response(raw)
     tickers = [c["ticker"] for t in parsed["themes"] for c in t.get("add", [])]
-    validation = validate_tickers(tickers) if tickers else {}
+    validation = validate_tickers(tickers, tradable=tradable) if tickers else {}
     return {"deltas": parsed["themes"], "validation": validation,
             "skipped": parsed["skipped"]}
 

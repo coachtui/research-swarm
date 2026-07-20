@@ -138,6 +138,11 @@ def plan_delta_actions(
         existing = {c["ticker"] for c in theme["constituents"] if c["status"] == "active"}
         adds, removes = [], []
         for c in d.get("add", []):
+            # Validation first: a symbol that doesn't resolve is a hallucination or
+            # a zombie (JDSU, PSTH). It must not reach the journal at any confidence.
+            if validation.get(c["ticker"]) is None:
+                rejected.append(f"{d['slug']}: +{c['ticker']} failed validation")
+                continue
             if c["confidence"] < DELTA_AUTO_APPLY_CONFIDENCE:
                 actions.append({"kind": "journal_only", "slug": d["slug"],
                                 "title": f"delta below threshold: +{c['ticker']}",
@@ -145,9 +150,6 @@ def plan_delta_actions(
                 continue
             if c["ticker"] in existing:
                 rejected.append(f"{d['slug']}: +{c['ticker']} already a constituent")
-                continue
-            if validation.get(c["ticker"]) is None:
-                rejected.append(f"{d['slug']}: +{c['ticker']} failed validation")
                 continue
             if len(existing) + len(adds) >= MAX_THEME_CONSTITUENTS:
                 rejected.append(f"{d['slug']}: +{c['ticker']} rejected — at constituent cap")

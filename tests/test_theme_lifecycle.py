@@ -139,6 +139,18 @@ def test_delta_below_threshold_is_journal_only():
     assert plan["actions"][0]["kind"] == "journal_only"
 
 
+def test_delta_below_threshold_still_rejected_when_validation_fails():
+    """A delisted ticker (JDSU, PSTH) must never reach the journal, even at low
+    confidence — validation is the gate, and it comes before the threshold."""
+    current = [_current("photonics", tickers=("LASR",))]
+    deltas = [{"slug": "photonics",
+               "add": [{"ticker": "JDSU", "exposure": "x", "confidence": 0.6}],
+               "remove": []}]
+    plan = plan_delta_actions(current, deltas, {"JDSU": None})
+    assert plan["actions"] == []
+    assert any("JDSU" in r for r in plan["rejected"])
+
+
 def test_delta_above_threshold_applies_and_respects_cap():
     current = [_current("photonics", tickers=tuple(f"C{i}" for i in range(20)))]
     deltas = [{"slug": "photonics",

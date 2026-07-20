@@ -163,6 +163,11 @@ Do NOT propose new themes and do NOT touch theme-level fields.
 ## Rules
 - Suggest a change only when you have a concrete reason (new listing, lost
   exposure, acquisition, delisting, materially better pure-play).
+- VERIFY EVERY SYMBOL YOU ADD IS STILL TRADING TODAY. Search before you
+  propose. Companies get acquired, merge, rename, split, and liquidate — a
+  ticker you remember may not exist anymore. Confirm the symbol currently
+  trades on a US exchange and still maps to the company you mean. If you
+  cannot confirm it, do not propose it.
 - Additions need REAL, MATERIAL exposure stated in one falsifiable sentence.
   US-listed, liquid names only (ADV >= ${THEME_ADV_FLOOR_USD:,.0f}/day,
   market cap >= ${THEME_MCAP_FLOOR_USD:,.0f}). Max {MAX_THEME_CONSTITUENTS}

@@ -67,11 +67,16 @@ def _register_inngest_function():
 
         raw = await step.run("reason", reason)
 
-        # Step 3: parse + validate tickers (free, pure)
+        # Step 3: parse + validate tickers (free). Same broker-universe gate as
+        # the weekly delta pass — see theme_delta_weekly.py.
         async def parse_validate() -> Dict[str, Any]:
+            from api.lib.db import get_db  # noqa: PLC0415
+            from execution.broker.tradable import alpaca_tradable_symbols  # noqa: PLC0415
             from execution.themes.discovery import parse_and_validate_monthly  # noqa: PLC0415
 
-            return parse_and_validate_monthly(raw)
+            db = await get_db()
+            tradable = await alpaca_tradable_symbols(db)
+            return parse_and_validate_monthly(raw, tradable=tradable)
 
         bundle = await step.run("parse-validate", parse_validate)
 

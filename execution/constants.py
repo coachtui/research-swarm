@@ -89,6 +89,7 @@ THEME_HISTORY_WEEKS = 12            # sparkline series length (current membershi
 THEME_REASONING_MODEL = "claude-sonnet-5"
 THEME_DELTA_MODEL = "claude-haiku-4-5"
 THEME_WEB_SEARCH_MAX_USES = 8
+THEME_DELTA_WEB_SEARCH_MAX_USES = 4  # verification budget only, not research
 
 # ── Phase 3C: Sleeve A funnel + small-cap guardrails (SHADOW MODE) ──────────
 # Spec: docs/superpowers/specs/2026-07-09-phase3c-sleeve-a-funnel-design.md

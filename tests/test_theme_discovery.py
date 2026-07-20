@@ -98,7 +98,7 @@ def test_call_llm_happy_path_returns_concatenated_text_with_16384_max_tokens(mon
 
 def test_parse_and_validate_monthly(monkeypatch):
     monkeypatch.setattr(discovery, "validate_tickers",
-                        lambda tickers: {t: VALID for t in tickers})
+                        lambda tickers, tradable=None: {t: VALID for t in tickers})
     bundle = discovery.parse_and_validate_monthly(RAW)
     assert len(bundle["proposals"]) == 1
     assert len(bundle["validation"]) == 6
@@ -116,16 +116,24 @@ def test_parse_and_validate_monthly_passes_next_constraints():
     assert bundle["next_constraints"][0]["hypothesis"] == "grid labor binds"
 
 
-def test_reason_delta_uses_cheap_model_no_search(monkeypatch):
+def test_reason_delta_uses_cheap_model_with_bounded_search(monkeypatch):
+    """Cheap model, but web search ON: an offline model proposes zombie tickers
+    (JDSU, PSTH) from training data. max_uses is kept below the monthly pass's."""
+    from execution.constants import (
+        THEME_DELTA_WEB_SEARCH_MAX_USES,
+        THEME_WEB_SEARCH_MAX_USES,
+    )
     seen = {}
 
     def fake_llm(model, prompt, use_web_search=False, max_uses=8):
-        seen.update(model=model, use_web_search=use_web_search)
+        seen.update(model=model, use_web_search=use_web_search, max_uses=max_uses)
         return '{"themes": []}'
 
     delta_mod.reason_delta({"active_themes": []}, llm_call=fake_llm)
     assert seen["model"] == "claude-haiku-4-5"
-    assert seen["use_web_search"] is False
+    assert seen["use_web_search"] is True
+    assert seen["max_uses"] == THEME_DELTA_WEB_SEARCH_MAX_USES
+    assert THEME_DELTA_WEB_SEARCH_MAX_USES < THEME_WEB_SEARCH_MAX_USES
 
 
 class _Themes:
@@ -238,7 +246,7 @@ DELTA_RAW = ('{"themes": [{"slug": "gas-turbines", '
 
 def test_parse_and_validate_delta(monkeypatch):
     monkeypatch.setattr(delta_mod, "validate_tickers",
-                        lambda tickers: {t: VALID for t in tickers})
+                        lambda tickers, tradable=None: {t: VALID for t in tickers})
     bundle = delta_mod.parse_and_validate_delta(DELTA_RAW)
     assert len(bundle["deltas"]) == 1
     delta = bundle["deltas"][0]
@@ -248,6 +256,30 @@ def test_parse_and_validate_delta(monkeypatch):
     # only ADDs are validated — removes never hit yfinance
     assert set(bundle["validation"]) == {"NEWGT"}
     assert bundle["skipped"] == []
+
+
+def test_parse_and_validate_delta_forwards_tradable_universe(monkeypatch):
+    seen = {}
+
+    def fake_validate(tickers, tradable=None):
+        seen["tradable"] = tradable
+        return {t: VALID for t in tickers}
+
+    monkeypatch.setattr(delta_mod, "validate_tickers", fake_validate)
+    delta_mod.parse_and_validate_delta(DELTA_RAW, tradable={"NEWGT"})
+    assert seen["tradable"] == {"NEWGT"}
+
+
+def test_parse_and_validate_monthly_forwards_tradable_universe(monkeypatch):
+    seen = {}
+
+    def fake_validate(tickers, tradable=None):
+        seen["tradable"] = tradable
+        return {t: VALID for t in tickers}
+
+    monkeypatch.setattr(discovery, "validate_tickers", fake_validate)
+    discovery.parse_and_validate_monthly(RAW, tradable={"AEHR"})
+    assert seen["tradable"] == {"AEHR"}
 
 
 @pytest.mark.asyncio

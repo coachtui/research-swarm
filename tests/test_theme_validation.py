@@ -20,11 +20,14 @@ class FakeFastInfo:
         return self._mcap if key == "marketCap" else default
 
 
-def _install_yf_stub(monkeypatch, hist=None, mcap=None, raise_on_init=False):
+def _install_yf_stub(monkeypatch, hist=None, mcap=None, raise_on_init=False,
+                     on_ticker=None):
     stub = types.ModuleType("yfinance")
 
     class FakeTicker:
         def __init__(self, symbol):
+            if on_ticker is not None:
+                on_ticker(symbol)
             if raise_on_init:
                 raise RuntimeError("no such ticker")
             self.fast_info = FakeFastInfo(mcap)
@@ -88,3 +91,34 @@ def test_validate_tickers_dedupes_and_uppercases(monkeypatch):
     from execution.themes.validation import validate_tickers
     out = validate_tickers(["aehr", "AEHR", "viav"])
     assert set(out) == {"AEHR", "VIAV"}
+
+
+def test_tradable_gate_rejects_symbols_absent_from_broker_universe(monkeypatch):
+    """JDSU/PSTH are delisted — absent from Alpaca's asset universe. They must
+    reject even when the yfinance stub would happily validate them."""
+    _install_yf_stub(monkeypatch, hist=_good_history(), mcap=2_000_000_000)
+    from execution.themes.validation import validate_tickers
+    out = validate_tickers(["AEHR", "JDSU", "PSTH"], tradable={"AEHR", "VIAV"})
+    assert out["AEHR"] is not None
+    assert out["JDSU"] is None
+    assert out["PSTH"] is None
+
+
+def test_tradable_gate_skips_yfinance_entirely_for_untradable(monkeypatch):
+    """The gate short-circuits before the network call — a delisted name costs
+    us nothing."""
+    seen = []
+    _install_yf_stub(monkeypatch, hist=_good_history(), mcap=2_000_000_000,
+                     on_ticker=seen.append)
+    from execution.themes.validation import validate_tickers
+    validate_tickers(["AEHR", "JDSU"], tradable={"AEHR"})
+    assert seen == ["AEHR"]
+
+
+def test_tradable_none_means_no_gate(monkeypatch):
+    """A broker outage degrades to 'don't gate' — same posture as the funnel."""
+    _install_yf_stub(monkeypatch, hist=_good_history(), mcap=2_000_000_000)
+    from execution.themes.validation import validate_tickers
+    out = validate_tickers(["AEHR", "JDSU"], tradable=None)
+    assert out["AEHR"] is not None
+    assert out["JDSU"] is not None

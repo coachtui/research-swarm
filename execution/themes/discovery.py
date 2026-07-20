@@ -97,10 +97,10 @@ def reason_monthly(context: Dict[str, Any], llm_call=None) -> str:
                 max_uses=THEME_WEB_SEARCH_MAX_USES)
 
 
-def parse_and_validate_monthly(raw: str) -> Dict[str, Any]:
+def parse_and_validate_monthly(raw: str, tradable=None) -> Dict[str, Any]:
     parsed = parse_monthly_response(raw)
     tickers = [c["ticker"] for p in parsed["themes"] for c in p["constituents"]]
-    validation = validate_tickers(tickers) if tickers else {}
+    validation = validate_tickers(tickers, tradable=tradable) if tickers else {}
     return {"proposals": parsed["themes"], "validation": validation,
             "skipped": parsed["skipped"],
             "next_constraints": parsed["next_constraints"]}
