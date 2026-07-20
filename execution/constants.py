@@ -105,7 +105,7 @@ RISK_TRIM_TARGET = 0.12             # …back to here; journaled risk_trim, not 
 RETIRED_THEME_EXIT_CONVICTION = 50.0  # review re-score (hunting_bonus=0) must clear this
 
 LIGHT_RUNS_PER_WEEK = 20            # numbers-only runs (~$0.10–0.15 each)
-FULL_RUNS_PER_WEEK = 2              # entry handshake budget (~$0.51 avg each)
+FULL_RUNS_PER_WEEK = 10             # entry handshake budget (~$0.51 avg each)
 HOLDING_STALE_WEEKS = 6             # holding report older than this claims a light slot
 FRESH_REPORT_DAYS = 7               # reports younger than this ride free
 
