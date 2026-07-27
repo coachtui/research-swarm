@@ -138,3 +138,53 @@ class TestOrders:
         assert result.filled_avg_price == 101.5
         fake.cancel_order_by_id.assert_called_once()
         assert fake.get_order_by_id.call_count == 2
+
+
+class TestTradableFromEnv:
+    """Local CLI escape hatch — production crons still go through the encrypted
+    LinkedBrokerAccount row. Requiring BROKER_KEY_ENCRYPTION_KEY just to read a
+    public asset list is friction with no security benefit off-Inngest."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_env_credentials_absent(self, monkeypatch):
+        from execution.broker.tradable import alpaca_tradable_symbols_from_env
+
+        monkeypatch.delenv("ALPACA_PAPER_API_KEY", raising=False)
+        monkeypatch.delenv("ALPACA_PAPER_API_SECRET", raising=False)
+        assert await alpaca_tradable_symbols_from_env() is None
+
+    @pytest.mark.asyncio
+    async def test_returns_symbol_set_from_env_credentials(self, monkeypatch):
+        import execution.broker.alpaca_client as ac
+        from execution.broker.tradable import alpaca_tradable_symbols_from_env
+
+        monkeypatch.setenv("ALPACA_PAPER_API_KEY", "k")
+        monkeypatch.setenv("ALPACA_PAPER_API_SECRET", "s")
+        seen = {}
+
+        class _Fake:
+            def __init__(self, key, secret):
+                seen["creds"] = (key, secret)
+
+            def list_tradable_us_equities(self):
+                return {"AAOI", "NVDA"}
+
+        monkeypatch.setattr(ac, "AlpacaPaperClient", _Fake)
+        assert await alpaca_tradable_symbols_from_env() == {"AAOI", "NVDA"}
+        assert seen["creds"] == ("k", "s")
+
+    @pytest.mark.asyncio
+    async def test_degrades_to_none_when_broker_call_raises(self, monkeypatch):
+        import execution.broker.alpaca_client as ac
+        from execution.broker.tradable import alpaca_tradable_symbols_from_env
+
+        monkeypatch.setenv("ALPACA_PAPER_API_KEY", "k")
+        monkeypatch.setenv("ALPACA_PAPER_API_SECRET", "s")
+
+        class _Boom:
+            def __init__(self, *a):
+                raise RuntimeError("alpaca down")
+
+        monkeypatch.setattr(ac, "AlpacaPaperClient", _Boom)
+        # None means "don't gate" — never reject the world on an outage.
+        assert await alpaca_tradable_symbols_from_env() is None

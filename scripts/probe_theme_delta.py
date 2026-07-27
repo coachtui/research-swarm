@@ -40,17 +40,28 @@ async def main() -> int:
     db = await get_db()
 
     tradable = None
+    gate_via = "off"
     if not args.no_broker_gate:
-        try:
-            from execution.broker.tradable import alpaca_tradable_symbols
-            tradable = await alpaca_tradable_symbols(db)
-        except Exception as exc:  # noqa: BLE001 — degrade exactly as the cron does
-            print(f"! broker gate unavailable ({type(exc).__name__}: {exc}) "
-                  f"— continuing without it", file=sys.stderr)
+        from execution.broker.tradable import (
+            alpaca_tradable_symbols, alpaca_tradable_symbols_from_env,
+        )
+        # Try the production path first so the dry run matches the cron. It
+        # needs BROKER_KEY_ENCRYPTION_KEY, which normally lives only on Railway
+        # — so fall back to the plaintext paper keys in .env.local rather than
+        # silently running ungated.
+        tradable = await alpaca_tradable_symbols(db)
+        gate_via = "linked account"
+        if tradable is None:
+            tradable = await alpaca_tradable_symbols_from_env()
+            gate_via = "env keys"
+        if tradable is None:
+            gate_via = "off"
+            print("! no broker gate: neither BROKER_KEY_ENCRYPTION_KEY nor "
+                  "ALPACA_PAPER_API_KEY/_SECRET usable", file=sys.stderr)
 
     print(f"model={THEME_DELTA_MODEL}  web_search_max_uses="
           f"{THEME_DELTA_WEB_SEARCH_MAX_USES}  "
-          f"broker_gate={'off' if tradable is None else f'{len(tradable)} symbols'}")
+          f"broker_gate={'off' if tradable is None else f'{len(tradable)} symbols via {gate_via}'}")
 
     out = await probe_delta(db, tradable=tradable)
 
