@@ -332,3 +332,79 @@ async def test_gather_delta_context_active_only():
     context = await delta_mod.gather_delta_context(Db())
     assert [t["slug"] for t in context["active_themes"]] == ["gas-turbines"]
     assert [c["ticker"] for c in context["active_themes"][0]["constituents"]] == ["TGT1"]
+
+
+# Nothing else in the delta pass writes a row when the model proposes no
+# changes, so a quiet week left zero evidence the cron had run at all
+# (2026-07-25). The summary row is the heartbeat.
+
+def _summary_harness(monkeypatch, applied=0, reports=0):
+    written = []
+
+    async def fake_write_report(t, sev, src, title, body, db=None):
+        written.append((t, sev, src, title, body))
+        return "rep"
+
+    async def fake_apply_actions(db, actions, source):
+        return {"applied": applied, "reports": reports}
+
+    monkeypatch.setattr(delta_mod, "write_report", fake_write_report)
+    monkeypatch.setattr(delta_mod, "apply_actions", fake_apply_actions)
+    return written
+
+
+@pytest.mark.asyncio
+async def test_apply_delta_journals_a_summary_when_nothing_changed(monkeypatch):
+    written = _summary_harness(monkeypatch)
+
+    class Db:
+        themebasket = _Themes([_theme_row("gas-turbines"), _theme_row("chips")])
+
+    await delta_mod.apply_delta(Db(), {"deltas": [], "validation": {}, "skipped": []})
+
+    summaries = [r for r in written if r[0] == "theme_pass_summary"]
+    assert len(summaries) == 1
+    _, sev, src, title, body = summaries[0]
+    assert sev == "info" and src == "theme_delta_weekly"
+    assert "no changes" in title
+    assert body["themes_reasoned_over"] == ["gas-turbines", "chips"]
+    assert body["deltas_returned"] == 0
+
+
+@pytest.mark.asyncio
+async def test_apply_delta_summary_counts_what_the_model_returned(monkeypatch):
+    written = _summary_harness(monkeypatch, applied=1, reports=1)
+
+    class Db:
+        themebasket = _Themes([_theme_row("gas-turbines")])
+
+    bundle = {"deltas": [{"slug": "gas-turbines",
+                          "add": [{"ticker": "NEWGT", "exposure": "x", "confidence": 0.9}],
+                          "remove": [{"ticker": "OLDGT", "reason": "r", "confidence": 0.9}]}],
+              "validation": {"NEWGT": VALID}, "skipped": []}
+    summary = await delta_mod.apply_delta(Db(), bundle)
+
+    _, _, _, title, body = next(r for r in written if r[0] == "theme_pass_summary")
+    assert "no changes" not in title
+    assert body["deltas_returned"] == 1
+    assert body["proposed_adds"] == 1
+    assert body["proposed_removes"] == 1
+
+
+@pytest.mark.asyncio
+async def test_apply_delta_returns_diagnostics_for_the_inngest_output(monkeypatch):
+    # The Inngest run output is the owner's first look at the run; a bare
+    # {applied, rejected, reports} cannot distinguish "model proposed nothing"
+    # from "model output was dropped before planning".
+    _summary_harness(monkeypatch)
+
+    class Db:
+        themebasket = _Themes([_theme_row("gas-turbines"), _theme_row("chips")])
+
+    summary = await delta_mod.apply_delta(
+        Db(), {"deltas": [], "validation": {}, "skipped": []})
+
+    assert summary["themes_seen"] == 2
+    assert summary["deltas_returned"] == 0
+    assert summary["proposed_adds"] == 0
+    assert summary["proposed_removes"] == 0

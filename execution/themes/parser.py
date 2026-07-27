@@ -38,6 +38,27 @@ def _extract_json(text: str) -> Dict[str, Any]:
     return obj
 
 
+def _themes_list(obj: Dict[str, Any], skipped: List[str]) -> List[Any]:
+    """Extract the "themes" array, loudly.
+
+    A response missing the key entirely parses to zero themes — byte-identical
+    downstream to a deliberate "no changes" answer, which the delta prompt
+    explicitly blesses. Schema drift then reads as a clean no-op run (the
+    2026-07-25 delta pass returned applied/rejected/reports all zero with no
+    way to tell which had happened). An EXPLICIT empty list is still a valid
+    "no changes" and never records a skip.
+    """
+    raw = obj.get("themes")
+    if raw is None:
+        skipped.append(
+            f'response has no "themes" key — top-level keys were {sorted(map(str, obj))}')
+        return []
+    if not isinstance(raw, list):
+        skipped.append(f'"themes" is {type(raw).__name__}, expected list')
+        return []
+    return raw
+
+
 def _clamped_confidence(value: Any) -> Optional[float]:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
@@ -67,7 +88,7 @@ def parse_monthly_response(text: str) -> Dict[str, Any]:
     obj = _extract_json(text)
     themes: List[Dict[str, Any]] = []
     skipped: List[str] = []
-    for raw in obj.get("themes") or []:
+    for raw in _themes_list(obj, skipped):
         if not isinstance(raw, dict):
             skipped.append("theme entry not an object")
             continue
@@ -110,7 +131,7 @@ def parse_delta_response(text: str) -> Dict[str, Any]:
     obj = _extract_json(text)
     themes: List[Dict[str, Any]] = []
     skipped: List[str] = []
-    for raw in obj.get("themes") or []:
+    for raw in _themes_list(obj, skipped):
         if not isinstance(raw, dict):
             skipped.append("delta entry not an object")
             continue
