@@ -2,6 +2,8 @@
 Market data client using yfinance.
 Free API, no key required. Rate limited to be respectful.
 """
+import math
+
 import yfinance as yf
 import pandas as pd
 from typing import Optional, Dict, Any
@@ -172,7 +174,20 @@ class MarketDataClient:
             df = df.tail(days + 1)
             start_price = df["Close"].iloc[0]
             end_price = df["Close"].iloc[-1]
-            return ((end_price - start_price) / start_price) * 100
+            pct = ((end_price - start_price) / start_price) * 100
+            # numpy does NOT raise on divide-by-zero or NaN operands — it yields
+            # inf/nan, which this except never sees. Both are float subclasses,
+            # so `is not None` passes downstream and json.dumps emits a bare
+            # NaN/Infinity that Inngest's Go executor rejects, failing the whole
+            # run with no traceback (2026-07-27 weekly batch). None is already
+            # this function's documented "data unavailable" contract.
+            if not math.isfinite(pct):
+                logger.warning(
+                    "Non-finite return for %s (start=%s end=%s) — treating as unavailable",
+                    ticker, start_price, end_price,
+                )
+                return None
+            return float(pct)
         except Exception as e:
             logger.error(f"Error calculating return for {ticker}: {e}")
             return None

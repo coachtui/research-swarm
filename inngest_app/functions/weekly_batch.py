@@ -20,6 +20,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
+from execution.json_safe import json_safe
+
 logger = logging.getLogger(__name__)
 
 _MAX_CANDIDATES = int(os.getenv("BATCH_MAX_CANDIDATES", "20"))
@@ -30,6 +32,21 @@ _FRESH_REPORT_MAX_AGE_DAYS = 7
 _TOP_SECTORS = 3
 _QUARTERS = ["Q4_2024", "Q1_2025", "Q2_2025", "Q3_2025"]
 _NEWS_DAYS_BACK = 30
+
+
+async def _on_failure(ctx: Any) -> None:
+    """Alert once Inngest has exhausted retries.
+
+    Module-level (not nested in the register function) so it is importable and
+    testable without the inngest SDK. This cron had no failure path at all, so
+    the 2026-07-27 NaN-serialization failure surfaced only by chance."""
+    from execution.alerts import send_failure_alert  # noqa: PLC0415
+
+    await send_failure_alert(
+        "weekly batch failed",
+        f"weekly-batch failed after retries: {ctx.event.data}",
+        source="weekly_batch",
+    )
 
 
 def _get_batch_user_id() -> str:
@@ -71,6 +88,7 @@ def _register_inngest_function():
         trigger=inngest_sdk.TriggerCron(cron="0 3 * * 1"),  # Monday 03:00 UTC (Sun 11 PM EDT / 10 PM EST)
         name="Weekly Batch Analysis (Tiered)",
         retries=1,
+        on_failure=_on_failure,
     )
     async def weekly_batch(ctx: "inngest_sdk.Context") -> Dict[str, Any]:
         step = ctx.step  # steps live on ctx in the current SDK
@@ -136,7 +154,9 @@ def _register_inngest_function():
                 "Screener advancing %d tickers (%d watchlist extras)",
                 len(advancing), len(extra),
             )
-            return {
+            # json_safe: screener floats come straight from market data, and a
+            # non-finite one kills the run at the Inngest boundary, not here.
+            return json_safe({
                 "universe_size": len(universe),
                 "watchlist_extras": len(extra),
                 "candidates": [
@@ -152,7 +172,7 @@ def _register_inngest_function():
                     }
                     for st in advancing
                 ],
-            }
+            })
 
         screen_result: Dict[str, Any] = await step.run(
             "screen-universe", run_screener
@@ -229,12 +249,13 @@ def _register_inngest_function():
                 except Exception as e:
                     logger.error("Quant snapshot failed for %s: %s", c["ticker"], e)
                     failed += 1
-            return {
+            # priors carry prior_screener_score straight from stored market data.
+            return json_safe({
                 "stored": stored,
                 "failed": failed,
                 "priors": priors,
                 "stored_tickers": stored_tickers,
-            }
+            })
 
         quant: Dict[str, Any] = await step.run(
             "quant-snapshots", write_quant_snapshots
@@ -287,11 +308,11 @@ def _register_inngest_function():
                 sum(1 for d in decisions if d.action == "reuse"),
                 sum(1 for d in decisions if d.action == "hold"),
             )
-            return [
+            return json_safe([
                 {"ticker": d.ticker, "score": d.score,
                  "reasons": d.reasons, "action": d.action}
                 for d in decisions
-            ]
+            ])
 
         decisions: List[Dict[str, Any]] = await step.run(
             "compute-escalation", compute_escalation
