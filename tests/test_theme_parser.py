@@ -130,3 +130,40 @@ def test_parser_drops_malformed_next_constraints_entries():
     ]})
     out = parse_monthly_response(raw)
     assert [h["hypothesis"] for h in out["next_constraints"]] == ["grid labor binds"]
+
+
+# A response whose top-level object has no "themes" key parses to zero themes
+# and — before this — zero skips, which is byte-identical to a deliberate "no
+# changes" answer. The 2026-07-25 delta run returned {0,0,0} with no way to
+# tell the two apart. Shape drift must be loud.
+
+def test_delta_missing_themes_key_is_skipped_loudly():
+    out = parse_delta_response(json.dumps({"changes": [{"slug": "chips"}]}))
+    assert out["themes"] == []
+    assert len(out["skipped"]) == 1
+    assert "themes" in out["skipped"][0]
+
+
+def test_delta_empty_themes_list_is_not_a_skip():
+    out = parse_delta_response(json.dumps({"themes": []}))
+    assert out["themes"] == []
+    assert out["skipped"] == []
+
+
+def test_delta_non_list_themes_is_skipped_loudly():
+    out = parse_delta_response(json.dumps({"themes": {"slug": "chips"}}))
+    assert out["themes"] == []
+    assert len(out["skipped"]) == 1
+
+
+def test_monthly_missing_themes_key_is_skipped_loudly():
+    out = parse_monthly_response(json.dumps({"proposals": []}))
+    assert out["themes"] == []
+    assert len(out["skipped"]) == 1
+    assert "themes" in out["skipped"][0]
+
+
+def test_monthly_empty_themes_list_is_not_a_skip():
+    out = parse_monthly_response(json.dumps({"themes": []}))
+    assert out["themes"] == []
+    assert out["skipped"] == []

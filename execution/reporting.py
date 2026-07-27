@@ -11,7 +11,7 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 REPORT_TYPES = frozenset({
-    "theme_proposal", "membership_change", "theme_retired",
+    "theme_proposal", "membership_change", "theme_retired", "theme_pass_summary",
     "validation_failure", "engine_failure", "rebalance_summary",
     "breaker_event",
     # Phase 3C — Sleeve A funnel (shadow mode)

@@ -51,7 +51,7 @@ async def test_write_report_tolerates_unknown_type_and_none_body():
 
 def test_report_type_vocabulary_matches_spec():
     assert REPORT_TYPES == frozenset({
-        "theme_proposal", "membership_change", "theme_retired",
+        "theme_proposal", "membership_change", "theme_retired", "theme_pass_summary",
         "validation_failure", "engine_failure", "rebalance_summary",
         "breaker_event",
         # Phase 3C — Sleeve A funnel (shadow mode)
