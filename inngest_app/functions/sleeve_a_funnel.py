@@ -49,6 +49,7 @@ from execution.constants import (
 )
 from execution.engine.guardrails import enforce_funnel_guardrails
 from execution.funnel.conviction import compute_conviction
+from execution.funnel.disqualify import check_disqualifiers
 from execution.funnel.decisions import plan_decisions
 from execution.funnel.entries import size_entry
 from execution.funnel.research_budget import (
@@ -439,73 +440,40 @@ async def _handshake_and_enter(
             continue
         screen = screen_by_symbol.get(sym) or {}
 
-        # 1) Budget-aware handshake gate (reuse_or_budget is bare — wrap it).
+        # 1) Disqualifier screen (spec §4) — VETO-ONLY, on positive evidence.
+        #    This replaced a full swarm run whose ONLY consumed output was
+        #    `verdict in ("sell","avoid")`. That run's fair value landed in
+        #    weekly_signals.fairValue and was read by nothing, while the light
+        #    run's fair value is the one conviction scoring actually uses — so
+        #    the engine was paying ~$0.51 for one boolean it already had a
+        #    cheaper instrument for.
+        #
+        #    An unusable or failed screen is NO INFORMATION, never a veto: the
+        #    memo is the buy authority and only positive evidence may overrule
+        #    it downward. The 2026-07-28 EQIX entry died here because an
+        #    unparseable analysis was indistinguishable from a sell verdict.
         try:
-            gate = await reuse_or_budget(db, sym, run_date)
-        except Exception:  # noqa: BLE001
-            logger.exception("funnel handshake: gate failed for %s", sym)
-            await _journal(db, "engine_failure", "warning",
-                           f"{sym}: handshake gate failed", {"symbol": sym})
-            continue
+            if step is not None:
+                screen_out = await step.run(
+                    f"disqualify-{sym.lower()}", lambda s=sym: check_disqualifiers(s))
+            else:
+                screen_out = await check_disqualifiers(sym)
+        except Exception:  # noqa: BLE001 — a broken screen never blocks the memo
+            logger.exception("funnel: disqualifier step failed for %s", sym)
+            screen_out = {"disqualified": False, "reason": "screen step failed",
+                          "checked": False}
 
-        action = gate.get("action")
-        if action == "skip":
-            await _journal(db, "entry_deferred", "info",
-                           f"{sym}: entry deferred — {gate.get('reason', 'budget')}",
-                           {"symbol": sym, "reason": gate.get("reason"),
-                            "budget": FULL_RUNS_PER_WEEK})
-            continue
-
-        signals: Optional[Dict[str, Any]] = None
-        if action == "reuse":
-            signals = gate.get("signals")
-        else:  # action == "analyze": PAID — its OWN step, persist separate.
-            try:
-                if step is not None:
-                    result = await step.run(
-                        f"handshake-analyze-{sym.lower()}",
-                        lambda s=sym: run_paid_analysis(s),
-                    )
-                else:
-                    result = await run_paid_analysis(sym)
-            except Exception:  # noqa: BLE001
-                logger.exception("funnel handshake: paid analysis failed for %s", sym)
-                await _journal(db, "engine_failure", "warning",
-                               f"{sym}: paid analysis failed", {"symbol": sym})
-                continue
-            try:
-                persisted = await persist_full(
-                    db, sym, run_date, result,
-                    float(screen.get("price") or 0.0),
-                    float(screen.get("screen_score") or 0.0),
-                )
-            except Exception:  # noqa: BLE001
-                logger.exception("funnel handshake: persist failed for %s", sym)
-                await _journal(db, "engine_failure", "warning",
-                               f"{sym}: research persist failed", {"symbol": sym})
-                continue
-            if persisted.get("status") != "upgraded" or persisted.get("signals") is None:
-                await _journal(db, "entry_deferred", "info",
-                               f"{sym}: analysis unusable — no entry",
-                               {"symbol": sym, "status": persisted.get("status")})
-                continue
-            signals = persisted["signals"]
-
-        if signals is None:
-            await _journal(db, "entry_deferred", "info",
-                           f"{sym}: no usable signals — no entry", {"symbol": sym})
-            continue
-
-        # 2) Diligence is VETO-ONLY. A SELL/AVOID verdict kills the entry;
-        #    anything else — buy, hold, unknown, absent — proceeds. The memo is
-        #    the buy authority (spec §4); this run may only overrule it downward.
-        verdict = str((signals or {}).get("verdict") or "").strip().lower()
-        if verdict in ("sell", "avoid"):
+        if screen_out.get("disqualified"):
             await _journal(db, "exit_sell_verdict", "info",
-                           f"{sym}: memo entry vetoed by diligence verdict",
-                           {"symbol": sym, "verdict": verdict,
+                           f"{sym}: memo entry vetoed — {screen_out.get('reason')}",
+                           {"symbol": sym, "reason": screen_out.get("reason"),
                             "slug": entry.get("slug")})
             continue
+        if not screen_out.get("checked"):
+            await _journal(db, "engine_failure", "warning",
+                           f"{sym}: disqualifier screen did not run — entry proceeding",
+                           {"symbol": sym, "reason": screen_out.get("reason"),
+                            "slug": entry.get("slug")})
 
         # 3) Price + size from the MEMO: entry_style sets the limit and TTL,
         #    role × conviction sets the notional. Every ceiling only shrinks.

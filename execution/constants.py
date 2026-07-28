@@ -163,6 +163,11 @@ THESIS_WEB_SEARCH_MAX_USES = 15     # pointed at leading indicators, not news
 # not fit the 16k budget sized for theme-discovery JSON (truncation guard
 # fired on the 2026-07-28 first live pass).
 THESIS_MEMO_MAX_TOKENS = 32768
+# Entry veto (spec §4). Replaces reading one boolean out of a ~$0.51 swarm run
+# whose fair value and size recommendation the engine never consumed. Two
+# fields out, so far less to drift than a full manager blob.
+DISQUALIFIER_MODEL = "claude-haiku-4-5"
+DISQUALIFIER_WEB_SEARCH_MAX_USES = 3
 THESIS_STAGES = ("pre_consensus", "catching_on", "crowded", "priced")
 ENTRY_LEGAL_STAGES = ("pre_consensus", "catching_on")
 THESIS_ROLES = ("anchor", "pure_play", "catalyst")
