@@ -337,3 +337,35 @@ async def test_breaker_trip_writes_breaker_event(monkeypatch, execution_daily_fn
     assert body["inception_equity"] == 50000.0
     assert body["spy_close"] == 310.0
     assert body["inception_spy"] == 400.0
+
+
+def test_fills_settle_before_reconcile():
+    """Reconciling BEFORE settling compares the broker to a stale book.
+
+    2026-07-28: five Sleeve A limit orders filled during the session. Alpaca
+    held 8 names, EnginePosition held 3 — and sleeve-a-reconcile ran before
+    sleeve-a-fills, so the nightly pass would have seen five unexplained broker
+    positions and frozen the sleeve over orders the engine placed itself.
+
+    Settling first is also the SAFER operation: it only touches orders that
+    already have an EngineTrade row, so it can never adopt a position it cannot
+    explain. Reconcile then catches whatever genuinely remains unexplained.
+
+    Asserted against the registered function's source rather than a simulated
+    run: the step names are literals and the ordering is the whole invariant,
+    so this fails loudly if anyone swaps them back.
+    """
+    import inspect
+
+    import inngest_app.functions.execution_daily as ed
+
+    src = inspect.getsource(ed._register_inngest_function)
+    fills = src.index('step.run("sleeve-a-fills"')
+    recon = src.index('step.run("sleeve-a-reconcile"')
+    assert fills < recon, "sleeve-a-fills must run before sleeve-a-reconcile"
+
+    # And fills must no longer gate on the reconcile result it now precedes.
+    fills_body = src[src.index("async def sleeve_a_fills_step"):fills]
+    assert "a_recon" not in fills_body, (
+        "fills cannot read a_recon once it runs first — it would be undefined"
+    )

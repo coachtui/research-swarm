@@ -277,6 +277,126 @@ def _register_inngest_function():
 
         breaker = await step.run("circuit-breaker", breaker_check)
 
+        # ── Sleeve A fills FIRST: settle what the engine itself ordered, so
+        # the reconcile below compares the broker to a CURRENT book. Settling
+        # only ever touches symbols with an EngineTrade row, so it cannot
+        # adopt a position it cannot explain (2026-07-28 incident).
+        async def sleeve_a_fills_step() -> Dict[str, Any]:
+            db = None
+            from execution.reporting import write_report  # noqa: PLC0415
+            try:
+                import asyncio  # noqa: PLC0415
+
+                from api.lib.db import get_db  # noqa: PLC0415
+                from execution.broker import sleeve_a_broker  # noqa: PLC0415
+                from execution.constants import SLEEVE_A  # noqa: PLC0415
+                from execution.market_data import fetch_ohlcv_batch  # noqa: PLC0415
+                from execution.sleeve_service import (  # noqa: PLC0415
+                    get_sleeve_state, update_sleeve_cash,
+                )
+
+                db = await get_db()
+                state = await get_sleeve_state(db, SLEEVE_A)
+                if state is None:
+                    return {"active": False}
+                if state.status in ("halted", "frozen"):
+                    # Already frozen from a previous pass -> settle nothing new.
+                    # This used to gate on the reconcile result, but fills now
+                    # run BEFORE it: reconciling against a book that has not
+                    # booked today's fills compares the broker to a stale
+                    # snapshot and freezes over orders the engine placed itself
+                    # (2026-07-28 incident).
+                    return {"active": True, "filled": 0, "missed": 0}
+
+                # shadow -> ShadowBrokerClient; live -> AlpacaFunnelBroker.
+                broker = await sleeve_a_broker(db, state)
+                if broker is None:  # live mode, no linked account (M2)
+                    await write_report(
+                        "engine_failure", "warning", "execution_daily",
+                        "Sleeve A live mode but no linked broker account",
+                        {"stage": "sleeve-a-fills"}, db=db,
+                    )
+                    return {"active": True, "error": True}
+                orders = await broker.get_open_orders()
+                if not orders:
+                    return {"active": True, "filled": 0, "missed": 0}
+
+                symbols = sorted({o.symbol for o in orders})
+                ohlcv = await asyncio.to_thread(fetch_ohlcv_batch, symbols, "5d")
+
+                now = datetime.fromisoformat(run_date_iso)
+                cash_delta_total = 0.0
+                filled = 0
+                missed = 0
+                for order in orders:
+                    df = ohlcv.get(order.symbol)
+                    if df is None or df.empty:
+                        continue  # no bar today — retry next run
+                    today = df.iloc[-1]
+                    settled = await broker.settle_open_order(
+                        order, day_high=float(today["High"]), day_low=float(today["Low"]),
+                        now=now,
+                    )
+                    if settled["status"] == "filled":
+                        filled += 1
+                        cash_delta_total += settled["cash_delta"]
+                        # Provenance (C1a): copy the buy's sourceTags /
+                        # convictionScore / reportRef from the order journal onto
+                        # the freshly-settled position row — reviving the dead
+                        # migrated columns so the weekly theme review reads
+                        # PERSISTED tags. Only for buys (a sell closes the row).
+                        if order.side == "buy":
+                            await _persist_position_provenance(db, order)
+                        await write_report(
+                            "entry_filled", "info", "execution_daily",
+                            f"Sleeve A fill: {order.symbol}",
+                            # ACTUAL fill values from the settle result (M3) —
+                            # a live GTC limit can fill below the limit price;
+                            # shadow settles at the limit so it's unchanged.
+                            {"symbol": order.symbol, "side": order.side,
+                             "qty": settled.get("filled_qty", order.qty),
+                             "fill_price": settled.get("fill_price", order.limitPrice)},
+                            db=db,
+                        )
+                    elif settled["status"] == "expired":
+                        missed += 1
+                        await write_report(
+                            "entry_missed", "info", "execution_daily",
+                            f"Sleeve A order expired unfilled: {order.symbol}",
+                            {"symbol": order.symbol, "side": order.side,
+                             "qty": order.qty, "limit_price": order.limitPrice},
+                            db=db,
+                        )
+                if cash_delta_total != 0.0:
+                    new_cash = float(state.cashBalance) + cash_delta_total
+                    if new_cash < 0.0:
+                        # Belt-and-suspenders (I3b): a shadow ledger must never
+                        # go negative (no leverage). Floor at 0 and make the
+                        # overshoot visible — the weekly pass's committed-capital
+                        # accounting should already prevent this.
+                        await write_report(
+                            "engine_failure", "warning", "execution_daily",
+                            "Sleeve A cash floored at 0 — fills exceeded ledger",
+                            {"stage": "sleeve-a-fills",
+                             "would_be_cash": round(new_cash, 2),
+                             "cash_delta": round(cash_delta_total, 2)},
+                            db=db,
+                        )
+                        new_cash = 0.0
+                    await update_sleeve_cash(db, SLEEVE_A, new_cash)
+                return {"active": True, "filled": filled, "missed": missed}
+            except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return
+                logger.exception("sleeve-a-fills failed")
+                await write_report(
+                    "engine_failure", "warning", "execution_daily",
+                    "Sleeve A fills sweep failed", {"stage": "sleeve-a-fills"}, db=db,
+                )
+                # active=True: a fills failure must NOT cascade — stops,
+                # snapshot and breaker still run (only sleeve-absent skips).
+                return {"active": True, "error": True}
+
+        fills = await step.run("sleeve-a-fills", sleeve_a_fills_step)
+
         # ── Sleeve A reconcile (shared-account mirror of Step 3 for B) ──
         # The broker snapshot now carries Sleeve A's real stocks too. Reconcile
         # A against ONLY A's engine book (no expected universe — A holds no
@@ -374,116 +494,6 @@ def _register_inngest_function():
         # fill deducts exactly once here and an expiry deducts nothing —
         # there is no reservation to refund.
 
-        async def sleeve_a_fills_step() -> Dict[str, Any]:
-            db = None
-            from execution.reporting import write_report  # noqa: PLC0415
-            try:
-                import asyncio  # noqa: PLC0415
-
-                from api.lib.db import get_db  # noqa: PLC0415
-                from execution.broker import sleeve_a_broker  # noqa: PLC0415
-                from execution.constants import SLEEVE_A  # noqa: PLC0415
-                from execution.market_data import fetch_ohlcv_batch  # noqa: PLC0415
-                from execution.sleeve_service import (  # noqa: PLC0415
-                    get_sleeve_state, update_sleeve_cash,
-                )
-
-                db = await get_db()
-                state = await get_sleeve_state(db, SLEEVE_A)
-                if state is None:
-                    return {"active": False}
-                if a_recon.get("frozen"):
-                    # reconciliation mismatch this morning -> no new fills.
-                    return {"active": True, "filled": 0, "missed": 0}
-
-                # shadow -> ShadowBrokerClient; live -> AlpacaFunnelBroker.
-                broker = await sleeve_a_broker(db, state)
-                if broker is None:  # live mode, no linked account (M2)
-                    await write_report(
-                        "engine_failure", "warning", "execution_daily",
-                        "Sleeve A live mode but no linked broker account",
-                        {"stage": "sleeve-a-fills"}, db=db,
-                    )
-                    return {"active": True, "error": True}
-                orders = await broker.get_open_orders()
-                if not orders:
-                    return {"active": True, "filled": 0, "missed": 0}
-
-                symbols = sorted({o.symbol for o in orders})
-                ohlcv = await asyncio.to_thread(fetch_ohlcv_batch, symbols, "5d")
-
-                now = datetime.fromisoformat(run_date_iso)
-                cash_delta_total = 0.0
-                filled = 0
-                missed = 0
-                for order in orders:
-                    df = ohlcv.get(order.symbol)
-                    if df is None or df.empty:
-                        continue  # no bar today — retry next run
-                    today = df.iloc[-1]
-                    settled = await broker.settle_open_order(
-                        order, day_high=float(today["High"]), day_low=float(today["Low"]),
-                        now=now,
-                    )
-                    if settled["status"] == "filled":
-                        filled += 1
-                        cash_delta_total += settled["cash_delta"]
-                        # Provenance (C1a): copy the buy's sourceTags /
-                        # convictionScore / reportRef from the order journal onto
-                        # the freshly-settled position row — reviving the dead
-                        # migrated columns so the weekly theme review reads
-                        # PERSISTED tags. Only for buys (a sell closes the row).
-                        if order.side == "buy":
-                            await _persist_position_provenance(db, order)
-                        await write_report(
-                            "entry_filled", "info", "execution_daily",
-                            f"Sleeve A fill: {order.symbol}",
-                            # ACTUAL fill values from the settle result (M3) —
-                            # a live GTC limit can fill below the limit price;
-                            # shadow settles at the limit so it's unchanged.
-                            {"symbol": order.symbol, "side": order.side,
-                             "qty": settled.get("filled_qty", order.qty),
-                             "fill_price": settled.get("fill_price", order.limitPrice)},
-                            db=db,
-                        )
-                    elif settled["status"] == "expired":
-                        missed += 1
-                        await write_report(
-                            "entry_missed", "info", "execution_daily",
-                            f"Sleeve A order expired unfilled: {order.symbol}",
-                            {"symbol": order.symbol, "side": order.side,
-                             "qty": order.qty, "limit_price": order.limitPrice},
-                            db=db,
-                        )
-                if cash_delta_total != 0.0:
-                    new_cash = float(state.cashBalance) + cash_delta_total
-                    if new_cash < 0.0:
-                        # Belt-and-suspenders (I3b): a shadow ledger must never
-                        # go negative (no leverage). Floor at 0 and make the
-                        # overshoot visible — the weekly pass's committed-capital
-                        # accounting should already prevent this.
-                        await write_report(
-                            "engine_failure", "warning", "execution_daily",
-                            "Sleeve A cash floored at 0 — fills exceeded ledger",
-                            {"stage": "sleeve-a-fills",
-                             "would_be_cash": round(new_cash, 2),
-                             "cash_delta": round(cash_delta_total, 2)},
-                            db=db,
-                        )
-                        new_cash = 0.0
-                    await update_sleeve_cash(db, SLEEVE_A, new_cash)
-                return {"active": True, "filled": filled, "missed": missed}
-            except Exception:  # noqa: BLE001 — degrade, Sleeve B result must still return
-                logger.exception("sleeve-a-fills failed")
-                await write_report(
-                    "engine_failure", "warning", "execution_daily",
-                    "Sleeve A fills sweep failed", {"stage": "sleeve-a-fills"}, db=db,
-                )
-                # active=True: a fills failure must NOT cascade — stops,
-                # snapshot and breaker still run (only sleeve-absent skips).
-                return {"active": True, "error": True}
-
-        fills = await step.run("sleeve-a-fills", sleeve_a_fills_step)
 
         async def sleeve_a_stops_step() -> Dict[str, Any]:
             if not fills["active"]:
