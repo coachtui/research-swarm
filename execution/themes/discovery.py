@@ -62,6 +62,9 @@ async def _current_theme_state(db, include_retired: bool = True) -> list:
     return [{
         "slug": r.slug, "name": r.name, "status": r.status, "origin": r.origin,
         "thesis": r.thesis, "confidence": r.confidence,
+        # Thesis stage (spec §3): the weekly memo must see the CURRENT stage to
+        # move it. Other callers ignore the extra key.
+        "stage": getattr(r, "stage", None),
         "constituents": [
             {"ticker": c.ticker, "exposure": c.exposure,
              "confidence": c.confidence, "status": c.status}

@@ -60,11 +60,18 @@ from execution.funnel.research_budget import (
 from execution.funnel.review_triggers import collect_triggers, drawdown
 from execution.outlook_service import get_latest_outlook
 from execution.reporting import write_report
+from execution.thesis.memo import gather_memo_packet, persist_memo, reason_memo
+from execution.thesis.parser import MemoParseError, parse_memo_response
+from execution.thesis.planner import plan_from_memo
 
 logger = logging.getLogger(__name__)
 
 _SOURCE = "sleeve_a_funnel"
 _QUALITY_RERANK_TOP_N = 40
+# A theme the memo just moved to one of these stages puts every holding sourced
+# from it up for review (spec §7.3). A stage change NEVER trades by itself — it
+# earns the review whose verdict is the only trim/exit authority.
+_MEMO_REVIEW_STAGES = ("crowded", "priced")
 
 
 # ── Journal helper ───────────────────────────────────────────────────────────
@@ -817,7 +824,7 @@ def _register_inngest_function():
             else:
                 outcome = await _decide_and_execute(
                     db, client, run_date, regime, sleeve_ctx, assembled,
-                    screened, lights, step,
+                    screened, lights, step, outlook=outlook,
                 )
         except Exception:  # noqa: BLE001 — degrade; summary must still write
             logger.exception("funnel: decide-and-execute failed")
@@ -839,6 +846,9 @@ def _register_inngest_function():
                     "exclusions": screened.get("excluded", [])[:50],
                     "screen_top20": [r.get("symbol") for r in screened.get("ranked", [])[:20]],
                     "light_spend": lights.get("spent", 0),
+                    "memo": outcome.get(
+                        "memo", {"status": "noop", "entries_planned": 0,
+                                 "rejected": 0}),
                     "decisions": outcome.get("decisions", {}),
                     "guardrail_notes": outcome.get("guardrail_notes", []),
                     "placed": outcome.get("placed", []),
@@ -1139,9 +1149,85 @@ def _parse_trim_target(meta: Dict[str, Any]) -> Optional[float]:
     return x if 0.0 < x < CONCENTRATION_REVIEW_WEIGHT else None
 
 
+# ── Thesis memo (spec §3) — the ONLY buy authority ───────────────────────────
+
+async def _memo_pipeline(
+    db, outlook: Dict[str, Any], book: List[Dict[str, Any]],
+    candidates: Dict[str, Dict[str, Any]], run_date: datetime, step,
+) -> Optional[Dict[str, Any]]:
+    """Gather → memo (PAID, own memoized step) → parse → plan → persist.
+
+    Returns the plan dict, or None for an unusable memo — the caller treats
+    None as a no-op week (spec §7): entries skipped, everything else (fills,
+    reviews already triggered, exits) proceeds. NEVER raises.
+
+    The paid call is memoized under "thesis-memo" and persist under
+    "memo-persist" so a persist retry can never re-bill; parse and plan are
+    pure, so re-deriving them from the memoized raw on every replay yields an
+    identical plan (which is what pins stage A's trigger set across replays).
+    """
+    import asyncio  # noqa: PLC0415
+
+    try:
+        packet = await gather_memo_packet(db, outlook, book, candidates)
+    except Exception:  # noqa: BLE001
+        logger.exception("thesis memo: gather failed")
+        await _journal(db, "engine_failure", "critical",
+                       "memo gather failed — no-op week", {"stage": "memo-gather"})
+        return None
+    try:
+        raw = await _run_step(step, "thesis-memo",
+                              lambda: asyncio.to_thread(reason_memo, packet))
+    except Exception:  # noqa: BLE001
+        logger.exception("thesis memo: paid call failed")
+        await _journal(db, "engine_failure", "critical",
+                       "memo LLM call failed — no-op week", {"stage": "thesis-memo"})
+        return None
+    try:
+        memo = parse_memo_response(raw)
+        held = {p["symbol"] for p in book}
+        plan = plan_from_memo(memo, held, set(candidates))
+    except Exception as exc:  # noqa: BLE001 — MemoParseError, or any residual
+        # LOUDER than the theme parsers by design: a drifted top-level shape is
+        # a no-op week, never a quiet zero-entry week that looks normal.
+        kind = ("schema drift" if isinstance(exc, MemoParseError)
+                else "unusable memo")
+        logger.exception("thesis memo: %s", kind)
+        await _journal(db, "engine_failure", "critical",
+                       f"memo {kind} — no-op week: {exc}",
+                       {"stage": "memo-parse", "raw_head": str(raw)[:2000]})
+        return None
+
+    for r in plan["rejected"]:
+        await _journal(db, "entry_rejected", "info",
+                       f"{r['ticker']}: memo entry rejected — {r['reason']}", r)
+
+    week = run_date.date().isoformat()
+
+    async def _persist() -> Dict[str, Any]:
+        await persist_memo(db, week, raw, memo)
+        for slug, stage in plan["stage_updates"].items():
+            try:
+                await db.themebasket.update(where={"slug": slug},
+                                            data={"stage": stage})
+            except Exception:  # noqa: BLE001
+                logger.exception("stage persist failed for %s", slug)
+        return {"persisted": True}
+
+    try:
+        await _run_step(step, "memo-persist", _persist)
+    except Exception:  # noqa: BLE001 — a persist failure must not void the plan
+        logger.exception("thesis memo: persist step failed")
+        await _journal(db, "engine_failure", "warning",
+                       "memo persist failed — plan still honored",
+                       {"stage": "memo-persist"})
+    return plan
+
+
 async def _decide_and_execute(
     db, client, run_date: datetime, regime: str, sleeve_ctx: Dict[str, Any],
     assembled: Dict[str, Any], screened: Dict[str, Any], lights: Dict[str, Any], step,
+    outlook: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Conviction table → theme review → plan → sells → entries. Returns the
     summary fragments the funnel_summary row records."""
@@ -1215,6 +1301,54 @@ async def _decide_and_execute(
         return result
 
     holdings = _build_holdings()
+
+    # ── Thesis memo: the ONLY buy authority (spec §3). Runs BEFORE stage A so
+    # its `review` actions and its crowded/priced stage moves can join this
+    # week's trigger set. None ⇒ unusable memo ⇒ no-op week: no entries, while
+    # exits/trims/already-earned reviews still run.
+    book = [{"symbol": h["symbol"], "qty": h["qty"],
+             # avg_price is not on the weekly path (EnginePosition rows load
+             # inside stage A); the memo reasons from thesis + market context.
+             "avg_price": None,
+             "themes": (h.get("source_tags") or {}).get("themes", []),
+             "market_value": h["market_value"]} for h in holdings]
+    candidates_packet = {
+        sym: {
+            "dist_200wma": screen.get("dist_200wma"),
+            "rsi14": (light_rows.get(sym) or {}).get("rsi14"),
+            "fair_value_gap_pct": (light_rows.get(sym) or {}).get("fair_value_gap_pct"),
+            "valuation_score": (light_rows.get(sym) or {}).get("valuation_score"),
+            "insider_score": (light_rows.get(sym) or {}).get("insider_score"),
+            "dark_pool_score": (light_rows.get(sym) or {}).get("dark_pool_score"),
+            "short_pct_float": (light_rows.get(sym) or {}).get("short_pct_float"),
+            "atr_pct": screen.get("atr_pct"), "price": screen.get("price"),
+            "themes": (screen.get("tags") or {}).get("themes", []),
+        } for sym, screen in by_symbol.items()
+    }
+    memo_plan = await _memo_pipeline(db, outlook or {}, book, candidates_packet,
+                                     run_date, step)
+    memo_ok = memo_plan is not None
+    memo_summary = {
+        "status": "ok" if memo_ok else "noop",
+        "entries_planned": (len(memo_plan["entries"]) + len(memo_plan["adds"]))
+                           if memo_ok else 0,
+        "rejected": len(memo_plan["rejected"]) if memo_ok else 0,
+    }
+
+    # Holdings the memo put up for review: an explicit `review` action, plus
+    # every holding whose sourcing theme just moved to crowded/priced. They
+    # join stage A's trigger map under the name "memo_stage" — earning a
+    # review, never a trade.
+    memo_review_symbols: set = set()
+    if memo_ok:
+        memo_review_symbols |= set(memo_plan["reviews"])
+        flagged_slugs = {slug for slug, stage in memo_plan["stage_updates"].items()
+                         if stage in _MEMO_REVIEW_STAGES}
+        if flagged_slugs:
+            for h in holdings:
+                themes = (h.get("source_tags") or {}).get("themes") or []
+                if flagged_slugs & set(themes):
+                    memo_review_symbols.add(h["symbol"])
 
     # ── Stage A: review triggers (pure — a trigger NEVER trades, it earns a
     # review). For each holding compute dd/weight/earnings-recency and collect
@@ -1299,6 +1433,8 @@ async def _decide_and_execute(
                 price=close,
                 last_review_price=(latest.get(sym) or {}).get("last_review_price"),
             )
+            if sym in memo_review_symbols and "memo_stage" not in names:
+                names = list(names) + ["memo_stage"]
             if not names:
                 continue
             # JSON-round-trippable (no sets/dates): the step's return value is
@@ -1436,7 +1572,10 @@ async def _decide_and_execute(
     }
     max_positions = max(0, SLEEVE_A_MAX_POSITIONS - open_buys["count"])
 
-    decisions = plan_decisions(holdings, candidates, sleeve_equity, max_positions,
+    # Entries no longer come from here — the memo is the only buy authority, so
+    # plan_decisions is called with NO candidates and its entry_queue comes back
+    # empty. Its exits/trims survive untouched (Task 11 strips the signature).
+    decisions = plan_decisions(holdings, [], sleeve_equity, max_positions,
                                evictions=False, trim_ceiling=None)
 
     # Spend envelopes, computed BEFORE stage C so a same-pass ADD draws from
@@ -1576,8 +1715,13 @@ async def _decide_and_execute(
 
     other_sleeve_sector_notional = await _sleeve_b_sector_notional(db)
 
+    # Task 10 rewires this to pass planned entries (the full dicts, carrying
+    # role/conviction/entry_style) instead of a bare symbol list.
+    entry_queue = ([e["ticker"] for e in memo_plan["entries"] + memo_plan["adds"]]
+                   if memo_ok else [])
+
     placed = await _handshake_and_enter(
-        db, client, decisions.get("entry_queue", []), candidates_by_symbol, run_date,
+        db, client, entry_queue, candidates_by_symbol, run_date,
         sleeve_equity, deployable, cash_available, holdings,
         screened.get("sector_by_symbol", {}), other_sleeve_sector_notional,
         sleeve_ctx.get("allow_buys", True), step,
@@ -1599,7 +1743,7 @@ async def _decide_and_execute(
 
     return {
         "decisions": decisions, "guardrail_notes": decisions.get("notes", []),
-        "placed": placed, "sells": sell_out,
+        "placed": placed, "sells": sell_out, "memo": memo_summary,
         "budget_used": {"full_runs_used": full_used,
                         "full_runs_cap": FULL_RUNS_PER_WEEK,
                         "light_runs": lights.get("spent", 0)},

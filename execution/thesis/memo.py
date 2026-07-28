@@ -24,6 +24,17 @@ def hypothesis_key(text: str) -> str:
     return _KEY_RE.sub("-", text.lower()).strip("-")[:60]
 
 
+def _rankings(blob: Any) -> Optional[List[Any]]:
+    """Rankings blobs come in BOTH shapes: the raw MarketOutlook column
+    ({"rankings": [...], "rotations": [...]}) and the already-unwrapped LIST
+    the funnel cron's _outlook_context hands downstream consumers. Accept
+    either — calling .get() on the unwrapped list raised AttributeError, which
+    the cron caught as a failed gather, i.e. a permanent no-op week."""
+    if isinstance(blob, dict):
+        return blob.get("rankings")
+    return blob or None
+
+
 async def gather_memo_packet(
     db, outlook: Dict[str, Any], book: List[Dict[str, Any]],
     candidates: Dict[str, Dict[str, Any]],
@@ -35,11 +46,11 @@ async def gather_memo_packet(
     ledger = await load_ledger_context(db, [t["slug"] for t in active])
     for t in active:
         t["ledger"] = ledger["by_theme"].get(t["slug"], [])
-        t["stage"] = t.get("stage")  # present when Task 9 threads it through
+        t.setdefault("stage", None)  # _current_theme_state projects it
     crowd = {
-        "theme_rankings": (outlook.get("themeRankings") or {}).get("rankings"),
-        "sector_rankings": outlook.get("sectorRankings"),
-        "industry_rankings": (outlook.get("industryRankings") or {}).get("rankings"),
+        "theme_rankings": _rankings(outlook.get("themeRankings")),
+        "sector_rankings": _rankings(outlook.get("sectorRankings")),
+        "industry_rankings": _rankings(outlook.get("industryRankings")),
     }
     return {"theses": active, "hypotheses": ledger["hypotheses"],
             "study_digest": ledger["study_digest"], "book": book,

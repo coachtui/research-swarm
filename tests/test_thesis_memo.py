@@ -46,3 +46,32 @@ def test_persist_memo_journals_and_appends(monkeypatch):
     assert ("weekly_memo", "dc-energy", None) in appends
     assert any(k == "hypothesis" and h == "packaging-binds-next"
                for k, _, h in appends)
+
+
+def test_gather_packet_accepts_both_rankings_shapes(monkeypatch):
+    """The funnel cron's _outlook_context UNWRAPS rankings to a plain list
+    before any downstream consumer sees them; the raw MarketOutlook column is
+    a dict {"rankings": [...]}. gather_memo_packet must read both — calling
+    .get() on the unwrapped list raised AttributeError, which the cron caught
+    as a failed gather, i.e. a permanent no-op week."""
+    async def fake_state(db, include_retired=True):
+        return []
+
+    async def fake_ledger(db, slugs):
+        return {"by_theme": {}, "hypotheses": [], "study_digest": []}
+
+    monkeypatch.setattr(memo_mod, "_current_theme_state", fake_state)
+    monkeypatch.setattr(memo_mod, "load_ledger_context", fake_ledger)
+
+    unwrapped = {"regime": "neutral", "themeRankings": [{"theme": "dc-energy"}],
+                 "industryRankings": [{"industry": "semis"}]}
+    raw_shape = {"regime": "neutral",
+                 "themeRankings": {"rankings": [{"theme": "dc-energy"}]},
+                 "industryRankings": {"rankings": [{"industry": "semis"}]}}
+
+    for outlook in (unwrapped, raw_shape):
+        packet = asyncio.run(memo_mod.gather_memo_packet(
+            SimpleNamespace(), outlook, [], {}))
+        assert packet["crowdedness"]["theme_rankings"] == [{"theme": "dc-energy"}]
+        assert packet["crowdedness"]["industry_rankings"] == [{"industry": "semis"}]
+        assert packet["regime"] == "neutral"
