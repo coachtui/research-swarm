@@ -1700,15 +1700,18 @@ def test_incomplete_screen_row_journals_failure_not_an_order():
 
 
 def _decide_with_memo(plan, screened, open_buys, sleeve_ctx, sink,
-                      gate=None, handshake=None, db=None, client=None):
+                      gate=None, handshake=None, db=None, client=None,
+                      memo_pipeline=None):
     """_decide_and_execute with the memo pipeline stubbed and (by default) the
-    REAL _handshake_and_enter."""
+    REAL _handshake_and_enter. Pass `memo_pipeline` to inspect what the cron
+    hands the memo (the book/candidates packet) instead of only its output."""
     patches = [
         patch.object(saf, "_load_latest_signals", new=AsyncMock(return_value={})),
         patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})),
         patch.object(saf, "_open_shadow_buys", new=AsyncMock(return_value=open_buys)),
         patch.object(saf, "_theme_review", new=AsyncMock()),
-        patch.object(saf, "_memo_pipeline", new=AsyncMock(return_value=plan)),
+        patch.object(saf, "_memo_pipeline",
+                     new=memo_pipeline or AsyncMock(return_value=plan)),
         patch.object(saf, "_execute_sells",
                      new=AsyncMock(return_value={"cash": sleeve_ctx["cash"],
                                                  "proceeds": 0.0, "sold": []})),
@@ -2389,3 +2392,50 @@ def test_room_under_the_cap_lets_every_entry_through():
     # untouched, in the memo's own order (no reshuffle when nothing is dropped)
     assert [e["ticker"] for e in captured["planned"]] == ["A1", "A2"]
     assert sink.count("entry_deferred") == 0
+
+
+def test_memo_book_carries_entry_basis_and_unrealized_pnl():
+    """FINDING 3 (spec §3.1): the book packet must carry the entry basis and
+    unrealized P&L — "you add on thesis-confirmed weakness" is unanswerable
+    without knowing where the position was opened. Missing basis degrades to
+    None on BOTH fields; it never raises and never fabricates a zero."""
+    captured = {}
+
+    async def capture_memo(db_, outlook, book, candidates, run_date, step):
+        captured["book"] = book
+        return None                                    # no-op memo week
+
+    sink = _ReportSink()
+    screened = {"ranked": [_memo_screen("MU"), _memo_screen("NOB")],
+                "close_by_symbol": {"MU": 120.0, "NOB": 50.0},
+                "sector_by_symbol": {}}
+
+    _decide_with_memo(
+        None, screened, {"notional": 0.0, "symbols": set(), "count": 0},
+        {"cash": 10_000.0, "positions": {"MU": 10.0, "NOB": 4.0},
+         "avg_prices": {"MU": 100.0}, "allow_buys": True, "status": "active"},
+        sink, memo_pipeline=capture_memo)
+
+    book = {b["symbol"]: b for b in captured["book"]}
+    assert book["MU"]["avg_price"] == 100.0
+    assert abs(book["MU"]["unrealized_plpc"] - 0.2) < 1e-9      # 120/100 - 1
+    # no stored basis ⇒ both None, not 0.0 and not an exception.
+    assert book["NOB"]["avg_price"] is None
+    assert book["NOB"]["unrealized_plpc"] is None
+
+
+def test_ensure_sleeve_a_exports_avg_prices_for_the_memo_book():
+    """The basis has to reach _decide_and_execute: _ensure_sleeve_a is the only
+    loader of EnginePosition rows on the pre-stage-A path, and its context dict
+    is JSON-serialized into the durable step log, so a plain {sym: float} map
+    is the shape that survives a replay."""
+    state = SimpleNamespace(cashBalance=1234.0, status="active")
+    rows = [SimpleNamespace(symbol="MU", qty=10.0, avgEntryPrice=100.0),
+            SimpleNamespace(symbol="NOB", qty=4.0, avgEntryPrice=None)]
+    with patch("execution.sleeve_service.get_sleeve_state",
+               new=AsyncMock(return_value=state)), \
+         patch("execution.sleeve_service.get_engine_positions",
+               new=AsyncMock(return_value=rows)):
+        out = _run(saf._ensure_sleeve_a(MagicMock(), NOW))
+    assert out["positions"] == {"MU": 10.0, "NOB": 4.0}
+    assert out["avg_prices"] == {"MU": 100.0}

@@ -371,6 +371,15 @@ async def _ensure_sleeve_a(db, now: datetime) -> Optional[Dict[str, Any]]:
         "status": state.status,
         "allow_buys": allow_buys,
         "positions": {p.symbol: float(p.qty) for p in positions},
+        # Entry basis for the memo's book packet (spec §3.1 — "you add on
+        # thesis-confirmed weakness" is unanswerable without knowing where the
+        # position was opened). A plain {symbol: float} map so the context dict
+        # stays JSON-serializable through the durable step log. A row with no
+        # stored basis is simply absent; the book degrades it to None rather
+        # than reporting a fabricated 0.0 basis.
+        "avg_prices": {p.symbol: float(p.avgEntryPrice)
+                       for p in positions
+                       if getattr(p, "avgEntryPrice", None) is not None},
     }
 
 
@@ -1372,12 +1381,28 @@ async def _decide_and_execute(
     # its `review` actions and its crowded/priced stage moves can join this
     # week's trigger set. None ⇒ unusable memo ⇒ no-op week: no entries, while
     # exits/trims/already-earned reviews still run.
-    book = [{"symbol": h["symbol"], "qty": h["qty"],
-             # avg_price is not on the weekly path (EnginePosition rows load
-             # inside stage A); the memo reasons from thesis + market context.
-             "avg_price": None,
-             "themes": (h.get("source_tags") or {}).get("themes", []),
-             "market_value": h["market_value"]} for h in holdings]
+    # Entry basis + unrealized P&L (spec §3.1). The memo is asked to add on
+    # thesis-confirmed WEAKNESS and to reconcile what it already owns, neither
+    # of which is answerable from market value alone — it has to know where the
+    # position was opened and whether it is under water. avg_prices rides in on
+    # the sleeve context (_ensure_sleeve_a is the only EnginePosition load on
+    # the pre-stage-A path). None-safe on BOTH legs: a missing basis, or a
+    # missing/zero close, degrades to None rather than fabricating a number the
+    # memo would reason from.
+    avg_prices = sleeve_ctx.get("avg_prices") or {}
+
+    def _book_entry(h: Dict[str, Any]) -> Dict[str, Any]:
+        avg = avg_prices.get(h["symbol"])
+        avg = float(avg) if avg else None
+        close = close_by_symbol.get(h["symbol"])
+        plpc = (round(close / avg - 1.0, 4)
+                if avg and close not in (None, 0.0) else None)
+        return {"symbol": h["symbol"], "qty": h["qty"],
+                "avg_price": avg, "unrealized_plpc": plpc,
+                "themes": (h.get("source_tags") or {}).get("themes", []),
+                "market_value": h["market_value"]}
+
+    book = [_book_entry(h) for h in holdings]
     candidates_packet = {
         sym: {
             "dist_200wma": screen.get("dist_200wma"),
