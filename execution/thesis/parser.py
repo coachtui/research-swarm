@@ -61,6 +61,34 @@ def _action(raw: Any, slug: str, skipped: List[str]) -> Optional[Dict[str, Any]]
     return out
 
 
+def _passed_on(raw: Any, slug: str, skipped: List[str]) -> List[Dict[str, str]]:
+    """Candidates the memo saw and DECLINED — never an action, purely the record.
+
+    Advisory: a malformed block degrades to empty and never sinks the thesis
+    it hangs off. Both fields are required, because a ticker with no reason is
+    exactly the silence this field exists to remove.
+    """
+    if not isinstance(raw, list):
+        if raw is not None:
+            skipped.append(f"{slug}: passed_on is not a list")
+        return []
+    out: List[Dict[str, str]] = []
+    for p in raw:
+        if not isinstance(p, dict):
+            skipped.append(f"{slug}: passed_on entry not an object")
+            continue
+        ticker = str(p.get("ticker") or "").strip().upper()
+        reason = str(p.get("reason") or "").strip()
+        if not ticker:
+            skipped.append(f"{slug}: passed_on entry without ticker")
+            continue
+        if not reason:
+            skipped.append(f"{slug}: passed_on {ticker} without a reason")
+            continue
+        out.append({"ticker": ticker, "reason": reason})
+    return out
+
+
 def parse_memo_response(raw: str) -> Dict[str, Any]:
     try:
         obj = _extract_json(raw)
@@ -89,6 +117,7 @@ def parse_memo_response(raw: str) -> Dict[str, Any]:
             "stage_rationale": str(t.get("stage_rationale") or ""),
             "evidence_this_week": [str(e) for e in (t.get("evidence_this_week") or [])],
             "actions": actions,
+            "passed_on": _passed_on(t.get("passed_on"), slug, skipped),
         })
 
     updates: List[Dict[str, Any]] = []
