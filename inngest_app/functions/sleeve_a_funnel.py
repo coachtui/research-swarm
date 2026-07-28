@@ -1265,6 +1265,14 @@ async def _memo_pipeline(
                        {"stage": "memo-parse", "raw_head": str(raw)[:2000]})
         return None
 
+    for c in plan.get("coerced", []):
+        # Visible on purpose: the memo reaching for the wrong verb is a
+        # prompt-quality signal, even though the order is unchanged.
+        await _journal(db, "entry_rejected", "info",
+                       f"{c['ticker']}: memo said '{c['from']}' for a "
+                       f"{'held' if c['to'] == 'add' else 'new'} name — read as "
+                       f"'{c['to']}'", c)
+
     for r in plan["rejected"]:
         await _journal(db, "entry_rejected", "info",
                        f"{r['ticker']}: memo entry rejected — {r['reason']}", r)
