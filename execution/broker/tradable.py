@@ -29,3 +29,33 @@ async def alpaca_tradable_symbols(db) -> Optional[Set[str]]:
     except Exception:  # noqa: BLE001
         logger.exception("alpaca tradable-asset fetch failed")
         return None
+
+
+async def alpaca_tradable_symbols_from_env() -> Optional[Set[str]]:
+    """Same set, built straight from ALPACA_PAPER_API_KEY/_SECRET.
+
+    For local CLI use only — the crons must keep going through the encrypted
+    LinkedBrokerAccount row so plaintext never crosses an Inngest step
+    boundary. Off Inngest there is no such boundary, and requiring
+    BROKER_KEY_ENCRYPTION_KEY just to read a public asset list is friction
+    with no security benefit.
+
+    Deliberately a separate function rather than a fallback inside
+    alpaca_tradable_symbols: a silent env fallback in production would mask a
+    real credential failure instead of degrading loudly.
+    """
+    import asyncio  # noqa: PLC0415
+    import os  # noqa: PLC0415
+
+    import execution.broker.alpaca_client as alpaca_client  # noqa: PLC0415
+
+    key = os.getenv("ALPACA_PAPER_API_KEY", "")
+    secret = os.getenv("ALPACA_PAPER_API_SECRET", "")
+    if not key or not secret:
+        return None
+    try:
+        client = alpaca_client.AlpacaPaperClient(key, secret)
+        return await asyncio.to_thread(client.list_tradable_us_equities)
+    except Exception:  # noqa: BLE001 — None means "don't gate", never reject the world
+        logger.exception("alpaca tradable-asset fetch from env failed")
+        return None

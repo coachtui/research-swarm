@@ -50,9 +50,7 @@ from execution.constants import (
 from execution.engine.guardrails import enforce_funnel_guardrails
 from execution.funnel.conviction import compute_conviction
 from execution.funnel.decisions import plan_decisions
-from execution.funnel.entries import (
-    entry_limit_price, entry_ttl_days, extension_state, size_entry,
-)
+from execution.funnel.entries import size_entry
 from execution.funnel.research_budget import (
     _FUNNEL_MARKER, full_runs_used, persist_full, reuse_or_budget,
     run_paid_analysis,
@@ -60,11 +58,22 @@ from execution.funnel.research_budget import (
 from execution.funnel.review_triggers import collect_triggers, drawdown
 from execution.outlook_service import get_latest_outlook
 from execution.reporting import write_report
+from execution.thesis.memo import gather_memo_packet, persist_memo, reason_memo
+from execution.thesis.parser import MemoParseError, parse_memo_response
+from execution.thesis.planner import (
+    entry_price_and_ttl, plan_from_memo, size_thesis_entry,
+)
 
 logger = logging.getLogger(__name__)
 
 _SOURCE = "sleeve_a_funnel"
 _QUALITY_RERANK_TOP_N = 40
+# A theme the memo just MOVED into one of these stages puts every holding
+# sourced from it up for review (spec §2/§7.3) — the transition fires it, not
+# the state, so a theme that was already crowded last week stays silent. A
+# stage change NEVER trades by itself; it earns the review whose verdict is the
+# only trim/exit authority.
+_MEMO_REVIEW_STAGES = ("crowded", "priced")
 
 
 # ── Journal helper ───────────────────────────────────────────────────────────
@@ -251,12 +260,17 @@ def _outlook_context(outlook: Any) -> Dict[str, Any]:
     are DICTS shaped {"rankings": [...], "rotations": [...], "missing": [...]}
     (built by industry_strength.py / theme_strength.py; themes/discovery.py
     also reads .get("rankings")) — unwrap the rankings LIST here so every
-    downstream consumer (fetch_industry_holdings, the top-industries slice)
-    sees a plain list."""
+    downstream consumer (the top-industries/top-themes scoring slices in
+    _screen) sees a plain list.
+
+    sectorRankings is ALREADY a plain list on the row (see schema.prisma:910)
+    and needs no unwrap; the weekly thesis memo requires sector RS as a
+    crowdedness input (spec §3.1), so it is passed straight through."""
     return {
         "regime": outlook.regime,
         "industryRankings": (outlook.industryRankings or {}).get("rankings", []),
         "themeRankings": (outlook.themeRankings or {}).get("rankings", []),
+        "sectorRankings": getattr(outlook, "sectorRankings", None) or [],
     }
 
 
@@ -357,6 +371,15 @@ async def _ensure_sleeve_a(db, now: datetime) -> Optional[Dict[str, Any]]:
         "status": state.status,
         "allow_buys": allow_buys,
         "positions": {p.symbol: float(p.qty) for p in positions},
+        # Entry basis for the memo's book packet (spec §3.1 — "you add on
+        # thesis-confirmed weakness" is unanswerable without knowing where the
+        # position was opened). A plain {symbol: float} map so the context dict
+        # stays JSON-serializable through the durable step log. A row with no
+        # stored basis is simply absent; the book degrades it to None rather
+        # than reporting a fabricated 0.0 basis.
+        "avg_prices": {p.symbol: float(p.avgEntryPrice)
+                       for p in positions
+                       if getattr(p, "avgEntryPrice", None) is not None},
     }
 
 
@@ -375,21 +398,30 @@ async def _previous_spy_close() -> float:
 
 
 async def _handshake_and_enter(
-    db, client, entry_queue: List[str],
-    candidates_by_symbol: Dict[str, Dict[str, Any]], run_date: datetime,
+    db, client, planned_entries: List[Dict[str, Any]],
+    screen_by_symbol: Dict[str, Dict[str, Any]], run_date: datetime,
     sleeve_equity: float, deployable: float, cash_available: float,
     holdings: List[Dict[str, Any]], sector_by_symbol: Dict[str, str],
     other_sleeve_sector_notional: Dict[str, float], allow_buys: bool, step,
 ) -> List[Dict[str, Any]]:
-    """Entry handshake + placement, one symbol at a time.
+    """Place the memo's planned entries — diligence is VETO-ONLY (spec §4).
 
-    For each queued entry: budget-gate (reuse fresh / paid analyze / skip),
-    re-score conviction with the FULL signals, veto on SELL, size, filter
-    through the funnel guardrails, and submit a shadow limit buy. The paid
-    analyze runs in its own memoized step (or inline when step is None) so a
-    persist retry can never re-bill. Returns the placed-order dicts.
+    Each item is a planner entry dict ({slug, stage, action, ticker, role,
+    conviction, entry_style, why_now, why_this_expression}). The memo already
+    decided WHAT to buy and HOW BIG (role band × its own 0-1 conviction); the
+    mechanics here only size, validate and place. For each entry: budget-gate
+    (reuse fresh / paid analyze / skip), VETO on a SELL/AVOID verdict or
+    unusable data, price + size from the memo, filter through the funnel
+    guardrails, and submit a shadow limit buy.
 
-    `deployable` and `cash_available` shrink as orders are placed so the queue
+    There is NO conviction recompute and NO formula gate. A missing/None/hold
+    verdict proceeds: the paid full run exists to say "no" (fraud, blow-up,
+    thesis already broken), never to out-vote the memo on what to own.
+
+    The paid analyze runs in its own memoized step (or inline when step is
+    None) so a persist retry can never re-bill. Returns the placed-order dicts.
+
+    `deployable` and `cash_available` shrink as orders are placed so the plan
     cannot collectively overspend the regime-scaled envelope or the cash ledger.
     """
     placed: List[Dict[str, Any]] = []
@@ -401,10 +433,11 @@ async def _handshake_and_enter(
     # otherwise each be checked against a fresh baseline and jointly bust 35%.
     running_holdings: List[Dict[str, Any]] = list(holdings)
 
-    for sym in entry_queue:
-        cand = candidates_by_symbol.get(sym) or {}
-        screen = cand.get("screen") or {}
-        base_input = cand.get("conv_input")
+    for entry in planned_entries:
+        sym = entry.get("ticker")
+        if not sym:
+            continue
+        screen = screen_by_symbol.get(sym) or {}
 
         # 1) Budget-aware handshake gate (reuse_or_budget is bare — wrap it).
         try:
@@ -463,50 +496,80 @@ async def _handshake_and_enter(
                            f"{sym}: no usable signals — no entry", {"symbol": sym})
             continue
 
-        # 2) Re-score conviction: overlay the FULL signals onto the light/screen
-        #    base so the small-cap haircut + fundamentals survive the recompute
-        #    (I1). SELL is a veto.
-        conv = compute_conviction(
-            _conviction_input_from_signals(signals, screen, base=base_input)
-        )
-        if conv.get("vetoed"):
+        # 2) Diligence is VETO-ONLY. A SELL/AVOID verdict kills the entry;
+        #    anything else — buy, hold, unknown, absent — proceeds. The memo is
+        #    the buy authority (spec §4); this run may only overrule it downward.
+        verdict = str((signals or {}).get("verdict") or "").strip().lower()
+        if verdict in ("sell", "avoid"):
             await _journal(db, "exit_sell_verdict", "info",
-                           f"{sym}: entry vetoed — {conv.get('veto_reason')}",
-                           {"symbol": sym, "veto_reason": conv.get("veto_reason")})
+                           f"{sym}: memo entry vetoed by diligence verdict",
+                           {"symbol": sym, "verdict": verdict,
+                            "slug": entry.get("slug")})
             continue
-        conviction = float(conv["score"])
 
-        # 3) Size the entry (extension-aware limit, conviction-scaled notional).
+        # 3) Price + size from the MEMO: entry_style sets the limit and TTL,
+        #    role × conviction sets the notional. Every ceiling only shrinks.
+        #    A malformed entry (bad role) or an incomplete screen row lands here
+        #    rather than raising out of the cron.
         try:
             price = float(screen["price"])
             sma20 = float(screen["sma20"])
             atr = float(screen["atr"])
             atr_pct = float(screen["atr_pct"])
-            ext_atr = float(screen.get("ext_atr") or 0.0)
+            entry_style = entry["entry_style"]
+            memo_conviction = float(entry["conviction"])
+            limit, ttl = entry_price_and_ttl(entry_style, price, sma20, atr)
+            notional = size_thesis_entry(
+                entry["role"], memo_conviction, sleeve_equity,
+                float(screen.get("liquidity_adv_usd") or 0.0), atr_pct,
+                deployable_remaining, cash_remaining,
+            )
+            # An ADD buys HALF a fresh entry's notional (owner ruling, the
+            # DCA_TRANCHE_FRACTION constant). size_thesis_entry returns the
+            # full role band — correct for `enter`, but a full band stacked on
+            # top of a position already held, with no per-position ceiling,
+            # is how a name quietly doubles. The ladder ADD is already halved
+            # for exactly this reason; the memo's `add` is the same act.
+            tranche = (DCA_TRANCHE_FRACTION if entry.get("action") == "add"
+                       else 1.0)
+            notional = round(notional * tranche, 2)
         except (KeyError, TypeError, ValueError):
+            logger.exception("funnel handshake: cannot size %s", sym)
             await _journal(db, "engine_failure", "warning",
-                           f"{sym}: screen row incomplete — cannot size",
-                           {"symbol": sym})
+                           f"{sym}: screen/memo row incomplete — cannot size",
+                           {"symbol": sym, "slug": entry.get("slug")})
             continue
 
-        state = extension_state(ext_atr)
-        limit = entry_limit_price(state, price, sma20, atr)
-        ttl = entry_ttl_days(state)
-        notional = size_entry(
-            conviction, sleeve_equity,
-            float(screen.get("liquidity_adv_usd") or 0.0), atr_pct,
-            deployable_remaining, cash_remaining,
-        )
         if notional < MIN_TRADE_NOTIONAL or limit <= 0:
             await _journal(db, "entry_deferred", "info",
                            f"{sym}: below minimum notional after sizing",
-                           {"symbol": sym, "notional": notional, "conviction": conviction})
+                           {"symbol": sym, "notional": notional,
+                            "memo_conviction": memo_conviction,
+                            "role": entry.get("role"), "slug": entry.get("slug")})
             continue
+
+        # Thesis linkage. The screen row's tags say which themes this ticker is
+        # a stored CONSTITUENT of; the memo is explicitly encouraged to express
+        # a thesis through a non-obvious ticker, which is not a constituent of
+        # anything. Using the screen tags alone therefore silently severs the
+        # order from the thesis that bought it — the 35% theme aggregate cap
+        # never counts it against its own thesis, and the crowded/priced +
+        # retired-theme reviews (which match on the sourceTags PERSISTED at
+        # fill time) can never find the holding again. Union the slug in, for
+        # BOTH the guardrail order and the journal. Sorted + deduped to match
+        # how universe tagging builds the list; a NEW dict so the shared screen
+        # row in by_symbol is never mutated.
+        screen_tags = screen.get("tags") or {}
+        slug = entry.get("slug")
+        themes = list(screen_tags.get("themes") or [])
+        if slug and slug not in themes:
+            themes = sorted(set(themes) | {slug})
+        source_tags = {**screen_tags, "themes": themes}
 
         # 4) Guardrails (theme overlap → cross-sleeve sector → cash).
         order = {
             "symbol": sym, "side": "buy", "notional": notional,
-            "tags": screen.get("tags") or {}, "sector": sector_by_symbol.get(sym),
+            "tags": source_tags, "sector": sector_by_symbol.get(sym),
         }
         adjusted, notes = enforce_funnel_guardrails(
             [order], sleeve_equity, sleeve_equity, cash_remaining,
@@ -520,7 +583,6 @@ async def _handshake_and_enter(
             continue
 
         # 5) Submit the shadow limit buy (deterministic client_order_id).
-        source_tags = screen.get("tags") or {}
         report_ref = await _latest_full_signal_id(db, sym)
         sector = sector_by_symbol.get(sym)
         for o in buys:
@@ -532,11 +594,27 @@ async def _handshake_and_enter(
             # reportRef so the daily fills step can copy them onto the position
             # row — reviving the dead migrated columns and giving the weekly
             # theme review persisted tags to read.
+            #
+            # MEMO provenance (spec §4): the thesis this order came from, in the
+            # memo's OWN words. This is the after-the-fact audit trail — months
+            # later "why do I own this?" is answered by why_now /
+            # why_this_expression / role / stage, not by a score.
+            # convictionScore stays the daily-fills key but now carries the
+            # memo's 0-1 conviction (the old 0-100 formula score is gone).
             journal = {
-                "symbol": sym, "conviction": conviction, "limit_price": limit,
-                "notional": final_notional, "extension_state": state,
+                "symbol": sym, "limit_price": limit,
+                "notional": final_notional,
                 "ttl_days": ttl, "guardrail_notes": notes,
-                "sourceTags": source_tags, "convictionScore": conviction,
+                "slug": entry.get("slug"), "stage": entry.get("stage"),
+                "action": entry.get("action"), "role": entry.get("role"),
+                "entry_style": entry_style,
+                # 0.5 on an `add`, 1.0 on an `enter` — so the audit trail says
+                # WHY a half-band notional is half.
+                "add_tranche_fraction": tranche,
+                "why_now": entry.get("why_now"),
+                "why_this_expression": entry.get("why_this_expression"),
+                "memo_conviction": memo_conviction,
+                "sourceTags": source_tags, "convictionScore": memo_conviction,
                 "reportRef": report_ref,
                 "dist_200wma": screen.get("dist_200wma"),
             }
@@ -817,7 +895,7 @@ def _register_inngest_function():
             else:
                 outcome = await _decide_and_execute(
                     db, client, run_date, regime, sleeve_ctx, assembled,
-                    screened, lights, step,
+                    screened, lights, step, outlook=outlook,
                 )
         except Exception:  # noqa: BLE001 — degrade; summary must still write
             logger.exception("funnel: decide-and-execute failed")
@@ -839,6 +917,9 @@ def _register_inngest_function():
                     "exclusions": screened.get("excluded", [])[:50],
                     "screen_top20": [r.get("symbol") for r in screened.get("ranked", [])[:20]],
                     "light_spend": lights.get("spent", 0),
+                    "memo": outcome.get(
+                        "memo", {"status": "noop", "entries_planned": 0,
+                                 "rejected": 0}),
                     "decisions": outcome.get("decisions", {}),
                     "guardrail_notes": outcome.get("guardrail_notes", []),
                     "placed": outcome.get("placed", []),
@@ -860,23 +941,20 @@ def _register_inngest_function():
 # per-symbol analyze steps in _theme_review/_handshake_and_enter are top-level.
 
 async def _assemble(db, outlook: Dict[str, Any], holdings: List[str]) -> Dict[str, Any]:
-    """Merge theme members + watchlist + holdings + industry-ETF holdings into a
-    tagged universe. Returns JSON-safe data ONLY (no DataFrames) — OHLCV bars
-    are fetched in the screen step so nothing pandas crosses a step boundary."""
-    import asyncio  # noqa: PLC0415
-
+    """Merge theme members + watchlist + holdings into a tagged universe.
+    No formula-picked (industry-RS) channel: a symbol enters only via theme
+    membership, the watchlist, or being already held. Returns JSON-safe data
+    ONLY (no DataFrames) — OHLCV bars are fetched in the screen step so
+    nothing pandas crosses a step boundary."""
     from execution.funnel.universe import (  # noqa: PLC0415
-        fetch_industry_holdings, load_theme_members, merge_sources,
+        load_theme_members, merge_sources,
     )
     from execution.research_feed import get_research_context  # noqa: PLC0415
 
     theme_members = await load_theme_members(db)
     research = await get_research_context(db)
     watchlist = research.get("watchlist", [])
-    industry_holdings = await asyncio.to_thread(
-        fetch_industry_holdings, outlook.get("industryRankings", [])
-    )
-    tagged = merge_sources(theme_members, industry_holdings, watchlist, holdings)
+    tagged = merge_sources(theme_members, {}, watchlist, holdings)
     return {
         "tagged": tagged,
         # active theme slugs this week — a holding's stored sourcing theme is
@@ -884,7 +962,6 @@ async def _assemble(db, outlook: Dict[str, Any], holdings: List[str]) -> Dict[st
         "active_themes": list(theme_members.keys()),
         "counts": {
             "themes": len(theme_members), "watchlist": len(watchlist),
-            "industry_holdings": sum(len(v) for v in industry_holdings.values()),
             "assembled": len(tagged),
         },
     }
@@ -1143,9 +1220,101 @@ def _parse_trim_target(meta: Dict[str, Any]) -> Optional[float]:
     return x if 0.0 < x < CONCENTRATION_REVIEW_WEIGHT else None
 
 
+# ── Thesis memo (spec §3) — the ONLY buy authority ───────────────────────────
+
+async def _memo_pipeline(
+    db, outlook: Dict[str, Any], book: List[Dict[str, Any]],
+    candidates: Dict[str, Dict[str, Any]], run_date: datetime, step,
+) -> Optional[Dict[str, Any]]:
+    """Gather → memo (PAID, own memoized step) → parse → plan → persist.
+
+    Returns the plan dict — `plan_from_memo`'s keys plus `prior_stages` (each
+    thesis's stage BEFORE this memo, so the caller can trigger on the stage
+    TRANSITION rather than the stage state) — or None for an unusable memo,
+    which the caller treats as a no-op week (spec §7): entries skipped,
+    everything else (fills, reviews already triggered, exits) proceeds.
+    NEVER raises.
+
+    Gather + the paid call are memoized TOGETHER under "thesis-memo", persist
+    separately under "memo-persist", so a persist retry can never re-bill.
+    Parse and plan are pure, so re-deriving them from the memoized raw on every
+    replay yields an identical plan (which is what pins stage A's trigger set
+    across replays).
+    """
+    import asyncio  # noqa: PLC0415
+
+    async def _gather_and_reason() -> Dict[str, Any]:
+        # Gather lives INSIDE the paid step, not before it. Inngest re-executes
+        # the function body at every step boundary (a dozen-plus per run given
+        # the steps that follow), so an unmemoized gather re-queries theme state
+        # every time — and a transient gather blip on a post-memo replay would
+        # discard a memo already PAID for and already persisted, returning None
+        # while the stage writes stayed committed and the summary said "noop".
+        # This closure calls no step.run of its own, so it is not a nested step.
+        packet = await gather_memo_packet(db, outlook, book, candidates)
+        # Each thesis's stage BEFORE the memo moves it. Memoized alongside the
+        # raw so the transition set is identical on every replay.
+        prior = {t["slug"]: t.get("stage") for t in (packet.get("theses") or [])
+                 if t.get("slug")}
+        raw = await asyncio.to_thread(reason_memo, packet)
+        return {"raw": raw, "prior_stages": prior}
+
+    try:
+        memo_out = await _run_step(step, "thesis-memo", _gather_and_reason)
+        raw = memo_out["raw"]
+        prior_stages = memo_out["prior_stages"]
+    except Exception:  # noqa: BLE001
+        logger.exception("thesis memo: gather/paid call failed")
+        await _journal(db, "engine_failure", "critical",
+                       "memo gather/LLM step failed — no-op week",
+                       {"stage": "thesis-memo"})
+        return None
+    try:
+        memo = parse_memo_response(raw)
+        held = {p["symbol"] for p in book}
+        plan = plan_from_memo(memo, held, set(candidates))
+    except Exception as exc:  # noqa: BLE001 — MemoParseError, or any residual
+        # LOUDER than the theme parsers by design: a drifted top-level shape is
+        # a no-op week, never a quiet zero-entry week that looks normal.
+        kind = ("schema drift" if isinstance(exc, MemoParseError)
+                else "unusable memo")
+        logger.exception("thesis memo: %s", kind)
+        await _journal(db, "engine_failure", "critical",
+                       f"memo {kind} — no-op week: {exc}",
+                       {"stage": "memo-parse", "raw_head": str(raw)[:2000]})
+        return None
+
+    for r in plan["rejected"]:
+        await _journal(db, "entry_rejected", "info",
+                       f"{r['ticker']}: memo entry rejected — {r['reason']}", r)
+
+    week = run_date.date().isoformat()
+
+    async def _persist() -> Dict[str, Any]:
+        await persist_memo(db, week, raw, memo)
+        for slug, stage in plan["stage_updates"].items():
+            try:
+                await db.themebasket.update(where={"slug": slug},
+                                            data={"stage": stage})
+            except Exception:  # noqa: BLE001
+                logger.exception("stage persist failed for %s", slug)
+        return {"persisted": True}
+
+    try:
+        await _run_step(step, "memo-persist", _persist)
+    except Exception:  # noqa: BLE001 — a persist failure must not void the plan
+        logger.exception("thesis memo: persist step failed")
+        await _journal(db, "engine_failure", "warning",
+                       "memo persist failed — plan still honored",
+                       {"stage": "memo-persist"})
+    plan["prior_stages"] = prior_stages
+    return plan
+
+
 async def _decide_and_execute(
     db, client, run_date: datetime, regime: str, sleeve_ctx: Dict[str, Any],
     assembled: Dict[str, Any], screened: Dict[str, Any], lights: Dict[str, Any], step,
+    outlook: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Conviction table → theme review → plan → sells → entries. Returns the
     summary fragments the funnel_summary row records."""
@@ -1171,23 +1340,11 @@ async def _decide_and_execute(
     stored_tags = await _load_position_source_tags(db)
     active_themes = set(assembled.get("active_themes", []))
 
-    # Conviction table for holdings and candidates. Keep each candidate's conv
-    # input so the entry-handshake recompute can overlay full signals ONTO it
-    # (I1) instead of rebuilding from the signal-only shape.
-    candidates: List[Dict[str, Any]] = []
-    candidates_by_symbol: Dict[str, Dict[str, Any]] = {}
-    for sym, screen in by_symbol.items():
-        light = light_rows.get(sym)
-        meta = latest.get(sym) or {}
-        age = meta.get("report_age_days") or 0.0
-        conv_input = _conviction_input_from_light(
-            light or {}, screen, report_age_days=age, verdict=meta.get("verdict"),
-        )
-        conv = compute_conviction(conv_input)
-        entry = {"symbol": sym, "conviction": conv["score"], "vetoed": conv["vetoed"],
-                 "screen": screen, "conv_input": conv_input}
-        candidates.append(entry)
-        candidates_by_symbol[sym] = entry
+    # NOTE: there is no candidate conviction table any more. Ranking candidates
+    # by formula was the selection machinery the memo replaced (spec §2/§4) —
+    # plan_decisions gets no candidates and the handshake sizes from the memo's
+    # own role/conviction, so nothing downstream reads a candidate score. The
+    # HOLDINGS conviction table below survives: it feeds exits/trims only.
 
     sleeve_equity = sleeve_ctx["cash"] + sum(
         qty * close_by_symbol.get(sym, 0.0) for sym, qty in positions.items()
@@ -1219,6 +1376,80 @@ async def _decide_and_execute(
         return result
 
     holdings = _build_holdings()
+
+    # ── Thesis memo: the ONLY buy authority (spec §3). Runs BEFORE stage A so
+    # its `review` actions and its crowded/priced stage moves can join this
+    # week's trigger set. None ⇒ unusable memo ⇒ no-op week: no entries, while
+    # exits/trims/already-earned reviews still run.
+    # Entry basis + unrealized P&L (spec §3.1). The memo is asked to add on
+    # thesis-confirmed WEAKNESS and to reconcile what it already owns, neither
+    # of which is answerable from market value alone — it has to know where the
+    # position was opened and whether it is under water. avg_prices rides in on
+    # the sleeve context (_ensure_sleeve_a is the only EnginePosition load on
+    # the pre-stage-A path). None-safe on BOTH legs: a missing basis, or a
+    # missing/zero close, degrades to None rather than fabricating a number the
+    # memo would reason from.
+    avg_prices = sleeve_ctx.get("avg_prices") or {}
+
+    def _book_entry(h: Dict[str, Any]) -> Dict[str, Any]:
+        avg = avg_prices.get(h["symbol"])
+        avg = float(avg) if avg else None
+        close = close_by_symbol.get(h["symbol"])
+        plpc = (round(close / avg - 1.0, 4)
+                if avg and close not in (None, 0.0) else None)
+        return {"symbol": h["symbol"], "qty": h["qty"],
+                "avg_price": avg, "unrealized_plpc": plpc,
+                "themes": (h.get("source_tags") or {}).get("themes", []),
+                "market_value": h["market_value"]}
+
+    book = [_book_entry(h) for h in holdings]
+    candidates_packet = {
+        sym: {
+            "dist_200wma": screen.get("dist_200wma"),
+            "rsi14": (light_rows.get(sym) or {}).get("rsi14"),
+            "fair_value_gap_pct": (light_rows.get(sym) or {}).get("fair_value_gap_pct"),
+            "valuation_score": (light_rows.get(sym) or {}).get("valuation_score"),
+            "insider_score": (light_rows.get(sym) or {}).get("insider_score"),
+            "dark_pool_score": (light_rows.get(sym) or {}).get("dark_pool_score"),
+            "short_pct_float": (light_rows.get(sym) or {}).get("short_pct_float"),
+            "atr_pct": screen.get("atr_pct"), "price": screen.get("price"),
+            "themes": (screen.get("tags") or {}).get("themes", []),
+        } for sym, screen in by_symbol.items()
+    }
+    memo_plan = await _memo_pipeline(db, outlook or {}, book, candidates_packet,
+                                     run_date, step)
+    memo_ok = memo_plan is not None
+    memo_summary = {
+        "status": "ok" if memo_ok else "noop",
+        "entries_planned": (len(memo_plan["entries"]) + len(memo_plan["adds"]))
+                           if memo_ok else 0,
+        "rejected": len(memo_plan["rejected"]) if memo_ok else 0,
+    }
+
+    # Holdings the memo put up for review: an explicit `review` action, plus
+    # every holding whose sourcing theme just MOVED to crowded/priced. They
+    # join stage A's trigger map under the name "memo_stage" — earning a
+    # review, never a trade.
+    #
+    # Transition, not state (spec §2). stage_updates records EVERY thesis's
+    # stage (it is the persistence contract, correctly), so filtering on "is
+    # currently crowded/priced" would re-flag every holding of a sticky crowded
+    # theme EVERY week and eat FULL_RUNS_PER_WEEK forever. Only a stage that
+    # CHANGED INTO crowded/priced this pass fires; a theme already there last
+    # week is silent. prior_stages comes from the pre-memo theme state captured
+    # inside the memoized "thesis-memo" step, so the set is replay-stable.
+    memo_review_symbols: set = set()
+    if memo_ok:
+        memo_review_symbols |= set(memo_plan["reviews"])
+        prior_stages = memo_plan.get("prior_stages") or {}
+        flagged_slugs = {slug for slug, stage in memo_plan["stage_updates"].items()
+                         if stage in _MEMO_REVIEW_STAGES
+                         and prior_stages.get(slug) != stage}
+        if flagged_slugs:
+            for h in holdings:
+                themes = (h.get("source_tags") or {}).get("themes") or []
+                if flagged_slugs & set(themes):
+                    memo_review_symbols.add(h["symbol"])
 
     # ── Stage A: review triggers (pure — a trigger NEVER trades, it earns a
     # review). For each holding compute dd/weight/earnings-recency and collect
@@ -1303,6 +1534,8 @@ async def _decide_and_execute(
                 price=close,
                 last_review_price=(latest.get(sym) or {}).get("last_review_price"),
             )
+            if sym in memo_review_symbols and "memo_stage" not in names:
+                names = list(names) + ["memo_stage"]
             if not names:
                 continue
             # JSON-round-trippable (no sets/dates): the step's return value is
@@ -1434,14 +1667,21 @@ async def _decide_and_execute(
         open_buys = {"notional": 0.0, "symbols": set(), "count": 0}
     open_symbols = open_buys["symbols"]
     committed = open_buys["notional"]
-    candidates = [c for c in candidates if c["symbol"] not in open_symbols]
-    candidates_by_symbol = {
-        s: c for s, c in candidates_by_symbol.items() if s not in open_symbols
-    }
+    # Slot budget for the hard position cap: SLEEVE_A_MAX_POSITIONS minus the
+    # standing (unfilled) buys, each of which is a pending position. SPENT
+    # against the memo's planned entries just before the handshake below —
+    # plan_decisions no longer reads it (see next comment).
     max_positions = max(0, SLEEVE_A_MAX_POSITIONS - open_buys["count"])
 
-    decisions = plan_decisions(holdings, candidates, sleeve_equity, max_positions,
-                               evictions=False, trim_ceiling=None)
+    # Entries no longer come from here — the memo is the only buy authority.
+    # plan_decisions has no entry authority at all now (Task 11 stripped the
+    # candidates/evictions/entry_queue machinery from its signature); it only
+    # ever returns exits/trims. `max_positions` is therefore VESTIGIAL in this
+    # call: the parameter survives only because it is positional in the pure
+    # planner's locked signature (tests/test_funnel_decisions.py) and in
+    # execution/backtest/simulator.py. The cap it names is enforced below.
+    decisions = plan_decisions(holdings, sleeve_equity, max_positions,
+                               trim_ceiling=None)
 
     # Spend envelopes, computed BEFORE stage C so a same-pass ADD draws from
     # them and shrinks what new entries may spend. Deployable = regime fraction
@@ -1461,6 +1701,17 @@ async def _decide_and_execute(
     # whose review was deferred on budget, gets no outcome. Wrapped so a failure
     # journals engine_failure and the pass continues.
     add_spend = 0.0
+    # Symbols whose ladder ADD actually EXECUTED (filled) this pass. A memo
+    # `add` for the same name is the same intent, so it is deduped below —
+    # keyed on a real fill, never on a mere submit, so a broker rejection
+    # (nothing bought) leaves the memo's add standing.
+    #
+    # Replay-stable BECAUSE the whole ADD decision (size → gate → submit →
+    # journal) is memoized under `dca-add-{sym}`: on a replay the step is not
+    # re-entered and this set is rebuilt from exec 1's recorded fill. Deriving
+    # it from in-pass control flow instead would let a replay's shrunken
+    # envelope silently empty it — see the comment on `_do_dca_add` below.
+    ladder_added: set = set()
     try:
         exiting = {e["symbol"] for e in decisions.get("exits", [])}
         for sym, t in triggered.items():
@@ -1476,58 +1727,78 @@ async def _decide_and_execute(
                     and meta.get("verdict") == "buy"):
                 conv = next((h["conviction"] for h in holdings
                              if h["symbol"] == sym), 0.0)
-                notional = DCA_TRANCHE_FRACTION * size_entry(
-                    conv, sleeve_equity,
-                    float(row.get("liquidity_adv_usd") or 0.0),
-                    float(row.get("atr_pct") or 0.0), deployable, cash_available,
-                )
-                qty = int(notional // close) if close > 0 else 0
-                if qty >= 1 and qty * close >= MIN_TRADE_NOTIONAL:
-                    # Submit + journal live in ONE memoized step (I4): stage C
-                    # replays outside step.run, so an unmemoized journal would
-                    # re-write on every boundary (the coid dedup stops the
-                    # ORDER, not the journal row). The step returns the ACTUAL
-                    # fill so the ledger debits what really executed (I1): a
-                    # rejected market buy debits nothing, a partial debits only
-                    # the filled portion, a live fill debits filled_qty *
-                    # filled_avg_price (never the Friday-close hint).
-                    async def _do_dca_add(sym=sym, qty=qty, close=close,
-                                          conv=conv, trigs=t["triggers"]):
-                        res = await client.submit_market_buy(
-                            symbol=sym, qty=qty, price_hint=close,
-                            journal={"reason": "dca_add", "triggers": trigs},
-                            client_order_id=f"paper-A-{sym}-{run_date:%Y%m%d}-dca",
-                        )
-                        fq = float(res.filled_qty or 0.0)
-                        fp = res.filled_avg_price
-                        if fq > 0 and fp is not None:
-                            await _journal(db, "dca_add", "info",
-                                           f"{sym}: ladder add {fq:g} @ ~{float(fp):.2f}",
-                                           {"symbol": sym, "qty": fq,
-                                            "fill_price": float(fp),
-                                            "notional": round(fq * float(fp), 2),
-                                            "conviction": conv, "triggers": trigs})
-                        else:
-                            await _journal(db, "engine_failure", "warning",
-                                           f"{sym}: DCA add did not fill "
-                                           f"(status={res.status})",
-                                           {"symbol": sym, "qty": qty,
-                                            "status": res.status})
-                        return {"filled_qty": fq,
-                                "filled_avg_price": float(fp) if fp is not None else None}
-                    try:
-                        fill = await _run_step(
-                            step, f"dca-add-{sym.lower()}", _do_dca_add)
-                    except Exception:  # noqa: BLE001
-                        logger.exception("funnel: DCA add failed for %s", sym)
+                # Sizing, the minimum-notional gate, the submit AND the journal
+                # all live in ONE memoized step (I4 + D1). Stage C replays
+                # outside step.run, so an unmemoized journal would re-write on
+                # every boundary (the coid dedup stops the ORDER, not the
+                # journal row) — and, worse, an unmemoized GATE makes REACHING
+                # the step non-deterministic: `deployable`/`cash_available`
+                # shrink on a replay because _open_shadow_buys is a live,
+                # unmemoized broker query that counts THIS pass's own placed
+                # orders. A rung that cleared the integer-qty gate on exec 1
+                # could fall under it on exec 2, leaving `ladder_added` empty
+                # and letting the memo's `add` place a SECOND order for the
+                # same name — under a DIFFERENT coid (shadow-A-… vs
+                # paper-A-…-dca), so the broker's coid guard never sees it.
+                # That is the 2026-07-20 duplicate-order failure class. Inside
+                # the step the whole decision is memoized, so the replay
+                # returns exec 1's answer verbatim (including "skipped").
+                #
+                # The step returns the ACTUAL fill so the ledger debits what
+                # really executed (I1): a rejected market buy debits nothing, a
+                # partial debits only the filled portion, a live fill debits
+                # filled_qty * filled_avg_price (never the Friday-close hint).
+                async def _do_dca_add(sym=sym, close=close, conv=conv,
+                                      trigs=t["triggers"], row=row,
+                                      deployable=deployable,
+                                      cash_available=cash_available):
+                    notional = DCA_TRANCHE_FRACTION * size_entry(
+                        conv, sleeve_equity,
+                        float(row.get("liquidity_adv_usd") or 0.0),
+                        float(row.get("atr_pct") or 0.0),
+                        deployable, cash_available,
+                    )
+                    qty = int(notional // close) if close > 0 else 0
+                    if qty < 1 or qty * close < MIN_TRADE_NOTIONAL:
+                        return {"filled_qty": 0.0, "filled_avg_price": None,
+                                "skipped": "below_min_notional"}
+                    res = await client.submit_market_buy(
+                        symbol=sym, qty=qty, price_hint=close,
+                        journal={"reason": "dca_add", "triggers": trigs},
+                        client_order_id=f"paper-A-{sym}-{run_date:%Y%m%d}-dca",
+                    )
+                    fq = float(res.filled_qty or 0.0)
+                    fp = res.filled_avg_price
+                    if fq > 0 and fp is not None:
+                        await _journal(db, "dca_add", "info",
+                                       f"{sym}: ladder add {fq:g} @ ~{float(fp):.2f}",
+                                       {"symbol": sym, "qty": fq,
+                                        "fill_price": float(fp),
+                                        "notional": round(fq * float(fp), 2),
+                                        "conviction": conv, "triggers": trigs})
+                    else:
                         await _journal(db, "engine_failure", "warning",
-                                       f"{sym}: DCA add submit failed", {"symbol": sym})
-                        continue
-                    spent = (float(fill.get("filled_qty") or 0.0)
-                             * float(fill.get("filled_avg_price") or 0.0))
-                    deployable = max(0.0, deployable - spent)
-                    cash_available = max(0.0, cash_available - spent)
-                    add_spend += spent
+                                       f"{sym}: DCA add did not fill "
+                                       f"(status={res.status})",
+                                       {"symbol": sym, "qty": qty,
+                                        "status": res.status})
+                    return {"filled_qty": fq,
+                            "filled_avg_price": float(fp) if fp is not None else None}
+                try:
+                    fill = await _run_step(
+                        step, f"dca-add-{sym.lower()}", _do_dca_add)
+                except Exception:  # noqa: BLE001
+                    logger.exception("funnel: DCA add failed for %s", sym)
+                    await _journal(db, "engine_failure", "warning",
+                                   f"{sym}: DCA add submit failed", {"symbol": sym})
+                    continue
+                if float(fill.get("filled_qty") or 0.0) > 0:
+                    ladder_added.add(sym)
+                spent = (float(fill.get("filled_qty") or 0.0)
+                         * float(fill.get("filled_avg_price") or 0.0))
+                deployable = max(0.0, deployable - spent)
+                cash_available = max(0.0, cash_available - spent)
+                add_spend += spent
             # TRIM: concentration above the review weight while the verdict is
             # still buy/hold → shave the excess to the review's stated target
             # (or TRIM_FALLBACK_TARGET). Routed through decisions["trims"].
@@ -1580,8 +1851,72 @@ async def _decide_and_execute(
 
     other_sleeve_sector_notional = await _sleeve_b_sector_notional(db)
 
+    # The memo's planned entries + adds ARE the buy authority. Same-pass
+    # collisions are dropped HERE — before the handshake, so no paid full run
+    # is burned on an order that could never be placed:
+    #   • standing open buy (I3a): a patient 14-day limit must not spawn a
+    #     SECOND order for the same name (the 2026-07-20 duplicate incident);
+    #   • ladder ADD already filled this pass: the review outcome and the memo
+    #     `add` are one intent, and the executed one wins;
+    #   • the same ticker planned twice (two theses naming it): one order.
+    planned_entries: List[Dict[str, Any]] = []
+    seen_tickers: set = set()
+    for item in (memo_plan["entries"] + memo_plan["adds"]) if memo_ok else []:
+        sym = item.get("ticker")
+        if not sym:
+            continue
+        if sym in open_symbols:
+            reason = "standing_open_order"
+        elif sym in ladder_added:
+            reason = "dca_add_same_pass"
+        elif sym in seen_tickers:
+            reason = "duplicate_planned_entry"
+        else:
+            seen_tickers.add(sym)
+            planned_entries.append(item)
+            continue
+        await _journal(db, "entry_deferred", "info",
+                       f"{sym}: memo entry deferred — {reason}",
+                       {"symbol": sym, "reason": reason,
+                        "slug": item.get("slug"), "action": item.get("action")})
+
+    # SLEEVE_A_MAX_POSITIONS is a HARD cap (execution/constants.py), and it is
+    # enforced HERE — this is the last place that knows how many NAMES the
+    # sleeve would end the pass holding. plan_decisions used to hold it, but it
+    # has no entry authority any more, so without this the cap was live in the
+    # constants file and dead in the engine.
+    #
+    # Only `enter` consumes a slot: an `add` deepens a name already held and
+    # opens nothing. `max_positions` already nets standing shadow buys (I3a) —
+    # an unfilled limit is a pending position and reserves its slot. When the
+    # plan overflows the room, the memo's OWN conviction picks the survivors
+    # (stable sort, so equal convictions keep the memo's ordering) and the
+    # survivors are re-emitted in the memo's original order. Everything dropped
+    # is journalled, never silently discarded: a cap that binds every week is a
+    # signal the owner needs to see.
+    new_entries = [e for e in planned_entries if e.get("action") == "enter"]
+    slots = max(0, max_positions - len(positions))
+    if len(new_entries) > slots:
+        keep = {id(e) for e in sorted(
+            new_entries, key=lambda e: float(e.get("conviction") or 0.0),
+            reverse=True)[:slots]}
+        kept: List[Dict[str, Any]] = []
+        for item in planned_entries:
+            if item.get("action") == "enter" and id(item) not in keep:
+                await _journal(
+                    db, "entry_deferred", "info",
+                    f"{item.get('ticker')}: memo entry deferred — max_positions",
+                    {"symbol": item.get("ticker"), "reason": "max_positions",
+                     "slug": item.get("slug"), "action": item.get("action"),
+                     "conviction": item.get("conviction"),
+                     "held": len(positions), "cap": SLEEVE_A_MAX_POSITIONS,
+                     "slots": slots})
+                continue
+            kept.append(item)
+        planned_entries = kept
+
     placed = await _handshake_and_enter(
-        db, client, decisions.get("entry_queue", []), candidates_by_symbol, run_date,
+        db, client, planned_entries, by_symbol, run_date,
         sleeve_equity, deployable, cash_available, holdings,
         screened.get("sector_by_symbol", {}), other_sleeve_sector_notional,
         sleeve_ctx.get("allow_buys", True), step,
@@ -1603,7 +1938,7 @@ async def _decide_and_execute(
 
     return {
         "decisions": decisions, "guardrail_notes": decisions.get("notes", []),
-        "placed": placed, "sells": sell_out,
+        "placed": placed, "sells": sell_out, "memo": memo_summary,
         "budget_used": {"full_runs_used": full_used,
                         "full_runs_cap": FULL_RUNS_PER_WEEK,
                         "light_runs": lights.get("spent", 0)},

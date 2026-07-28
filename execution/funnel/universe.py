@@ -1,16 +1,17 @@
 """Sleeve A candidate universe: merge tagged sources, apply sanity floors.
 
-Themes/industries/watchlist pick the hunting grounds; nothing here buys a
-stock. Every symbol keeps provenance tags — the guardrails' theme-overlap
-caps and the journal both need to know WHY a name is in the universe.
+Theme constituents/watchlist/holdings pick the hunting grounds; nothing here
+buys a stock. Every symbol keeps provenance tags — the guardrails'
+theme-overlap caps and the journal both need to know WHY a name is in the
+universe. There is no formula-picked (industry-RS) channel: a symbol enters
+only via theme membership, the watchlist, or being already held.
 """
 import logging
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from execution.constants import (
-    BENCHMARK, EQUAL_WEIGHT, FUNNEL_HOLDINGS_PER_ETF, FUNNEL_INDUSTRY_TOP_N,
-    FUNNEL_MCAP_FLOOR, FUNNEL_PRICE_FLOOR, INDUSTRY_ETFS, SECTOR_ETFS,
-    SIZE_STYLE_ETFS, THEME_ADV_FLOOR_USD,
+    BENCHMARK, EQUAL_WEIGHT, FUNNEL_MCAP_FLOOR, FUNNEL_PRICE_FLOOR,
+    INDUSTRY_ETFS, SECTOR_ETFS, SIZE_STYLE_ETFS, THEME_ADV_FLOOR_USD,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,31 +100,6 @@ def apply_floors(
         else:
             kept[sym] = tags
     return kept, excluded
-
-
-def fetch_industry_holdings(
-    industry_rankings: List[Dict[str, Any]],
-    top_n: int = FUNNEL_INDUSTRY_TOP_N,
-    per_etf: int = FUNNEL_HOLDINGS_PER_ETF,
-) -> Dict[str, List[str]]:
-    """Top holdings of the top-N ranked industry ETFs. Guarded per ETF —
-    a failed fetch contributes nothing (degrade, never block)."""
-    import yfinance as yf  # local import: keep module importable without network deps
-
-    out: Dict[str, List[str]] = {}
-    ranked = sorted(
-        (r for r in industry_rankings if r.get("etf")),
-        key=lambda r: r.get("rank_1m") if r.get("rank_1m") is not None else 999,
-    )[:top_n]
-    for row in ranked:
-        etf = row["etf"]
-        try:
-            th = yf.Ticker(etf).funds_data.top_holdings  # DataFrame indexed by symbol
-            out[etf] = [str(s).upper() for s in list(th.index)[:per_etf]]
-        except Exception:  # noqa: BLE001 — one ETF must not sink assembly
-            logger.exception("funnel universe: holdings fetch failed for %s", etf)
-            out[etf] = []
-    return out
 
 
 async def load_theme_members(db) -> Dict[str, List[str]]:

@@ -34,6 +34,8 @@ def test_stale_outlook_skips_pass_and_journals():
 
 
 def test_entry_requires_full_run_and_respects_budget():
+    """The budget gate still owns the handshake: an exhausted weekly full-run
+    budget defers the memo's entry rather than placing it un-diligenced."""
     db = MagicMock()
     client = MagicMock()
     client.submit_limit_buy = AsyncMock()
@@ -42,11 +44,8 @@ def test_entry_requires_full_run_and_respects_budget():
                                                   "reason": "budget_exhausted"})), \
          patch.object(saf, "write_report", new=AsyncMock()) as report:
         placed = _run(saf._handshake_and_enter(
-            db, client, entry_queue=["AEHR"],
-            candidates_by_symbol={"AEHR": {"conviction": 80.0, "screen": {
-                "price": 20.0, "sma20": 19.0, "atr": 1.0, "atr_pct": 0.05,
-                "ext_atr": 0.5, "liquidity_adv_usd": 5e6,
-                "tags": {"themes": ["photonics"]}, "screen_score": 6.0}}},
+            db, client, planned_entries=[_planned("AEHR")],
+            screen_by_symbol={"AEHR": _memo_screen("AEHR")},
             run_date=NOW, sleeve_equity=70_000.0, deployable=49_000.0,
             cash_available=49_000.0, holdings=[], sector_by_symbol={},
             other_sleeve_sector_notional={}, allow_buys=True, step=None,
@@ -59,6 +58,8 @@ def test_entry_requires_full_run_and_respects_budget():
 
 
 def test_full_pass_places_shadow_order_with_deterministic_id():
+    """The deterministic client_order_id (the duplicate-order guard) survives
+    the memo rewiring; a HOLD verdict is not a veto, so the order places."""
     db = MagicMock()
     client = MagicMock()
     client.submit_limit_buy = AsyncMock()
@@ -66,13 +67,13 @@ def test_full_pass_places_shadow_order_with_deterministic_id():
                "darkPoolScore": None, "sentimentScore": 6.0}
     with patch.object(saf, "reuse_or_budget",
                       new=AsyncMock(return_value={"action": "reuse", "signals": signals})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
          patch.object(saf, "write_report", new=AsyncMock()):
         placed = _run(saf._handshake_and_enter(
-            db, client, entry_queue=["AEHR"],
-            candidates_by_symbol={"AEHR": {"conviction": 80.0, "screen": {
-                "price": 20.0, "sma20": 19.0, "atr": 1.0, "atr_pct": 0.05,
-                "ext_atr": 0.5, "liquidity_adv_usd": 5e6,
-                "tags": {"themes": ["photonics"]}, "screen_score": 6.0}}},
+            db, client, planned_entries=[_planned("AEHR", entry_style="at_market")],
+            screen_by_symbol={"AEHR": _memo_screen("AEHR", price=20.0, sma20=19.0,
+                                                   atr=1.0, atr_pct=0.05,
+                                                   liquidity_adv_usd=5e6)},
             run_date=NOW, sleeve_equity=70_000.0, deployable=49_000.0,
             cash_available=49_000.0, holdings=[], sector_by_symbol={},
             other_sleeve_sector_notional={}, allow_buys=True, step=None,
@@ -80,40 +81,42 @@ def test_full_pass_places_shadow_order_with_deterministic_id():
     assert len(placed) == 1
     kwargs = client.submit_limit_buy.call_args.kwargs
     assert kwargs["client_order_id"] == "shadow-A-AEHR-20260713"
-    assert kwargs["limit_price"] == 20.0          # not extended → limit at close
+    assert kwargs["limit_price"] == 20.0          # at_market → limit at close
 
 
 def test_outlook_rankings_dicts_unwrap_and_reach_consumers():
     """MarketOutlook.industryRankings/themeRankings are DICTS shaped
     {"rankings": [...], "rotations": [...], "missing": [...]} (see
     execution/indicators/industry_strength.py). Lock the shape: the unwrapped
-    rankings LIST must reach fetch_industry_holdings and the top-industries /
-    top-themes slices in _screen."""
+    rankings LIST must reach the top-industries / top-themes scoring slices
+    in _screen. (There is no industry-RS universe channel — _assemble draws
+    only on theme members, watchlist, and holdings.)"""
     import pandas as pd
 
     industry_rankings = [{"etf": "SMH", "industry": "Semiconductors", "rank_1m": 1}]
     theme_rankings = [{"slug": "photonics", "rank_1m": 1}]
+    sector_rankings = [{"etf": "XLE", "sector": "Energy", "rank_1m": 1}]
     outlook_row = MagicMock(
         regime="neutral",
         industryRankings={"rankings": industry_rankings, "rotations": [],
                           "missing": []},
         themeRankings={"rankings": theme_rankings, "rotations": [],
                        "missing": []},
+        sectorRankings=sector_rankings,
     )
     ctx = saf._outlook_context(outlook_row)
     assert ctx["industryRankings"] == industry_rankings
     assert ctx["themeRankings"] == theme_rankings
+    # sectorRankings is a plain list on the row — passed through, not unwrapped.
+    assert ctx["sectorRankings"] == sector_rankings
 
-    # _assemble: the unwrapped LIST reaches fetch_industry_holdings verbatim.
+    # _assemble: theme members reach the tagged universe (no industry channel).
     db = MagicMock()
-    fih = MagicMock(return_value={"SMH": ["AEHR"]})
     with patch("execution.funnel.universe.load_theme_members",
                new=AsyncMock(return_value={"photonics": ["AEHR"]})), \
-         patch("execution.funnel.universe.fetch_industry_holdings", new=fih), \
          patch("execution.research_feed.get_research_context",
                new=AsyncMock(return_value={"watchlist": []})):
         assembled = _run(saf._assemble(db, ctx, holdings=[]))
-    fih.assert_called_once_with(industry_rankings)
     assert "AEHR" in assembled["tagged"]
 
     # _screen: the [:5] slices over the unwrapped lists reach screen_row.
@@ -143,26 +146,33 @@ def test_outlook_rankings_dicts_unwrap_and_reach_consumers():
     assert [r["symbol"] for r in screened["ranked"]] == ["AEHR"]
 
 
-def test_full_run_sell_verdict_vetoes_entry():
+def test_assemble_has_no_industry_channel():
+    """Founding-premise regression guard: no formula-picked universe source.
+    The industry-ETF top-holdings channel is DELETED (spec Section 2) — a
+    symbol may enter the universe only via themes, watchlist, or being
+    held."""
+    import execution.funnel.universe as universe
+
+    assert not hasattr(universe, "fetch_industry_holdings")
+
     db = MagicMock()
-    client = MagicMock()
-    client.submit_limit_buy = AsyncMock()
-    with patch.object(saf, "reuse_or_budget",
-                      new=AsyncMock(return_value={"action": "reuse",
-                                                  "signals": {"verdict": "sell"}})), \
-         patch.object(saf, "write_report", new=AsyncMock()):
-        placed = _run(saf._handshake_and_enter(
-            db, client, entry_queue=["BAD"],
-            candidates_by_symbol={"BAD": {"conviction": 80.0, "screen": {
-                "price": 20.0, "sma20": 19.0, "atr": 1.0, "atr_pct": 0.05,
-                "ext_atr": 0.5, "liquidity_adv_usd": 5e6, "tags": {"themes": []},
-                "screen_score": 6.0}}},
-            run_date=NOW, sleeve_equity=70_000.0, deployable=49_000.0,
-            cash_available=49_000.0, holdings=[], sector_by_symbol={},
-            other_sleeve_sector_notional={}, allow_buys=True, step=None,
-        ))
-    assert placed == []
-    client.submit_limit_buy.assert_not_called()
+    ctx = {"regime": "neutral", "industryRankings": [], "themeRankings": []}
+    with patch("execution.funnel.universe.load_theme_members",
+               new=AsyncMock(return_value={"photonics": ["AEHR"]})), \
+         patch("execution.research_feed.get_research_context",
+               new=AsyncMock(return_value={"watchlist": []})):
+        assembled = _run(saf._assemble(db, ctx, holdings=[]))
+
+    assert "industry_holdings" not in assembled["counts"]
+    assert "AEHR" in assembled["tagged"]
+    assert assembled["tagged"]["AEHR"]["themes"] == ["photonics"]
+    assert assembled["tagged"]["AEHR"]["industries"] == []
+
+
+# NOTE: test_full_run_sell_verdict_vetoes_entry lived here. It is subsumed by
+# test_sell_verdict_is_the_only_diligence_veto (bottom of file), which asserts
+# the same SELL veto PLUS the exit_sell_verdict journal and the None-verdict
+# counterpart that the veto-only rule turns on.
 
 
 def test_open_shadow_buys_reduce_spend_and_no_cash_write_at_buy_submit():
@@ -264,10 +274,10 @@ def test_c2_holding_verdict_and_staleness_reach_conviction():
 
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
+    def capture_plan(holdings, equity, maxpos, **kwargs):
         captured["holdings"] = holdings
         captured["max_positions"] = maxpos
-        return real_plan(holdings, candidates, equity, maxpos)
+        return real_plan(holdings, equity, maxpos)
 
     screened = {
         "ranked": [_screen_row("OLD"), _screen_row("STALE")],
@@ -413,15 +423,25 @@ def test_i3_standing_order_excluded_and_counts_to_cap():
 
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
-        captured["symbols"] = [c["symbol"] for c in candidates]
+    def capture_plan(holdings, equity, maxpos, **kwargs):
         captured["max_positions"] = maxpos
-        return {"exits": [], "trims": [], "entry_queue": [], "notes": []}
+        return {"exits": [], "trims": [], "notes": []}
 
+    # Task 10: entries come from the MEMO, so the standing-order exclusion is
+    # asserted where it now bites — the planned-entry list handed to the entry
+    # handshake, filtered BEFORE any paid run (see
+    # test_open_symbol_memo_entry_skips_before_paid_run for the billing half).
+    async def capture_handshake(db_, client, planned, screens, *a, **k):
+        captured["symbols"] = sorted(e["ticker"] for e in planned)
+        return []
+
+    plan = {"entries": [_planned("PENDING"), _planned("NEW")], "adds": [],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
     screened = {"ranked": [_screen_row("PENDING"), _screen_row("NEW")],
                 "close_by_symbol": {}, "sector_by_symbol": {}}
     with patch.object(saf, "_load_latest_signals", new=AsyncMock(return_value={})), \
          patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_memo_pipeline", new=AsyncMock(return_value=plan)), \
          patch.object(saf, "_open_shadow_buys",
                       new=AsyncMock(return_value={"notional": 1000.0,
                                                   "symbols": {"PENDING"}, "count": 1})), \
@@ -429,7 +449,7 @@ def test_i3_standing_order_excluded_and_counts_to_cap():
          patch.object(saf, "_execute_sells",
                       new=AsyncMock(return_value={"cash": 5000.0, "proceeds": 0.0, "sold": []})), \
          patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})), \
-         patch.object(saf, "_handshake_and_enter", new=AsyncMock(return_value=[])), \
+         patch.object(saf, "_handshake_and_enter", new=capture_handshake), \
          patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)), \
          patch.object(saf, "plan_decisions", new=capture_plan), \
          patch.object(saf, "write_report", new=AsyncMock()):
@@ -441,6 +461,7 @@ def test_i3_standing_order_excluded_and_counts_to_cap():
             lights={"light_rows": {}, "spent": 0}, step=None,
         ))
     assert "PENDING" not in captured["symbols"]
+    assert "NEW" in captured["symbols"]
     assert captured["max_positions"] == SLEEVE_A_MAX_POSITIONS - 1
 
 
@@ -463,13 +484,13 @@ def test_i5_two_same_theme_entries_jointly_capped():
     from execution.constants import MAX_THEME_PCT_OF_SLEEVE
 
     sleeve_equity = 100_000.0
-    base = {"momentum": 10.0, "hunting_bonus": 10.0, "market_cap": 5e10,
-            "valuation_score": 10.0}
     screen = {"price": 20.0, "sma20": 19.0, "atr": 1.0, "atr_pct": 0.02,
-              "ext_atr": 0.5, "liquidity_adv_usd": 1e9, "screen_score": 6.0,
+              "liquidity_adv_usd": 1e9, "screen_score": 6.0,
               "tags": {"themes": ["t"]}}
-    cands = {s: {"screen": dict(screen), "conv_input": dict(base)}
-             for s in ("N1", "N2", "N3")}
+    screens = {s: dict(screen, symbol=s) for s in ("N1", "N2", "N3")}
+    # Three anchors at full memo conviction want 12% each — 36% of the sleeve.
+    planned = [_planned(s, role="anchor", conviction=1.0, entry_style="at_market")
+               for s in ("N1", "N2", "N3")]
     signals = {"verdict": "buy", "insiderScore": 10.0, "darkPoolScore": 10.0,
                "sentimentScore": 10.0, "fairValue": 40.0}
     client = MagicMock()
@@ -479,8 +500,8 @@ def test_i5_two_same_theme_entries_jointly_capped():
          patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
          patch.object(saf, "write_report", new=AsyncMock()):
         placed = _run(saf._handshake_and_enter(
-            MagicMock(), client, entry_queue=["N1", "N2", "N3"],
-            candidates_by_symbol=cands, run_date=NOW, sleeve_equity=sleeve_equity,
+            MagicMock(), client, planned_entries=planned,
+            screen_by_symbol=screens, run_date=NOW, sleeve_equity=sleeve_equity,
             deployable=sleeve_equity, cash_available=sleeve_equity, holdings=[],
             sector_by_symbol={}, other_sleeve_sector_notional={}, allow_buys=True,
             step=None,
@@ -552,9 +573,9 @@ def test_theme_review_skipped_when_theme_membership_unavailable():
 
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
+    def capture_plan(holdings, equity, maxpos, **kwargs):
         captured["holdings"] = holdings
-        return {"exits": [], "trims": [], "entry_queue": [], "notes": []}
+        return {"exits": [], "trims": [], "notes": []}
 
     screened = {"ranked": [_screen_row("THM")],
                 "close_by_symbol": {"THM": 20.0}, "sector_by_symbol": {}}
@@ -682,14 +703,20 @@ class _ReportSink:
     def __init__(self):
         self.types = []
         self.titles = []
+        self.bodies = []
 
     async def __call__(self, report_type, severity, source, title, body, db=None):
         self.types.append(report_type)
         self.titles.append(title)
+        self.bodies.append(body)
         return "rep"
 
     def count(self, t):
         return self.types.count(t)
+
+    def bodies_of(self, t):
+        """Every journalled body for one report type, in order."""
+        return [b for rt, b in zip(self.types, self.bodies) if rt == t]
 
 
 class _ThDB:
@@ -754,10 +781,14 @@ def _th_pos_row(symbol, qty, high_water=None, dca_state=None):
 
 
 @contextlib.contextmanager
-def _thesis_ctx(pos_rows, latest, reuse_action, sink):
+def _thesis_ctx(pos_rows, latest, reuse_action, sink, memo_plan=None):
     """Patch every collaborator so the REAL _decide_and_execute + _execute_sells
     run end to end while stage A/B inputs are controlled. `latest` may be a list
-    (side_effect: initial then post-review refresh) or a single dict."""
+    (side_effect: initial then post-review refresh) or a single dict.
+
+    `memo_plan` stands in for the whole thesis-memo pipeline (Task 9): None is a
+    no-op memo week, which is what these trigger/outcome tests want — they pin
+    the review path, not the memo path."""
     import importlib
     # NB: `research_swarm.data` re-exports a lowercase singleton that shadows the
     # submodule under attribute access, so `import ... as` binds the instance.
@@ -769,6 +800,7 @@ def _thesis_ctx(pos_rows, latest, reuse_action, sink):
                    else AsyncMock(return_value=latest))
     with patch.object(saf, "_load_latest_signals", new=latest_mock), \
          patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_memo_pipeline", new=AsyncMock(return_value=memo_plan)), \
          patch.object(saf, "_open_shadow_buys",
                       new=AsyncMock(return_value={"notional": 0.0, "symbols": set(),
                                                  "count": 0})), \
@@ -1126,3 +1158,1284 @@ def test_r1_gate_flip_replay_keeps_review_not_deferred():
             == ref["decisions"].get("trims", []))
     # (c) no spurious "review deferred — budget_exhausted" journal
     assert not any("deferred" in t for t in sink.titles)
+
+
+# ── Task 9: thesis-memo pipeline wiring ──────────────────────────────────────
+# The memo is the ONLY buy authority (spec §3). An unusable memo is a NO-OP
+# WEEK, not a quiet zero: nothing is bought, everything else (fills, exits,
+# already-earned reviews) still runs, and the cron never raises.
+
+
+class _MemoDB:
+    """Fake db exposing only what the memo pipeline touches: the ThemeBasket
+    stage write. Reuses the file's SimpleNamespace fake-db idiom."""
+
+    def __init__(self):
+        self.stage_writes = []
+        self.themebasket = SimpleNamespace(update=self._update)
+
+    async def _update(self, where, data):
+        self.stage_writes.append((where["slug"], data["stage"]))
+
+
+def test_memo_pipeline_parse_failure_is_noop_week(monkeypatch):
+    """MemoParseError → engine_failure journal + None (no orders), never a raise."""
+    async def fake_gather(db, outlook, book, candidates):
+        return {"theses": []}
+
+    monkeypatch.setattr(saf, "gather_memo_packet", fake_gather)
+    monkeypatch.setattr(saf, "reason_memo", lambda packet: "NOT JSON")
+    journaled = []
+
+    async def fake_journal(db, rtype, sev, title, body):
+        journaled.append((rtype, sev))
+
+    monkeypatch.setattr(saf, "_journal", fake_journal)
+
+    out = _run(saf._memo_pipeline(None, {}, [], {}, NOW, step=None))
+    assert out is None
+    assert ("engine_failure", "critical") in journaled
+
+
+def test_memo_pipeline_persists_stages_and_returns_plan(monkeypatch):
+    import json
+
+    raw = json.dumps({"theses": [{"slug": "dc-energy", "stage": "crowded",
+                                  "stage_rationale": "r", "evidence_this_week": [],
+                                  "actions": [{"action": "review", "ticker": "MU"}]}],
+                      "hypothesis_updates": [], "market_view": "v"})
+    persisted = []
+
+    async def fake_gather(db, outlook, book, candidates):
+        return {"theses": []}
+
+    async def fake_persist(db, week, raw_memo, memo):
+        persisted.append((week, raw_memo, memo))
+
+    monkeypatch.setattr(saf, "gather_memo_packet", fake_gather)
+    monkeypatch.setattr(saf, "reason_memo", lambda packet: raw)
+    monkeypatch.setattr(saf, "persist_memo", fake_persist)
+    monkeypatch.setattr(saf, "write_report", AsyncMock())
+
+    db = _MemoDB()
+    plan = _run(saf._memo_pipeline(
+        db, {}, [{"symbol": "MU", "qty": 10.0, "market_value": 1000.0}], {},
+        NOW, step=None))
+
+    assert plan["reviews"] == ["MU"]
+    assert ("dc-energy", "crowded") in db.stage_writes
+    assert persisted and persisted[0][0] == NOW.date().isoformat()
+    assert persisted[0][1] == raw
+
+
+def test_memo_pipeline_paid_call_is_its_own_memoized_step(monkeypatch):
+    """The PAID reason_memo call lives in step "thesis-memo", persist in
+    "memo-persist" — a persist retry must never re-bill (the $3.50 lesson).
+
+    Gather is memoized INSIDE the paid step too: the function body re-executes
+    at every step boundary, so an unmemoized gather re-queries theme state on
+    each replay and a transient blip there would throw away an already-paid,
+    already-persisted memo."""
+    import json
+
+    raw = json.dumps({"theses": [], "hypothesis_updates": [], "market_view": "v"})
+    calls = {"paid": 0, "gather": 0}
+
+    async def fake_gather(db, outlook, book, candidates):
+        calls["gather"] += 1
+        return {"theses": []}
+
+    async def fake_persist(db, week, raw_memo, memo):
+        pass
+
+    def paid(packet):
+        calls["paid"] += 1
+        return raw
+
+    monkeypatch.setattr(saf, "gather_memo_packet", fake_gather)
+    monkeypatch.setattr(saf, "reason_memo", paid)
+    monkeypatch.setattr(saf, "persist_memo", fake_persist)
+    monkeypatch.setattr(saf, "write_report", AsyncMock())
+
+    step = _MemoStep()
+    _run(saf._memo_pipeline(_MemoDB(), {}, [], {}, NOW, step=step))
+    _run(saf._memo_pipeline(_MemoDB(), {}, [], {}, NOW, step=step))   # replay
+
+    assert calls["paid"] == 1                      # billed exactly once
+    assert calls["gather"] == 1                    # and gathered exactly once
+    assert set(step._log) == {"thesis-memo", "memo-persist"}
+
+
+def test_memo_pipeline_gather_failure_is_noop_week(monkeypatch):
+    """A gather failure inside the paid step is a no-op week, not a raise."""
+    async def boom_gather(db, outlook, book, candidates):
+        raise RuntimeError("theme state unavailable")
+
+    monkeypatch.setattr(saf, "gather_memo_packet", boom_gather)
+    monkeypatch.setattr(saf, "reason_memo", lambda packet: "unreached")
+    journaled = []
+
+    async def fake_journal(db, rtype, sev, title, body):
+        journaled.append((rtype, sev))
+
+    monkeypatch.setattr(saf, "_journal", fake_journal)
+
+    assert _run(saf._memo_pipeline(None, {}, [], {}, NOW, step=None)) is None
+    assert ("engine_failure", "critical") in journaled
+
+
+def test_memo_pipeline_reports_prior_stage_for_transition_detection(monkeypatch):
+    """The plan carries each thesis's PRE-memo stage so the caller can trigger
+    on the transition into crowded/priced rather than on the stage state."""
+    import json
+
+    raw = json.dumps({"theses": [{"slug": "dc-energy", "stage": "crowded",
+                                  "stage_rationale": "r", "evidence_this_week": [],
+                                  "actions": []},
+                                 {"slug": "robotics", "stage": "crowded",
+                                  "stage_rationale": "r", "evidence_this_week": [],
+                                  "actions": []}],
+                      "hypothesis_updates": [], "market_view": "v"})
+
+    async def fake_gather(db, outlook, book, candidates):
+        # dc-energy was ALREADY crowded last week; robotics is moving into it.
+        return {"theses": [{"slug": "dc-energy", "stage": "crowded"},
+                           {"slug": "robotics", "stage": "catching_on"}]}
+
+    async def fake_persist(db, week, raw_memo, memo):
+        pass
+
+    monkeypatch.setattr(saf, "gather_memo_packet", fake_gather)
+    monkeypatch.setattr(saf, "reason_memo", lambda packet: raw)
+    monkeypatch.setattr(saf, "persist_memo", fake_persist)
+    monkeypatch.setattr(saf, "write_report", AsyncMock())
+
+    plan = _run(saf._memo_pipeline(_MemoDB(), {}, [], {}, NOW, step=None))
+    assert plan["prior_stages"] == {"dc-energy": "crowded",
+                                    "robotics": "catching_on"}
+    # Both stages still PERSIST — stage_updates is the persistence contract.
+    assert plan["stage_updates"] == {"dc-energy": "crowded", "robotics": "crowded"}
+
+
+def test_outlook_context_feeds_all_three_memo_crowdedness_inputs():
+    """Spec §3.1 requires theme, sector AND industry RS as crowdedness inputs.
+    _outlook_context is what the cron hands the memo, so its output must make
+    all three non-None in the packet — sector RS was silently missing."""
+    from execution.thesis import memo as memo_mod
+
+    outlook_row = MagicMock(
+        regime="neutral",
+        industryRankings={"rankings": [{"etf": "SMH"}]},
+        themeRankings={"rankings": [{"slug": "photonics"}]},
+        sectorRankings=[{"etf": "XLE", "sector": "Energy"}],
+    )
+
+    async def fake_state(db, include_retired=True):
+        return []
+
+    async def fake_ledger(db, slugs):
+        return {"by_theme": {}, "hypotheses": [], "study_digest": []}
+
+    with patch.object(memo_mod, "_current_theme_state", new=fake_state), \
+         patch.object(memo_mod, "load_ledger_context", new=fake_ledger):
+        packet = _run(memo_mod.gather_memo_packet(
+            MagicMock(), saf._outlook_context(outlook_row), [], {}))
+
+    crowd = packet["crowdedness"]
+    assert crowd["theme_rankings"] == [{"slug": "photonics"}]
+    assert crowd["industry_rankings"] == [{"etf": "SMH"}]
+    assert crowd["sector_rankings"] == [{"etf": "XLE", "sector": "Energy"}]
+    assert packet["regime"] == "neutral"
+
+
+def test_memo_reviews_and_crowded_stage_earn_reviews_not_trades():
+    """Stage A union: a memo `review` action on a held name AND every holding
+    whose sourcing theme just went crowded/priced earn a review under the
+    trigger name "memo_stage" — a stage change NEVER trades by itself."""
+    db = _ThDB({"MU": {"qty": 10.0}, "THM": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("MU", price=100.0),
+                           _screen_row("THM", price=100.0)],
+                "close_by_symbol": {"MU": 100.0, "THM": 100.0},
+                "sector_by_symbol": {}}
+    latest = {"MU": _th_meta("buy", 2.0), "THM": _th_meta("buy", 2.0)}
+    sink = _ReportSink()
+    plan = {"entries": [], "adds": [], "reviews": ["MU"],
+            "stage_updates": {"dc-energy": "crowded", "robotics": "catching_on"},
+            "prior_stages": {"dc-energy": "catching_on", "robotics": "catching_on"},
+            "rejected": []}
+
+    with _thesis_ctx([_th_pos_row("MU", 10.0, high_water=101.0),
+                      _th_pos_row("THM", 10.0, high_water=101.0)],
+                     latest, {"action": "reuse", "signals": {"verdict": "buy"}},
+                     sink, memo_plan=plan), \
+         patch.object(saf, "_load_position_source_tags",
+                      new=AsyncMock(return_value={
+                          "THM": {"themes": ["dc-energy"]},
+                          "MU": {"themes": ["robotics"]}})):
+        out = _run_decide(db, broker,
+                          {"cash": 500_000.0, "positions": {"MU": 10.0, "THM": 10.0},
+                           "allow_buys": True, "status": "active"}, screened)
+
+    trig = out["reviews"]["triggered"]
+    assert sorted(trig) == ["MU", "THM"]
+    assert trig["MU"] == ["memo_stage"]        # memo review action
+    assert trig["THM"] == ["memo_stage"]       # sourcing theme went crowded
+    assert sink.count("review_trigger") == 2
+    # A stage change earns a review, never a trade.
+    assert broker.sells == [] and broker.market_buys == []
+
+
+def test_sticky_crowded_theme_does_not_retrigger_every_week():
+    """memo_stage fires on the TRANSITION into crowded/priced, not on the
+    state. stage_updates records every thesis's stage unconditionally, so a
+    state filter would re-flag a sticky crowded theme's holdings EVERY week and
+    burn the full-run budget forever. Same plan as the test above, except
+    dc-energy was ALREADY crowded last week — THM must stay silent while the
+    explicit `review` action on MU still fires."""
+    db = _ThDB({"MU": {"qty": 10.0}, "THM": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("MU", price=100.0),
+                           _screen_row("THM", price=100.0)],
+                "close_by_symbol": {"MU": 100.0, "THM": 100.0},
+                "sector_by_symbol": {}}
+    latest = {"MU": _th_meta("buy", 2.0), "THM": _th_meta("buy", 2.0)}
+    sink = _ReportSink()
+    plan = {"entries": [], "adds": [], "reviews": ["MU"],
+            "stage_updates": {"dc-energy": "crowded"},
+            "prior_stages": {"dc-energy": "crowded"},   # unchanged since last week
+            "rejected": []}
+
+    with _thesis_ctx([_th_pos_row("MU", 10.0, high_water=101.0),
+                      _th_pos_row("THM", 10.0, high_water=101.0)],
+                     latest, {"action": "reuse", "signals": {"verdict": "buy"}},
+                     sink, memo_plan=plan), \
+         patch.object(saf, "_load_position_source_tags",
+                      new=AsyncMock(return_value={"THM": {"themes": ["dc-energy"]}})):
+        out = _run_decide(db, broker,
+                          {"cash": 500_000.0, "positions": {"MU": 10.0, "THM": 10.0},
+                           "allow_buys": True, "status": "active"}, screened)
+
+    assert sorted(out["reviews"]["triggered"]) == ["MU"]   # THM NOT re-flagged
+    assert sink.count("review_trigger") == 1
+    assert broker.sells == [] and broker.market_buys == []
+
+
+def test_stage_deepening_crowded_to_priced_does_retrigger():
+    """A theme moving crowded → priced IS a fresh move into a review stage."""
+    db = _ThDB({"THM": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("THM", price=100.0)],
+                "close_by_symbol": {"THM": 100.0}, "sector_by_symbol": {}}
+    sink = _ReportSink()
+    plan = {"entries": [], "adds": [], "reviews": [],
+            "stage_updates": {"dc-energy": "priced"},
+            "prior_stages": {"dc-energy": "crowded"},
+            "rejected": []}
+
+    with _thesis_ctx([_th_pos_row("THM", 10.0, high_water=101.0)],
+                     {"THM": _th_meta("buy", 2.0)},
+                     {"action": "reuse", "signals": {"verdict": "buy"}},
+                     sink, memo_plan=plan), \
+         patch.object(saf, "_load_position_source_tags",
+                      new=AsyncMock(return_value={"THM": {"themes": ["dc-energy"]}})):
+        out = _run_decide(db, broker,
+                          {"cash": 500_000.0, "positions": {"THM": 10.0},
+                           "allow_buys": True, "status": "active"}, screened)
+
+    assert out["reviews"]["triggered"] == {"THM": ["memo_stage"]}
+
+
+def test_noop_memo_week_places_no_entries_but_still_runs_sells():
+    """memo_plan None ⇒ the entry queue is EMPTY (no buy authority this week)
+    while exits/trims still execute; the summary records status "noop"."""
+    captured = {}
+
+    async def fake_handshake(db_, client, entry_queue, cands, *a, **k):
+        captured["entry_queue"] = list(entry_queue)
+        return []
+
+    sells = AsyncMock(return_value={"cash": 5000.0, "proceeds": 0.0, "sold": []})
+
+    with patch.object(saf, "_load_latest_signals", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_open_shadow_buys",
+                      new=AsyncMock(return_value={"notional": 0.0, "symbols": set(),
+                                                  "count": 0})), \
+         patch.object(saf, "_theme_review", new=AsyncMock()), \
+         patch.object(saf, "_memo_pipeline", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "_execute_sells", new=sells), \
+         patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_handshake_and_enter", new=fake_handshake), \
+         patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)), \
+         patch.object(saf, "write_report", new=AsyncMock()):
+        out = _run(saf._decide_and_execute(
+            MagicMock(), MagicMock(), NOW, "neutral",
+            sleeve_ctx={"cash": 10_000.0, "positions": {}, "allow_buys": True,
+                        "status": "active"},
+            assembled={"active_themes": []},
+            screened={"ranked": [_screen_row("NEW")], "close_by_symbol": {},
+                      "sector_by_symbol": {}},
+            lights={"light_rows": {}, "spent": 0}, step=None,
+        ))
+
+    assert captured["entry_queue"] == []
+    # ...but the sells stage still ran: a no-op memo blocks BUYS only.
+    assert sells.await_count == 1
+    assert out["sells"] == {"cash": 5000.0, "proceeds": 0.0, "sold": []}
+    assert out["memo"] == {"status": "noop", "entries_planned": 0, "rejected": 0}
+
+
+def test_memo_entries_and_adds_become_the_entry_queue():
+    """The memo — not the screen ranking — is the buy authority: planned
+    entries + adds ARE the entry queue, and plan_decisions gets no candidates."""
+    captured = {}
+
+    def capture_plan(holdings, equity, maxpos, **kwargs):
+        return {"exits": [], "trims": [], "notes": []}
+
+    async def fake_handshake(db_, client, planned, screens, *a, **k):
+        # Task 10: the handshake receives the planner's entry DICTS (carrying
+        # role/conviction/entry_style/why_now), not bare symbols.
+        captured["entry_queue"] = [e["ticker"] for e in planned]
+        captured["planned"] = list(planned)
+        captured["screen_keys"] = sorted(screens)
+        return []
+
+    plan = {"entries": [_planned("NEW")], "adds": [_planned("HELD", action="add")],
+            "reviews": [], "stage_updates": {}, "rejected": [{"ticker": "BAD"}]}
+
+    with patch.object(saf, "_load_latest_signals", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_open_shadow_buys",
+                      new=AsyncMock(return_value={"notional": 0.0, "symbols": set(),
+                                                  "count": 0})), \
+         patch.object(saf, "_theme_review", new=AsyncMock()), \
+         patch.object(saf, "_memo_pipeline", new=AsyncMock(return_value=plan)), \
+         patch.object(saf, "plan_decisions", new=capture_plan), \
+         patch.object(saf, "_execute_sells",
+                      new=AsyncMock(return_value={"cash": 5000.0, "proceeds": 0.0,
+                                                  "sold": []})), \
+         patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_handshake_and_enter", new=fake_handshake), \
+         patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)), \
+         patch.object(saf, "write_report", new=AsyncMock()):
+        out = _run(saf._decide_and_execute(
+            MagicMock(), MagicMock(), NOW, "neutral",
+            sleeve_ctx={"cash": 10_000.0, "positions": {}, "allow_buys": True,
+                        "status": "active"},
+            assembled={"active_themes": []},
+            screened={"ranked": [_screen_row("SCREENPICK")], "close_by_symbol": {},
+                      "sector_by_symbol": {}},
+            lights={"light_rows": {}, "spent": 0}, step=None,
+        ))
+
+    # plan_decisions keeps its exits/trims job but has NO entry authority —
+    # its signature no longer even accepts candidates (Task 11 founding-
+    # premise guard, see tests/test_funnel_decisions.py).
+    assert captured["entry_queue"] == ["NEW", "HELD"]
+    assert "SCREENPICK" not in captured["entry_queue"]
+    # ...and the memo's own reasoning rides along to the handshake.
+    assert captured["planned"][0]["role"] == "anchor"
+    assert captured["planned"][0]["why_now"] == "w"
+    # screen_by_symbol is the raw screen map (sizing inputs), not a candidate table.
+    assert captured["screen_keys"] == ["SCREENPICK"]
+    assert out["memo"] == {"status": "ok", "entries_planned": 2, "rejected": 1}
+
+
+# ── Task 10: entries come from the memo plan; diligence is VETO-ONLY ─────────
+# The handshake no longer re-scores conviction: the memo already decided WHAT
+# and HOW BIG (role × conviction). The paid full run is a veto (SELL/AVOID or
+# unusable data), never a selector — and every placed order carries the memo's
+# own words into the journal so the trade can be audited after the fact.
+
+def _planned(sym="BE", **over):
+    """A planner entry item (execution/thesis/planner.py) as the cron sees it."""
+    item = {"slug": "dc-energy", "stage": "catching_on", "action": "enter",
+            "ticker": sym, "role": "anchor", "conviction": 0.8,
+            "entry_style": "on_pullback", "why_now": "w",
+            "why_this_expression": "e"}
+    item.update(over)
+    return item
+
+
+def _memo_screen(sym="BE", **over):
+    row = {"symbol": sym, "price": 100.0, "sma20": 95.0, "atr": 4.0,
+           "atr_pct": 0.04, "liquidity_adv_usd": 5e7, "screen_score": 6.0,
+           "tags": {"themes": ["dc-energy"]}, "dist_200wma": 0.2}
+    row.update(over)
+    return row
+
+
+def _handshake(planned, screens, **over):
+    """Run the REAL _handshake_and_enter over a memo plan."""
+    kwargs = {"run_date": NOW, "sleeve_equity": 100_000.0,
+              "deployable": 100_000.0, "cash_available": 100_000.0,
+              "holdings": [], "sector_by_symbol": {},
+              "other_sleeve_sector_notional": {}, "allow_buys": True,
+              "step": None}
+    kwargs.update(over)
+    client = MagicMock()
+    client.submit_limit_buy = AsyncMock()
+    placed = _run(saf._handshake_and_enter(
+        MagicMock(), client, planned_entries=planned,
+        screen_by_symbol=screens, **kwargs))
+    return placed, client
+
+
+def test_entry_carries_memo_provenance_and_pullback_pricing():
+    """A planned on_pullback entry submits at max(sma20, price - ATR) with the
+    2-week patient TTL, and journals why_now/role/stage — the after-the-fact
+    audit trail the memo is accountable to."""
+    sink = _ReportSink()
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink):
+        placed, client = _handshake([_planned()], {"BE": _memo_screen()})
+
+    assert len(placed) == 1
+    kwargs = client.submit_limit_buy.call_args.kwargs
+    assert kwargs["limit_price"] == 96.0                    # max(95, 100 - 4)
+    assert (kwargs["expires_at"] - NOW).days == 14          # PATIENT_LIMIT_TTL_WEEKS
+    j = kwargs["journal"]
+    assert j["why_now"] == "w"
+    assert j["why_this_expression"] == "e"
+    assert j["role"] == "anchor"
+    assert j["stage"] == "catching_on"
+    assert j["slug"] == "dc-energy"
+    assert j["entry_style"] == "on_pullback"
+    assert j["memo_conviction"] == 0.8
+    # convictionScore stays the daily-fills provenance key (now the 0-1 memo
+    # conviction, not the old 0-100 formula score).
+    assert j["convictionScore"] == 0.8
+    assert j["ttl_days"] == 14
+    # anchor band 0.08..0.12 → 0.8 conviction ⇒ 11.2% of a 100k sleeve.
+    assert abs(placed[0]["notional"] - 11_200.0) < 1.0
+    assert sink.count("entry_order") == 1
+
+
+def test_at_market_entry_prices_at_last_close_with_one_week_ttl():
+    """The other half of entry_price_and_ttl: at_market is a limit at the last
+    close with a 1-week TTL."""
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=AsyncMock()):
+        placed, client = _handshake([_planned(entry_style="at_market")],
+                                    {"BE": _memo_screen()})
+    assert len(placed) == 1
+    kwargs = client.submit_limit_buy.call_args.kwargs
+    assert kwargs["limit_price"] == 100.0
+    assert (kwargs["expires_at"] - NOW).days == 7
+
+
+def test_sell_verdict_is_the_only_diligence_veto():
+    """VETO-ONLY: a SELL verdict blocks the memo's entry and journals
+    exit_sell_verdict; an ABSENT verdict (hold / no opinion) does NOT — the
+    diligence run may only say no, it may never select."""
+    sink = _ReportSink()
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "sell"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink):
+        placed, client = _handshake([_planned()], {"BE": _memo_screen()})
+    assert placed == []
+    client.submit_limit_buy.assert_not_called()
+    assert sink.count("exit_sell_verdict") == 1
+
+    # ...and a None verdict still places: no conviction formula stands between
+    # the memo and the order.
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": None}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=AsyncMock()):
+        placed, client = _handshake([_planned()], {"BE": _memo_screen()})
+    assert len(placed) == 1
+    client.submit_limit_buy.assert_called_once()
+
+
+def test_avoid_verdict_also_vetoes_the_memo_entry():
+    sink = _ReportSink()
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "AVOID"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink):
+        placed, client = _handshake([_planned()], {"BE": _memo_screen()})
+    assert placed == []
+    client.submit_limit_buy.assert_not_called()
+    assert sink.count("exit_sell_verdict") == 1
+
+
+def test_role_band_sizes_the_entry_not_a_conviction_formula():
+    """Two identical screens, different memo roles ⇒ different notionals. The
+    size comes from ROLE_BANDS × the memo's conviction, nothing else."""
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=AsyncMock()):
+        anchor, _ = _handshake([_planned("AN", role="anchor")],
+                               {"AN": _memo_screen("AN")})
+        catalyst, _ = _handshake([_planned("CA", role="catalyst")],
+                                 {"CA": _memo_screen("CA")})
+    assert anchor[0]["notional"] > catalyst[0]["notional"]
+
+
+def test_incomplete_screen_row_journals_failure_not_an_order():
+    sink = _ReportSink()
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "write_report", new=sink):
+        placed, client = _handshake([_planned()], {"BE": {"price": 100.0}})
+    assert placed == []
+    client.submit_limit_buy.assert_not_called()
+    assert sink.count("engine_failure") == 1
+
+
+def _decide_with_memo(plan, screened, open_buys, sleeve_ctx, sink,
+                      gate=None, handshake=None, db=None, client=None,
+                      memo_pipeline=None):
+    """_decide_and_execute with the memo pipeline stubbed and (by default) the
+    REAL _handshake_and_enter. Pass `memo_pipeline` to inspect what the cron
+    hands the memo (the book/candidates packet) instead of only its output."""
+    patches = [
+        patch.object(saf, "_load_latest_signals", new=AsyncMock(return_value={})),
+        patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})),
+        patch.object(saf, "_open_shadow_buys", new=AsyncMock(return_value=open_buys)),
+        patch.object(saf, "_theme_review", new=AsyncMock()),
+        patch.object(saf, "_memo_pipeline",
+                     new=memo_pipeline or AsyncMock(return_value=plan)),
+        patch.object(saf, "_execute_sells",
+                     new=AsyncMock(return_value={"cash": sleeve_ctx["cash"],
+                                                 "proceeds": 0.0, "sold": []})),
+        patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})),
+        patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)),
+        patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)),
+        patch.object(saf, "reuse_or_budget",
+                     new=gate or AsyncMock(return_value={"action": "reuse",
+                                                         "signals": {"verdict": "buy"}})),
+        patch.object(saf, "write_report", new=sink),
+    ]
+    if handshake is not None:
+        patches.append(patch.object(saf, "_handshake_and_enter", new=handshake))
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
+        return _run(saf._decide_and_execute(
+            db or MagicMock(), client or MagicMock(), NOW, "neutral",
+            sleeve_ctx=sleeve_ctx, assembled={"active_themes": []},
+            screened=screened, lights={"light_rows": {}, "spent": 0}, step=None,
+        ))
+
+
+def test_open_symbol_memo_entry_skips_before_paid_run():
+    """Carry-over from Task 9: a symbol with a STANDING open buy is dropped
+    from the memo's entry list BEFORE the handshake, so reuse_or_budget is
+    never consulted for it and no paid full run is burned on an order the
+    duplicate guard would have to throw away."""
+    gate_calls = []
+
+    async def counting_gate(db_, sym, run_date):
+        gate_calls.append(sym)
+        return {"action": "reuse", "signals": {"verdict": "buy"}}
+
+    sink = _ReportSink()
+    client = MagicMock()
+    client.submit_limit_buy = AsyncMock()
+    plan = {"entries": [_planned("PENDING"), _planned("NEW")], "adds": [],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+    screened = {"ranked": [_memo_screen("PENDING"), _memo_screen("NEW")],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+
+    out = _decide_with_memo(
+        plan, screened,
+        {"notional": 0.0, "symbols": {"PENDING"}, "count": 1},
+        {"cash": 200_000.0, "positions": {}, "allow_buys": True,
+         "status": "active"},
+        sink, gate=counting_gate, client=client)
+
+    assert gate_calls == ["NEW"]                       # PENDING never billed
+    assert [p["symbol"] for p in out["placed"]] == ["NEW"]
+    assert sink.count("entry_deferred") == 1
+
+
+def test_memo_add_deduped_when_ladder_add_already_executed_this_pass():
+    """A same-pass collision: the review-outcome DCA ladder ADD and the memo's
+    `add` are the SAME intent. The executed ladder add wins; the memo add is
+    dropped with an entry_deferred journal before any paid handshake."""
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    broker.submit_limit_buy = AsyncMock()
+    sink = _ReportSink()
+    plan = {"entries": [], "adds": [_planned("DIPN", action="add")],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+    gate_calls = []
+    captured = {}
+    real_handshake = saf._handshake_and_enter
+
+    async def counting_gate(db_, sym, run_date):
+        gate_calls.append(sym)
+        return {"action": "reuse", "signals": {"verdict": "buy"}}
+
+    async def spy_handshake(*a, **k):
+        captured["planned"] = list(a[2])
+        return await real_handshake(*a, **k)
+
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)},
+                     {"action": "reuse", "signals": {"verdict": "buy"}},
+                     sink, memo_plan=plan), \
+         patch.object(saf, "reuse_or_budget", new=counting_gate), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "_handshake_and_enter", new=spy_handshake):
+        _run_decide(db, broker,
+                    {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                     "allow_buys": True, "status": "active"}, _rung_screened())
+
+    assert [b.symbol for b in broker.market_buys] == ["DIPN"]   # ladder add ran
+    assert sink.count("dca_add") == 1
+    assert captured["planned"] == []                            # memo add dropped
+    assert sink.count("entry_deferred") == 1
+    # ...and dropped BEFORE any paid work: the ONE gate call is stage B's
+    # review. A memo add that reached the handshake would gate DIPN twice.
+    assert gate_calls == ["DIPN"]
+    broker.submit_limit_buy.assert_not_called()
+
+
+def test_rejected_ladder_add_leaves_the_memo_add_standing():
+    """The dedupe keys off an ADD that actually EXECUTED. A rejected (zero-fill)
+    ladder add bought nothing, so the memo's add must still reach the
+    handshake — otherwise a broker rejection silently cancels the memo."""
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _RejectBroker(db)
+    sink = _ReportSink()
+    handshake = AsyncMock(return_value=[])
+    plan = {"entries": [], "adds": [_planned("DIPN", action="add")],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)},
+                     {"action": "reuse", "signals": {"verdict": "buy"}},
+                     sink, memo_plan=plan), \
+         patch.object(saf, "_handshake_and_enter", new=handshake):
+        _run_decide(db, broker,
+                    {"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                     "allow_buys": True, "status": "active"}, _rung_screened())
+
+    assert [e["ticker"] for e in handshake.await_args.args[2]] == ["DIPN"]
+
+
+def test_replay_shrunken_envelope_cannot_double_order_via_memo_add():
+    """D1 (Task 10 review): the duplicate-order failure class.
+
+    `_open_shadow_buys` is a LIVE, unmemoized broker query, so a replay's
+    deployable/cash envelope is smaller than the first execution's. When the
+    ladder ADD's integer-qty gate lived OUTSIDE the memoized step, exec 2's
+    shrunken envelope could push the halved rung under the gate — the step was
+    never reached, `ladder_added` came back empty, and the memo's `add` sailed
+    through the dedupe and placed a SECOND order for the same name under a
+    different client_order_id (shadow-A-… vs paper-A-…-dca), which the broker's
+    coid guard cannot catch.
+
+    With sizing + gate INSIDE the step, the replay returns exec 1's recorded
+    fill and the memo add is deferred.
+    """
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    broker.submit_limit_buy = AsyncMock()
+    sink = _ReportSink()
+    step = _MemoStep()
+    real_handshake = saf._handshake_and_enter
+    plan = {"entries": [], "adds": [_planned("DIPN", action="add")],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+
+    def _decide():
+        return _run(saf._decide_and_execute(
+            db, broker, NOW, "neutral",
+            sleeve_ctx={"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                        "allow_buys": True, "status": "active"},
+            assembled={"active_themes": []}, screened=_rung_screened(),
+            lights={"light_rows": {}, "spent": 0}, step=step))
+
+    # exec 1: nothing committed. exec 2 (the replay): the pass's own capital is
+    # now standing at the broker, so deployable collapses to ~130 — enough for
+    # the memo's fractional-qty add, NOT enough for the rung's integer-qty gate
+    # at a $75 close. `symbols` stays empty so the standing-open-order dedupe
+    # cannot mask the bug: `ladder_added` is the only thing holding the line.
+    open_buys = AsyncMock(side_effect=[
+        {"notional": 0.0, "symbols": set(), "count": 0},
+        {"notional": 8_795.0, "symbols": set(), "count": 0},
+    ])
+
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)},
+                     {"action": "reuse", "signals": {"verdict": "buy"}},
+                     sink, memo_plan=plan), \
+         patch.object(saf, "_open_shadow_buys", new=open_buys), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "_handshake_and_enter", new=real_handshake):
+        _decide()
+        _decide()                                    # the replay
+
+    # Exactly ONE ladder add, and NO shadow limit buy from the memo path.
+    assert [b.symbol for b in broker.market_buys] == ["DIPN"]
+    assert sink.count("dca_add") == 1
+    broker.submit_limit_buy.assert_not_called()
+    # The book moved exactly once, by exec 1's rung — the replay bought nothing.
+    assert db.positions[("A", "DIPN")]["qty"] == 10.0 + broker.market_buys[0].qty
+
+
+def test_memo_add_is_half_a_fresh_entry():
+    """Owner ruling (DCA_TRANCHE_FRACTION): an ADD buys HALF a fresh entry's
+    notional. Same role, same conviction, same screen — only `action` differs."""
+    from execution.constants import DCA_TRANCHE_FRACTION
+
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=AsyncMock()):
+        enter, _ = _handshake([_planned("EN", action="enter")],
+                              {"EN": _memo_screen("EN")})
+        add, add_client = _handshake([_planned("AD", action="add")],
+                                     {"AD": _memo_screen("AD")})
+
+    assert enter[0]["notional"] == 11_200.0                     # full anchor band
+    assert add[0]["notional"] == enter[0]["notional"] * DCA_TRANCHE_FRACTION
+    # ...and the journal says WHY it is half.
+    j = add_client.submit_limit_buy.call_args.kwargs["journal"]
+    assert j["add_tranche_fraction"] == DCA_TRANCHE_FRACTION
+    assert j["action"] == "add"
+
+
+def test_same_ticker_planned_twice_places_one_order():
+    """Two theses naming the same expression must not stack two orders (and
+    must not burn two paid full runs on it)."""
+    gate_calls = []
+
+    async def counting_gate(db_, sym, run_date):
+        gate_calls.append(sym)
+        return {"action": "reuse", "signals": {"verdict": "buy"}}
+
+    sink = _ReportSink()
+    client = MagicMock()
+    client.submit_limit_buy = AsyncMock()
+    plan = {"entries": [_planned("DUP", slug="dc-energy"),
+                        _planned("DUP", slug="grid-buildout")],
+            "adds": [], "reviews": [], "stage_updates": {}, "rejected": [],
+            "prior_stages": {}}
+    screened = {"ranked": [_memo_screen("DUP")], "close_by_symbol": {},
+                "sector_by_symbol": {}}
+
+    out = _decide_with_memo(
+        plan, screened, {"notional": 0.0, "symbols": set(), "count": 0},
+        {"cash": 200_000.0, "positions": {}, "allow_buys": True,
+         "status": "active"},
+        sink, gate=counting_gate, client=client)
+
+    assert gate_calls == ["DUP"]                     # billed once, not twice
+    assert [p["symbol"] for p in out["placed"]] == ["DUP"]
+    assert client.submit_limit_buy.await_count == 1
+    assert sink.count("entry_deferred") == 1
+
+
+# ── Task 12: end-to-end pass — REAL memo pipeline + REAL handshake ──────────
+# Every test above stubs one side of the seam: either _memo_pipeline (so the
+# trigger/outcome tests can pin a plan) or _handshake_and_enter (so the memo
+# tests can read the entry queue). These three run BOTH for real inside
+# _decide_and_execute — the pass as production runs it, with only the memo's
+# two external edges faked (the theme-state gather and the PAID LLM call).
+# _decide_and_execute is the most end-to-end seam the harness has: the
+# registered Inngest function is None without the pip SDK (see
+# test_module_imports_without_inngest_sdk), and its body is a thin step
+# wrapper whose funnel_summary "memo" field is outcome["memo"] verbatim.
+
+
+class _E2EDB(_ThDB):
+    """_ThDB plus the two tables the REAL memo pipeline writes: the append-only
+    evidence ledger and the ThemeBasket stage column."""
+
+    def __init__(self, positions):
+        super().__init__(positions)
+        self.evidence = []
+        self.stage_writes = []
+        self.thesisevidence = SimpleNamespace(create=self._ev_create)
+        self.themebasket = SimpleNamespace(update=self._tb_update)
+
+    async def _ev_create(self, data):
+        body = data.get("body")
+        self.evidence.append({**data, "body": getattr(body, "data", body)})
+
+    async def _tb_update(self, where, data):
+        self.stage_writes.append((where["slug"], data["stage"]))
+
+    def ledger_slugs(self, kind="weekly_memo"):
+        return [e["themeSlug"] for e in self.evidence if e["kind"] == kind]
+
+
+class _CoidBroker(_ThBroker):
+    """Shadow-broker stand-in carrying the REAL duplicate guard: a
+    client_order_id already booked is a no-op that returns the existing order
+    (execution/broker/shadow_client.py). `attempts` records every submit the
+    cron made, `limit_buys` only the ones that actually became orders — the
+    gap between them is what a replay costs."""
+
+    def __init__(self, db):
+        super().__init__(db)
+        self.limit_buys = []
+        self.attempts = []
+        self._booked = set()
+
+    async def submit_limit_buy(self, symbol, qty, limit_price, expires_at,
+                               journal, client_order_id):
+        self.attempts.append(client_order_id)
+        if client_order_id not in self._booked:
+            self._booked.add(client_order_id)
+            self.limit_buys.append(SimpleNamespace(
+                symbol=symbol, qty=qty, limit_price=limit_price,
+                expires_at=expires_at, journal=journal,
+                client_order_id=client_order_id))
+        return BrokerOrderResult(order_id=client_order_id, symbol=symbol,
+                                 side="buy", status="shadow_open",
+                                 filled_qty=0.0, filled_avg_price=None)
+
+
+def _memo_raw(theses, hypotheses=(), market_view="mixed tape, capex intact"):
+    """The verbatim JSON body the paid memo call returns."""
+    import json
+    return json.dumps({"theses": list(theses),
+                       "hypothesis_updates": list(hypotheses),
+                       "market_view": market_view})
+
+
+def _thesis(slug, stage="catching_on", actions=(), evidence=("e",)):
+    return {"slug": slug, "stage": stage, "stage_rationale": f"{slug} rationale",
+            "evidence_this_week": list(evidence), "actions": list(actions)}
+
+
+def _enter_action(ticker, **over):
+    a = {"action": "enter", "ticker": ticker, "role": "anchor",
+         "conviction": 0.8, "entry_style": "at_market",
+         "why_now": "grid interconnect queue cleared",
+         "why_this_expression": "the only pure-play on the bottleneck"}
+    a.update(over)
+    return a
+
+
+@contextlib.contextmanager
+def _e2e_ctx(pos_rows, sink, raw, prior_stages, calls, open_buys=None):
+    """Everything _thesis_ctx patches EXCEPT the two seams under test:
+    _memo_pipeline and _handshake_and_enter run FOR REAL, and so do
+    persist_memo / append_evidence / plan_from_memo / _execute_sells. Only
+    gather_memo_packet (theme state) and reason_memo (the PAID call) are
+    faked — the memo's two external edges."""
+    import importlib
+    from execution.thesis import memo as memo_mod
+
+    mdc_mod = importlib.import_module("research_swarm.data.market_data_client")
+    mc = MagicMock()
+    mc.get_earnings_dates.return_value = None
+
+    async def fake_gather(db, outlook, book, candidates):
+        calls["gather"] += 1
+        calls.setdefault("packets", []).append(
+            {"regime": (outlook or {}).get("regime"),
+             "book": [b["symbol"] for b in book],
+             "candidates": sorted(candidates)})
+        # The pre-memo theme state: gather is what carries prior stages.
+        return {"theses": [{"slug": s, "stage": st}
+                           for s, st in prior_stages.items()]}
+
+    def fake_reason(packet):
+        calls["paid"] += 1
+        return raw
+
+    with patch.object(saf, "gather_memo_packet", new=fake_gather), \
+         patch.object(saf, "reason_memo", new=fake_reason), \
+         patch.object(memo_mod, "write_report", new=sink), \
+         patch.object(saf, "_load_latest_signals", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_open_shadow_buys",
+                      new=AsyncMock(return_value=open_buys or
+                                    {"notional": 0.0, "symbols": set(), "count": 0})), \
+         patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)), \
+         patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "run_paid_analysis", new=AsyncMock(return_value={})), \
+         patch.object(saf, "persist_full",
+                      new=AsyncMock(return_value={"status": "upgraded", "signals": {}})), \
+         patch.object(saf, "write_report", new=sink), \
+         patch("execution.sleeve_service.get_engine_positions",
+               new=AsyncMock(return_value=pos_rows)), \
+         patch("execution.sleeve_service.update_sleeve_cash", new=AsyncMock()), \
+         patch.object(mdc_mod, "MarketDataClient", return_value=mc):
+        yield
+
+
+def _e2e_pass(db, broker, screened, cash=100_000.0, positions=None, step=None):
+    return _run(saf._decide_and_execute(
+        db, broker, NOW, "neutral",
+        sleeve_ctx={"cash": cash, "positions": dict(positions or {}),
+                    "allow_buys": True, "status": "active"},
+        assembled={"active_themes": ["dc-energy", "robotics"]},
+        screened=screened, lights={"light_rows": {}, "spent": 0}, step=step,
+        outlook={"regime": "neutral"},
+    ))
+
+
+def test_full_pass_no_op_memo_places_nothing():
+    """An all-HOLD memo is a healthy week, not a failure: the pass places
+    NOTHING, journals the memo verbatim exactly once, reports memo.status "ok"
+    (not "noop" — the memo was usable, it just said hold), and still appends
+    one evidence-ledger row per thesis so next week's memo has this week's
+    reasoning to reconcile against."""
+    db = _E2EDB({})
+    broker = _CoidBroker(db)
+    sink = _ReportSink()
+    calls = {"gather": 0, "paid": 0}
+    raw = _memo_raw([
+        _thesis("dc-energy", "catching_on",
+                [{"action": "hold", "ticker": "BE"}]),
+        _thesis("robotics", "pre_consensus",
+                [{"action": "hold", "ticker": "ABB"}]),
+    ])
+    screened = {"ranked": [_memo_screen("BE"), _memo_screen("ABB")],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+
+    with _e2e_ctx([], sink, raw, {"dc-energy": "catching_on",
+                                  "robotics": "pre_consensus"}, calls):
+        out = _e2e_pass(db, broker, screened)
+
+    # (1) zero submits of any kind — a hold memo buys nothing and sells nothing.
+    assert broker.limit_buys == [] and broker.attempts == []
+    assert broker.market_buys == [] and broker.sells == []
+    assert out["placed"] == []
+    # (2) the memo is journalled verbatim exactly once.
+    assert sink.count("thesis_memo") == 1
+    # (3) the funnel_summary "memo" fragment (outcome["memo"] verbatim).
+    assert out["memo"] == {"status": "ok", "entries_planned": 0, "rejected": 0}
+    # (4) one append-only ledger row per thesis, carrying the stage it was
+    #     written at, plus the ThemeBasket stage persist.
+    assert db.ledger_slugs() == ["dc-energy", "robotics"]
+    assert [e["stage"] for e in db.evidence] == ["catching_on", "pre_consensus"]
+    assert [e["week"] for e in db.evidence] == [NOW.date().isoformat()] * 2
+    assert db.evidence[0]["body"]["stage_rationale"] == "dc-energy rationale"
+    assert sorted(db.stage_writes) == [("dc-energy", "catching_on"),
+                                       ("robotics", "pre_consensus")]
+    # ...and the paid call ran exactly once for the pass, over the screened
+    # universe (the memo may only name validated symbols).
+    assert calls["gather"] == 1 and calls["paid"] == 1
+    assert calls["packets"] == [{"regime": "neutral", "book": [],
+                                 "candidates": ["ABB", "BE"]}]
+
+
+def test_full_pass_memo_entry_places_order_with_provenance():
+    """One catching_on `enter` at_market walks the whole pass: parse → plan →
+    stage persist → dedupe → veto-only handshake → shadow limit buy at
+    round(price, 2) under the deterministic client_order_id, with the memo's
+    own words on the order. The spend envelope handed to the handshake is
+    DECREMENTED by the standing-order commitment on both legs."""
+    db = _E2EDB({})
+    broker = _CoidBroker(db)
+    sink = _ReportSink()
+    calls = {"gather": 0, "paid": 0}
+    raw = _memo_raw([_thesis("dc-energy", "catching_on", [_enter_action("BE")])])
+    # 101.237 is deliberately un-round: at_market must submit at round(p, 2).
+    screened = {"ranked": [_memo_screen("BE", price=101.237)],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    captured = {}
+    real_handshake = saf._handshake_and_enter
+
+    async def spy_handshake(*a, **k):
+        captured["planned"] = list(a[2])
+        captured["sleeve_equity"], captured["deployable"] = a[5], a[6]
+        captured["cash_available"] = a[7]
+        return await real_handshake(*a, **k)
+
+    with _e2e_ctx([], sink, raw, {"dc-energy": "catching_on"}, calls,
+                  open_buys={"notional": 20_000.0, "symbols": set(), "count": 1}), \
+         patch.object(saf, "_handshake_and_enter", new=spy_handshake):
+        out = _e2e_pass(db, broker, screened)
+
+    # (1) exactly ONE limit buy, priced at the rounded last close.
+    assert len(broker.limit_buys) == 1
+    order = broker.limit_buys[0]
+    assert order.symbol == "BE"
+    assert order.limit_price == 101.24                # round(101.237, 2)
+    assert (order.expires_at - NOW).days == 7         # at_market TTL
+    # (2) the deterministic coid — the duplicate-order guard's key.
+    assert order.client_order_id == "shadow-A-BE-20260713"
+    # (3) the memo's reasoning rides on the order, so the trade can be graded
+    #     after the fact on WHY, not on a score.
+    j = order.journal
+    assert j["why_now"] == "grid interconnect queue cleared"
+    assert j["why_this_expression"] == "the only pure-play on the bottleneck"
+    assert j["stage"] == "catching_on"
+    assert j["slug"] == "dc-energy"
+    assert j["role"] == "anchor" and j["memo_conviction"] == 0.8
+    assert j["entry_style"] == "at_market"
+    # (4) deployable/cash are DECREMENTED by the standing-order commitment:
+    #     0.9 (neutral) x 100k equity - 0 position MV - 20k committed, and the
+    #     cash ledger less the same 20k. Both, not just one.
+    assert captured["sleeve_equity"] == 100_000.0
+    assert captured["deployable"] == 70_000.0
+    assert captured["cash_available"] == 80_000.0
+    # ...and the order was sized inside that envelope (anchor band x 0.8).
+    assert out["placed"] == [{
+        "symbol": "BE", "qty": order.qty, "limit_price": 101.24,
+        "notional": 11_200.0, "client_order_id": "shadow-A-BE-20260713",
+        "expires_at": order.expires_at.isoformat()}]
+    assert out["memo"] == {"status": "ok", "entries_planned": 1, "rejected": 0}
+    assert sink.count("entry_order") == 1
+    assert sink.count("thesis_memo") == 1
+    assert db.ledger_slugs() == ["dc-energy"]
+    # The planner's dict — not a bare symbol — is what reached the handshake.
+    assert [e["ticker"] for e in captured["planned"]] == ["BE"]
+
+
+def test_replay_does_not_rebill_memo():
+    """The $3.50 guarantee under the Inngest replay model: two executions of
+    the pass sharing ONE step log bill the paid memo call exactly ONCE, persist
+    it once, and — because the handshake is NOT memoized and re-submits on the
+    replay — leave exactly ONE order standing, caught by the deterministic
+    client_order_id the broker dedupes on."""
+    db = _E2EDB({})
+    broker = _CoidBroker(db)
+    sink = _ReportSink()
+    calls = {"gather": 0, "paid": 0}
+    raw = _memo_raw([_thesis("dc-energy", "catching_on", [_enter_action("BE")])])
+    screened = {"ranked": [_memo_screen("BE", price=101.237)],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    step = _MemoStep()
+
+    with _e2e_ctx([], sink, raw, {"dc-energy": "catching_on"}, calls):
+        out1 = _e2e_pass(db, broker, screened, step=step)
+        out2 = _e2e_pass(db, broker, screened, step=step)   # the replay
+
+    # (1) billed once — and gathered once, since gather lives INSIDE the paid
+    #     step (a re-gather on replay can discard an already-paid memo).
+    assert calls["paid"] == 1
+    assert calls["gather"] == 1
+    assert set(step._log) >= {"thesis-memo", "memo-persist"}
+    # (2) persisted once: one journal row, one ledger row, one stage write.
+    assert sink.count("thesis_memo") == 1
+    assert db.ledger_slugs() == ["dc-energy"]
+    assert db.stage_writes == [("dc-energy", "catching_on")]
+    # (3) the plan is identical across the replay (parse/plan re-derived from
+    #     the memoized raw), so the replay re-submits...
+    assert out1["memo"] == out2["memo"] == {"status": "ok", "entries_planned": 1,
+                                            "rejected": 0}
+    assert broker.attempts == ["shadow-A-BE-20260713"] * 2
+    # (4) ...but ONE order exists: the coid guard collapsed the duplicate.
+    assert len(broker.limit_buys) == 1
+    assert broker.limit_buys[0].limit_price == 101.24
+
+
+# ── Final-review fixes (2026-07-27): thesis linkage, the hard position cap,
+#    and the memo book's entry basis. ────────────────────────────────────────
+
+
+def test_memo_slug_joins_order_tags_and_journaled_source_tags():
+    """FINDING 1: a memo entry expressed through a ticker that is NOT a stored
+    constituent of its thesis still carries the slug.
+
+    The screen row's tags are theme-membership data; the memo deliberately
+    picks non-obvious expressions, so screen tags alone silently strip the
+    thesis. Consequences of the strip, both asserted here: the 35% theme
+    aggregate cap never counts the order against its own thesis, and the
+    persisted sourceTags the crowded/priced + retired-theme reviews read can
+    never match the holding back to the thesis that bought it."""
+    sink = _ReportSink()
+    screen = _memo_screen(tags={"themes": ["semis"], "industries": ["x"],
+                                "watchlist": False})
+    # 30k of dc-energy already held ⇒ 5k of room under the 35% cap of a 100k
+    # sleeve. The anchor band would size 11.2k, so the cap MUST bite — it can
+    # only bite if the slug reached the order's tags.
+    held = [{"symbol": "OLD", "market_value": 30_000.0,
+             "tags": {"themes": ["dc-energy"]}, "sector": None}]
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink):
+        placed, client = _handshake([_planned(slug="dc-energy")], {"BE": screen},
+                                    holdings=held)
+
+    assert len(placed) == 1
+    # (a) the guardrail saw the slug: capped 11_200 -> 5_000 by 'dc-energy'.
+    assert placed[0]["notional"] == 5_000.0
+    j = client.submit_limit_buy.call_args.kwargs["journal"]
+    assert any("dc-energy" in n for n in j["guardrail_notes"])
+    # (b) the persisted provenance carries BOTH the screen themes and the slug,
+    #     deduped and sorted the way universe tagging sorts them.
+    assert j["sourceTags"]["themes"] == ["dc-energy", "semis"]
+    # the rest of the screen tags survive untouched
+    assert j["sourceTags"]["industries"] == ["x"]
+    assert j["sourceTags"]["watchlist"] is False
+    # and the screen row itself was NOT mutated (it is shared with by_symbol).
+    assert screen["tags"]["themes"] == ["semis"]
+
+
+def test_slug_already_in_screen_tags_is_not_duplicated():
+    """The union is idempotent: the common case (ticker IS a constituent) must
+    not double-count the theme inside enforce_funnel_guardrails."""
+    sink = _ReportSink()
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink):
+        placed, client = _handshake([_planned(slug="dc-energy")],
+                                    {"BE": _memo_screen()})
+    j = client.submit_limit_buy.call_args.kwargs["journal"]
+    assert j["sourceTags"]["themes"] == ["dc-energy"]
+    assert abs(placed[0]["notional"] - 11_200.0) < 1.0     # uncapped
+
+
+def test_max_positions_truncates_memo_entries_by_conviction():
+    """FINDING 2: SLEEVE_A_MAX_POSITIONS is a HARD cap (execution/constants).
+
+    plan_decisions lost entry authority, so nothing capped the memo's entries
+    any more. 14 open positions leave exactly one slot: the highest-conviction
+    `enter` takes it, the other two are journalled entry_deferred/max_positions,
+    and the `add` — which opens no new name — is untouched."""
+    from execution.constants import SLEEVE_A_MAX_POSITIONS
+
+    assert SLEEVE_A_MAX_POSITIONS == 15
+    positions = {"H%d" % i: 10.0 for i in range(14)}
+    captured = {}
+
+    async def capture_handshake(db_, client_, planned, screens, *a, **k):
+        captured["planned"] = list(planned)
+        return []
+
+    entries = [_planned("LOW", conviction=0.4), _planned("TOP", conviction=0.9),
+               _planned("MID", conviction=0.7)]
+    plan = {"entries": entries, "adds": [_planned("H0", action="add")],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+    screened = {"ranked": [_memo_screen(s) for s in
+                           ("LOW", "TOP", "MID", "H0")],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    sink = _ReportSink()
+
+    _decide_with_memo(
+        plan, screened, {"notional": 0.0, "symbols": set(), "count": 0},
+        {"cash": 500_000.0, "positions": positions, "allow_buys": True,
+         "status": "active"},
+        sink, handshake=capture_handshake)
+
+    # one slot ⇒ the top-conviction enter, plus the exempt add.
+    assert [e["ticker"] for e in captured["planned"]] == ["TOP", "H0"]
+    deferred = [b for b in sink.bodies_of("entry_deferred")
+                if b.get("reason") == "max_positions"]
+    assert sorted(b["symbol"] for b in deferred) == ["LOW", "MID"]
+    assert all(b.get("slug") == "dc-energy" for b in deferred)
+
+
+def test_standing_open_buys_reserve_slots_against_the_position_cap():
+    """I3a is preserved: an unfilled shadow buy is a pending position, so it
+    eats a slot. 14 held + 1 standing order ⇒ NO new name may enter."""
+    positions = {"H%d" % i: 10.0 for i in range(14)}
+    captured = {}
+
+    async def capture_handshake(db_, client_, planned, screens, *a, **k):
+        captured["planned"] = list(planned)
+        return []
+
+    plan = {"entries": [_planned("TOP", conviction=0.9)], "adds": [],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+    screened = {"ranked": [_memo_screen("TOP")],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    sink = _ReportSink()
+
+    _decide_with_memo(
+        plan, screened, {"notional": 1000.0, "symbols": {"PENDING"}, "count": 1},
+        {"cash": 500_000.0, "positions": positions, "allow_buys": True,
+         "status": "active"},
+        sink, handshake=capture_handshake)
+
+    assert captured["planned"] == []
+    assert [b["reason"] for b in sink.bodies_of("entry_deferred")] == ["max_positions"]
+
+
+def test_room_under_the_cap_lets_every_entry_through():
+    """The cap only ever truncates — with room to spare nothing is deferred."""
+    captured = {}
+
+    async def capture_handshake(db_, client_, planned, screens, *a, **k):
+        captured["planned"] = list(planned)
+        return []
+
+    plan = {"entries": [_planned("A1", conviction=0.4), _planned("A2", conviction=0.9)],
+            "adds": [], "reviews": [], "stage_updates": {}, "rejected": [],
+            "prior_stages": {}}
+    screened = {"ranked": [_memo_screen("A1"), _memo_screen("A2")],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    sink = _ReportSink()
+
+    _decide_with_memo(
+        plan, screened, {"notional": 0.0, "symbols": set(), "count": 0},
+        {"cash": 500_000.0, "positions": {}, "allow_buys": True,
+         "status": "active"},
+        sink, handshake=capture_handshake)
+
+    # untouched, in the memo's own order (no reshuffle when nothing is dropped)
+    assert [e["ticker"] for e in captured["planned"]] == ["A1", "A2"]
+    assert sink.count("entry_deferred") == 0
+
+
+def test_memo_book_carries_entry_basis_and_unrealized_pnl():
+    """FINDING 3 (spec §3.1): the book packet must carry the entry basis and
+    unrealized P&L — "you add on thesis-confirmed weakness" is unanswerable
+    without knowing where the position was opened. Missing basis degrades to
+    None on BOTH fields; it never raises and never fabricates a zero."""
+    captured = {}
+
+    async def capture_memo(db_, outlook, book, candidates, run_date, step):
+        captured["book"] = book
+        return None                                    # no-op memo week
+
+    sink = _ReportSink()
+    screened = {"ranked": [_memo_screen("MU"), _memo_screen("NOB")],
+                "close_by_symbol": {"MU": 120.0, "NOB": 50.0},
+                "sector_by_symbol": {}}
+
+    _decide_with_memo(
+        None, screened, {"notional": 0.0, "symbols": set(), "count": 0},
+        {"cash": 10_000.0, "positions": {"MU": 10.0, "NOB": 4.0},
+         "avg_prices": {"MU": 100.0}, "allow_buys": True, "status": "active"},
+        sink, memo_pipeline=capture_memo)
+
+    book = {b["symbol"]: b for b in captured["book"]}
+    assert book["MU"]["avg_price"] == 100.0
+    assert abs(book["MU"]["unrealized_plpc"] - 0.2) < 1e-9      # 120/100 - 1
+    # no stored basis ⇒ both None, not 0.0 and not an exception.
+    assert book["NOB"]["avg_price"] is None
+    assert book["NOB"]["unrealized_plpc"] is None
+
+
+def test_ensure_sleeve_a_exports_avg_prices_for_the_memo_book():
+    """The basis has to reach _decide_and_execute: _ensure_sleeve_a is the only
+    loader of EnginePosition rows on the pre-stage-A path, and its context dict
+    is JSON-serialized into the durable step log, so a plain {sym: float} map
+    is the shape that survives a replay."""
+    state = SimpleNamespace(cashBalance=1234.0, status="active")
+    rows = [SimpleNamespace(symbol="MU", qty=10.0, avgEntryPrice=100.0),
+            SimpleNamespace(symbol="NOB", qty=4.0, avgEntryPrice=None)]
+    with patch("execution.sleeve_service.get_sleeve_state",
+               new=AsyncMock(return_value=state)), \
+         patch("execution.sleeve_service.get_engine_positions",
+               new=AsyncMock(return_value=rows)):
+        out = _run(saf._ensure_sleeve_a(MagicMock(), NOW))
+    assert out["positions"] == {"MU": 10.0, "NOB": 4.0}
+    assert out["avg_prices"] == {"MU": 100.0}

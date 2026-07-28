@@ -60,5 +60,7 @@ def test_report_type_vocabulary_matches_spec():
         "theme_review", "risk_trim", "light_run_failure",
         # Thesis-hold redesign (2026-07-10)
         "dca_add", "review_trigger", "thesis_reduce",
+        # Thesis-first entry redesign (2026-07-27)
+        "thesis_memo", "study_digest", "entry_rejected",
     })
     assert SEVERITIES == frozenset({"info", "warning", "critical"})

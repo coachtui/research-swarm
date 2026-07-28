@@ -23,9 +23,12 @@ def test_funnel_reads_sleeve_a_dict_not_the_shared_one():
 
 def test_no_price_level_sell_paths_remain():
     """The daily cron must not reference stop_fill_price for Sleeve A sells,
-    and the funnel must not call plan_decisions with mechanical trims."""
+    and the funnel must not call plan_decisions with mechanical trims. (Task
+    11 deleted the `evictions` kwarg from plan_decisions entirely — it has no
+    entry/eviction authority left to disable — so trim_ceiling=None is now
+    the only guard left to check here.)"""
     import inspect
 
     import inngest_app.functions.sleeve_a_funnel as funnel
     src = inspect.getsource(funnel)
-    assert "trim_ceiling=None" in src and "evictions=False" in src
+    assert "trim_ceiling=None" in src

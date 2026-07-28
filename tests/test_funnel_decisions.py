@@ -1,5 +1,5 @@
 """Weekly planner: exits carry the discipline, winners run, no churn."""
-from execution.constants import OUTCOMPETE_MARGIN, RISK_TRIM_CEILING, RISK_TRIM_TARGET
+from execution.constants import RISK_TRIM_CEILING, RISK_TRIM_TARGET
 from execution.funnel.decisions import plan_decisions
 
 SLEEVE = 70_000.0
@@ -10,15 +10,11 @@ def _h(sym, mv, conv, vetoed=False, review_failed=False):
             "vetoed": vetoed, "theme_review_failed": review_failed}
 
 
-def _c(sym, conv, vetoed=False):
-    return {"symbol": sym, "conviction": conv, "vetoed": vetoed}
-
-
 def test_sell_verdict_and_failed_review_exit():
     out = plan_decisions(
         [_h("BAD", 5_000, 0.0, vetoed=True), _h("DEAD", 5_000, 40.0, review_failed=True),
          _h("OK", 5_000, 70.0)],
-        [], SLEEVE, max_positions=15,
+        SLEEVE, max_positions=15,
     )
     reasons = {e["symbol"]: e["reason"] for e in out["exits"]}
     assert reasons == {"BAD": "sell_verdict", "DEAD": "theme_review_failed"}
@@ -27,7 +23,7 @@ def test_sell_verdict_and_failed_review_exit():
 def test_risk_trim_only_above_ceiling_no_maintenance_rebalance():
     big = SLEEVE * (RISK_TRIM_CEILING + 0.02)           # 22% → trim
     drifted = SLEEVE * 0.16                             # 16% winner → untouched
-    out = plan_decisions([_h("BIG", big, 80.0), _h("WIN", drifted, 75.0)], [], SLEEVE, 15)
+    out = plan_decisions([_h("BIG", big, 80.0), _h("WIN", drifted, 75.0)], SLEEVE, 15)
     assert out["exits"] == []
     assert len(out["trims"]) == 1
     t = out["trims"][0]
@@ -35,64 +31,28 @@ def test_risk_trim_only_above_ceiling_no_maintenance_rebalance():
     assert t["sell_notional"] == round(big - RISK_TRIM_TARGET * SLEEVE, 2)
 
 
-def test_outcompete_needs_margin():
-    holds = [_h("WEAK", 5_000, 50.0), _h("MID", 5_000, 70.0)]
-    # book full at 2; challenger inside the margin → no churn
-    close = plan_decisions(holds, [_c("CH1", 50.0 + OUTCOMPETE_MARGIN - 1)], SLEEVE, 2)
-    assert close["exits"] == [] and close["entry_queue"] == []
-    # challenger clears the margin → swap weakest
-    swap = plan_decisions(holds, [_c("CH2", 50.0 + OUTCOMPETE_MARGIN + 1)], SLEEVE, 2)
-    assert {e["symbol"]: e["reason"] for e in swap["exits"]} == {"WEAK": "outcompeted"}
-    assert swap["entry_queue"] == ["CH2"]
-
-
-def test_entry_queue_fills_open_slots_by_conviction():
-    out = plan_decisions(
-        [_h("H1", 5_000, 70.0)],
-        [_c("A", 90.0), _c("B", 80.0), _c("VETO", 95.0, vetoed=True), _c("H1", 99.0)],
-        SLEEVE, max_positions=3,
-    )
-    assert out["entry_queue"] == ["A", "B"]   # veto blocked, held name blocked, 2 slots
-
-
-def test_exit_frees_slot_for_entry():
-    out = plan_decisions(
-        [_h("BAD", 5_000, 0.0, vetoed=True), _h("OK", 5_000, 70.0)],
-        [_c("NEW", 60.0)], SLEEVE, max_positions=2,
-    )
-    assert out["entry_queue"] == ["NEW"]
-
-
-def test_evictions_false_never_outcompetes_full_book():
-    holdings = [{"symbol": f"H{i}", "conviction": 50.0, "market_value": 10_000.0}
-                for i in range(3)]
-    candidates = [{"symbol": "NEW", "conviction": 99.0}]
-    plan = plan_decisions(holdings, candidates, 100_000.0, 3, evictions=False)
-    assert plan["exits"] == []
-    assert plan["entry_queue"] == []          # book full, no eviction allowed
-
-
-def test_evictions_false_still_fills_empty_slots():
-    holdings = [{"symbol": "H0", "conviction": 50.0, "market_value": 10_000.0}]
-    candidates = [{"symbol": "NEW", "conviction": 55.0}]
-    plan = plan_decisions(holdings, candidates, 100_000.0, 3, evictions=False)
-    assert plan["entry_queue"] == ["NEW"]
-
-
 def test_trim_ceiling_none_disables_mechanical_trims():
     holdings = [{"symbol": "BIG", "conviction": 80.0, "market_value": 30_000.0}]
-    plan = plan_decisions(holdings, [], 100_000.0, 15,
-                          evictions=False, trim_ceiling=None)
+    plan = plan_decisions(holdings, 100_000.0, 15, trim_ceiling=None)
     assert plan["trims"] == []
 
 
-def test_defaults_keep_old_behavior_for_the_backtest_harness():
-    # Verify defaults maintain old behavior: evictions enabled + trims enabled
+def test_defaults_keep_old_trim_behavior():
+    # Verify defaults maintain old trim behavior (exits are sell-verdict/
+    # theme-review only now — no candidates, so no outcompete exit).
     holdings = [
         {"symbol": "WEAK", "conviction": 40.0, "market_value": 5_000.0},
         {"symbol": "BIG", "conviction": 80.0, "market_value": 30_000.0},
     ]
-    candidates = [{"symbol": "STRONG", "conviction": 50.1}]  # clears margin vs WEAK (40 + 10)
-    plan = plan_decisions(holdings, candidates, 100_000.0, 2)
-    assert [e["symbol"] for e in plan["exits"]] == ["WEAK"]   # eviction intact
+    plan = plan_decisions(holdings, 100_000.0, 2)
+    assert plan["exits"] == []
     assert plan["trims"] and plan["trims"][0]["symbol"] == "BIG" and plan["trims"][0]["reason"] == "risk_trim"
+
+
+def test_no_entry_authority_remains():
+    """Founding-premise guard: plan_decisions can exit and trim, never enter."""
+    import inspect
+    sig = inspect.signature(plan_decisions)
+    assert "candidates" not in sig.parameters and "evictions" not in sig.parameters
+    out = plan_decisions([], 1000.0, 15)
+    assert set(out) == {"exits", "trims", "notes"}

@@ -963,6 +963,7 @@ model ThemeBasket {
   lastReasonedAt DateTime?
   createdAt      DateTime  @default(now())
   retiredAt      DateTime?
+  stage          String?
   constituents   ThemeConstituent[]
 }
 
@@ -1080,4 +1081,18 @@ model SleeveState {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   mode              String   @default("live") // "live" | "shadow" — defaults live (paper-direct, 2026-07-10 ruling); the 3C funnel bootstrap seeds Sleeve A "shadow" explicitly until flipped via scripts/flip_sleeve_a_paper.py; "shadow" remains for the 3D replay engine
+}
+
+model ThesisEvidence {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+  kind          String   // weekly_memo | hypothesis | study_digest
+  themeSlug     String?
+  hypothesisKey String?
+  week          String   // ISO date of the pass's Monday
+  stage         String?
+  body          Json
+
+  @@index([themeSlug, createdAt])
+  @@index([kind, createdAt])
 }
