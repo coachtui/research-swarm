@@ -7,7 +7,9 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 
-from execution.constants import THESIS_MEMO_MODEL, THESIS_WEB_SEARCH_MAX_USES
+from execution.constants import (
+    THESIS_MEMO_MAX_TOKENS, THESIS_MEMO_MODEL, THESIS_WEB_SEARCH_MAX_USES,
+)
 from execution.reporting import write_report
 from execution.themes.discovery import _call_llm, _current_theme_state
 from execution.thesis.ledger import append_evidence, load_ledger_context
@@ -61,7 +63,8 @@ async def gather_memo_packet(
 def reason_memo(packet: Dict[str, Any], llm_call=None) -> str:
     call = llm_call or _call_llm
     return call(THESIS_MEMO_MODEL, build_weekly_memo_prompt(packet),
-                use_web_search=True, max_uses=THESIS_WEB_SEARCH_MAX_USES)
+                use_web_search=True, max_uses=THESIS_WEB_SEARCH_MAX_USES,
+                max_tokens=THESIS_MEMO_MAX_TOKENS)
 
 
 async def persist_memo(db, week: str, raw: str, memo: Dict[str, Any]) -> None:
