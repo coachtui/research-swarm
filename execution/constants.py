@@ -153,3 +153,20 @@ SCREEN_WEIGHTS = {
     "quality": 0.15,
     "hunting_ground": 0.10,
 }
+
+# ── Thesis-first entry redesign (spec 2026-07-27-thesis-first-entry-redesign) ─
+# The weekly memo is the ONLY buy authority. Stages gate entry legality;
+# crowded/priced fire reviews (existing sell authority), never auto-sell.
+THESIS_MEMO_MODEL = "claude-sonnet-5"
+THESIS_WEB_SEARCH_MAX_USES = 15     # pointed at leading indicators, not news
+THESIS_STAGES = ("pre_consensus", "catching_on", "crowded", "priced")
+ENTRY_LEGAL_STAGES = ("pre_consensus", "catching_on")
+THESIS_ROLES = ("anchor", "pure_play", "catalyst")
+# conviction 0..1 maps linearly inside the role's band (of sleeve equity);
+# every ceiling in size_thesis_entry only shrinks.
+ROLE_BANDS = {
+    "anchor": (0.08, ENTRY_WEIGHT_MAX),
+    "pure_play": (0.05, 0.09),
+    "catalyst": (ENTRY_WEIGHT_MIN, 0.05),
+}
+THESIS_LEDGER_WEEKS = 8             # memo context window into its own past
