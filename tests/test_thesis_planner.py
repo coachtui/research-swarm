@@ -53,9 +53,20 @@ def test_stage_gates_entries_but_not_reviews():
 def test_universe_and_book_gates():
     out = plan_from_memo(_memo("pre_consensus"), set(), set())      # not screened
     assert out["rejected"][0]["reason"] == "not_in_validated_universe"
+
+    # enter/add is a verb the memo sometimes gets wrong, not a decision: the
+    # book decides which it is and the planner relabels. Sizing is identical
+    # either way, and only `enter` consumes a position slot — so the relabel is
+    # what keeps the cap honest. Previously these were discarded outright,
+    # which lost GEV (anchor, 0.72) twice on 2026-07-28.
     out = plan_from_memo(_memo("pre_consensus"), {"BE"}, {"BE"})    # already held
-    assert out["entries"] == [] and out["rejected"][0]["reason"] == "enter_already_held"
+    assert out["entries"] == [] and [a["ticker"] for a in out["adds"]] == ["BE"]
+    assert out["coerced"] == [{"ticker": "BE", "slug": "dc-energy",
+                               "from": "enter", "to": "add"}]
+
     out = plan_from_memo(_memo("pre_consensus", action="add"), set(), {"BE"})
-    assert out["adds"] == [] and out["rejected"][0]["reason"] == "add_not_held"
+    assert out["adds"] == [] and [e["ticker"] for e in out["entries"]] == ["BE"]
+    assert out["coerced"][0]["to"] == "enter"
+
     out = plan_from_memo(_memo("pre_consensus", action="add"), {"BE"}, {"BE"})
-    assert [a["ticker"] for a in out["adds"]] == ["BE"]
+    assert [a["ticker"] for a in out["adds"]] == ["BE"] and out["coerced"] == []

@@ -45,6 +45,7 @@ def plan_from_memo(
     adds: List[Dict[str, Any]] = []
     exits: List[Dict[str, Any]] = []
     reviews: List[str] = []
+    coerced: List[Dict[str, str]] = []
     rejected: List[Dict[str, str]] = []
     stage_updates: Dict[str, str] = {}
 
@@ -77,14 +78,26 @@ def plan_from_memo(
                 rejected.append({"ticker": ticker, "slug": slug,
                                  "reason": "stage_not_entry_legal"})
                 continue
-            if action == "enter" and ticker in held_symbols:
-                rejected.append({"ticker": ticker, "slug": slug,
-                                 "reason": "enter_already_held"})
-                continue
-            if action == "add" and ticker not in held_symbols:
-                rejected.append({"ticker": ticker, "slug": slug,
-                                 "reason": "add_not_held"})
-                continue
+            # enter/add is a VERB the memo sometimes gets wrong, not a
+            # decision. "add" for a name we do not hold means enter; "enter"
+            # for one we already hold means add. Sizing is identical either way
+            # (size_thesis_entry takes role and conviction and never sees the
+            # action), so discarding these threw away real intent — GEV, anchor
+            # at 0.72 and the highest-conviction idea of the week, was lost
+            # twice on 2026-07-28 to add_not_held.
+            #
+            # RELABEL rather than merely permit: only `enter` consumes a
+            # SLEEVE_A_MAX_POSITIONS slot, so an unheld name let through as an
+            # `add` would open a position outside the cap.
+            #
+            # Same coercion plan_monthly_actions already applies to the
+            # identical mistake (lifecycle.py) — "a natural, if wrong, reading".
+            corrected = ("add" if ticker in held_symbols else "enter")
+            if corrected != action:
+                coerced.append({"ticker": ticker, "slug": slug,
+                                "from": action, "to": corrected})
+                action = corrected
+                a = {**a, "action": action}
             if ticker not in screened_symbols:
                 rejected.append({"ticker": ticker, "slug": slug,
                                  "reason": "not_in_validated_universe"})
@@ -93,4 +106,7 @@ def plan_from_memo(
             (entries if action == "enter" else adds).append(item)
 
     return {"entries": entries, "adds": adds, "exits": exits, "reviews": reviews,
-            "stage_updates": stage_updates, "rejected": rejected}
+            "stage_updates": stage_updates, "rejected": rejected,
+            # Verb corrections, for journalling: the memo using the wrong one
+            # is a prompt-quality signal the owner should see.
+            "coerced": coerced}
