@@ -12,6 +12,7 @@ import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
 import { MarketOutlookPanel } from '@/components/autopilot/MarketOutlookPanel'
 import { EngineJournalPanel } from '@/components/autopilot/EngineJournalPanel'
 import { WeeklyBatchPanel } from '@/components/autopilot/WeeklyBatchPanel'
+import { WeekPanel } from '@/components/autopilot/WeekPanel'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
 import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
@@ -91,6 +92,7 @@ function AdminContent() {
       <main className="container mx-auto px-4 py-8">
         <Tabs defaultValue="metrics" className="space-y-6">
           <TabsList>
+            <TabsTrigger value="week">This Week</TabsTrigger>
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
             <TabsTrigger value="revenue">Revenue</TabsTrigger>
             <TabsTrigger value="outlook">Outlook</TabsTrigger>
@@ -100,6 +102,10 @@ function AdminContent() {
             <TabsTrigger value="deployment">Deployment</TabsTrigger>
             <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="week">
+            <WeekPanel />
+          </TabsContent>
 
           <TabsContent value="metrics">
             <div className="space-y-6">

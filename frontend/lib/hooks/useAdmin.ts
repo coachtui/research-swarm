@@ -8,6 +8,7 @@ import type {
   CostSummary,
   RevenueTimeSeries,
   MarketOutlookResponse,
+  WeekResponse,
   WeeklyBatchRunSummary,
   WeeklyBatchRunDetail,
 } from '@/types/api'
@@ -141,5 +142,17 @@ export function useUpdateUserTier() {
       // Invalidate users and metrics queries
       queryClient.invalidateQueries({ queryKey: adminKeys.all })
     },
+  })
+}
+
+/**
+ * This week: live broker positions and orders joined to the memo's reasoning,
+ * plus what it decided and did NOT buy. Short staleTime — it reads the broker.
+ */
+export function useWeek(week?: string) {
+  return useQuery({
+    queryKey: [...adminKeys.all, 'week', week ?? 'latest'] as const,
+    queryFn: () => apiClient.getWeek(week),
+    staleTime: 1000 * 60, // 1 minute
   })
 }
