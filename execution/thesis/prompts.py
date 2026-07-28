@@ -41,9 +41,17 @@ _METHOD = """## Your job this week
    conviction 0.0-1.0, and entry_style ("at_market" | "on_pullback" — you
    have each candidate's ATR context and 200-week distance; extended names
    wait for the pullback).
-5. HYPOTHESES: update each next-constraint hypothesis from its indicators;
+5. RECORD WHAT YOU DECLINED. For every thesis, list in "passed_on" the
+   candidates you seriously considered this week and did NOT act on, one
+   sentence each on why they did not earn capital — already priced, weaker
+   expression than the name you chose, exposure too diluted, balance sheet
+   will not reach the catalyst. Naming what you rejected and why is as much
+   the deliverable as what you bought; a candidate that made the screen and
+   then vanished silently is the one gap the owner cannot audit. Do not list
+   names you never seriously considered.
+6. HYPOTHESES: update each next-constraint hypothesis from its indicators;
    graduate one to a theme only when they confirm.
-6. If web search was unavailable or you could not verify this week's
+7. If web search was unavailable or you could not verify this week's
    evidence, mark the affected observations "unverified" and propose NO
    pre_consensus entries — evidence-gated entries need verified evidence.
 "No action" everywhere is a perfectly good, expected answer.""".format(
@@ -105,6 +113,10 @@ Respond with ONLY a JSON object, no other text:
       "why_this_expression": "<1 sentence>",
       "conviction": <float 0.0-1.0>,
       "entry_style": "at_market" | "on_pullback"
+    }}],
+    "passed_on": [{{
+      "ticker": "<SYMBOL>",
+      "reason": "<1 sentence: why this candidate did NOT earn capital>"
     }}]
   }}],
   "hypothesis_updates": [{{

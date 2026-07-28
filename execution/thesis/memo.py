@@ -81,7 +81,11 @@ async def persist_memo(db, week: str, raw: str, memo: Dict[str, Any]) -> None:
         await append_evidence(
             db, "weekly_memo",
             {"evidence_this_week": t["evidence_this_week"],
-             "stage_rationale": t["stage_rationale"], "actions": t["actions"]},
+             "stage_rationale": t["stage_rationale"], "actions": t["actions"],
+             # Candidates seen and declined. Purely a record — nothing reads it
+             # back into a decision; it exists so "made the screen, never
+             # bought" stops being the one case with no recorded reason.
+             "passed_on": t.get("passed_on") or []},
             theme_slug=t["slug"], week=week, stage=t["stage"])
     for h in memo["hypothesis_updates"]:
         await append_evidence(
