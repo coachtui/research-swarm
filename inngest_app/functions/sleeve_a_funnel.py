@@ -50,9 +50,7 @@ from execution.constants import (
 from execution.engine.guardrails import enforce_funnel_guardrails
 from execution.funnel.conviction import compute_conviction
 from execution.funnel.decisions import plan_decisions
-from execution.funnel.entries import (
-    entry_limit_price, entry_ttl_days, extension_state, size_entry,
-)
+from execution.funnel.entries import size_entry
 from execution.funnel.research_budget import (
     _FUNNEL_MARKER, full_runs_used, persist_full, reuse_or_budget,
     run_paid_analysis,
@@ -62,7 +60,9 @@ from execution.outlook_service import get_latest_outlook
 from execution.reporting import write_report
 from execution.thesis.memo import gather_memo_packet, persist_memo, reason_memo
 from execution.thesis.parser import MemoParseError, parse_memo_response
-from execution.thesis.planner import plan_from_memo
+from execution.thesis.planner import (
+    entry_price_and_ttl, plan_from_memo, size_thesis_entry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -389,21 +389,30 @@ async def _previous_spy_close() -> float:
 
 
 async def _handshake_and_enter(
-    db, client, entry_queue: List[str],
-    candidates_by_symbol: Dict[str, Dict[str, Any]], run_date: datetime,
+    db, client, planned_entries: List[Dict[str, Any]],
+    screen_by_symbol: Dict[str, Dict[str, Any]], run_date: datetime,
     sleeve_equity: float, deployable: float, cash_available: float,
     holdings: List[Dict[str, Any]], sector_by_symbol: Dict[str, str],
     other_sleeve_sector_notional: Dict[str, float], allow_buys: bool, step,
 ) -> List[Dict[str, Any]]:
-    """Entry handshake + placement, one symbol at a time.
+    """Place the memo's planned entries — diligence is VETO-ONLY (spec §4).
 
-    For each queued entry: budget-gate (reuse fresh / paid analyze / skip),
-    re-score conviction with the FULL signals, veto on SELL, size, filter
-    through the funnel guardrails, and submit a shadow limit buy. The paid
-    analyze runs in its own memoized step (or inline when step is None) so a
-    persist retry can never re-bill. Returns the placed-order dicts.
+    Each item is a planner entry dict ({slug, stage, action, ticker, role,
+    conviction, entry_style, why_now, why_this_expression}). The memo already
+    decided WHAT to buy and HOW BIG (role band × its own 0-1 conviction); the
+    mechanics here only size, validate and place. For each entry: budget-gate
+    (reuse fresh / paid analyze / skip), VETO on a SELL/AVOID verdict or
+    unusable data, price + size from the memo, filter through the funnel
+    guardrails, and submit a shadow limit buy.
 
-    `deployable` and `cash_available` shrink as orders are placed so the queue
+    There is NO conviction recompute and NO formula gate. A missing/None/hold
+    verdict proceeds: the paid full run exists to say "no" (fraud, blow-up,
+    thesis already broken), never to out-vote the memo on what to own.
+
+    The paid analyze runs in its own memoized step (or inline when step is
+    None) so a persist retry can never re-bill. Returns the placed-order dicts.
+
+    `deployable` and `cash_available` shrink as orders are placed so the plan
     cannot collectively overspend the regime-scaled envelope or the cash ledger.
     """
     placed: List[Dict[str, Any]] = []
@@ -415,10 +424,11 @@ async def _handshake_and_enter(
     # otherwise each be checked against a fresh baseline and jointly bust 35%.
     running_holdings: List[Dict[str, Any]] = list(holdings)
 
-    for sym in entry_queue:
-        cand = candidates_by_symbol.get(sym) or {}
-        screen = cand.get("screen") or {}
-        base_input = cand.get("conv_input")
+    for entry in planned_entries:
+        sym = entry.get("ticker")
+        if not sym:
+            continue
+        screen = screen_by_symbol.get(sym) or {}
 
         # 1) Budget-aware handshake gate (reuse_or_budget is bare — wrap it).
         try:
@@ -477,44 +487,47 @@ async def _handshake_and_enter(
                            f"{sym}: no usable signals — no entry", {"symbol": sym})
             continue
 
-        # 2) Re-score conviction: overlay the FULL signals onto the light/screen
-        #    base so the small-cap haircut + fundamentals survive the recompute
-        #    (I1). SELL is a veto.
-        conv = compute_conviction(
-            _conviction_input_from_signals(signals, screen, base=base_input)
-        )
-        if conv.get("vetoed"):
+        # 2) Diligence is VETO-ONLY. A SELL/AVOID verdict kills the entry;
+        #    anything else — buy, hold, unknown, absent — proceeds. The memo is
+        #    the buy authority (spec §4); this run may only overrule it downward.
+        verdict = str((signals or {}).get("verdict") or "").strip().lower()
+        if verdict in ("sell", "avoid"):
             await _journal(db, "exit_sell_verdict", "info",
-                           f"{sym}: entry vetoed — {conv.get('veto_reason')}",
-                           {"symbol": sym, "veto_reason": conv.get("veto_reason")})
+                           f"{sym}: memo entry vetoed by diligence verdict",
+                           {"symbol": sym, "verdict": verdict,
+                            "slug": entry.get("slug")})
             continue
-        conviction = float(conv["score"])
 
-        # 3) Size the entry (extension-aware limit, conviction-scaled notional).
+        # 3) Price + size from the MEMO: entry_style sets the limit and TTL,
+        #    role × conviction sets the notional. Every ceiling only shrinks.
+        #    A malformed entry (bad role) or an incomplete screen row lands here
+        #    rather than raising out of the cron.
         try:
             price = float(screen["price"])
             sma20 = float(screen["sma20"])
             atr = float(screen["atr"])
             atr_pct = float(screen["atr_pct"])
-            ext_atr = float(screen.get("ext_atr") or 0.0)
+            entry_style = entry["entry_style"]
+            memo_conviction = float(entry["conviction"])
+            limit, ttl = entry_price_and_ttl(entry_style, price, sma20, atr)
+            notional = size_thesis_entry(
+                entry["role"], memo_conviction, sleeve_equity,
+                float(screen.get("liquidity_adv_usd") or 0.0), atr_pct,
+                deployable_remaining, cash_remaining,
+            )
         except (KeyError, TypeError, ValueError):
+            logger.exception("funnel handshake: cannot size %s", sym)
             await _journal(db, "engine_failure", "warning",
-                           f"{sym}: screen row incomplete — cannot size",
-                           {"symbol": sym})
+                           f"{sym}: screen/memo row incomplete — cannot size",
+                           {"symbol": sym, "slug": entry.get("slug")})
             continue
 
-        state = extension_state(ext_atr)
-        limit = entry_limit_price(state, price, sma20, atr)
-        ttl = entry_ttl_days(state)
-        notional = size_entry(
-            conviction, sleeve_equity,
-            float(screen.get("liquidity_adv_usd") or 0.0), atr_pct,
-            deployable_remaining, cash_remaining,
-        )
         if notional < MIN_TRADE_NOTIONAL or limit <= 0:
             await _journal(db, "entry_deferred", "info",
                            f"{sym}: below minimum notional after sizing",
-                           {"symbol": sym, "notional": notional, "conviction": conviction})
+                           {"symbol": sym, "notional": notional,
+                            "memo_conviction": memo_conviction,
+                            "role": entry.get("role"), "slug": entry.get("slug")})
             continue
 
         # 4) Guardrails (theme overlap → cross-sleeve sector → cash).
@@ -546,11 +559,24 @@ async def _handshake_and_enter(
             # reportRef so the daily fills step can copy them onto the position
             # row — reviving the dead migrated columns and giving the weekly
             # theme review persisted tags to read.
+            #
+            # MEMO provenance (spec §4): the thesis this order came from, in the
+            # memo's OWN words. This is the after-the-fact audit trail — months
+            # later "why do I own this?" is answered by why_now /
+            # why_this_expression / role / stage, not by a score.
+            # convictionScore stays the daily-fills key but now carries the
+            # memo's 0-1 conviction (the old 0-100 formula score is gone).
             journal = {
-                "symbol": sym, "conviction": conviction, "limit_price": limit,
-                "notional": final_notional, "extension_state": state,
+                "symbol": sym, "limit_price": limit,
+                "notional": final_notional,
                 "ttl_days": ttl, "guardrail_notes": notes,
-                "sourceTags": source_tags, "convictionScore": conviction,
+                "slug": entry.get("slug"), "stage": entry.get("stage"),
+                "action": entry.get("action"), "role": entry.get("role"),
+                "entry_style": entry_style,
+                "why_now": entry.get("why_now"),
+                "why_this_expression": entry.get("why_this_expression"),
+                "memo_conviction": memo_conviction,
+                "sourceTags": source_tags, "convictionScore": memo_conviction,
                 "reportRef": report_ref,
                 "dist_200wma": screen.get("dist_200wma"),
             }
@@ -1276,23 +1302,11 @@ async def _decide_and_execute(
     stored_tags = await _load_position_source_tags(db)
     active_themes = set(assembled.get("active_themes", []))
 
-    # Conviction table for holdings and candidates. Keep each candidate's conv
-    # input so the entry-handshake recompute can overlay full signals ONTO it
-    # (I1) instead of rebuilding from the signal-only shape.
-    candidates: List[Dict[str, Any]] = []
-    candidates_by_symbol: Dict[str, Dict[str, Any]] = {}
-    for sym, screen in by_symbol.items():
-        light = light_rows.get(sym)
-        meta = latest.get(sym) or {}
-        age = meta.get("report_age_days") or 0.0
-        conv_input = _conviction_input_from_light(
-            light or {}, screen, report_age_days=age, verdict=meta.get("verdict"),
-        )
-        conv = compute_conviction(conv_input)
-        entry = {"symbol": sym, "conviction": conv["score"], "vetoed": conv["vetoed"],
-                 "screen": screen, "conv_input": conv_input}
-        candidates.append(entry)
-        candidates_by_symbol[sym] = entry
+    # NOTE: there is no candidate conviction table any more. Ranking candidates
+    # by formula was the selection machinery the memo replaced (spec §2/§4) —
+    # plan_decisions gets no candidates and the handshake sizes from the memo's
+    # own role/conviction, so nothing downstream reads a candidate score. The
+    # HOLDINGS conviction table below survives: it feeds exits/trims only.
 
     sleeve_equity = sleeve_ctx["cash"] + sum(
         qty * close_by_symbol.get(sym, 0.0) for sym, qty in positions.items()
@@ -1599,10 +1613,6 @@ async def _decide_and_execute(
         open_buys = {"notional": 0.0, "symbols": set(), "count": 0}
     open_symbols = open_buys["symbols"]
     committed = open_buys["notional"]
-    candidates = [c for c in candidates if c["symbol"] not in open_symbols]
-    candidates_by_symbol = {
-        s: c for s, c in candidates_by_symbol.items() if s not in open_symbols
-    }
     max_positions = max(0, SLEEVE_A_MAX_POSITIONS - open_buys["count"])
 
     # Entries no longer come from here — the memo is the only buy authority, so
@@ -1629,6 +1639,11 @@ async def _decide_and_execute(
     # whose review was deferred on budget, gets no outcome. Wrapped so a failure
     # journals engine_failure and the pass continues.
     add_spend = 0.0
+    # Symbols whose ladder ADD actually EXECUTED (filled) this pass. A memo
+    # `add` for the same name is the same intent, so it is deduped below —
+    # keyed on a real fill, never on a mere submit, so a broker rejection
+    # (nothing bought) leaves the memo's add standing.
+    ladder_added: set = set()
     try:
         exiting = {e["symbol"] for e in decisions.get("exits", [])}
         for sym, t in triggered.items():
@@ -1691,6 +1706,8 @@ async def _decide_and_execute(
                         await _journal(db, "engine_failure", "warning",
                                        f"{sym}: DCA add submit failed", {"symbol": sym})
                         continue
+                    if float(fill.get("filled_qty") or 0.0) > 0:
+                        ladder_added.add(sym)
                     spent = (float(fill.get("filled_qty") or 0.0)
                              * float(fill.get("filled_avg_price") or 0.0))
                     deployable = max(0.0, deployable - spent)
@@ -1748,13 +1765,37 @@ async def _decide_and_execute(
 
     other_sleeve_sector_notional = await _sleeve_b_sector_notional(db)
 
-    # Task 10 rewires this to pass planned entries (the full dicts, carrying
-    # role/conviction/entry_style) instead of a bare symbol list.
-    entry_queue = ([e["ticker"] for e in memo_plan["entries"] + memo_plan["adds"]]
-                   if memo_ok else [])
+    # The memo's planned entries + adds ARE the buy authority. Same-pass
+    # collisions are dropped HERE — before the handshake, so no paid full run
+    # is burned on an order that could never be placed:
+    #   • standing open buy (I3a): a patient 14-day limit must not spawn a
+    #     SECOND order for the same name (the 2026-07-20 duplicate incident);
+    #   • ladder ADD already filled this pass: the review outcome and the memo
+    #     `add` are one intent, and the executed one wins;
+    #   • the same ticker planned twice (two theses naming it): one order.
+    planned_entries: List[Dict[str, Any]] = []
+    seen_tickers: set = set()
+    for item in (memo_plan["entries"] + memo_plan["adds"]) if memo_ok else []:
+        sym = item.get("ticker")
+        if not sym:
+            continue
+        if sym in open_symbols:
+            reason = "standing_open_order"
+        elif sym in ladder_added:
+            reason = "dca_add_same_pass"
+        elif sym in seen_tickers:
+            reason = "duplicate_planned_entry"
+        else:
+            seen_tickers.add(sym)
+            planned_entries.append(item)
+            continue
+        await _journal(db, "entry_deferred", "info",
+                       f"{sym}: memo entry deferred — {reason}",
+                       {"symbol": sym, "reason": reason,
+                        "slug": item.get("slug"), "action": item.get("action")})
 
     placed = await _handshake_and_enter(
-        db, client, entry_queue, candidates_by_symbol, run_date,
+        db, client, planned_entries, by_symbol, run_date,
         sleeve_equity, deployable, cash_available, holdings,
         screened.get("sector_by_symbol", {}), other_sleeve_sector_notional,
         sleeve_ctx.get("allow_buys", True), step,
