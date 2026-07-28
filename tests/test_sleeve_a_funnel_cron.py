@@ -33,15 +33,17 @@ def test_stale_outlook_skips_pass_and_journals():
     assert "engine_failure" in (list(args) + list(kwargs.values()))
 
 
-def test_entry_requires_full_run_and_respects_budget():
-    """The budget gate still owns the handshake: an exhausted weekly full-run
-    budget defers the memo's entry rather than placing it un-diligenced."""
+def test_unusable_screen_does_not_block_the_memo_entry():
+    """The EQIX regression (2026-07-28). A screen that could not produce an
+    answer is NO INFORMATION, not a veto — the memo is the buy authority and
+    only positive evidence may overrule it downward. Journalled loudly, but
+    the order still goes."""
     db = MagicMock()
     client = MagicMock()
     client.submit_limit_buy = AsyncMock()
-    with patch.object(saf, "reuse_or_budget",
-                      new=AsyncMock(return_value={"action": "skip",
-                                                  "reason": "budget_exhausted"})), \
+    unusable = {"disqualified": False, "reason": "unusable answer", "checked": False}
+    with patch.object(saf, "check_disqualifiers", new=AsyncMock(return_value=unusable)), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
          patch.object(saf, "write_report", new=AsyncMock()) as report:
         placed = _run(saf._handshake_and_enter(
             db, client, planned_entries=[_planned("AEHR")],
@@ -50,11 +52,11 @@ def test_entry_requires_full_run_and_respects_budget():
             cash_available=49_000.0, holdings=[], sector_by_symbol={},
             other_sleeve_sector_notional={}, allow_buys=True, step=None,
         ))
-    assert placed == []
-    client.submit_limit_buy.assert_not_called()
+    assert len(placed) == 1                      # entry survives
+    client.submit_limit_buy.assert_called_once()
     types = [c.args[0] if c.args else c.kwargs.get("report_type")
              for c in report.call_args_list]
-    assert "entry_deferred" in types
+    assert "engine_failure" in types             # ...but never silently
 
 
 def test_full_pass_places_shadow_order_with_deterministic_id():
@@ -1567,8 +1569,14 @@ def _memo_screen(sym="BE", **over):
     return row
 
 
-def _handshake(planned, screens, **over):
-    """Run the REAL _handshake_and_enter over a memo plan."""
+CLEAN_SCREEN = {"disqualified": False, "reason": "clean", "checked": True}
+
+
+def _handshake(planned, screens, screen_out=None, **over):
+    """Run the REAL _handshake_and_enter over a memo plan.
+
+    The disqualifier screen defaults to CLEAN so tests never make a live LLM
+    call; pass `screen_out` to exercise a veto or an unusable answer."""
     kwargs = {"run_date": NOW, "sleeve_equity": 100_000.0,
               "deployable": 100_000.0, "cash_available": 100_000.0,
               "holdings": [], "sector_by_symbol": {},
@@ -1577,9 +1585,11 @@ def _handshake(planned, screens, **over):
     kwargs.update(over)
     client = MagicMock()
     client.submit_limit_buy = AsyncMock()
-    placed = _run(saf._handshake_and_enter(
-        MagicMock(), client, planned_entries=planned,
-        screen_by_symbol=screens, **kwargs))
+    with patch.object(saf, "check_disqualifiers",
+                      new=AsyncMock(return_value=screen_out or CLEAN_SCREEN)):
+        placed = _run(saf._handshake_and_enter(
+            MagicMock(), client, planned_entries=planned,
+            screen_by_symbol=screens, **kwargs))
     return placed, client
 
 
@@ -1632,44 +1642,40 @@ def test_at_market_entry_prices_at_last_close_with_one_week_ttl():
     assert (kwargs["expires_at"] - NOW).days == 7
 
 
-def test_sell_verdict_is_the_only_diligence_veto():
-    """VETO-ONLY: a SELL verdict blocks the memo's entry and journals
-    exit_sell_verdict; an ABSENT verdict (hold / no opinion) does NOT — the
-    diligence run may only say no, it may never select."""
+def test_positive_disqualifier_is_the_only_veto():
+    """VETO-ONLY: a positive finding blocks the entry and journals
+    exit_sell_verdict with the reason. A clean screen does NOT — the screen may
+    only say no, it may never select."""
     sink = _ReportSink()
-    with patch.object(saf, "reuse_or_budget",
-                      new=AsyncMock(return_value={"action": "reuse",
-                                                  "signals": {"verdict": "sell"}})), \
-         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+    veto = {"disqualified": True, "reason": "Going concern warning filed 2026-07-02.",
+            "checked": True}
+    with patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
          patch.object(saf, "write_report", new=sink):
-        placed, client = _handshake([_planned()], {"BE": _memo_screen()})
+        placed, client = _handshake([_planned()], {"BE": _memo_screen()},
+                                    screen_out=veto)
     assert placed == []
     client.submit_limit_buy.assert_not_called()
     assert sink.count("exit_sell_verdict") == 1
 
-    # ...and a None verdict still places: no conviction formula stands between
-    # the memo and the order.
-    with patch.object(saf, "reuse_or_budget",
-                      new=AsyncMock(return_value={"action": "reuse",
-                                                  "signals": {"verdict": None}})), \
-         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+    # ...and a clean screen places: nothing stands between memo and order.
+    with patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
          patch.object(saf, "write_report", new=AsyncMock()):
         placed, client = _handshake([_planned()], {"BE": _memo_screen()})
     assert len(placed) == 1
     client.submit_limit_buy.assert_called_once()
 
 
-def test_avoid_verdict_also_vetoes_the_memo_entry():
+def test_clean_screen_leaves_no_veto_and_no_failure_row():
+    """checked=True + disqualified=False is the expected outcome for almost
+    every name: order placed, journal quiet."""
     sink = _ReportSink()
-    with patch.object(saf, "reuse_or_budget",
-                      new=AsyncMock(return_value={"action": "reuse",
-                                                  "signals": {"verdict": "AVOID"}})), \
-         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+    with patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
          patch.object(saf, "write_report", new=sink):
         placed, client = _handshake([_planned()], {"BE": _memo_screen()})
-    assert placed == []
-    client.submit_limit_buy.assert_not_called()
-    assert sink.count("exit_sell_verdict") == 1
+    assert len(placed) == 1
+    client.submit_limit_buy.assert_called_once()
+    assert sink.count("exit_sell_verdict") == 0
+    assert sink.count("engine_failure") == 0
 
 
 def test_role_band_sizes_the_entry_not_a_conviction_formula():
@@ -1718,9 +1724,10 @@ def _decide_with_memo(plan, screened, open_buys, sleeve_ctx, sink,
         patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})),
         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)),
         patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)),
-        patch.object(saf, "reuse_or_budget",
-                     new=gate or AsyncMock(return_value={"action": "reuse",
-                                                         "signals": {"verdict": "buy"}})),
+        patch.object(saf, "check_disqualifiers",
+                     new=gate or AsyncMock(
+                         return_value={"disqualified": False, "reason": "clean",
+                                       "checked": True})),
         patch.object(saf, "write_report", new=sink),
     ]
     if handshake is not None:
@@ -1742,9 +1749,9 @@ def test_open_symbol_memo_entry_skips_before_paid_run():
     duplicate guard would have to throw away."""
     gate_calls = []
 
-    async def counting_gate(db_, sym, run_date):
+    async def counting_gate(sym, *a, **kw):
         gate_calls.append(sym)
-        return {"action": "reuse", "signals": {"verdict": "buy"}}
+        return {"disqualified": False, "reason": "clean", "checked": True}
 
     sink = _ReportSink()
     client = MagicMock()
@@ -1780,6 +1787,8 @@ def test_memo_add_deduped_when_ladder_add_already_executed_this_pass():
     captured = {}
     real_handshake = saf._handshake_and_enter
 
+    # NOTE: this one patches reuse_or_budget — the holdings-REVIEW path, which
+    # still uses a full run. Only the ENTRY path moved to the disqualifier.
     async def counting_gate(db_, sym, run_date):
         gate_calls.append(sym)
         return {"action": "reuse", "signals": {"verdict": "buy"}}
@@ -1920,9 +1929,9 @@ def test_same_ticker_planned_twice_places_one_order():
     must not burn two paid full runs on it)."""
     gate_calls = []
 
-    async def counting_gate(db_, sym, run_date):
+    async def counting_gate(sym, *a, **kw):
         gate_calls.append(sym)
-        return {"action": "reuse", "signals": {"verdict": "buy"}}
+        return {"disqualified": False, "reason": "clean", "checked": True}
 
     sink = _ReportSink()
     client = MagicMock()
