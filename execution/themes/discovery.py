@@ -46,7 +46,10 @@ def _call_llm(model: str, prompt: str, use_web_search: bool = False, max_uses: i
     if use_web_search:
         kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search",
                             "max_uses": max_uses}]
-    response = client.messages.create(**kwargs)
+    # Streamed accumulation: the SDK refuses non-streaming calls whose
+    # max_tokens implies a >10-minute response (the 32k memo budget does).
+    with client.messages.stream(**kwargs) as stream:
+        response = stream.get_final_message()
     if getattr(response, "stop_reason", None) == "max_tokens":
         raise RuntimeError(
             "LLM response truncated at max_tokens — increase THEME reasoning budget")
