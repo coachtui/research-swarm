@@ -41,7 +41,17 @@ _METHOD = """## Your job this week
    conviction 0.0-1.0, and entry_style ("at_market" | "on_pullback" — you
    have each candidate's ATR context and 200-week distance; extended names
    wait for the pullback).
-5. ACCOUNT FOR EVERY HOLDING. Every position in the book below must appear
+5. PLAN THE POSITION, do not just pick it. Every enter/add carries a
+   position_plan: the ABSOLUTE prices you would buy at and how much at each,
+   descending, summing to 100% of full size. Not percentages off a high — a
+   trailing percentage drifts upward with the price and is not a judgement
+   about what the business is worth. Rungs below the market become RESTING
+   limit orders, so state levels you actually want filled.
+   thesis_break is mandatory and is a CONDITION, never a price: it is what
+   cancels every unfilled rung. A ladder without it averages down into a
+   broken story, so a plan missing it is discarded. Say what would make you
+   trim a winner, how much, and what would bring you back.
+6. ACCOUNT FOR EVERY HOLDING. Every position in the book below must appear
    in exactly one action this week — hold, add, review or exit. A position
    you do not mention is a position nobody is deciding about. EXIT one that
    no longer expresses a thesis you hold: the thesis was abandoned, the name
@@ -51,7 +61,7 @@ _METHOD = """## Your job this week
    states why_now: one sentence naming the thesis it used to express and what
    changed. An exit with no written reason is refused, so argue for it.
    Exiting is legal from ANY stage, unlike entering.
-6. RECORD WHAT YOU DECLINED. For every thesis, list in "passed_on" the
+7. RECORD WHAT YOU DECLINED. For every thesis, list in "passed_on" the
    candidates you seriously considered this week and did NOT act on, one
    sentence each on why they did not earn capital — already priced, weaker
    expression than the name you chose, exposure too diluted, balance sheet
@@ -59,9 +69,9 @@ _METHOD = """## Your job this week
    the deliverable as what you bought; a candidate that made the screen and
    then vanished silently is the one gap the owner cannot audit. Do not list
    names you never seriously considered.
-7. HYPOTHESES: update each next-constraint hypothesis from its indicators;
+8. HYPOTHESES: update each next-constraint hypothesis from its indicators;
    graduate one to a theme only when they confirm.
-8. If web search was unavailable or you could not verify this week's
+9. If web search was unavailable or you could not verify this week's
    evidence, mark the affected observations "unverified" and propose NO
    pre_consensus entries — evidence-gated entries need verified evidence.
 "No action" everywhere is a perfectly good, expected answer.""".format(
@@ -148,7 +158,18 @@ Respond with ONLY a JSON object, no other text:
       "why_now": "<1 falsifiable sentence>",
       "why_this_expression": "<1 sentence>",
       "conviction": <float 0.0-1.0>,
-      "entry_style": "at_market" | "on_pullback"
+      "entry_style": "at_market" | "on_pullback",
+      "position_plan": {{
+        "classification": "core" | "trade",
+        "target_weight": <fraction of sleeve equity at FULL size, e.g. 0.09>,
+        "ladder": [
+          {{"price": <ABSOLUTE price>, "size_pct": <share of full size>,
+            "why": "<why THIS level>"}}
+        ],
+        "thesis_break": "<the CONDITION that kills this, not a price>",
+        "exit_plan": {{"trim_trigger": "<condition>", "trim_fraction": <0-1>,
+                       "re_add_condition": "<when you would come back>"}}
+      }}
     }}],
     "passed_on": [{{
       "ticker": "<SYMBOL>",
