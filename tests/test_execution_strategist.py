@@ -137,14 +137,14 @@ from unittest.mock import MagicMock, patch
 from execution.strategist.agent import fetch_macro_headlines, run_strategist
 
 
-def _llm_returning(content: str) -> MagicMock:
-    llm = MagicMock()
-    llm.invoke.return_value = MagicMock(content=content)
-    return llm
+def _llm_returning(content: str):
+    """The strategist now calls the shared native-SDK _call_llm (so it can use
+    server-side web search) instead of a langchain chat model."""
+    return lambda *a, **kw: content
 
 
 def test_run_strategist_ok_path():
-    with patch("execution.strategist.agent._build_llm", return_value=_llm_returning(VALID_RESPONSE)):
+    with patch("execution.strategist.agent._call_llm", new=_llm_returning(VALID_RESPONSE)):
         result = run_strategist(PAYLOAD)
     assert result["status"] == "ok"
     assert result["regime_proposal"] == "risk_on"
@@ -152,7 +152,7 @@ def test_run_strategist_ok_path():
 
 
 def test_run_strategist_falls_back_on_unparseable_output():
-    with patch("execution.strategist.agent._build_llm", return_value=_llm_returning("markets look fine")):
+    with patch("execution.strategist.agent._call_llm", new=_llm_returning("markets look fine")):
         result = run_strategist(PAYLOAD)
     assert result["status"] == "fallback"
     assert result["regime_proposal"] == PAYLOAD["regime_mechanical"]
@@ -160,9 +160,10 @@ def test_run_strategist_falls_back_on_unparseable_output():
 
 
 def test_run_strategist_falls_back_on_llm_exception():
-    llm = MagicMock()
-    llm.invoke.side_effect = RuntimeError("api down")
-    with patch("execution.strategist.agent._build_llm", return_value=llm):
+    def llm(*a, **kw):
+        raise RuntimeError("api down")
+
+    with patch("execution.strategist.agent._call_llm", new=llm):
         result = run_strategist(PAYLOAD)
     assert result["status"] == "fallback"
     assert "api down" in result["reasoning"]
@@ -188,7 +189,7 @@ def test_fetch_macro_headlines_empty_without_api_key():
 
 
 def test_run_strategist_never_raises_on_malformed_payload():
-    with patch("execution.strategist.agent._build_llm", return_value=_llm_returning(VALID_RESPONSE)):
+    with patch("execution.strategist.agent._call_llm", new=_llm_returning(VALID_RESPONSE)):
         result = run_strategist({})  # missing every key
     assert result["status"] == "fallback"
     assert result["regime_proposal"] == "neutral"
