@@ -87,8 +87,9 @@ def test_outlook_rankings_dicts_unwrap_and_reach_consumers():
     """MarketOutlook.industryRankings/themeRankings are DICTS shaped
     {"rankings": [...], "rotations": [...], "missing": [...]} (see
     execution/indicators/industry_strength.py). Lock the shape: the unwrapped
-    rankings LIST must reach fetch_industry_holdings and the top-industries /
-    top-themes slices in _screen."""
+    rankings LIST must reach the top-industries / top-themes scoring slices
+    in _screen. (There is no industry-RS universe channel — _assemble draws
+    only on theme members, watchlist, and holdings.)"""
     import pandas as pd
 
     industry_rankings = [{"etf": "SMH", "industry": "Semiconductors", "rank_1m": 1}]
@@ -104,16 +105,13 @@ def test_outlook_rankings_dicts_unwrap_and_reach_consumers():
     assert ctx["industryRankings"] == industry_rankings
     assert ctx["themeRankings"] == theme_rankings
 
-    # _assemble: the unwrapped LIST reaches fetch_industry_holdings verbatim.
+    # _assemble: theme members reach the tagged universe (no industry channel).
     db = MagicMock()
-    fih = MagicMock(return_value={"SMH": ["AEHR"]})
     with patch("execution.funnel.universe.load_theme_members",
                new=AsyncMock(return_value={"photonics": ["AEHR"]})), \
-         patch("execution.funnel.universe.fetch_industry_holdings", new=fih), \
          patch("execution.research_feed.get_research_context",
                new=AsyncMock(return_value={"watchlist": []})):
         assembled = _run(saf._assemble(db, ctx, holdings=[]))
-    fih.assert_called_once_with(industry_rankings)
     assert "AEHR" in assembled["tagged"]
 
     # _screen: the [:5] slices over the unwrapped lists reach screen_row.
@@ -141,6 +139,29 @@ def test_outlook_rankings_dicts_unwrap_and_reach_consumers():
     assert captured["top_industries"] == ["SMH"]
     assert captured["top_themes"] == ["photonics"]
     assert [r["symbol"] for r in screened["ranked"]] == ["AEHR"]
+
+
+def test_assemble_has_no_industry_channel():
+    """Founding-premise regression guard: no formula-picked universe source.
+    The industry-ETF top-holdings channel is DELETED (spec Section 2) — a
+    symbol may enter the universe only via themes, watchlist, or being
+    held."""
+    import execution.funnel.universe as universe
+
+    assert not hasattr(universe, "fetch_industry_holdings")
+
+    db = MagicMock()
+    ctx = {"regime": "neutral", "industryRankings": [], "themeRankings": []}
+    with patch("execution.funnel.universe.load_theme_members",
+               new=AsyncMock(return_value={"photonics": ["AEHR"]})), \
+         patch("execution.research_feed.get_research_context",
+               new=AsyncMock(return_value={"watchlist": []})):
+        assembled = _run(saf._assemble(db, ctx, holdings=[]))
+
+    assert "industry_holdings" not in assembled["counts"]
+    assert "AEHR" in assembled["tagged"]
+    assert assembled["tagged"]["AEHR"]["themes"] == ["photonics"]
+    assert assembled["tagged"]["AEHR"]["industries"] == []
 
 
 def test_full_run_sell_verdict_vetoes_entry():

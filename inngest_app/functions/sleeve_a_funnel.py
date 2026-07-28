@@ -251,8 +251,8 @@ def _outlook_context(outlook: Any) -> Dict[str, Any]:
     are DICTS shaped {"rankings": [...], "rotations": [...], "missing": [...]}
     (built by industry_strength.py / theme_strength.py; themes/discovery.py
     also reads .get("rankings")) — unwrap the rankings LIST here so every
-    downstream consumer (fetch_industry_holdings, the top-industries slice)
-    sees a plain list."""
+    downstream consumer (the top-industries/top-themes scoring slices in
+    _screen) sees a plain list."""
     return {
         "regime": outlook.regime,
         "industryRankings": (outlook.industryRankings or {}).get("rankings", []),
@@ -860,23 +860,20 @@ def _register_inngest_function():
 # per-symbol analyze steps in _theme_review/_handshake_and_enter are top-level.
 
 async def _assemble(db, outlook: Dict[str, Any], holdings: List[str]) -> Dict[str, Any]:
-    """Merge theme members + watchlist + holdings + industry-ETF holdings into a
-    tagged universe. Returns JSON-safe data ONLY (no DataFrames) — OHLCV bars
-    are fetched in the screen step so nothing pandas crosses a step boundary."""
-    import asyncio  # noqa: PLC0415
-
+    """Merge theme members + watchlist + holdings into a tagged universe.
+    No formula-picked (industry-RS) channel: a symbol enters only via theme
+    membership, the watchlist, or being already held. Returns JSON-safe data
+    ONLY (no DataFrames) — OHLCV bars are fetched in the screen step so
+    nothing pandas crosses a step boundary."""
     from execution.funnel.universe import (  # noqa: PLC0415
-        fetch_industry_holdings, load_theme_members, merge_sources,
+        load_theme_members, merge_sources,
     )
     from execution.research_feed import get_research_context  # noqa: PLC0415
 
     theme_members = await load_theme_members(db)
     research = await get_research_context(db)
     watchlist = research.get("watchlist", [])
-    industry_holdings = await asyncio.to_thread(
-        fetch_industry_holdings, outlook.get("industryRankings", [])
-    )
-    tagged = merge_sources(theme_members, industry_holdings, watchlist, holdings)
+    tagged = merge_sources(theme_members, {}, watchlist, holdings)
     return {
         "tagged": tagged,
         # active theme slugs this week — a holding's stored sourcing theme is
@@ -884,7 +881,6 @@ async def _assemble(db, outlook: Dict[str, Any], holdings: List[str]) -> Dict[st
         "active_themes": list(theme_members.keys()),
         "counts": {
             "themes": len(theme_members), "watchlist": len(watchlist),
-            "industry_holdings": sum(len(v) for v in industry_holdings.values()),
             "assembled": len(tagged),
         },
     }
