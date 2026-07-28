@@ -1896,3 +1896,62 @@ export interface PortfolioIntelligence {
   positions_scored: PositionIntelligence[]
   computed_at: string
 }
+
+// ── This week: the broker joined to the memo's own reasoning ───────────────
+// The "what" (positions, orders) and the "why" (memo prose) live in different
+// tables and were never joined, so the only surface was a flat journal you had
+// to click through row by row. Positions come from the BROKER, not the engine's
+// mirror, so the page shows what is actually held.
+
+export interface WeekPosition {
+  symbol: string
+  qty: number
+  avg_price: number
+  market_value: number
+  unrealized_pl: number
+  unrealized_plpc: number
+  sleeve: string | null
+  themes: string[]
+  conviction: number | null
+  why_now: string | null
+  why_this_expression: string | null
+}
+
+export type WeekOutcome = 'not_placed' | 'exited' | 'passed_on'
+
+export interface WeekAction {
+  ticker: string
+  slug: string | null
+  outcome: WeekOutcome
+  reason: string | null
+  role: string | null
+  conviction: number | null
+}
+
+export interface WeekThesis {
+  slug: string
+  stage: string | null
+  stage_rationale: string | null
+}
+
+export interface WeekOpenOrder {
+  symbol: string
+  side: string
+  qty: number
+  limit_price: number
+  status: string
+  submitted: string
+}
+
+export interface WeekResponse {
+  week: string
+  regime: string | null
+  macro_reasoning: string | null
+  equity: number | null
+  cash: number | null
+  broker_ok: boolean
+  theses: WeekThesis[]
+  positions: WeekPosition[]
+  open_orders: WeekOpenOrder[]
+  actions: WeekAction[]
+}

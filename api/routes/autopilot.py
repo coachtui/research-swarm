@@ -6,8 +6,9 @@ row is surfaced in-app instead, admin-only for now, with tier gating to
 follow later.
 """
 
-from datetime import datetime
-from typing import Dict, List, Optional
+import logging
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -20,6 +21,7 @@ from execution.batch_run_service import (
     get_batch_run, get_latest_batch_run, list_batch_runs,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -328,3 +330,177 @@ async def resume_sleeve(sleeve: str, admin: User = Depends(require_admin)):
         raise HTTPException(status_code=404, detail="Sleeve not initialized")
     await set_sleeve_status(db, sleeve, "active", reason=None)
     return {"sleeve": sleeve, "status": "active"}
+
+
+# ── This week: one page joining the broker to the memo's reasoning ──────────
+# The "what" (positions, orders, fills) lived in EngineReport/Alpaca and the
+# "why" (memo prose) in ThesisEvidence, and nothing ever joined them — so the
+# only readable surface was a flat journal you had to click through row by row.
+# Positions come from the BROKER, not EnginePosition: the engine's book is a
+# mirror that syncs once a day, and the page should show what is actually held.
+
+class WeekPosition(BaseModel):
+    symbol: str
+    qty: float
+    avg_price: float
+    market_value: float
+    unrealized_pl: float
+    unrealized_plpc: float
+    sleeve: Optional[str] = None
+    themes: List[str] = []
+    conviction: Optional[float] = None
+    why_now: Optional[str] = None
+    why_this_expression: Optional[str] = None
+
+
+class WeekAction(BaseModel):
+    """Something the memo decided that did NOT become a held position."""
+    ticker: str
+    slug: Optional[str] = None
+    outcome: str            # placed | vetoed | rejected | blocked | passed_on
+    reason: Optional[str] = None
+    role: Optional[str] = None
+    conviction: Optional[float] = None
+
+
+class WeekThesis(BaseModel):
+    slug: str
+    stage: Optional[str] = None
+    stage_rationale: Optional[str] = None
+
+
+class WeekResponse(BaseModel):
+    week: str
+    regime: Optional[str] = None
+    macro_reasoning: Optional[str] = None
+    equity: Optional[float] = None
+    cash: Optional[float] = None
+    broker_ok: bool
+    theses: List[WeekThesis] = []
+    positions: List[WeekPosition] = []
+    open_orders: List[dict] = []
+    actions: List[WeekAction] = []
+
+
+async def _week_memo_rows(db, week: str) -> List[Any]:
+    """Latest weekly_memo ledger row per theme for `week` (a memo can run more
+    than once — manual invokes — and only the last one is the decision)."""
+    rows = await db.thesisevidence.find_many(
+        where={"kind": "weekly_memo", "week": week}, order={"createdAt": "asc"})
+    return list({r.themeSlug: r for r in rows if r.themeSlug}.values())
+
+
+def _broker_snapshot() -> Dict[str, Any]:
+    """Live positions/orders/account. Degrades to broker_ok=False — the page
+    must still render the memo's reasoning when the broker is unreachable."""
+    import os
+
+    try:
+        from execution.broker.alpaca_client import AlpacaPaperClient
+
+        key = os.getenv("ALPACA_PAPER_API_KEY", "")
+        secret = os.getenv("ALPACA_PAPER_API_SECRET", "")
+        if not key or not secret:
+            return {"ok": False}
+        c = AlpacaPaperClient(key, secret)._client
+        acct = c.get_account()
+        from alpaca.trading.enums import QueryOrderStatus
+        from alpaca.trading.requests import GetOrdersRequest
+
+        return {
+            "ok": True,
+            "equity": float(acct.equity),
+            "cash": float(acct.cash),
+            "positions": [
+                {"symbol": p.symbol, "qty": float(p.qty),
+                 "avg_price": float(p.avg_entry_price),
+                 "market_value": float(p.market_value),
+                 "unrealized_pl": float(p.unrealized_pl),
+                 "unrealized_plpc": float(p.unrealized_plpc)}
+                for p in c.get_all_positions()
+            ],
+            "orders": [
+                {"symbol": o.symbol, "side": str(o.side).split(".")[-1],
+                 "qty": float(o.qty), "limit_price": float(o.limit_price or 0.0),
+                 "status": str(o.status).split(".")[-1],
+                 "submitted": str(o.submitted_at)[:10]}
+                for o in c.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN,
+                                                       limit=100))
+            ],
+        }
+    except Exception:
+        logger.exception("week view: broker snapshot failed")
+        return {"ok": False}
+
+
+@router.get("/autopilot/week", response_model=WeekResponse)
+async def get_week(week: Optional[str] = None, admin: User = Depends(require_admin)):
+    """Everything decided this week, joined to what the broker actually holds."""
+    import asyncio
+
+    db = await get_db()
+
+    outlook = await db.marketoutlook.find_first(order={"runDate": "desc"})
+    if week is None:
+        week = (outlook.runDate.date().isoformat() if outlook
+                else date.today().isoformat())
+
+    memo_rows = await _week_memo_rows(db, week)
+    if not memo_rows:                      # fall back to the latest memo week
+        latest = await db.thesisevidence.find_first(
+            where={"kind": "weekly_memo"}, order={"createdAt": "desc"})
+        if latest:
+            week = latest.week
+            memo_rows = await _week_memo_rows(db, week)
+
+    # ticker -> the memo's own words, and the theses list
+    by_ticker: Dict[str, Dict[str, Any]] = {}
+    theses: List[WeekThesis] = []
+    actions: List[WeekAction] = []
+    for r in memo_rows:
+        body = r.body or {}
+        theses.append(WeekThesis(slug=r.themeSlug, stage=r.stage,
+                                 stage_rationale=body.get("stage_rationale")))
+        for a in body.get("actions") or []:
+            if a.get("ticker"):
+                by_ticker[a["ticker"]] = {**a, "slug": r.themeSlug}
+        for p in body.get("passed_on") or []:
+            actions.append(WeekAction(ticker=p.get("ticker", "?"), slug=r.themeSlug,
+                                      outcome="passed_on", reason=p.get("reason")))
+
+    snap = await asyncio.to_thread(_broker_snapshot)
+    held = {p["symbol"] for p in snap.get("positions", [])}
+
+    pos_rows = {p.symbol: p for p in await db.engineposition.find_many()}
+    positions: List[WeekPosition] = []
+    for p in snap.get("positions", []):
+        meta = pos_rows.get(p["symbol"])
+        memo = by_ticker.get(p["symbol"]) or {}
+        positions.append(WeekPosition(
+            **p,
+            sleeve=getattr(meta, "sleeve", None),
+            themes=((getattr(meta, "sourceTags", None) or {}).get("themes") or []),
+            conviction=getattr(meta, "convictionScore", None),
+            why_now=memo.get("why_now"),
+            why_this_expression=memo.get("why_this_expression"),
+        ))
+
+    # Decided but not held: the column that never existed anywhere.
+    for ticker, a in by_ticker.items():
+        if ticker in held or a.get("action") in ("hold", "review"):
+            continue
+        actions.append(WeekAction(
+            ticker=ticker, slug=a.get("slug"),
+            outcome="exited" if a.get("action") == "exit" else "not_placed",
+            reason=a.get("why_now"), role=a.get("role"),
+            conviction=a.get("conviction")))
+
+    return WeekResponse(
+        week=week,
+        regime=getattr(outlook, "regime", None),
+        macro_reasoning=getattr(outlook, "reasoning", None),
+        equity=snap.get("equity"), cash=snap.get("cash"),
+        broker_ok=bool(snap.get("ok")),
+        theses=theses, positions=positions,
+        open_orders=snap.get("orders", []), actions=actions,
+    )

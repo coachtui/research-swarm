@@ -21,6 +21,7 @@ import type {
   UserInfo,
   MarketOutlookResponse,
   EngineReportEntry,
+  WeekResponse,
   WeeklyBatchRunSummary,
   WeeklyBatchRunDetail,
   EntitlementsResponse,
@@ -370,6 +371,11 @@ class ApiClient {
     if (params?.limit) q.set('limit', String(params.limit))
     const suffix = q.toString() ? `?${q.toString()}` : ''
     return this.request(`/api/autopilot/reports${suffix}`)
+  }
+
+  async getWeek(week?: string): Promise<WeekResponse> {
+    const suffix = week ? `?week=${encodeURIComponent(week)}` : ''
+    return this.request(`/api/autopilot/week${suffix}`)
   }
 
   async getWeeklyBatchRuns(limit = 12): Promise<WeeklyBatchRunSummary[]> {
