@@ -1935,3 +1935,298 @@ def test_same_ticker_planned_twice_places_one_order():
     assert [p["symbol"] for p in out["placed"]] == ["DUP"]
     assert client.submit_limit_buy.await_count == 1
     assert sink.count("entry_deferred") == 1
+
+
+# ── Task 12: end-to-end pass — REAL memo pipeline + REAL handshake ──────────
+# Every test above stubs one side of the seam: either _memo_pipeline (so the
+# trigger/outcome tests can pin a plan) or _handshake_and_enter (so the memo
+# tests can read the entry queue). These three run BOTH for real inside
+# _decide_and_execute — the pass as production runs it, with only the memo's
+# two external edges faked (the theme-state gather and the PAID LLM call).
+# _decide_and_execute is the most end-to-end seam the harness has: the
+# registered Inngest function is None without the pip SDK (see
+# test_module_imports_without_inngest_sdk), and its body is a thin step
+# wrapper whose funnel_summary "memo" field is outcome["memo"] verbatim.
+
+
+class _E2EDB(_ThDB):
+    """_ThDB plus the two tables the REAL memo pipeline writes: the append-only
+    evidence ledger and the ThemeBasket stage column."""
+
+    def __init__(self, positions):
+        super().__init__(positions)
+        self.evidence = []
+        self.stage_writes = []
+        self.thesisevidence = SimpleNamespace(create=self._ev_create)
+        self.themebasket = SimpleNamespace(update=self._tb_update)
+
+    async def _ev_create(self, data):
+        body = data.get("body")
+        self.evidence.append({**data, "body": getattr(body, "data", body)})
+
+    async def _tb_update(self, where, data):
+        self.stage_writes.append((where["slug"], data["stage"]))
+
+    def ledger_slugs(self, kind="weekly_memo"):
+        return [e["themeSlug"] for e in self.evidence if e["kind"] == kind]
+
+
+class _CoidBroker(_ThBroker):
+    """Shadow-broker stand-in carrying the REAL duplicate guard: a
+    client_order_id already booked is a no-op that returns the existing order
+    (execution/broker/shadow_client.py). `attempts` records every submit the
+    cron made, `limit_buys` only the ones that actually became orders — the
+    gap between them is what a replay costs."""
+
+    def __init__(self, db):
+        super().__init__(db)
+        self.limit_buys = []
+        self.attempts = []
+        self._booked = set()
+
+    async def submit_limit_buy(self, symbol, qty, limit_price, expires_at,
+                               journal, client_order_id):
+        self.attempts.append(client_order_id)
+        if client_order_id not in self._booked:
+            self._booked.add(client_order_id)
+            self.limit_buys.append(SimpleNamespace(
+                symbol=symbol, qty=qty, limit_price=limit_price,
+                expires_at=expires_at, journal=journal,
+                client_order_id=client_order_id))
+        return BrokerOrderResult(order_id=client_order_id, symbol=symbol,
+                                 side="buy", status="shadow_open",
+                                 filled_qty=0.0, filled_avg_price=None)
+
+
+def _memo_raw(theses, hypotheses=(), market_view="mixed tape, capex intact"):
+    """The verbatim JSON body the paid memo call returns."""
+    import json
+    return json.dumps({"theses": list(theses),
+                       "hypothesis_updates": list(hypotheses),
+                       "market_view": market_view})
+
+
+def _thesis(slug, stage="catching_on", actions=(), evidence=("e",)):
+    return {"slug": slug, "stage": stage, "stage_rationale": f"{slug} rationale",
+            "evidence_this_week": list(evidence), "actions": list(actions)}
+
+
+def _enter_action(ticker, **over):
+    a = {"action": "enter", "ticker": ticker, "role": "anchor",
+         "conviction": 0.8, "entry_style": "at_market",
+         "why_now": "grid interconnect queue cleared",
+         "why_this_expression": "the only pure-play on the bottleneck"}
+    a.update(over)
+    return a
+
+
+@contextlib.contextmanager
+def _e2e_ctx(pos_rows, sink, raw, prior_stages, calls, open_buys=None):
+    """Everything _thesis_ctx patches EXCEPT the two seams under test:
+    _memo_pipeline and _handshake_and_enter run FOR REAL, and so do
+    persist_memo / append_evidence / plan_from_memo / _execute_sells. Only
+    gather_memo_packet (theme state) and reason_memo (the PAID call) are
+    faked — the memo's two external edges."""
+    import importlib
+    from execution.thesis import memo as memo_mod
+
+    mdc_mod = importlib.import_module("research_swarm.data.market_data_client")
+    mc = MagicMock()
+    mc.get_earnings_dates.return_value = None
+
+    async def fake_gather(db, outlook, book, candidates):
+        calls["gather"] += 1
+        calls.setdefault("packets", []).append(
+            {"regime": (outlook or {}).get("regime"),
+             "book": [b["symbol"] for b in book],
+             "candidates": sorted(candidates)})
+        # The pre-memo theme state: gather is what carries prior stages.
+        return {"theses": [{"slug": s, "stage": st}
+                           for s, st in prior_stages.items()]}
+
+    def fake_reason(packet):
+        calls["paid"] += 1
+        return raw
+
+    with patch.object(saf, "gather_memo_packet", new=fake_gather), \
+         patch.object(saf, "reason_memo", new=fake_reason), \
+         patch.object(memo_mod, "write_report", new=sink), \
+         patch.object(saf, "_load_latest_signals", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_open_shadow_buys",
+                      new=AsyncMock(return_value=open_buys or
+                                    {"notional": 0.0, "symbols": set(), "count": 0})), \
+         patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)), \
+         patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "run_paid_analysis", new=AsyncMock(return_value={})), \
+         patch.object(saf, "persist_full",
+                      new=AsyncMock(return_value={"status": "upgraded", "signals": {}})), \
+         patch.object(saf, "write_report", new=sink), \
+         patch("execution.sleeve_service.get_engine_positions",
+               new=AsyncMock(return_value=pos_rows)), \
+         patch("execution.sleeve_service.update_sleeve_cash", new=AsyncMock()), \
+         patch.object(mdc_mod, "MarketDataClient", return_value=mc):
+        yield
+
+
+def _e2e_pass(db, broker, screened, cash=100_000.0, positions=None, step=None):
+    return _run(saf._decide_and_execute(
+        db, broker, NOW, "neutral",
+        sleeve_ctx={"cash": cash, "positions": dict(positions or {}),
+                    "allow_buys": True, "status": "active"},
+        assembled={"active_themes": ["dc-energy", "robotics"]},
+        screened=screened, lights={"light_rows": {}, "spent": 0}, step=step,
+        outlook={"regime": "neutral"},
+    ))
+
+
+def test_full_pass_no_op_memo_places_nothing():
+    """An all-HOLD memo is a healthy week, not a failure: the pass places
+    NOTHING, journals the memo verbatim exactly once, reports memo.status "ok"
+    (not "noop" — the memo was usable, it just said hold), and still appends
+    one evidence-ledger row per thesis so next week's memo has this week's
+    reasoning to reconcile against."""
+    db = _E2EDB({})
+    broker = _CoidBroker(db)
+    sink = _ReportSink()
+    calls = {"gather": 0, "paid": 0}
+    raw = _memo_raw([
+        _thesis("dc-energy", "catching_on",
+                [{"action": "hold", "ticker": "BE"}]),
+        _thesis("robotics", "pre_consensus",
+                [{"action": "hold", "ticker": "ABB"}]),
+    ])
+    screened = {"ranked": [_memo_screen("BE"), _memo_screen("ABB")],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+
+    with _e2e_ctx([], sink, raw, {"dc-energy": "catching_on",
+                                  "robotics": "pre_consensus"}, calls):
+        out = _e2e_pass(db, broker, screened)
+
+    # (1) zero submits of any kind — a hold memo buys nothing and sells nothing.
+    assert broker.limit_buys == [] and broker.attempts == []
+    assert broker.market_buys == [] and broker.sells == []
+    assert out["placed"] == []
+    # (2) the memo is journalled verbatim exactly once.
+    assert sink.count("thesis_memo") == 1
+    # (3) the funnel_summary "memo" fragment (outcome["memo"] verbatim).
+    assert out["memo"] == {"status": "ok", "entries_planned": 0, "rejected": 0}
+    # (4) one append-only ledger row per thesis, carrying the stage it was
+    #     written at, plus the ThemeBasket stage persist.
+    assert db.ledger_slugs() == ["dc-energy", "robotics"]
+    assert [e["stage"] for e in db.evidence] == ["catching_on", "pre_consensus"]
+    assert [e["week"] for e in db.evidence] == [NOW.date().isoformat()] * 2
+    assert db.evidence[0]["body"]["stage_rationale"] == "dc-energy rationale"
+    assert sorted(db.stage_writes) == [("dc-energy", "catching_on"),
+                                       ("robotics", "pre_consensus")]
+    # ...and the paid call ran exactly once for the pass, over the screened
+    # universe (the memo may only name validated symbols).
+    assert calls["gather"] == 1 and calls["paid"] == 1
+    assert calls["packets"] == [{"regime": "neutral", "book": [],
+                                 "candidates": ["ABB", "BE"]}]
+
+
+def test_full_pass_memo_entry_places_order_with_provenance():
+    """One catching_on `enter` at_market walks the whole pass: parse → plan →
+    stage persist → dedupe → veto-only handshake → shadow limit buy at
+    round(price, 2) under the deterministic client_order_id, with the memo's
+    own words on the order. The spend envelope handed to the handshake is
+    DECREMENTED by the standing-order commitment on both legs."""
+    db = _E2EDB({})
+    broker = _CoidBroker(db)
+    sink = _ReportSink()
+    calls = {"gather": 0, "paid": 0}
+    raw = _memo_raw([_thesis("dc-energy", "catching_on", [_enter_action("BE")])])
+    # 101.237 is deliberately un-round: at_market must submit at round(p, 2).
+    screened = {"ranked": [_memo_screen("BE", price=101.237)],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    captured = {}
+    real_handshake = saf._handshake_and_enter
+
+    async def spy_handshake(*a, **k):
+        captured["planned"] = list(a[2])
+        captured["sleeve_equity"], captured["deployable"] = a[5], a[6]
+        captured["cash_available"] = a[7]
+        return await real_handshake(*a, **k)
+
+    with _e2e_ctx([], sink, raw, {"dc-energy": "catching_on"}, calls,
+                  open_buys={"notional": 20_000.0, "symbols": set(), "count": 1}), \
+         patch.object(saf, "_handshake_and_enter", new=spy_handshake):
+        out = _e2e_pass(db, broker, screened)
+
+    # (1) exactly ONE limit buy, priced at the rounded last close.
+    assert len(broker.limit_buys) == 1
+    order = broker.limit_buys[0]
+    assert order.symbol == "BE"
+    assert order.limit_price == 101.24                # round(101.237, 2)
+    assert (order.expires_at - NOW).days == 7         # at_market TTL
+    # (2) the deterministic coid — the duplicate-order guard's key.
+    assert order.client_order_id == "shadow-A-BE-20260713"
+    # (3) the memo's reasoning rides on the order, so the trade can be graded
+    #     after the fact on WHY, not on a score.
+    j = order.journal
+    assert j["why_now"] == "grid interconnect queue cleared"
+    assert j["why_this_expression"] == "the only pure-play on the bottleneck"
+    assert j["stage"] == "catching_on"
+    assert j["slug"] == "dc-energy"
+    assert j["role"] == "anchor" and j["memo_conviction"] == 0.8
+    assert j["entry_style"] == "at_market"
+    # (4) deployable/cash are DECREMENTED by the standing-order commitment:
+    #     0.9 (neutral) x 100k equity - 0 position MV - 20k committed, and the
+    #     cash ledger less the same 20k. Both, not just one.
+    assert captured["sleeve_equity"] == 100_000.0
+    assert captured["deployable"] == 70_000.0
+    assert captured["cash_available"] == 80_000.0
+    # ...and the order was sized inside that envelope (anchor band x 0.8).
+    assert out["placed"] == [{
+        "symbol": "BE", "qty": order.qty, "limit_price": 101.24,
+        "notional": 11_200.0, "client_order_id": "shadow-A-BE-20260713",
+        "expires_at": order.expires_at.isoformat()}]
+    assert out["memo"] == {"status": "ok", "entries_planned": 1, "rejected": 0}
+    assert sink.count("entry_order") == 1
+    assert sink.count("thesis_memo") == 1
+    assert db.ledger_slugs() == ["dc-energy"]
+    # The planner's dict — not a bare symbol — is what reached the handshake.
+    assert [e["ticker"] for e in captured["planned"]] == ["BE"]
+
+
+def test_replay_does_not_rebill_memo():
+    """The $3.50 guarantee under the Inngest replay model: two executions of
+    the pass sharing ONE step log bill the paid memo call exactly ONCE, persist
+    it once, and — because the handshake is NOT memoized and re-submits on the
+    replay — leave exactly ONE order standing, caught by the deterministic
+    client_order_id the broker dedupes on."""
+    db = _E2EDB({})
+    broker = _CoidBroker(db)
+    sink = _ReportSink()
+    calls = {"gather": 0, "paid": 0}
+    raw = _memo_raw([_thesis("dc-energy", "catching_on", [_enter_action("BE")])])
+    screened = {"ranked": [_memo_screen("BE", price=101.237)],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    step = _MemoStep()
+
+    with _e2e_ctx([], sink, raw, {"dc-energy": "catching_on"}, calls):
+        out1 = _e2e_pass(db, broker, screened, step=step)
+        out2 = _e2e_pass(db, broker, screened, step=step)   # the replay
+
+    # (1) billed once — and gathered once, since gather lives INSIDE the paid
+    #     step (a re-gather on replay can discard an already-paid memo).
+    assert calls["paid"] == 1
+    assert calls["gather"] == 1
+    assert set(step._log) >= {"thesis-memo", "memo-persist"}
+    # (2) persisted once: one journal row, one ledger row, one stage write.
+    assert sink.count("thesis_memo") == 1
+    assert db.ledger_slugs() == ["dc-energy"]
+    assert db.stage_writes == [("dc-energy", "catching_on")]
+    # (3) the plan is identical across the replay (parse/plan re-derived from
+    #     the memoized raw), so the replay re-submits...
+    assert out1["memo"] == out2["memo"] == {"status": "ok", "entries_planned": 1,
+                                            "rejected": 0}
+    assert broker.attempts == ["shadow-A-BE-20260713"] * 2
+    # (4) ...but ONE order exists: the coid guard collapsed the duplicate.
+    assert len(broker.limit_buys) == 1
+    assert broker.limit_buys[0].limit_price == 101.24
