@@ -539,10 +539,28 @@ async def _handshake_and_enter(
                             "role": entry.get("role"), "slug": entry.get("slug")})
             continue
 
+        # Thesis linkage. The screen row's tags say which themes this ticker is
+        # a stored CONSTITUENT of; the memo is explicitly encouraged to express
+        # a thesis through a non-obvious ticker, which is not a constituent of
+        # anything. Using the screen tags alone therefore silently severs the
+        # order from the thesis that bought it — the 35% theme aggregate cap
+        # never counts it against its own thesis, and the crowded/priced +
+        # retired-theme reviews (which match on the sourceTags PERSISTED at
+        # fill time) can never find the holding again. Union the slug in, for
+        # BOTH the guardrail order and the journal. Sorted + deduped to match
+        # how universe tagging builds the list; a NEW dict so the shared screen
+        # row in by_symbol is never mutated.
+        screen_tags = screen.get("tags") or {}
+        slug = entry.get("slug")
+        themes = list(screen_tags.get("themes") or [])
+        if slug and slug not in themes:
+            themes = sorted(set(themes) | {slug})
+        source_tags = {**screen_tags, "themes": themes}
+
         # 4) Guardrails (theme overlap → cross-sleeve sector → cash).
         order = {
             "symbol": sym, "side": "buy", "notional": notional,
-            "tags": screen.get("tags") or {}, "sector": sector_by_symbol.get(sym),
+            "tags": source_tags, "sector": sector_by_symbol.get(sym),
         }
         adjusted, notes = enforce_funnel_guardrails(
             [order], sleeve_equity, sleeve_equity, cash_remaining,
@@ -556,7 +574,6 @@ async def _handshake_and_enter(
             continue
 
         # 5) Submit the shadow limit buy (deterministic client_order_id).
-        source_tags = screen.get("tags") or {}
         report_ref = await _latest_full_signal_id(db, sym)
         sector = sector_by_symbol.get(sym)
         for o in buys:

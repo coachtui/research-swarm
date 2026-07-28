@@ -703,14 +703,20 @@ class _ReportSink:
     def __init__(self):
         self.types = []
         self.titles = []
+        self.bodies = []
 
     async def __call__(self, report_type, severity, source, title, body, db=None):
         self.types.append(report_type)
         self.titles.append(title)
+        self.bodies.append(body)
         return "rep"
 
     def count(self, t):
         return self.types.count(t)
+
+    def bodies_of(self, t):
+        """Every journalled body for one report type, in order."""
+        return [b for rt, b in zip(self.types, self.bodies) if rt == t]
 
 
 class _ThDB:
@@ -2230,3 +2236,64 @@ def test_replay_does_not_rebill_memo():
     # (4) ...but ONE order exists: the coid guard collapsed the duplicate.
     assert len(broker.limit_buys) == 1
     assert broker.limit_buys[0].limit_price == 101.24
+
+
+# ── Final-review fixes (2026-07-27): thesis linkage, the hard position cap,
+#    and the memo book's entry basis. ────────────────────────────────────────
+
+
+def test_memo_slug_joins_order_tags_and_journaled_source_tags():
+    """FINDING 1: a memo entry expressed through a ticker that is NOT a stored
+    constituent of its thesis still carries the slug.
+
+    The screen row's tags are theme-membership data; the memo deliberately
+    picks non-obvious expressions, so screen tags alone silently strip the
+    thesis. Consequences of the strip, both asserted here: the 35% theme
+    aggregate cap never counts the order against its own thesis, and the
+    persisted sourceTags the crowded/priced + retired-theme reviews read can
+    never match the holding back to the thesis that bought it."""
+    sink = _ReportSink()
+    screen = _memo_screen(tags={"themes": ["semis"], "industries": ["x"],
+                                "watchlist": False})
+    # 30k of dc-energy already held ⇒ 5k of room under the 35% cap of a 100k
+    # sleeve. The anchor band would size 11.2k, so the cap MUST bite — it can
+    # only bite if the slug reached the order's tags.
+    held = [{"symbol": "OLD", "market_value": 30_000.0,
+             "tags": {"themes": ["dc-energy"]}, "sector": None}]
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink):
+        placed, client = _handshake([_planned(slug="dc-energy")], {"BE": screen},
+                                    holdings=held)
+
+    assert len(placed) == 1
+    # (a) the guardrail saw the slug: capped 11_200 -> 5_000 by 'dc-energy'.
+    assert placed[0]["notional"] == 5_000.0
+    j = client.submit_limit_buy.call_args.kwargs["journal"]
+    assert any("dc-energy" in n for n in j["guardrail_notes"])
+    # (b) the persisted provenance carries BOTH the screen themes and the slug,
+    #     deduped and sorted the way universe tagging sorts them.
+    assert j["sourceTags"]["themes"] == ["dc-energy", "semis"]
+    # the rest of the screen tags survive untouched
+    assert j["sourceTags"]["industries"] == ["x"]
+    assert j["sourceTags"]["watchlist"] is False
+    # and the screen row itself was NOT mutated (it is shared with by_symbol).
+    assert screen["tags"]["themes"] == ["semis"]
+
+
+def test_slug_already_in_screen_tags_is_not_duplicated():
+    """The union is idempotent: the common case (ticker IS a constituent) must
+    not double-count the theme inside enforce_funnel_guardrails."""
+    sink = _ReportSink()
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink):
+        placed, client = _handshake([_planned(slug="dc-energy")],
+                                    {"BE": _memo_screen()})
+    j = client.submit_limit_buy.call_args.kwargs["journal"]
+    assert j["sourceTags"]["themes"] == ["dc-energy"]
+    assert abs(placed[0]["notional"] - 11_200.0) < 1.0     # uncapped
