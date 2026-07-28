@@ -168,6 +168,11 @@ THESIS_MEMO_MAX_TOKENS = 32768
 # fields out, so far less to drift than a full manager blob.
 DISQUALIFIER_MODEL = "claude-haiku-4-5"
 DISQUALIFIER_WEB_SEARCH_MAX_USES = 3
+# Weekly macro strategist. It was the only LLM here without search, while its
+# whole job is "what is happening in the world" — it could describe the tape
+# but never explain it.
+STRATEGIST_MODEL = "claude-sonnet-5"
+STRATEGIST_WEB_SEARCH_MAX_USES = 8
 THESIS_STAGES = ("pre_consensus", "catching_on", "crowded", "priced")
 ENTRY_LEGAL_STAGES = ("pre_consensus", "catching_on")
 THESIS_ROLES = ("anchor", "pure_play", "catalyst")

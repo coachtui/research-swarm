@@ -31,8 +31,19 @@ def build_outlook_record(
         "industryRankings": indicators.get("industry"),
         "sizeStyle": indicators.get("size_style"),
         "themeRankings": indicators.get("themes"),
-        "reasoning": strategist["reasoning"],
+        # The falsifier rides the reasoning prose: MarketOutlook has no column
+        # for it and migrations here are hand-written SQL, so folding it in is
+        # what carries it through to the memo's macro block.
+        "reasoning": _with_falsifier(strategist),
     }
+
+
+def _with_falsifier(strategist: Dict[str, Any]) -> str:
+    reasoning = strategist["reasoning"]
+    falsifier = strategist.get("falsifier")
+    if not falsifier:
+        return reasoning
+    return f"{reasoning}\n\nWhat would falsify this read: {falsifier}"
 
 
 async def store_outlook(db, record: Dict[str, Any]) -> Any:

@@ -57,7 +57,10 @@ async def gather_memo_packet(
     return {"theses": active, "hypotheses": ledger["hypotheses"],
             "study_digest": ledger["study_digest"], "book": book,
             "candidates": candidates, "crowdedness": crowd,
-            "regime": outlook.get("regime")}
+            "regime": outlook.get("regime"),
+            # The strategist's macro read — what is driving this tape, not just
+            # a one-word regime label.
+            "macro": outlook.get("macro") or {}}
 
 
 def reason_memo(packet: Dict[str, Any], llm_call=None) -> str:

@@ -216,6 +216,10 @@ def _register_inngest_function():
             payload = {k: v for k, v in indicators.items()
                        if k not in ("industry", "size_style", "themes")}
             payload["macro_headlines"] = fetch_macro_headlines()
+            # Computed rate path + curve. Handed to the model rather than asked
+            # for, so it cannot invent a policy path; degrades to None fields.
+            from execution.strategist.rates import rate_context  # noqa: PLC0415
+            payload["rates"] = rate_context()
             return run_strategist(payload)
 
         strategist = await step.run("run-strategist", strategist_step)

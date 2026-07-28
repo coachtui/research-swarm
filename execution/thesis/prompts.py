@@ -75,6 +75,29 @@ def _j(x: Any) -> str:
     return json.dumps(x, indent=1, default=str) if x else "none"
 
 
+def _macro_block(macro: Dict[str, Any], regime: Any) -> str:
+    """The strategist's reasoning, not just its label. A one-word regime tells
+    the memo nothing about WHY the tape looks like this, and the memo is the
+    thing deciding what to buy into it."""
+    reasoning = (macro or {}).get("reasoning")
+    if not reasoning:
+        return (f"- Regime: {regime}. No strategist reasoning available this "
+                f"week — do NOT infer a macro story from the regime label alone.")
+    lines = [f"- Regime: {regime}"]
+    mech = macro.get("regime_mechanical")
+    if mech and mech != regime:
+        lines.append(f"- Mechanical call was {mech}; the strategist overrode it.")
+    conv = macro.get("conviction")
+    if conv is not None:
+        lines.append(f"- Strategist conviction: {conv}")
+    lines.append(f"- Read: {reasoning}")
+    if macro.get("falsifier"):
+        lines.append(f"- What would falsify this read: {macro['falsifier']}")
+    lines.append("Weigh this against your own evidence. It informs whether to "
+                 "act NOW or wait; it never selects a name for you.")
+    return "\n".join(lines)
+
+
 def build_weekly_memo_prompt(packet: Dict[str, Any]) -> str:
     theses = packet.get("theses") or []
     theses_block = _j(theses) if theses else "no active theses"
@@ -94,6 +117,9 @@ never select. You hold until a thesis is priced or broken.
 
 ## Current book (entry basis matters: you add on thesis-confirmed weakness)
 {_j(packet.get("book"))}
+
+## This week's macro read (from the strategist — the WHY behind the regime)
+{_macro_block(packet.get("macro") or {}, packet.get("regime"))}
 
 ## Crowdedness gauges — what is already priced
 {_j(packet.get("crowdedness"))}

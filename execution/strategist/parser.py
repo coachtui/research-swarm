@@ -37,6 +37,8 @@ def parse_strategist_response(text: str) -> Dict[str, Any]:
     except (TypeError, ValueError):
         conviction = 0.5
     conviction = max(0.0, min(1.0, conviction))
+    falsifier = raw.get("falsifier")
+    falsifier = falsifier.strip() if isinstance(falsifier, str) and falsifier.strip() else None
 
     comments = raw.get("sector_comments")
     if not isinstance(comments, dict):
@@ -51,4 +53,7 @@ def parse_strategist_response(text: str) -> Dict[str, Any]:
         "sector_comments": {str(k): str(v) for k, v in comments.items()},
         "rotation_calls": [str(c) for c in calls],
         "reasoning": reasoning.strip(),
+        # What would tell the strategist it is wrong next week. Advisory —
+        # absent degrades to None rather than failing the parse.
+        "falsifier": falsifier,
     }
