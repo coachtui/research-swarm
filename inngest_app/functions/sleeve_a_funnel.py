@@ -68,9 +68,11 @@ logger = logging.getLogger(__name__)
 
 _SOURCE = "sleeve_a_funnel"
 _QUALITY_RERANK_TOP_N = 40
-# A theme the memo just moved to one of these stages puts every holding sourced
-# from it up for review (spec §7.3). A stage change NEVER trades by itself — it
-# earns the review whose verdict is the only trim/exit authority.
+# A theme the memo just MOVED into one of these stages puts every holding
+# sourced from it up for review (spec §2/§7.3) — the transition fires it, not
+# the state, so a theme that was already crowded last week stays silent. A
+# stage change NEVER trades by itself; it earns the review whose verdict is the
+# only trim/exit authority.
 _MEMO_REVIEW_STAGES = ("crowded", "priced")
 
 
@@ -259,11 +261,16 @@ def _outlook_context(outlook: Any) -> Dict[str, Any]:
     (built by industry_strength.py / theme_strength.py; themes/discovery.py
     also reads .get("rankings")) — unwrap the rankings LIST here so every
     downstream consumer (the top-industries/top-themes scoring slices in
-    _screen) sees a plain list."""
+    _screen) sees a plain list.
+
+    sectorRankings is ALREADY a plain list on the row (see schema.prisma:910)
+    and needs no unwrap; the weekly thesis memo requires sector RS as a
+    crowdedness input (spec §3.1), so it is passed straight through."""
     return {
         "regime": outlook.regime,
         "industryRankings": (outlook.industryRankings or {}).get("rankings", []),
         "themeRankings": (outlook.themeRankings or {}).get("rankings", []),
+        "sectorRankings": getattr(outlook, "sectorRankings", None) or [],
     }
 
 
@@ -1157,31 +1164,46 @@ async def _memo_pipeline(
 ) -> Optional[Dict[str, Any]]:
     """Gather → memo (PAID, own memoized step) → parse → plan → persist.
 
-    Returns the plan dict, or None for an unusable memo — the caller treats
-    None as a no-op week (spec §7): entries skipped, everything else (fills,
-    reviews already triggered, exits) proceeds. NEVER raises.
+    Returns the plan dict — `plan_from_memo`'s keys plus `prior_stages` (each
+    thesis's stage BEFORE this memo, so the caller can trigger on the stage
+    TRANSITION rather than the stage state) — or None for an unusable memo,
+    which the caller treats as a no-op week (spec §7): entries skipped,
+    everything else (fills, reviews already triggered, exits) proceeds.
+    NEVER raises.
 
-    The paid call is memoized under "thesis-memo" and persist under
-    "memo-persist" so a persist retry can never re-bill; parse and plan are
-    pure, so re-deriving them from the memoized raw on every replay yields an
-    identical plan (which is what pins stage A's trigger set across replays).
+    Gather + the paid call are memoized TOGETHER under "thesis-memo", persist
+    separately under "memo-persist", so a persist retry can never re-bill.
+    Parse and plan are pure, so re-deriving them from the memoized raw on every
+    replay yields an identical plan (which is what pins stage A's trigger set
+    across replays).
     """
     import asyncio  # noqa: PLC0415
 
-    try:
+    async def _gather_and_reason() -> Dict[str, Any]:
+        # Gather lives INSIDE the paid step, not before it. Inngest re-executes
+        # the function body at every step boundary (a dozen-plus per run given
+        # the steps that follow), so an unmemoized gather re-queries theme state
+        # every time — and a transient gather blip on a post-memo replay would
+        # discard a memo already PAID for and already persisted, returning None
+        # while the stage writes stayed committed and the summary said "noop".
+        # This closure calls no step.run of its own, so it is not a nested step.
         packet = await gather_memo_packet(db, outlook, book, candidates)
-    except Exception:  # noqa: BLE001
-        logger.exception("thesis memo: gather failed")
-        await _journal(db, "engine_failure", "critical",
-                       "memo gather failed — no-op week", {"stage": "memo-gather"})
-        return None
+        # Each thesis's stage BEFORE the memo moves it. Memoized alongside the
+        # raw so the transition set is identical on every replay.
+        prior = {t["slug"]: t.get("stage") for t in (packet.get("theses") or [])
+                 if t.get("slug")}
+        raw = await asyncio.to_thread(reason_memo, packet)
+        return {"raw": raw, "prior_stages": prior}
+
     try:
-        raw = await _run_step(step, "thesis-memo",
-                              lambda: asyncio.to_thread(reason_memo, packet))
+        memo_out = await _run_step(step, "thesis-memo", _gather_and_reason)
+        raw = memo_out["raw"]
+        prior_stages = memo_out["prior_stages"]
     except Exception:  # noqa: BLE001
-        logger.exception("thesis memo: paid call failed")
+        logger.exception("thesis memo: gather/paid call failed")
         await _journal(db, "engine_failure", "critical",
-                       "memo LLM call failed — no-op week", {"stage": "thesis-memo"})
+                       "memo gather/LLM step failed — no-op week",
+                       {"stage": "thesis-memo"})
         return None
     try:
         memo = parse_memo_response(raw)
@@ -1221,6 +1243,7 @@ async def _memo_pipeline(
         await _journal(db, "engine_failure", "warning",
                        "memo persist failed — plan still honored",
                        {"stage": "memo-persist"})
+    plan["prior_stages"] = prior_stages
     return plan
 
 
@@ -1336,14 +1359,24 @@ async def _decide_and_execute(
     }
 
     # Holdings the memo put up for review: an explicit `review` action, plus
-    # every holding whose sourcing theme just moved to crowded/priced. They
+    # every holding whose sourcing theme just MOVED to crowded/priced. They
     # join stage A's trigger map under the name "memo_stage" — earning a
     # review, never a trade.
+    #
+    # Transition, not state (spec §2). stage_updates records EVERY thesis's
+    # stage (it is the persistence contract, correctly), so filtering on "is
+    # currently crowded/priced" would re-flag every holding of a sticky crowded
+    # theme EVERY week and eat FULL_RUNS_PER_WEEK forever. Only a stage that
+    # CHANGED INTO crowded/priced this pass fires; a theme already there last
+    # week is silent. prior_stages comes from the pre-memo theme state captured
+    # inside the memoized "thesis-memo" step, so the set is replay-stable.
     memo_review_symbols: set = set()
     if memo_ok:
         memo_review_symbols |= set(memo_plan["reviews"])
+        prior_stages = memo_plan.get("prior_stages") or {}
         flagged_slugs = {slug for slug, stage in memo_plan["stage_updates"].items()
-                         if stage in _MEMO_REVIEW_STAGES}
+                         if stage in _MEMO_REVIEW_STAGES
+                         and prior_stages.get(slug) != stage}
         if flagged_slugs:
             for h in holdings:
                 themes = (h.get("source_tags") or {}).get("themes") or []

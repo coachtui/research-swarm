@@ -94,16 +94,20 @@ def test_outlook_rankings_dicts_unwrap_and_reach_consumers():
 
     industry_rankings = [{"etf": "SMH", "industry": "Semiconductors", "rank_1m": 1}]
     theme_rankings = [{"slug": "photonics", "rank_1m": 1}]
+    sector_rankings = [{"etf": "XLE", "sector": "Energy", "rank_1m": 1}]
     outlook_row = MagicMock(
         regime="neutral",
         industryRankings={"rankings": industry_rankings, "rotations": [],
                           "missing": []},
         themeRankings={"rankings": theme_rankings, "rotations": [],
                        "missing": []},
+        sectorRankings=sector_rankings,
     )
     ctx = saf._outlook_context(outlook_row)
     assert ctx["industryRankings"] == industry_rankings
     assert ctx["themeRankings"] == theme_rankings
+    # sectorRankings is a plain list on the row — passed through, not unwrapped.
+    assert ctx["sectorRankings"] == sector_rankings
 
     # _assemble: theme members reach the tagged universe (no industry channel).
     db = MagicMock()
@@ -1231,13 +1235,19 @@ def test_memo_pipeline_persists_stages_and_returns_plan(monkeypatch):
 
 def test_memo_pipeline_paid_call_is_its_own_memoized_step(monkeypatch):
     """The PAID reason_memo call lives in step "thesis-memo", persist in
-    "memo-persist" — a persist retry must never re-bill (the $3.50 lesson)."""
+    "memo-persist" — a persist retry must never re-bill (the $3.50 lesson).
+
+    Gather is memoized INSIDE the paid step too: the function body re-executes
+    at every step boundary, so an unmemoized gather re-queries theme state on
+    each replay and a transient blip there would throw away an already-paid,
+    already-persisted memo."""
     import json
 
     raw = json.dumps({"theses": [], "hypothesis_updates": [], "market_view": "v"})
-    calls = {"paid": 0}
+    calls = {"paid": 0, "gather": 0}
 
     async def fake_gather(db, outlook, book, candidates):
+        calls["gather"] += 1
         return {"theses": []}
 
     async def fake_persist(db, week, raw_memo, memo):
@@ -1257,7 +1267,90 @@ def test_memo_pipeline_paid_call_is_its_own_memoized_step(monkeypatch):
     _run(saf._memo_pipeline(_MemoDB(), {}, [], {}, NOW, step=step))   # replay
 
     assert calls["paid"] == 1                      # billed exactly once
+    assert calls["gather"] == 1                    # and gathered exactly once
     assert set(step._log) == {"thesis-memo", "memo-persist"}
+
+
+def test_memo_pipeline_gather_failure_is_noop_week(monkeypatch):
+    """A gather failure inside the paid step is a no-op week, not a raise."""
+    async def boom_gather(db, outlook, book, candidates):
+        raise RuntimeError("theme state unavailable")
+
+    monkeypatch.setattr(saf, "gather_memo_packet", boom_gather)
+    monkeypatch.setattr(saf, "reason_memo", lambda packet: "unreached")
+    journaled = []
+
+    async def fake_journal(db, rtype, sev, title, body):
+        journaled.append((rtype, sev))
+
+    monkeypatch.setattr(saf, "_journal", fake_journal)
+
+    assert _run(saf._memo_pipeline(None, {}, [], {}, NOW, step=None)) is None
+    assert ("engine_failure", "critical") in journaled
+
+
+def test_memo_pipeline_reports_prior_stage_for_transition_detection(monkeypatch):
+    """The plan carries each thesis's PRE-memo stage so the caller can trigger
+    on the transition into crowded/priced rather than on the stage state."""
+    import json
+
+    raw = json.dumps({"theses": [{"slug": "dc-energy", "stage": "crowded",
+                                  "stage_rationale": "r", "evidence_this_week": [],
+                                  "actions": []},
+                                 {"slug": "robotics", "stage": "crowded",
+                                  "stage_rationale": "r", "evidence_this_week": [],
+                                  "actions": []}],
+                      "hypothesis_updates": [], "market_view": "v"})
+
+    async def fake_gather(db, outlook, book, candidates):
+        # dc-energy was ALREADY crowded last week; robotics is moving into it.
+        return {"theses": [{"slug": "dc-energy", "stage": "crowded"},
+                           {"slug": "robotics", "stage": "catching_on"}]}
+
+    async def fake_persist(db, week, raw_memo, memo):
+        pass
+
+    monkeypatch.setattr(saf, "gather_memo_packet", fake_gather)
+    monkeypatch.setattr(saf, "reason_memo", lambda packet: raw)
+    monkeypatch.setattr(saf, "persist_memo", fake_persist)
+    monkeypatch.setattr(saf, "write_report", AsyncMock())
+
+    plan = _run(saf._memo_pipeline(_MemoDB(), {}, [], {}, NOW, step=None))
+    assert plan["prior_stages"] == {"dc-energy": "crowded",
+                                    "robotics": "catching_on"}
+    # Both stages still PERSIST — stage_updates is the persistence contract.
+    assert plan["stage_updates"] == {"dc-energy": "crowded", "robotics": "crowded"}
+
+
+def test_outlook_context_feeds_all_three_memo_crowdedness_inputs():
+    """Spec §3.1 requires theme, sector AND industry RS as crowdedness inputs.
+    _outlook_context is what the cron hands the memo, so its output must make
+    all three non-None in the packet — sector RS was silently missing."""
+    from execution.thesis import memo as memo_mod
+
+    outlook_row = MagicMock(
+        regime="neutral",
+        industryRankings={"rankings": [{"etf": "SMH"}]},
+        themeRankings={"rankings": [{"slug": "photonics"}]},
+        sectorRankings=[{"etf": "XLE", "sector": "Energy"}],
+    )
+
+    async def fake_state(db, include_retired=True):
+        return []
+
+    async def fake_ledger(db, slugs):
+        return {"by_theme": {}, "hypotheses": [], "study_digest": []}
+
+    with patch.object(memo_mod, "_current_theme_state", new=fake_state), \
+         patch.object(memo_mod, "load_ledger_context", new=fake_ledger):
+        packet = _run(memo_mod.gather_memo_packet(
+            MagicMock(), saf._outlook_context(outlook_row), [], {}))
+
+    crowd = packet["crowdedness"]
+    assert crowd["theme_rankings"] == [{"slug": "photonics"}]
+    assert crowd["industry_rankings"] == [{"etf": "SMH"}]
+    assert crowd["sector_rankings"] == [{"etf": "XLE", "sector": "Energy"}]
+    assert packet["regime"] == "neutral"
 
 
 def test_memo_reviews_and_crowded_stage_earn_reviews_not_trades():
@@ -1274,6 +1367,7 @@ def test_memo_reviews_and_crowded_stage_earn_reviews_not_trades():
     sink = _ReportSink()
     plan = {"entries": [], "adds": [], "reviews": ["MU"],
             "stage_updates": {"dc-energy": "crowded", "robotics": "catching_on"},
+            "prior_stages": {"dc-energy": "catching_on", "robotics": "catching_on"},
             "rejected": []}
 
     with _thesis_ctx([_th_pos_row("MU", 10.0, high_water=101.0),
@@ -1297,6 +1391,66 @@ def test_memo_reviews_and_crowded_stage_earn_reviews_not_trades():
     assert broker.sells == [] and broker.market_buys == []
 
 
+def test_sticky_crowded_theme_does_not_retrigger_every_week():
+    """memo_stage fires on the TRANSITION into crowded/priced, not on the
+    state. stage_updates records every thesis's stage unconditionally, so a
+    state filter would re-flag a sticky crowded theme's holdings EVERY week and
+    burn the full-run budget forever. Same plan as the test above, except
+    dc-energy was ALREADY crowded last week — THM must stay silent while the
+    explicit `review` action on MU still fires."""
+    db = _ThDB({"MU": {"qty": 10.0}, "THM": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("MU", price=100.0),
+                           _screen_row("THM", price=100.0)],
+                "close_by_symbol": {"MU": 100.0, "THM": 100.0},
+                "sector_by_symbol": {}}
+    latest = {"MU": _th_meta("buy", 2.0), "THM": _th_meta("buy", 2.0)}
+    sink = _ReportSink()
+    plan = {"entries": [], "adds": [], "reviews": ["MU"],
+            "stage_updates": {"dc-energy": "crowded"},
+            "prior_stages": {"dc-energy": "crowded"},   # unchanged since last week
+            "rejected": []}
+
+    with _thesis_ctx([_th_pos_row("MU", 10.0, high_water=101.0),
+                      _th_pos_row("THM", 10.0, high_water=101.0)],
+                     latest, {"action": "reuse", "signals": {"verdict": "buy"}},
+                     sink, memo_plan=plan), \
+         patch.object(saf, "_load_position_source_tags",
+                      new=AsyncMock(return_value={"THM": {"themes": ["dc-energy"]}})):
+        out = _run_decide(db, broker,
+                          {"cash": 500_000.0, "positions": {"MU": 10.0, "THM": 10.0},
+                           "allow_buys": True, "status": "active"}, screened)
+
+    assert sorted(out["reviews"]["triggered"]) == ["MU"]   # THM NOT re-flagged
+    assert sink.count("review_trigger") == 1
+    assert broker.sells == [] and broker.market_buys == []
+
+
+def test_stage_deepening_crowded_to_priced_does_retrigger():
+    """A theme moving crowded → priced IS a fresh move into a review stage."""
+    db = _ThDB({"THM": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    screened = {"ranked": [_screen_row("THM", price=100.0)],
+                "close_by_symbol": {"THM": 100.0}, "sector_by_symbol": {}}
+    sink = _ReportSink()
+    plan = {"entries": [], "adds": [], "reviews": [],
+            "stage_updates": {"dc-energy": "priced"},
+            "prior_stages": {"dc-energy": "crowded"},
+            "rejected": []}
+
+    with _thesis_ctx([_th_pos_row("THM", 10.0, high_water=101.0)],
+                     {"THM": _th_meta("buy", 2.0)},
+                     {"action": "reuse", "signals": {"verdict": "buy"}},
+                     sink, memo_plan=plan), \
+         patch.object(saf, "_load_position_source_tags",
+                      new=AsyncMock(return_value={"THM": {"themes": ["dc-energy"]}})):
+        out = _run_decide(db, broker,
+                          {"cash": 500_000.0, "positions": {"THM": 10.0},
+                           "allow_buys": True, "status": "active"}, screened)
+
+    assert out["reviews"]["triggered"] == {"THM": ["memo_stage"]}
+
+
 def test_noop_memo_week_places_no_entries_but_still_runs_sells():
     """memo_plan None ⇒ the entry queue is EMPTY (no buy authority this week)
     while exits/trims still execute; the summary records status "noop"."""
@@ -1306,6 +1460,8 @@ def test_noop_memo_week_places_no_entries_but_still_runs_sells():
         captured["entry_queue"] = list(entry_queue)
         return []
 
+    sells = AsyncMock(return_value={"cash": 5000.0, "proceeds": 0.0, "sold": []})
+
     with patch.object(saf, "_load_latest_signals", new=AsyncMock(return_value={})), \
          patch.object(saf, "_load_position_source_tags", new=AsyncMock(return_value={})), \
          patch.object(saf, "_open_shadow_buys",
@@ -1313,9 +1469,7 @@ def test_noop_memo_week_places_no_entries_but_still_runs_sells():
                                                   "count": 0})), \
          patch.object(saf, "_theme_review", new=AsyncMock()), \
          patch.object(saf, "_memo_pipeline", new=AsyncMock(return_value=None)), \
-         patch.object(saf, "_execute_sells",
-                      new=AsyncMock(return_value={"cash": 5000.0, "proceeds": 0.0,
-                                                  "sold": []})), \
+         patch.object(saf, "_execute_sells", new=sells), \
          patch.object(saf, "_sleeve_b_sector_notional", new=AsyncMock(return_value={})), \
          patch.object(saf, "_handshake_and_enter", new=fake_handshake), \
          patch.object(saf, "full_runs_used", new=AsyncMock(return_value=0)), \
@@ -1331,6 +1485,9 @@ def test_noop_memo_week_places_no_entries_but_still_runs_sells():
         ))
 
     assert captured["entry_queue"] == []
+    # ...but the sells stage still ran: a no-op memo blocks BUYS only.
+    assert sells.await_count == 1
+    assert out["sells"] == {"cash": 5000.0, "proceeds": 0.0, "sold": []}
     assert out["memo"] == {"status": "noop", "entries_planned": 0, "rejected": 0}
 
 
