@@ -32,20 +32,24 @@ def _anthropic_api_key() -> str:
         return os.getenv("ANTHROPIC_API_KEY", "")
 
 
-def _call_llm(model: str, prompt: str, use_web_search: bool = False, max_uses: int = 8) -> str:
+def _call_llm(model: str, prompt: str, use_web_search: bool = False, max_uses: int = 8,
+              max_tokens: int = 16384) -> str:
     """One native-SDK call. Server-side web_search when requested."""
     import anthropic  # noqa: PLC0415
 
     client = anthropic.Anthropic(api_key=_anthropic_api_key())
     kwargs: Dict[str, Any] = {
         "model": model,
-        "max_tokens": 16384,
+        "max_tokens": max_tokens,
         "messages": [{"role": "user", "content": prompt}],
     }
     if use_web_search:
         kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search",
                             "max_uses": max_uses}]
-    response = client.messages.create(**kwargs)
+    # Streamed accumulation: the SDK refuses non-streaming calls whose
+    # max_tokens implies a >10-minute response (the 32k memo budget does).
+    with client.messages.stream(**kwargs) as stream:
+        response = stream.get_final_message()
     if getattr(response, "stop_reason", None) == "max_tokens":
         raise RuntimeError(
             "LLM response truncated at max_tokens — increase THEME reasoning budget")

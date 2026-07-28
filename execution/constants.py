@@ -159,6 +159,10 @@ SCREEN_WEIGHTS = {
 # crowded/priced fire reviews (existing sell authority), never auto-sell.
 THESIS_MEMO_MODEL = "claude-sonnet-5"
 THESIS_WEB_SEARCH_MAX_USES = 15     # pointed at leading indicators, not news
+# The memo reconciles + evidences 6+ theses with search citations — it does
+# not fit the 16k budget sized for theme-discovery JSON (truncation guard
+# fired on the 2026-07-28 first live pass).
+THESIS_MEMO_MAX_TOKENS = 32768
 THESIS_STAGES = ("pre_consensus", "catching_on", "crowded", "priced")
 ENTRY_LEGAL_STAGES = ("pre_consensus", "catching_on")
 THESIS_ROLES = ("anchor", "pure_play", "catalyst")

@@ -12,15 +12,18 @@ def test_new_report_types_registered():
 def test_reason_memo_uses_sonnet_with_search(monkeypatch):
     calls = {}
 
-    def fake_call(model, prompt, use_web_search=False, max_uses=0):
+    def fake_call(model, prompt, use_web_search=False, max_uses=0, max_tokens=0):
         calls.update(model=model, search=use_web_search, max_uses=max_uses,
-                     prompt=prompt)
+                     max_tokens=max_tokens, prompt=prompt)
         return '{"theses": [], "hypothesis_updates": [], "market_view": "v"}'
 
     out = memo_mod.reason_memo({"theses": []}, llm_call=fake_call)
     assert "ONLY a JSON object" in calls["prompt"]
     assert calls["model"] == "claude-sonnet-5" and calls["search"] is True
     assert calls["max_uses"] == 15 and out.startswith("{")
+    # 16k (the theme-discovery budget) truncated the first live memo —
+    # the memo needs its own, larger output budget.
+    assert calls["max_tokens"] == 32768
 
 
 def test_persist_memo_journals_and_appends(monkeypatch):
