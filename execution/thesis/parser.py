@@ -66,6 +66,17 @@ def _action(raw: Any, slug: str, skipped: List[str]) -> Optional[Dict[str, Any]]
         if not 0.0 <= conviction <= 1.0:
             skipped.append(f"{slug}/{ticker}: conviction out of range")
             return None
+        # The ladder is an ENHANCEMENT, not a precondition. A malformed plan
+        # costs us the ladder, loudly — never the entry itself.
+        raw_plan = raw.get("position_plan")
+        if raw_plan is not None:
+            from execution.thesis.position_plan import (  # noqa: PLC0415
+                PlanError, validate_plan,
+            )
+            try:
+                out["position_plan"] = validate_plan(raw_plan)
+            except PlanError as exc:
+                skipped.append(f"{slug}/{ticker}: position_plan dropped — {exc}")
         out.update({"role": role, "entry_style": style, "why_now": why_now,
                     "why_this_expression": why_expr, "conviction": conviction})
     return out
