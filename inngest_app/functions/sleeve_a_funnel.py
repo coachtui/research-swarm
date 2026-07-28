@@ -515,6 +515,15 @@ async def _handshake_and_enter(
                 float(screen.get("liquidity_adv_usd") or 0.0), atr_pct,
                 deployable_remaining, cash_remaining,
             )
+            # An ADD buys HALF a fresh entry's notional (owner ruling, the
+            # DCA_TRANCHE_FRACTION constant). size_thesis_entry returns the
+            # full role band — correct for `enter`, but a full band stacked on
+            # top of a position already held, with no per-position ceiling,
+            # is how a name quietly doubles. The ladder ADD is already halved
+            # for exactly this reason; the memo's `add` is the same act.
+            tranche = (DCA_TRANCHE_FRACTION if entry.get("action") == "add"
+                       else 1.0)
+            notional = round(notional * tranche, 2)
         except (KeyError, TypeError, ValueError):
             logger.exception("funnel handshake: cannot size %s", sym)
             await _journal(db, "engine_failure", "warning",
@@ -573,6 +582,9 @@ async def _handshake_and_enter(
                 "slug": entry.get("slug"), "stage": entry.get("stage"),
                 "action": entry.get("action"), "role": entry.get("role"),
                 "entry_style": entry_style,
+                # 0.5 on an `add`, 1.0 on an `enter` — so the audit trail says
+                # WHY a half-band notional is half.
+                "add_tranche_fraction": tranche,
                 "why_now": entry.get("why_now"),
                 "why_this_expression": entry.get("why_this_expression"),
                 "memo_conviction": memo_conviction,
@@ -1643,6 +1655,12 @@ async def _decide_and_execute(
     # `add` for the same name is the same intent, so it is deduped below —
     # keyed on a real fill, never on a mere submit, so a broker rejection
     # (nothing bought) leaves the memo's add standing.
+    #
+    # Replay-stable BECAUSE the whole ADD decision (size → gate → submit →
+    # journal) is memoized under `dca-add-{sym}`: on a replay the step is not
+    # re-entered and this set is rebuilt from exec 1's recorded fill. Deriving
+    # it from in-pass control flow instead would let a replay's shrunken
+    # envelope silently empty it — see the comment on `_do_dca_add` below.
     ladder_added: set = set()
     try:
         exiting = {e["symbol"] for e in decisions.get("exits", [])}
@@ -1659,60 +1677,78 @@ async def _decide_and_execute(
                     and meta.get("verdict") == "buy"):
                 conv = next((h["conviction"] for h in holdings
                              if h["symbol"] == sym), 0.0)
-                notional = DCA_TRANCHE_FRACTION * size_entry(
-                    conv, sleeve_equity,
-                    float(row.get("liquidity_adv_usd") or 0.0),
-                    float(row.get("atr_pct") or 0.0), deployable, cash_available,
-                )
-                qty = int(notional // close) if close > 0 else 0
-                if qty >= 1 and qty * close >= MIN_TRADE_NOTIONAL:
-                    # Submit + journal live in ONE memoized step (I4): stage C
-                    # replays outside step.run, so an unmemoized journal would
-                    # re-write on every boundary (the coid dedup stops the
-                    # ORDER, not the journal row). The step returns the ACTUAL
-                    # fill so the ledger debits what really executed (I1): a
-                    # rejected market buy debits nothing, a partial debits only
-                    # the filled portion, a live fill debits filled_qty *
-                    # filled_avg_price (never the Friday-close hint).
-                    async def _do_dca_add(sym=sym, qty=qty, close=close,
-                                          conv=conv, trigs=t["triggers"]):
-                        res = await client.submit_market_buy(
-                            symbol=sym, qty=qty, price_hint=close,
-                            journal={"reason": "dca_add", "triggers": trigs},
-                            client_order_id=f"paper-A-{sym}-{run_date:%Y%m%d}-dca",
-                        )
-                        fq = float(res.filled_qty or 0.0)
-                        fp = res.filled_avg_price
-                        if fq > 0 and fp is not None:
-                            await _journal(db, "dca_add", "info",
-                                           f"{sym}: ladder add {fq:g} @ ~{float(fp):.2f}",
-                                           {"symbol": sym, "qty": fq,
-                                            "fill_price": float(fp),
-                                            "notional": round(fq * float(fp), 2),
-                                            "conviction": conv, "triggers": trigs})
-                        else:
-                            await _journal(db, "engine_failure", "warning",
-                                           f"{sym}: DCA add did not fill "
-                                           f"(status={res.status})",
-                                           {"symbol": sym, "qty": qty,
-                                            "status": res.status})
-                        return {"filled_qty": fq,
-                                "filled_avg_price": float(fp) if fp is not None else None}
-                    try:
-                        fill = await _run_step(
-                            step, f"dca-add-{sym.lower()}", _do_dca_add)
-                    except Exception:  # noqa: BLE001
-                        logger.exception("funnel: DCA add failed for %s", sym)
+                # Sizing, the minimum-notional gate, the submit AND the journal
+                # all live in ONE memoized step (I4 + D1). Stage C replays
+                # outside step.run, so an unmemoized journal would re-write on
+                # every boundary (the coid dedup stops the ORDER, not the
+                # journal row) — and, worse, an unmemoized GATE makes REACHING
+                # the step non-deterministic: `deployable`/`cash_available`
+                # shrink on a replay because _open_shadow_buys is a live,
+                # unmemoized broker query that counts THIS pass's own placed
+                # orders. A rung that cleared the integer-qty gate on exec 1
+                # could fall under it on exec 2, leaving `ladder_added` empty
+                # and letting the memo's `add` place a SECOND order for the
+                # same name — under a DIFFERENT coid (shadow-A-… vs
+                # paper-A-…-dca), so the broker's coid guard never sees it.
+                # That is the 2026-07-20 duplicate-order failure class. Inside
+                # the step the whole decision is memoized, so the replay
+                # returns exec 1's answer verbatim (including "skipped").
+                #
+                # The step returns the ACTUAL fill so the ledger debits what
+                # really executed (I1): a rejected market buy debits nothing, a
+                # partial debits only the filled portion, a live fill debits
+                # filled_qty * filled_avg_price (never the Friday-close hint).
+                async def _do_dca_add(sym=sym, close=close, conv=conv,
+                                      trigs=t["triggers"], row=row,
+                                      deployable=deployable,
+                                      cash_available=cash_available):
+                    notional = DCA_TRANCHE_FRACTION * size_entry(
+                        conv, sleeve_equity,
+                        float(row.get("liquidity_adv_usd") or 0.0),
+                        float(row.get("atr_pct") or 0.0),
+                        deployable, cash_available,
+                    )
+                    qty = int(notional // close) if close > 0 else 0
+                    if qty < 1 or qty * close < MIN_TRADE_NOTIONAL:
+                        return {"filled_qty": 0.0, "filled_avg_price": None,
+                                "skipped": "below_min_notional"}
+                    res = await client.submit_market_buy(
+                        symbol=sym, qty=qty, price_hint=close,
+                        journal={"reason": "dca_add", "triggers": trigs},
+                        client_order_id=f"paper-A-{sym}-{run_date:%Y%m%d}-dca",
+                    )
+                    fq = float(res.filled_qty or 0.0)
+                    fp = res.filled_avg_price
+                    if fq > 0 and fp is not None:
+                        await _journal(db, "dca_add", "info",
+                                       f"{sym}: ladder add {fq:g} @ ~{float(fp):.2f}",
+                                       {"symbol": sym, "qty": fq,
+                                        "fill_price": float(fp),
+                                        "notional": round(fq * float(fp), 2),
+                                        "conviction": conv, "triggers": trigs})
+                    else:
                         await _journal(db, "engine_failure", "warning",
-                                       f"{sym}: DCA add submit failed", {"symbol": sym})
-                        continue
-                    if float(fill.get("filled_qty") or 0.0) > 0:
-                        ladder_added.add(sym)
-                    spent = (float(fill.get("filled_qty") or 0.0)
-                             * float(fill.get("filled_avg_price") or 0.0))
-                    deployable = max(0.0, deployable - spent)
-                    cash_available = max(0.0, cash_available - spent)
-                    add_spend += spent
+                                       f"{sym}: DCA add did not fill "
+                                       f"(status={res.status})",
+                                       {"symbol": sym, "qty": qty,
+                                        "status": res.status})
+                    return {"filled_qty": fq,
+                            "filled_avg_price": float(fp) if fp is not None else None}
+                try:
+                    fill = await _run_step(
+                        step, f"dca-add-{sym.lower()}", _do_dca_add)
+                except Exception:  # noqa: BLE001
+                    logger.exception("funnel: DCA add failed for %s", sym)
+                    await _journal(db, "engine_failure", "warning",
+                                   f"{sym}: DCA add submit failed", {"symbol": sym})
+                    continue
+                if float(fill.get("filled_qty") or 0.0) > 0:
+                    ladder_added.add(sym)
+                spent = (float(fill.get("filled_qty") or 0.0)
+                         * float(fill.get("filled_avg_price") or 0.0))
+                deployable = max(0.0, deployable - spent)
+                cash_available = max(0.0, cash_available - spent)
+                add_spend += spent
             # TRIM: concentration above the review weight while the verdict is
             # still buy/hold → shave the excess to the review's stated target
             # (or TRIM_FALLBACK_TARGET). Routed through decisions["trims"].

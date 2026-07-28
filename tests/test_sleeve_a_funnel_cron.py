@@ -1763,24 +1763,41 @@ def test_memo_add_deduped_when_ladder_add_already_executed_this_pass():
     dropped with an entry_deferred journal before any paid handshake."""
     db = _ThDB({"DIPN": {"qty": 10.0}})
     broker = _ThBroker(db)
+    broker.submit_limit_buy = AsyncMock()
     sink = _ReportSink()
-    handshake = AsyncMock(return_value=[])
     plan = {"entries": [], "adds": [_planned("DIPN", action="add")],
             "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+    gate_calls = []
+    captured = {}
+    real_handshake = saf._handshake_and_enter
+
+    async def counting_gate(db_, sym, run_date):
+        gate_calls.append(sym)
+        return {"action": "reuse", "signals": {"verdict": "buy"}}
+
+    async def spy_handshake(*a, **k):
+        captured["planned"] = list(a[2])
+        return await real_handshake(*a, **k)
 
     with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
                      {"DIPN": _th_meta("buy", 2.0)},
                      {"action": "reuse", "signals": {"verdict": "buy"}},
                      sink, memo_plan=plan), \
-         patch.object(saf, "_handshake_and_enter", new=handshake):
+         patch.object(saf, "reuse_or_budget", new=counting_gate), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "_handshake_and_enter", new=spy_handshake):
         _run_decide(db, broker,
                     {"cash": 10_000.0, "positions": {"DIPN": 10.0},
                      "allow_buys": True, "status": "active"}, _rung_screened())
 
     assert [b.symbol for b in broker.market_buys] == ["DIPN"]   # ladder add ran
     assert sink.count("dca_add") == 1
-    assert handshake.await_args.args[2] == []                   # memo add dropped
+    assert captured["planned"] == []                            # memo add dropped
     assert sink.count("entry_deferred") == 1
+    # ...and dropped BEFORE any paid work: the ONE gate call is stage B's
+    # review. A memo add that reached the handshake would gate DIPN twice.
+    assert gate_calls == ["DIPN"]
+    broker.submit_limit_buy.assert_not_called()
 
 
 def test_rejected_ladder_add_leaves_the_memo_add_standing():
@@ -1804,3 +1821,117 @@ def test_rejected_ladder_add_leaves_the_memo_add_standing():
                      "allow_buys": True, "status": "active"}, _rung_screened())
 
     assert [e["ticker"] for e in handshake.await_args.args[2]] == ["DIPN"]
+
+
+def test_replay_shrunken_envelope_cannot_double_order_via_memo_add():
+    """D1 (Task 10 review): the duplicate-order failure class.
+
+    `_open_shadow_buys` is a LIVE, unmemoized broker query, so a replay's
+    deployable/cash envelope is smaller than the first execution's. When the
+    ladder ADD's integer-qty gate lived OUTSIDE the memoized step, exec 2's
+    shrunken envelope could push the halved rung under the gate — the step was
+    never reached, `ladder_added` came back empty, and the memo's `add` sailed
+    through the dedupe and placed a SECOND order for the same name under a
+    different client_order_id (shadow-A-… vs paper-A-…-dca), which the broker's
+    coid guard cannot catch.
+
+    With sizing + gate INSIDE the step, the replay returns exec 1's recorded
+    fill and the memo add is deferred.
+    """
+    db = _ThDB({"DIPN": {"qty": 10.0}})
+    broker = _ThBroker(db)
+    broker.submit_limit_buy = AsyncMock()
+    sink = _ReportSink()
+    step = _MemoStep()
+    real_handshake = saf._handshake_and_enter
+    plan = {"entries": [], "adds": [_planned("DIPN", action="add")],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+
+    def _decide():
+        return _run(saf._decide_and_execute(
+            db, broker, NOW, "neutral",
+            sleeve_ctx={"cash": 10_000.0, "positions": {"DIPN": 10.0},
+                        "allow_buys": True, "status": "active"},
+            assembled={"active_themes": []}, screened=_rung_screened(),
+            lights={"light_rows": {}, "spent": 0}, step=step))
+
+    # exec 1: nothing committed. exec 2 (the replay): the pass's own capital is
+    # now standing at the broker, so deployable collapses to ~130 — enough for
+    # the memo's fractional-qty add, NOT enough for the rung's integer-qty gate
+    # at a $75 close. `symbols` stays empty so the standing-open-order dedupe
+    # cannot mask the bug: `ladder_added` is the only thing holding the line.
+    open_buys = AsyncMock(side_effect=[
+        {"notional": 0.0, "symbols": set(), "count": 0},
+        {"notional": 8_795.0, "symbols": set(), "count": 0},
+    ])
+
+    with _thesis_ctx([_th_pos_row("DIPN", 10.0, high_water=100.0)],
+                     {"DIPN": _th_meta("buy", 2.0)},
+                     {"action": "reuse", "signals": {"verdict": "buy"}},
+                     sink, memo_plan=plan), \
+         patch.object(saf, "_open_shadow_buys", new=open_buys), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "_handshake_and_enter", new=real_handshake):
+        _decide()
+        _decide()                                    # the replay
+
+    # Exactly ONE ladder add, and NO shadow limit buy from the memo path.
+    assert [b.symbol for b in broker.market_buys] == ["DIPN"]
+    assert sink.count("dca_add") == 1
+    broker.submit_limit_buy.assert_not_called()
+    # The book moved exactly once, by exec 1's rung — the replay bought nothing.
+    assert db.positions[("A", "DIPN")]["qty"] == 10.0 + broker.market_buys[0].qty
+
+
+def test_memo_add_is_half_a_fresh_entry():
+    """Owner ruling (DCA_TRANCHE_FRACTION): an ADD buys HALF a fresh entry's
+    notional. Same role, same conviction, same screen — only `action` differs."""
+    from execution.constants import DCA_TRANCHE_FRACTION
+
+    with patch.object(saf, "reuse_or_budget",
+                      new=AsyncMock(return_value={"action": "reuse",
+                                                  "signals": {"verdict": "buy"}})), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=AsyncMock()):
+        enter, _ = _handshake([_planned("EN", action="enter")],
+                              {"EN": _memo_screen("EN")})
+        add, add_client = _handshake([_planned("AD", action="add")],
+                                     {"AD": _memo_screen("AD")})
+
+    assert enter[0]["notional"] == 11_200.0                     # full anchor band
+    assert add[0]["notional"] == enter[0]["notional"] * DCA_TRANCHE_FRACTION
+    # ...and the journal says WHY it is half.
+    j = add_client.submit_limit_buy.call_args.kwargs["journal"]
+    assert j["add_tranche_fraction"] == DCA_TRANCHE_FRACTION
+    assert j["action"] == "add"
+
+
+def test_same_ticker_planned_twice_places_one_order():
+    """Two theses naming the same expression must not stack two orders (and
+    must not burn two paid full runs on it)."""
+    gate_calls = []
+
+    async def counting_gate(db_, sym, run_date):
+        gate_calls.append(sym)
+        return {"action": "reuse", "signals": {"verdict": "buy"}}
+
+    sink = _ReportSink()
+    client = MagicMock()
+    client.submit_limit_buy = AsyncMock()
+    plan = {"entries": [_planned("DUP", slug="dc-energy"),
+                        _planned("DUP", slug="grid-buildout")],
+            "adds": [], "reviews": [], "stage_updates": {}, "rejected": [],
+            "prior_stages": {}}
+    screened = {"ranked": [_memo_screen("DUP")], "close_by_symbol": {},
+                "sector_by_symbol": {}}
+
+    out = _decide_with_memo(
+        plan, screened, {"notional": 0.0, "symbols": set(), "count": 0},
+        {"cash": 200_000.0, "positions": {}, "allow_buys": True,
+         "status": "active"},
+        sink, gate=counting_gate, client=client)
+
+    assert gate_calls == ["DUP"]                     # billed once, not twice
+    assert [p["symbol"] for p in out["placed"]] == ["DUP"]
+    assert client.submit_limit_buy.await_count == 1
+    assert sink.count("entry_deferred") == 1
