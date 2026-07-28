@@ -20,6 +20,8 @@ REPORT_TYPES = frozenset({
     "theme_review", "risk_trim", "light_run_failure",
     # Thesis-hold redesign (2026-07-10) — review triggers + ADD/REDUCE outcomes
     "dca_add", "review_trigger", "thesis_reduce",
+    # Thesis-first entry redesign (2026-07-27)
+    "thesis_memo", "study_digest", "entry_rejected",
 })
 SEVERITIES = frozenset({"info", "warning", "critical"})
 
