@@ -1642,12 +1642,19 @@ async def _decide_and_execute(
         open_buys = {"notional": 0.0, "symbols": set(), "count": 0}
     open_symbols = open_buys["symbols"]
     committed = open_buys["notional"]
+    # Slot budget for the hard position cap: SLEEVE_A_MAX_POSITIONS minus the
+    # standing (unfilled) buys, each of which is a pending position. SPENT
+    # against the memo's planned entries just before the handshake below —
+    # plan_decisions no longer reads it (see next comment).
     max_positions = max(0, SLEEVE_A_MAX_POSITIONS - open_buys["count"])
 
     # Entries no longer come from here — the memo is the only buy authority.
     # plan_decisions has no entry authority at all now (Task 11 stripped the
     # candidates/evictions/entry_queue machinery from its signature); it only
-    # ever returns exits/trims.
+    # ever returns exits/trims. `max_positions` is therefore VESTIGIAL in this
+    # call: the parameter survives only because it is positional in the pure
+    # planner's locked signature (tests/test_funnel_decisions.py) and in
+    # execution/backtest/simulator.py. The cap it names is enforced below.
     decisions = plan_decisions(holdings, sleeve_equity, max_positions,
                                trim_ceiling=None)
 
@@ -1847,6 +1854,41 @@ async def _decide_and_execute(
                        f"{sym}: memo entry deferred — {reason}",
                        {"symbol": sym, "reason": reason,
                         "slug": item.get("slug"), "action": item.get("action")})
+
+    # SLEEVE_A_MAX_POSITIONS is a HARD cap (execution/constants.py), and it is
+    # enforced HERE — this is the last place that knows how many NAMES the
+    # sleeve would end the pass holding. plan_decisions used to hold it, but it
+    # has no entry authority any more, so without this the cap was live in the
+    # constants file and dead in the engine.
+    #
+    # Only `enter` consumes a slot: an `add` deepens a name already held and
+    # opens nothing. `max_positions` already nets standing shadow buys (I3a) —
+    # an unfilled limit is a pending position and reserves its slot. When the
+    # plan overflows the room, the memo's OWN conviction picks the survivors
+    # (stable sort, so equal convictions keep the memo's ordering) and the
+    # survivors are re-emitted in the memo's original order. Everything dropped
+    # is journalled, never silently discarded: a cap that binds every week is a
+    # signal the owner needs to see.
+    new_entries = [e for e in planned_entries if e.get("action") == "enter"]
+    slots = max(0, max_positions - len(positions))
+    if len(new_entries) > slots:
+        keep = {id(e) for e in sorted(
+            new_entries, key=lambda e: float(e.get("conviction") or 0.0),
+            reverse=True)[:slots]}
+        kept: List[Dict[str, Any]] = []
+        for item in planned_entries:
+            if item.get("action") == "enter" and id(item) not in keep:
+                await _journal(
+                    db, "entry_deferred", "info",
+                    f"{item.get('ticker')}: memo entry deferred — max_positions",
+                    {"symbol": item.get("ticker"), "reason": "max_positions",
+                     "slug": item.get("slug"), "action": item.get("action"),
+                     "conviction": item.get("conviction"),
+                     "held": len(positions), "cap": SLEEVE_A_MAX_POSITIONS,
+                     "slots": slots})
+                continue
+            kept.append(item)
+        planned_entries = kept
 
     placed = await _handshake_and_enter(
         db, client, planned_entries, by_symbol, run_date,

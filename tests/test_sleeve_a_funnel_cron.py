@@ -2297,3 +2297,95 @@ def test_slug_already_in_screen_tags_is_not_duplicated():
     j = client.submit_limit_buy.call_args.kwargs["journal"]
     assert j["sourceTags"]["themes"] == ["dc-energy"]
     assert abs(placed[0]["notional"] - 11_200.0) < 1.0     # uncapped
+
+
+def test_max_positions_truncates_memo_entries_by_conviction():
+    """FINDING 2: SLEEVE_A_MAX_POSITIONS is a HARD cap (execution/constants).
+
+    plan_decisions lost entry authority, so nothing capped the memo's entries
+    any more. 14 open positions leave exactly one slot: the highest-conviction
+    `enter` takes it, the other two are journalled entry_deferred/max_positions,
+    and the `add` — which opens no new name — is untouched."""
+    from execution.constants import SLEEVE_A_MAX_POSITIONS
+
+    assert SLEEVE_A_MAX_POSITIONS == 15
+    positions = {"H%d" % i: 10.0 for i in range(14)}
+    captured = {}
+
+    async def capture_handshake(db_, client_, planned, screens, *a, **k):
+        captured["planned"] = list(planned)
+        return []
+
+    entries = [_planned("LOW", conviction=0.4), _planned("TOP", conviction=0.9),
+               _planned("MID", conviction=0.7)]
+    plan = {"entries": entries, "adds": [_planned("H0", action="add")],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+    screened = {"ranked": [_memo_screen(s) for s in
+                           ("LOW", "TOP", "MID", "H0")],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    sink = _ReportSink()
+
+    _decide_with_memo(
+        plan, screened, {"notional": 0.0, "symbols": set(), "count": 0},
+        {"cash": 500_000.0, "positions": positions, "allow_buys": True,
+         "status": "active"},
+        sink, handshake=capture_handshake)
+
+    # one slot ⇒ the top-conviction enter, plus the exempt add.
+    assert [e["ticker"] for e in captured["planned"]] == ["TOP", "H0"]
+    deferred = [b for b in sink.bodies_of("entry_deferred")
+                if b.get("reason") == "max_positions"]
+    assert sorted(b["symbol"] for b in deferred) == ["LOW", "MID"]
+    assert all(b.get("slug") == "dc-energy" for b in deferred)
+
+
+def test_standing_open_buys_reserve_slots_against_the_position_cap():
+    """I3a is preserved: an unfilled shadow buy is a pending position, so it
+    eats a slot. 14 held + 1 standing order ⇒ NO new name may enter."""
+    positions = {"H%d" % i: 10.0 for i in range(14)}
+    captured = {}
+
+    async def capture_handshake(db_, client_, planned, screens, *a, **k):
+        captured["planned"] = list(planned)
+        return []
+
+    plan = {"entries": [_planned("TOP", conviction=0.9)], "adds": [],
+            "reviews": [], "stage_updates": {}, "rejected": [], "prior_stages": {}}
+    screened = {"ranked": [_memo_screen("TOP")],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    sink = _ReportSink()
+
+    _decide_with_memo(
+        plan, screened, {"notional": 1000.0, "symbols": {"PENDING"}, "count": 1},
+        {"cash": 500_000.0, "positions": positions, "allow_buys": True,
+         "status": "active"},
+        sink, handshake=capture_handshake)
+
+    assert captured["planned"] == []
+    assert [b["reason"] for b in sink.bodies_of("entry_deferred")] == ["max_positions"]
+
+
+def test_room_under_the_cap_lets_every_entry_through():
+    """The cap only ever truncates — with room to spare nothing is deferred."""
+    captured = {}
+
+    async def capture_handshake(db_, client_, planned, screens, *a, **k):
+        captured["planned"] = list(planned)
+        return []
+
+    plan = {"entries": [_planned("A1", conviction=0.4), _planned("A2", conviction=0.9)],
+            "adds": [], "reviews": [], "stage_updates": {}, "rejected": [],
+            "prior_stages": {}}
+    screened = {"ranked": [_memo_screen("A1"), _memo_screen("A2")],
+                "close_by_symbol": {}, "sector_by_symbol": {}}
+    sink = _ReportSink()
+
+    _decide_with_memo(
+        plan, screened, {"notional": 0.0, "symbols": set(), "count": 0},
+        {"cash": 500_000.0, "positions": {}, "allow_buys": True,
+         "status": "active"},
+        sink, handshake=capture_handshake)
+
+    # untouched, in the memo's own order (no reshuffle when nothing is dropped)
+    assert [e["ticker"] for e in captured["planned"]] == ["A1", "A2"]
+    assert sink.count("entry_deferred") == 0
