@@ -1627,11 +1627,12 @@ async def _decide_and_execute(
     committed = open_buys["notional"]
     max_positions = max(0, SLEEVE_A_MAX_POSITIONS - open_buys["count"])
 
-    # Entries no longer come from here — the memo is the only buy authority, so
-    # plan_decisions is called with NO candidates and its entry_queue comes back
-    # empty. Its exits/trims survive untouched (Task 11 strips the signature).
-    decisions = plan_decisions(holdings, [], sleeve_equity, max_positions,
-                               evictions=False, trim_ceiling=None)
+    # Entries no longer come from here — the memo is the only buy authority.
+    # plan_decisions has no entry authority at all now (Task 11 stripped the
+    # candidates/evictions/entry_queue machinery from its signature); it only
+    # ever returns exits/trims.
+    decisions = plan_decisions(holdings, sleeve_equity, max_positions,
+                               trim_ceiling=None)
 
     # Spend envelopes, computed BEFORE stage C so a same-pass ADD draws from
     # them and shrinks what new entries may spend. Deployable = regime fraction

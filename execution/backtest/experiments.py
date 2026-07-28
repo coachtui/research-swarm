@@ -12,7 +12,11 @@ from execution.backtest.sensitivity import _row, patched
 from execution.backtest.simulator import BacktestConfig, BacktestResult, run_backtest
 
 ENTRIES = "execution.funnel.entries"
-DECISIONS = "execution.funnel.decisions"
+# Task 11 moved the challenger/outcompete logic (and its OUTCOMPETE_MARGIN
+# constant) out of execution.funnel.decisions and into the backtest
+# simulator's local, deprecated entry stand-in — this now patches the
+# module that actually reads the constant at call time.
+DECISIONS = "execution.backtest.simulator"
 
 VARIANTS: List[dict] = [
     {"name": "requote", "cfg": {"requote_weekly": True},

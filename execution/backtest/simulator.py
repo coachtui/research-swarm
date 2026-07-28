@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from execution.constants import (
-    BENCHMARK, EQUAL_WEIGHT, MIN_TRADE_NOTIONAL, REGIME_INVESTED_FRACTION,
-    SECTOR_ETFS, SLEEVE_A_MAX_POSITIONS, VIX,
+    BENCHMARK, EQUAL_WEIGHT, MIN_TRADE_NOTIONAL, OUTCOMPETE_MARGIN,
+    REGIME_INVESTED_FRACTION, SECTOR_ETFS, SLEEVE_A_MAX_POSITIONS, VIX,
 )
 from execution.funnel.decisions import plan_decisions
 from execution.funnel.entries import (
@@ -75,6 +75,42 @@ def _record_miss(missed: Dict[str, dict], order: LimitOrder) -> None:
     m = missed.setdefault(order.symbol, {"count": 0, "conviction": 0.0})
     m["count"] += 1
     m["conviction"] = order.conviction
+
+
+def _challenger_entry_queue(
+    holdings: List[Dict[str, Any]], candidates: List[Dict[str, Any]],
+    exits: List[Dict[str, str]], max_positions: int,
+) -> List[str]:
+    """DEPRECATED entry path — kept ONLY so the backtest harness still queues
+    candidate entries after Task 11 removed challenger/outcompete selection
+    from plan_decisions (spec 2026-07-27, thesis-first entry redesign). The
+    paper account is now the test bed and simulator behavioral fidelity for
+    ENTRIES is explicitly out of scope (spec §1) — this reproduces the old
+    outcompete/hysteresis loop inline rather than rebuilding entry authority
+    in the production planner. Mutates `exits` in place with any outcompete
+    evictions, mirroring the pre-Task-11 ordering."""
+    exited = {e["symbol"] for e in exits}
+    survivors = [h for h in holdings if h["symbol"] not in exited]
+    challengers = sorted(
+        (c for c in candidates if not c.get("vetoed")),
+        key=lambda c: c["conviction"], reverse=True,
+    )
+    entry_queue: List[str] = []
+    book = sorted(survivors, key=lambda h: h["conviction"])
+    for ch in challengers:
+        if len(book) + len(entry_queue) < max_positions:
+            entry_queue.append(ch["symbol"])
+            continue
+        if not book:
+            break
+        weakest = book[0]
+        if ch["conviction"] >= weakest["conviction"] + OUTCOMPETE_MARGIN:
+            exits.append({"symbol": weakest["symbol"], "reason": "outcompeted"})
+            book.pop(0)
+            entry_queue.append(ch["symbol"])
+        else:
+            break  # ordered by conviction: nobody weaker can clear it either
+    return entry_queue
 
 
 def _week_starts(cal: pd.DatetimeIndex) -> set:
@@ -239,8 +275,12 @@ def _weekly(today, ohlcv, stocks, spy, ledger, open_orders, pending_sells,
     held = set(ledger.positions)
     candidates = [{"symbol": r["symbol"], "conviction": _conviction(r, cfg)}
                   for r in ranked[:CANDIDATE_POOL] if r["symbol"] not in held]
-    plan = plan_decisions(holdings, candidates, sleeve_equity,
-                          SLEEVE_A_MAX_POSITIONS)
+    plan = plan_decisions(holdings, sleeve_equity, SLEEVE_A_MAX_POSITIONS)
+    # plan_decisions lost entry authority in Task 11; the challenger/outcompete
+    # selection below is the harness's own deprecated stand-in (see
+    # _challenger_entry_queue) — not production logic.
+    plan["entry_queue"] = _challenger_entry_queue(
+        holdings, candidates, plan["exits"], SLEEVE_A_MAX_POSITIONS)
 
     queued = {s["symbol"] for s in pending_sells}
     for e in plan["exits"]:

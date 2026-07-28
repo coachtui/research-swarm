@@ -14,7 +14,10 @@ SWEEP_SPECS: List[dict] = [
      "attr": "TRAILING_STOP_ATR_MULT", "values": [2.0, 3.0]},
     {"name": "extension_limit", "module": "execution.funnel.entries",
      "attr": "EXTENSION_ATR_LIMIT", "values": [1.2, 1.8]},
-    {"name": "outcompete_margin", "module": "execution.funnel.decisions",
+    # Task 11: challenger/outcompete logic (and OUTCOMPETE_MARGIN) moved out
+    # of execution.funnel.decisions into the backtest simulator's local,
+    # deprecated entry stand-in.
+    {"name": "outcompete_margin", "module": "execution.backtest.simulator",
      "attr": "OUTCOMPETE_MARGIN", "values": [8.0, 12.0]},
     {"name": "entry_band", "module": "execution.funnel.entries",
      "attr": ("ENTRY_WEIGHT_MIN", "ENTRY_WEIGHT_MAX"),

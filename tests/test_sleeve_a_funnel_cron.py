@@ -274,10 +274,10 @@ def test_c2_holding_verdict_and_staleness_reach_conviction():
 
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
+    def capture_plan(holdings, equity, maxpos, **kwargs):
         captured["holdings"] = holdings
         captured["max_positions"] = maxpos
-        return real_plan(holdings, candidates, equity, maxpos)
+        return real_plan(holdings, equity, maxpos)
 
     screened = {
         "ranked": [_screen_row("OLD"), _screen_row("STALE")],
@@ -423,9 +423,9 @@ def test_i3_standing_order_excluded_and_counts_to_cap():
 
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
+    def capture_plan(holdings, equity, maxpos, **kwargs):
         captured["max_positions"] = maxpos
-        return {"exits": [], "trims": [], "entry_queue": [], "notes": []}
+        return {"exits": [], "trims": [], "notes": []}
 
     # Task 10: entries come from the MEMO, so the standing-order exclusion is
     # asserted where it now bites — the planned-entry list handed to the entry
@@ -573,9 +573,9 @@ def test_theme_review_skipped_when_theme_membership_unavailable():
 
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
+    def capture_plan(holdings, equity, maxpos, **kwargs):
         captured["holdings"] = holdings
-        return {"exits": [], "trims": [], "entry_queue": [], "notes": []}
+        return {"exits": [], "trims": [], "notes": []}
 
     screened = {"ranked": [_screen_row("THM")],
                 "close_by_symbol": {"THM": 20.0}, "sector_by_symbol": {}}
@@ -1485,9 +1485,8 @@ def test_memo_entries_and_adds_become_the_entry_queue():
     entries + adds ARE the entry queue, and plan_decisions gets no candidates."""
     captured = {}
 
-    def capture_plan(holdings, candidates, equity, maxpos, **kwargs):
-        captured["plan_candidates"] = [c["symbol"] for c in candidates]
-        return {"exits": [], "trims": [], "entry_queue": ["SCREENPICK"], "notes": []}
+    def capture_plan(holdings, equity, maxpos, **kwargs):
+        return {"exits": [], "trims": [], "notes": []}
 
     async def fake_handshake(db_, client, planned, screens, *a, **k):
         # Task 10: the handshake receives the planner's entry DICTS (carrying
@@ -1525,8 +1524,9 @@ def test_memo_entries_and_adds_become_the_entry_queue():
             lights={"light_rows": {}, "spent": 0}, step=None,
         ))
 
-    # plan_decisions keeps its exits/trims job but has NO entry authority.
-    assert captured["plan_candidates"] == []
+    # plan_decisions keeps its exits/trims job but has NO entry authority —
+    # its signature no longer even accepts candidates (Task 11 founding-
+    # premise guard, see tests/test_funnel_decisions.py).
     assert captured["entry_queue"] == ["NEW", "HELD"]
     assert "SCREENPICK" not in captured["entry_queue"]
     # ...and the memo's own reasoning rides along to the handshake.
