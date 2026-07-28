@@ -43,6 +43,7 @@ def plan_from_memo(
 ) -> Dict[str, Any]:
     entries: List[Dict[str, Any]] = []
     adds: List[Dict[str, Any]] = []
+    exits: List[Dict[str, Any]] = []
     reviews: List[str] = []
     rejected: List[Dict[str, str]] = []
     stage_updates: Dict[str, str] = {}
@@ -57,6 +58,19 @@ def plan_from_memo(
             if action == "review":
                 if ticker in held_symbols and ticker not in reviews:
                     reviews.append(ticker)
+                continue
+            if action == "exit":
+                # Deliberately NOT gated on stage or the screened universe:
+                # a crowded/priced thesis is exactly where an exit belongs, and
+                # a name that has fallen out of the screen must still be
+                # sellable. Only "do we actually hold it" applies.
+                if ticker not in held_symbols:
+                    rejected.append({"ticker": ticker, "slug": slug,
+                                     "reason": "exit_not_held"})
+                    continue
+                if ticker not in {e["ticker"] for e in exits}:
+                    exits.append({"ticker": ticker, "slug": slug,
+                                  "reason": a["why_now"]})
                 continue
             # enter/add
             if stage not in ENTRY_LEGAL_STAGES:
@@ -78,5 +92,5 @@ def plan_from_memo(
             item = {"slug": slug, "stage": stage, **a}
             (entries if action == "enter" else adds).append(item)
 
-    return {"entries": entries, "adds": adds, "reviews": reviews,
+    return {"entries": entries, "adds": adds, "exits": exits, "reviews": reviews,
             "stage_updates": stage_updates, "rejected": rejected}

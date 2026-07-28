@@ -629,6 +629,7 @@ async def _execute_sells(
     proceeds = 0.0
     sold: List[str] = []
     _EXIT_REPORT = {
+        "memo_exit": "exit_sell_verdict",
         "sell_verdict": "exit_sell_verdict",
         "theme_review_failed": "exit_sell_verdict",
         "outcompeted": "exit_outcompeted",
@@ -1318,6 +1319,10 @@ async def _decide_and_execute(
         qty * close_by_symbol.get(sym, 0.0) for sym, qty in positions.items()
     )
 
+    # Filled once the memo pipeline has run (below); empty until then, and
+    # empty for a no-op week — an unusable memo must never exit anything.
+    memo_exit_symbols: Dict[str, str] = {}
+
     def _build_holdings() -> List[Dict[str, Any]]:
         """Rebuild the holdings table from the CURRENT `latest` verdicts. Called
         once up front and again after stage B so a fresh review's verdict flows
@@ -1337,6 +1342,11 @@ async def _decide_and_execute(
             result.append({
                 "symbol": sym, "qty": qty, "market_value": qty * close,
                 "conviction": conv["score"], "vetoed": conv["vetoed"],
+                # The memo's reasoned exit. Outranks the company-level verdict
+                # in plan_decisions: a sound business the memo has no reason to
+                # own is exactly the case no other exit path can reach.
+                "memo_exit": sym in memo_exit_symbols,
+                "memo_exit_reason": memo_exit_symbols.get(sym),
                 "tags": screen.get("tags") or {},
                 "source_tags": stored_tags.get(sym) or {},
                 "sector": screened.get("sector_by_symbol", {}).get(sym),
@@ -1406,6 +1416,16 @@ async def _decide_and_execute(
     # CHANGED INTO crowded/priced this pass fires; a theme already there last
     # week is silent. prior_stages comes from the pre-memo theme state captured
     # inside the memoized "thesis-memo" step, so the set is replay-stable.
+    # The memo's reasoned exits. Only on a usable memo — a no-op week must
+    # never sell anything, and a name already exiting takes no review outcome.
+    if memo_ok:
+        for ex in memo_plan.get("exits", []):
+            memo_exit_symbols[ex["ticker"]] = ex["reason"]
+            await _journal(db, "review_trigger", "info",
+                           f"{ex['ticker']}: memo exit — {ex['reason']}",
+                           {"symbol": ex["ticker"], "slug": ex.get("slug"),
+                            "reason": ex["reason"], "triggers": ["memo_exit"]})
+
     memo_review_symbols: set = set()
     if memo_ok:
         memo_review_symbols |= set(memo_plan["reviews"])

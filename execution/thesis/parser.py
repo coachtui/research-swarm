@@ -13,7 +13,7 @@ from execution.themes.parser import ThemeParseError, _extract_json, _TICKER_RE
 
 logger = logging.getLogger(__name__)
 
-_ACTIONS = {"enter", "add", "review", "hold"}
+_ACTIONS = {"enter", "add", "review", "hold", "exit"}
 _ENTRY_ACTIONS = {"enter", "add"}
 _STYLES = {"at_market", "on_pullback"}
 _VERDICTS = {"confirming", "unclear", "disconfirmed", "graduate_to_theme"}
@@ -36,6 +36,16 @@ def _action(raw: Any, slug: str, skipped: List[str]) -> Optional[Dict[str, Any]]
         skipped.append(f"{slug}: bad ticker {raw.get('ticker')!r}")
         return None
     out = {"action": action, "ticker": ticker}
+    if action == "exit":
+        # An exit MUST carry a written reason. The owner's standing ruling is
+        # that mechanical selling is the flaw, so an unjustified exit is
+        # refused rather than executed — the memo has to argue for it.
+        why_now = str(raw.get("why_now") or "").strip()
+        if not why_now:
+            skipped.append(f"{slug}/{ticker}: exit without why_now — refused")
+            return None
+        out["why_now"] = why_now
+        return out
     if action in _ENTRY_ACTIONS:
         role, style = raw.get("role"), raw.get("entry_style")
         why_now = str(raw.get("why_now") or "").strip()
