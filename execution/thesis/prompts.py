@@ -41,7 +41,17 @@ _METHOD = """## Your job this week
    conviction 0.0-1.0, and entry_style ("at_market" | "on_pullback" — you
    have each candidate's ATR context and 200-week distance; extended names
    wait for the pullback).
-5. RECORD WHAT YOU DECLINED. For every thesis, list in "passed_on" the
+5. ACCOUNT FOR EVERY HOLDING. Every position in the book below must appear
+   in exactly one action this week — hold, add, review or exit. A position
+   you do not mention is a position nobody is deciding about. EXIT one that
+   no longer expresses a thesis you hold: the thesis was abandoned, the name
+   was never a real expression of it, or the constraint it traded on has
+   resolved. A sound business is NOT a reason to keep it — "is this a good
+   company" is a different question from "why do we own this". Every exit
+   states why_now: one sentence naming the thesis it used to express and what
+   changed. An exit with no written reason is refused, so argue for it.
+   Exiting is legal from ANY stage, unlike entering.
+6. RECORD WHAT YOU DECLINED. For every thesis, list in "passed_on" the
    candidates you seriously considered this week and did NOT act on, one
    sentence each on why they did not earn capital — already priced, weaker
    expression than the name you chose, exposure too diluted, balance sheet
@@ -49,9 +59,9 @@ _METHOD = """## Your job this week
    the deliverable as what you bought; a candidate that made the screen and
    then vanished silently is the one gap the owner cannot audit. Do not list
    names you never seriously considered.
-6. HYPOTHESES: update each next-constraint hypothesis from its indicators;
+7. HYPOTHESES: update each next-constraint hypothesis from its indicators;
    graduate one to a theme only when they confirm.
-7. If web search was unavailable or you could not verify this week's
+8. If web search was unavailable or you could not verify this week's
    evidence, mark the affected observations "unverified" and propose NO
    pre_consensus entries — evidence-gated entries need verified evidence.
 "No action" everywhere is a perfectly good, expected answer.""".format(
@@ -106,7 +116,7 @@ Respond with ONLY a JSON object, no other text:
     "stage": "pre_consensus" | "catching_on" | "crowded" | "priced",
     "stage_rationale": "<1-2 sentences citing evidence>",
     "actions": [{{
-      "action": "enter" | "add" | "review" | "hold",
+      "action": "enter" | "add" | "review" | "hold" | "exit",
       "ticker": "<SYMBOL>",
       "role": "anchor" | "pure_play" | "catalyst",
       "why_now": "<1 falsifiable sentence>",

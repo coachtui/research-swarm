@@ -18,7 +18,12 @@ def plan_decisions(
     notes: List[str] = []
 
     for h in holdings:
-        if h.get("vetoed"):
+        # memo_exit first: the memo is the only component that knows why we own
+        # a thing, so its reasoned exit outranks a company-level verdict that
+        # only ever answers "is this a good business".
+        if h.get("memo_exit"):
+            exits.append({"symbol": h["symbol"], "reason": "memo_exit"})
+        elif h.get("vetoed"):
             exits.append({"symbol": h["symbol"], "reason": "sell_verdict"})
         elif h.get("theme_review_failed"):
             exits.append({"symbol": h["symbol"], "reason": "theme_review_failed"})
