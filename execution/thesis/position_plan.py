@@ -69,6 +69,10 @@ def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
     if abs(total - 100.0) > 0.01:
         raise PlanError(f"ladder sizes total {total:g}%, must total 100")
 
+    exit_plan = plan.get("exit_plan")
+    if exit_plan is not None:
+        _validate_exit(exit_plan)
+
     try:
         if not 0.0 < float(plan.get("target_weight", 0.0)) <= 1.0:
             raise PlanError("target_weight must be a fraction in (0, 1]")
@@ -76,6 +80,35 @@ def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
         raise PlanError("target_weight must be numeric") from exc
 
     return plan
+
+
+EXIT_POSTURES = ("let_run", "trim_into_strength", "scale_out", "close")
+_NEEDS_FRACTION = ("trim_into_strength", "scale_out")
+
+
+def _validate_exit(exit_plan: Any) -> None:
+    """The exit is a POSTURE with reasoning, not a trim size.
+
+    "Let it run" has to be a decision the memo makes and defends — the
+    difference between "the constraint keeps binding so I am letting this go"
+    and "no threshold tripped" is the difference between a judgement you can
+    review later and an accident. Encoding it as fraction=0 erases that.
+    """
+    if not isinstance(exit_plan, dict):
+        raise PlanError("exit_plan is not an object")
+    posture = exit_plan.get("posture")
+    if posture not in EXIT_POSTURES:
+        raise PlanError(
+            f"exit_plan posture {posture!r} unknown — one of {EXIT_POSTURES}")
+    if not str(exit_plan.get("why") or "").strip():
+        raise PlanError("exit_plan has no why — every posture is a decision")
+    if posture in _NEEDS_FRACTION:
+        try:
+            fraction = float(exit_plan["fraction"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise PlanError(f"{posture} needs a numeric fraction") from exc
+        if not 0.0 < fraction <= 1.0:
+            raise PlanError("exit_plan fraction must be in (0, 1]")
 
 
 def desired_rung_orders(

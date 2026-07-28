@@ -49,8 +49,16 @@ _METHOD = """## Your job this week
    limit orders, so state levels you actually want filled.
    thesis_break is mandatory and is a CONDITION, never a price: it is what
    cancels every unfilled rung. A ladder without it averages down into a
-   broken story, so a plan missing it is discarded. Say what would make you
-   trim a winner, how much, and what would bring you back.
+   broken story, so a plan missing it is discarded.
+
+   The exit_plan is a POSTURE you choose and defend, not a threshold.
+   "let_run" is a real answer and must be argued for — a winner you are
+   deliberately riding is a different thing from one no rule happened to
+   trim, and only the first is a decision anyone can review later. Take
+   profit when a thesis reaches crowded/priced, because that is where the
+   re-rating you were paid for has already happened — not at a round number
+   gain. Always say what would make you reconsider, including what would
+   bring you back after a trim.
 6. ACCOUNT FOR EVERY HOLDING. Every position in the book below must appear
    in exactly one action this week — hold, add, review or exit. A position
    you do not mention is a position nobody is deciding about. EXIT one that
@@ -167,8 +175,12 @@ Respond with ONLY a JSON object, no other text:
             "why": "<why THIS level>"}}
         ],
         "thesis_break": "<the CONDITION that kills this, not a price>",
-        "exit_plan": {{"trim_trigger": "<condition>", "trim_fraction": <0-1>,
-                       "re_add_condition": "<when you would come back>"}}
+        "exit_plan": {{
+          "posture": "let_run" | "trim_into_strength" | "scale_out" | "close",
+          "why": "<why THIS posture for THIS position>",
+          "fraction": <required for trim_into_strength / scale_out>,
+          "reconsider_if": "<what would change the posture>"
+        }}
       }}
     }}],
     "passed_on": [{{

@@ -34,9 +34,10 @@ PLAN = {
         {"price": 550.0, "size_pct": 40, "why": "full size if the thesis holds"},
     ],
     "thesis_break": "HBM3E qualification slips past Q2 or hyperscaler capex guidance cuts.",
-    "exit_plan": {"trim_trigger": "price > 2.5x the 200-week MA",
-                  "trim_fraction": 0.5,
-                  "re_add_condition": "constraint re-binds and the stock is back under 900"},
+    "exit_plan": {"posture": "trim_into_strength",
+                  "why": "thesis reaches crowded and the re-rating has happened",
+                  "fraction": 0.5,
+                  "reconsider_if": "constraint re-binds and the name is back under 900"},
 }
 
 
@@ -187,3 +188,55 @@ def test_prompt_asks_for_absolute_levels_and_a_break_condition():
     }).lower()
     for phrase in ("position_plan", "thesis_break", "absolute", "resting"):
         assert phrase in p, f"prompt must mention {phrase}"
+
+
+# ── the exit is a POSTURE, not a trim size ─────────────────────────────────
+
+def test_letting_a_winner_run_is_a_first_class_choice():
+    """"Let it run" must be a decision with a reason, not trim_fraction: 0.
+    The difference between "the constraint keeps binding so I am letting this
+    go" and "no threshold tripped" is the whole point."""
+    plan = {**PLAN, "exit_plan": {
+        "posture": "let_run",
+        "why": "the constraint keeps binding and consensus has not caught up",
+        "reconsider_if": "the thesis reaches crowded or capex guidance turns",
+    }}
+    assert validate_plan(plan)["exit_plan"]["posture"] == "let_run"
+
+
+def test_taking_profit_states_how_much_and_when_to_come_back():
+    plan = {**PLAN, "exit_plan": {
+        "posture": "trim_into_strength",
+        "why": "thesis crossed into crowded; the re-rating we were paid for happened",
+        "fraction": 0.4,
+        "reconsider_if": "constraint re-binds and the name is back under 900",
+    }}
+    assert validate_plan(plan)["exit_plan"]["fraction"] == 0.4
+
+
+def test_an_exit_posture_must_be_one_we_recognise():
+    with pytest.raises(PlanError, match="posture"):
+        validate_plan({**PLAN, "exit_plan": {"posture": "vibes", "why": "x"}})
+
+
+def test_every_posture_needs_its_reasoning():
+    with pytest.raises(PlanError, match="why"):
+        validate_plan({**PLAN, "exit_plan": {"posture": "let_run"}})
+
+
+def test_a_trim_posture_without_a_fraction_is_refused():
+    with pytest.raises(PlanError, match="fraction"):
+        validate_plan({**PLAN, "exit_plan": {
+            "posture": "trim_into_strength", "why": "crowded"}})
+
+
+def test_let_run_needs_no_fraction():
+    validate_plan({**PLAN, "exit_plan": {
+        "posture": "let_run", "why": "still binding", "reconsider_if": "crowded"}})
+
+
+def test_exit_plan_is_optional_at_entry():
+    """A brand-new position may not know its exit yet. The ladder is what must
+    be guarded; the exit posture can be decided when it becomes a winner."""
+    plan = {k: v for k, v in PLAN.items() if k != "exit_plan"}
+    validate_plan(plan)
