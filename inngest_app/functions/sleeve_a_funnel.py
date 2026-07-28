@@ -272,6 +272,18 @@ def _outlook_context(outlook: Any) -> Dict[str, Any]:
         "industryRankings": (outlook.industryRankings or {}).get("rankings", []),
         "themeRankings": (outlook.themeRankings or {}).get("rankings", []),
         "sectorRankings": getattr(outlook, "sectorRankings", None) or [],
+        # The strategist's actual macro read. Previously dropped here, so the
+        # memo received the single word "neutral" and decided a week of entries
+        # without ever seeing WHY the tape looked the way it did (2026-07-26:
+        # the strategist flagged tech #1 -> #10 on a defensive rotation and the
+        # memo never knew). Absent fields stay None — never fabricated.
+        "macro": {
+            "reasoning": getattr(outlook, "reasoning", None),
+            "conviction": getattr(outlook, "conviction", None),
+            "regime_mechanical": getattr(outlook, "regimeMechanical", None),
+            "strategist_override": getattr(outlook, "strategistOverride", None),
+            "strategist_status": getattr(outlook, "strategistStatus", None),
+        },
     }
 
 
