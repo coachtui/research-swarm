@@ -29,8 +29,8 @@ as-of {packet["as_of"]} (filed {packet["filed"]}), diffed against
 {packet["prior"]}. Filing history available: {packet["quarters_available"]}.
 
 THIS IS A CURRICULUM, NOT A SIGNAL. By filing day these positions are
-roughly seven weeks stale — acting on them is already late, and we never
-copy trades. The filing is an answer key for a test the market already
+roughly seven weeks stale — acting on them is already late, and we never copy
+trades. The filing is an answer key for a test the market already
 gave: your job is to reconstruct the REASONING that produced each move,
 then compress it into method rules we can apply to live decisions.
 
