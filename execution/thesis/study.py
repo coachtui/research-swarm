@@ -10,6 +10,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 from execution.constants import STUDY_MATERIAL_DELTA, STUDY_TOP_WEIGHT_PCT
+from execution.reporting import write_report
 
 logger = logging.getLogger(__name__)
 
@@ -115,3 +116,35 @@ def build_study_packet(fund_name: str,
             "filed": history[0]["filed"], "prior": history[1]["period"],
             "quarters_available": [h["period"] for h in history],
             "book_value": diff["book_value"], "material_moves": material}
+
+
+def reason_study(packet: Dict[str, Any], llm_call=None) -> str:
+    """The PAID call — the cron runs it inside its own memoized step."""
+    from execution.constants import (  # noqa: PLC0415
+        STUDY_MAX_TOKENS, STUDY_MODEL, STUDY_WEB_SEARCH_MAX_USES,
+    )
+    from execution.themes.discovery import _call_llm  # noqa: PLC0415
+    from execution.thesis.study_prompts import build_study_prompt  # noqa: PLC0415
+
+    call = llm_call or _call_llm
+    return call(STUDY_MODEL, build_study_prompt(packet), use_web_search=True,
+                max_uses=STUDY_WEB_SEARCH_MAX_USES, max_tokens=STUDY_MAX_TOKENS)
+
+
+async def persist_digest(db, week: str, fund_name: str, digest: Dict[str, Any],
+                         raw: str, packet: Dict[str, Any]) -> None:
+    """Ledger row (kind=study_digest — the slot every weekly memo reads) +
+    EngineReport journal. Both writers swallow their own failures."""
+    from execution.thesis.ledger import append_evidence  # noqa: PLC0415
+
+    body = {"fund": fund_name, "as_of": packet["as_of"], "filed": packet["filed"],
+            "method_rules": digest["method_rules"], "moves": digest["moves"],
+            "summary": digest["summary"], "skipped": digest["skipped"],
+            # The raw diff stays for the owner's audit; nothing reads it back.
+            "material_moves": packet["material_moves"]}
+    await append_evidence(db, "study_digest", body, week=week)
+    await write_report(
+        "study_digest", "info", SOURCE,
+        f"13F study: {fund_name} {packet['as_of']} — "
+        f"{len(digest['method_rules'])} method rules",
+        {"raw": raw, **body}, db=db)

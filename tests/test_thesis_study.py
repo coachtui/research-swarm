@@ -85,3 +85,45 @@ def test_packet_none_when_fewer_than_two_filings():
     assert build_study_packet("X", [{"period": "2026-03-31", "filed": "f",
                                      "holdings": CURR}]) is None
     assert build_study_packet("X", []) is None
+
+
+# ── persist + paid-call wrapper ──────────────────────────────────────────────
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+from execution.thesis.study import persist_digest, reason_study
+
+DIGEST = {"method_rules": [{"rule": "r", "evidence": "e", "moves_cited": []}],
+          "moves": [], "summary": "s", "skipped": []}
+PACKET_MIN = {"fund": "SALP", "as_of": "2026-03-31", "filed": "2026-05-14",
+              "prior": "2025-12-31", "quarters_available": [],
+              "book_value": 1.0, "material_moves": []}
+
+
+def test_reason_study_routes_through_llm_with_web_search():
+    calls = {}
+    def fake_llm(model, prompt, use_web_search=False, max_uses=0, max_tokens=0):
+        calls.update(model=model, web=use_web_search, uses=max_uses,
+                     tokens=max_tokens, prompt=prompt)
+        return "{}"
+    reason_study(PACKET_MIN, llm_call=fake_llm)
+    assert calls["web"] is True and calls["uses"] > 0 and calls["tokens"] > 0
+    assert "SALP" in calls["prompt"]
+
+
+def test_persist_writes_ledger_row_and_journal():
+    created = []
+    class _Table:
+        async def create(self, data):
+            created.append(data)
+    db = SimpleNamespace(thesisevidence=_Table())
+    with patch("execution.thesis.study.write_report", new=AsyncMock()) as report:
+        asyncio.run(persist_digest(db, "2026-08-21", "SALP", DIGEST, "raw text",
+                                   PACKET_MIN))
+    assert created[0]["kind"] == "study_digest"
+    assert created[0]["week"] == "2026-08-21"
+    assert created[0]["body"] is not None
+    args = report.call_args.args
+    assert args[0] == "study_digest" and "SALP" in args[3]
+    assert report.call_args.args[4]["raw"] == "raw text"
