@@ -140,7 +140,8 @@ async def persist_digest(db, week: str, fund_name: str, digest: Dict[str, Any],
     body = {"fund": fund_name, "as_of": packet["as_of"], "filed": packet["filed"],
             "method_rules": digest["method_rules"], "moves": digest["moves"],
             "summary": digest["summary"], "skipped": digest["skipped"],
-            # The raw diff stays for the owner's audit; nothing reads it back.
+            # The raw diff stays here for the owner's audit (row + journal);
+            # load_study_digest strips it before any prompt sees it.
             "material_moves": packet["material_moves"]}
     await append_evidence(db, "study_digest", body, week=week)
     await write_report(

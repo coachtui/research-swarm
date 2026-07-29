@@ -73,6 +73,18 @@ def test_load_study_digest_newest_per_fund():
     assert out == [{"fund": "SALP", "n": 2}, {"fund": "OTHER", "n": 1}]
 
 
+def test_load_study_digest_strips_raw_diff_from_prompt_payload():
+    """The fund's raw position diff stays in the stored row for audit, but
+    the prompt-facing loader must not hand the model the fund's book
+    (founding premise: curriculum, never copy-trading)."""
+    from execution.thesis.ledger import load_study_digest
+    rows = [_row("study_digest", body={"fund": "SALP", "method_rules": ["r"],
+                                       "material_moves": [{"issuer": "NVDA"}]})]
+    db = SimpleNamespace(thesisevidence=_Table(rows))
+    out = asyncio.run(load_study_digest(db))
+    assert out == [{"fund": "SALP", "method_rules": ["r"]}]
+
+
 def test_load_degrades_to_empty_on_failure():
     class _Boom:
         async def find_many(self, **kw):

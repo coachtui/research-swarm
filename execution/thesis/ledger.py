@@ -49,7 +49,10 @@ async def load_study_digest(db, take: int = 8) -> List[Dict[str, Any]]:
             if fund in seen:
                 continue
             seen.add(fund)
-            out.append(body)
+            # The stored row keeps material_moves (raw diff) for the owner's
+            # audit; the prompt-facing copy must not hand the model the
+            # fund's book — curriculum, never copy-trading (spec §5).
+            out.append({k: v for k, v in body.items() if k != "material_moves"})
     except Exception:  # noqa: BLE001
         logger.exception("thesis ledger: study digest load failed")
     return out
