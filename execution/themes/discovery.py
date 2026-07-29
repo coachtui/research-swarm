@@ -93,8 +93,13 @@ async def gather_monthly_context(db) -> Dict[str, Any]:
         logger.exception("gather_monthly_context: rankings unavailable")
 
     research = await get_research_context(db)
+
+    from execution.thesis.ledger import load_study_digest  # noqa: PLC0415
+    study = await load_study_digest(db)
+
     return {"active_themes": active, "retired_themes": retired,
-            "latest_rankings": latest_rankings, "research": research}
+            "latest_rankings": latest_rankings, "research": research,
+            "study_digest": study}
 
 
 def reason_monthly(context: Dict[str, Any], llm_call=None) -> str:

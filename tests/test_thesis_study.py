@@ -127,3 +127,40 @@ def test_persist_writes_ledger_row_and_journal():
     args = report.call_args.args
     assert args[0] == "study_digest" and "SALP" in args[3]
     assert report.call_args.args[4]["raw"] == "raw text"
+
+
+# ── monthly discovery wiring (spec §5.5: digest feeds the monthly prompt) ────
+from execution.themes.prompts import build_monthly_prompt
+
+
+def test_monthly_prompt_renders_study_digest_when_present():
+    ctx = {"active_themes": [], "retired_themes": [], "latest_rankings": None,
+           "research": {}, "study_digest": [
+               {"fund": "SALP", "method_rules": [
+                   {"rule": "buy the deliver-now power name", "evidence": "e",
+                    "moves_cited": []}], "summary": "s"}]}
+    p = build_monthly_prompt(ctx)
+    assert "deliver-now power name" in p
+    assert "curriculum" in p.lower()
+
+
+def test_monthly_prompt_omits_study_section_when_absent():
+    ctx = {"active_themes": [], "retired_themes": [], "latest_rankings": None,
+           "research": {}}
+    assert "13F study" not in build_monthly_prompt(ctx)
+
+
+def test_gather_monthly_context_includes_study_digest():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    from execution.themes import discovery
+
+    with patch.object(discovery, "_current_theme_state",
+                      new=AsyncMock(return_value=[])), \
+         patch.object(discovery, "get_research_context",
+                      new=AsyncMock(return_value={})), \
+         patch("execution.thesis.ledger.load_study_digest",
+               new=AsyncMock(return_value=[{"fund": "SALP"}])):
+        out = asyncio.run(discovery.gather_monthly_context(db=None))
+    assert out["study_digest"] == [{"fund": "SALP"}]
