@@ -1915,6 +1915,21 @@ export interface WeekPosition {
   conviction: number | null
   why_now: string | null
   why_this_expression: string | null
+  plan?: {
+    ladder: { price: number; size_pct: number; why: string }[]
+    thesis_break: string
+    exit_plan?: { posture: string; why: string; fraction?: number } | null
+    target_weight?: number
+  } | null
+  entry_forensics?: {
+    limit_price?: number | null
+    entry_style?: string | null
+    price?: number | null
+    sma20?: number | null
+    atr?: number | null
+    dist_200wma?: number | null
+    add_tranche_fraction?: number | null
+  } | null
 }
 
 export type WeekOutcome = 'not_placed' | 'exited' | 'passed_on'
@@ -1926,6 +1941,7 @@ export interface WeekAction {
   reason: string | null
   role: string | null
   conviction: number | null
+  reconsider_if?: string | null
 }
 
 export interface WeekThesis {
@@ -1954,4 +1970,5 @@ export interface WeekResponse {
   positions: WeekPosition[]
   open_orders: WeekOpenOrder[]
   actions: WeekAction[]
+  market_view?: string | null
 }
