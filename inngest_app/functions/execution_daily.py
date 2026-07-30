@@ -73,6 +73,15 @@ async def _persist_position_provenance(db, order: Any) -> None:
         report_ref = journal.get("reportRef")
         if report_ref is not None:
             data["reportRef"] = report_ref
+        # Phase C: the memo's plan at entry — ladder, thesis_break, exit
+        # posture — persisted for the life of the position. Latest plan wins
+        # (an add that re-states the plan overwrites); an order with no plan
+        # leaves the existing column alone rather than blanking it.
+        plan = journal.get("position_plan")
+        if isinstance(plan, dict):
+            from prisma import Json  # noqa: PLC0415
+
+            data["positionPlan"] = Json(plan)
         if not data:
             return
         await db.engineposition.update(
