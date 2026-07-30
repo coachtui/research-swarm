@@ -351,6 +351,8 @@ class WeekPosition(BaseModel):
     conviction: Optional[float] = None
     why_now: Optional[str] = None
     why_this_expression: Optional[str] = None
+    plan: Optional[dict] = None              # positionPlan verbatim, or None
+    entry_forensics: Optional[dict] = None   # latest entry_order journal slice
 
 
 class WeekAction(BaseModel):
@@ -361,6 +363,7 @@ class WeekAction(BaseModel):
     reason: Optional[str] = None
     role: Optional[str] = None
     conviction: Optional[float] = None
+    reconsider_if: Optional[str] = None
 
 
 class WeekThesis(BaseModel):
@@ -373,6 +376,7 @@ class WeekResponse(BaseModel):
     week: str
     regime: Optional[str] = None
     macro_reasoning: Optional[str] = None
+    market_view: Optional[str] = None        # the memo's own words, verbatim
     equity: Optional[float] = None
     cash: Optional[float] = None
     broker_ok: bool
@@ -433,6 +437,33 @@ def _broker_snapshot() -> Dict[str, Any]:
         return {"ok": False}
 
 
+_FORENSIC_KEYS = ("limit_price", "entry_style", "price", "sma20", "atr",
+                  "dist_200wma", "add_tranche_fraction")
+
+
+def _entry_forensics_map(rows) -> Dict[str, dict]:
+    """symbol -> the latest entry_order journal's price story. Rows arrive
+    newest-first; first occurrence per symbol wins. Pre-Phase-C rows lack the
+    math inputs — keys are always present, values None (a labeled absence,
+    per the spec's degrade posture)."""
+    out: Dict[str, dict] = {}
+    for r in rows:
+        body = r.body or {}
+        symbol = body.get("symbol")
+        if not symbol or symbol in out:
+            continue
+        out[symbol] = {k: body.get(k) for k in _FORENSIC_KEYS}
+    return out
+
+
+def _market_view(row) -> Optional[str]:
+    """The memo's 3-6-sentence read, verbatim from the latest thesis_memo
+    journal row. Never recomputed, never summarized."""
+    body = getattr(row, "body", None) or {}
+    view = body.get("market_view")
+    return view if isinstance(view, str) and view.strip() else None
+
+
 @router.get("/autopilot/week", response_model=WeekResponse)
 async def get_week(week: Optional[str] = None, admin: User = Depends(require_admin)):
     """Everything decided this week, joined to what the broker actually holds."""
@@ -466,12 +497,21 @@ async def get_week(week: Optional[str] = None, admin: User = Depends(require_adm
                 by_ticker[a["ticker"]] = {**a, "slug": r.themeSlug}
         for p in body.get("passed_on") or []:
             actions.append(WeekAction(ticker=p.get("ticker", "?"), slug=r.themeSlug,
-                                      outcome="passed_on", reason=p.get("reason")))
+                                      outcome="passed_on", reason=p.get("reason"),
+                                      reconsider_if=p.get("reconsider_if")))
 
     snap = await asyncio.to_thread(_broker_snapshot)
     held = {p["symbol"] for p in snap.get("positions", [])}
 
     pos_rows = {p.symbol: p for p in await db.engineposition.find_many()}
+
+    forensic_rows = await db.enginereport.find_many(
+        where={"type": "entry_order"}, order={"createdAt": "desc"}, take=200)
+    forensics = _entry_forensics_map(forensic_rows)
+
+    memo_report = await db.enginereport.find_first(
+        where={"type": "thesis_memo"}, order={"createdAt": "desc"})
+
     positions: List[WeekPosition] = []
     for p in snap.get("positions", []):
         meta = pos_rows.get(p["symbol"])
@@ -483,6 +523,8 @@ async def get_week(week: Optional[str] = None, admin: User = Depends(require_adm
             conviction=getattr(meta, "convictionScore", None),
             why_now=memo.get("why_now"),
             why_this_expression=memo.get("why_this_expression"),
+            plan=(getattr(meta, "positionPlan", None) or None),
+            entry_forensics=forensics.get(p["symbol"]),
         ))
 
     # Decided but not held: the column that never existed anywhere.
@@ -499,6 +541,7 @@ async def get_week(week: Optional[str] = None, admin: User = Depends(require_adm
         week=week,
         regime=getattr(outlook, "regime", None),
         macro_reasoning=getattr(outlook, "reasoning", None),
+        market_view=_market_view(memo_report),
         equity=snap.get("equity"), cash=snap.get("cash"),
         broker_ok=bool(snap.get("ok")),
         theses=theses, positions=positions,
