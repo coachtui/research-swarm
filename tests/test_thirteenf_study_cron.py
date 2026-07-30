@@ -49,9 +49,13 @@ def test_happy_path_studies_and_persists():
     with patch.object(tsq, "fetch_13f_history", return_value=HISTORY), \
          patch.object(tsq, "reason_study", return_value=GOOD_RAW), \
          patch.object(tsq, "persist_digest", new=AsyncMock()) as persist, \
+         patch.object(tsq, "load_rulebook", new=AsyncMock(return_value=None)), \
+         patch.object(tsq, "reason_revision", return_value=GOOD_REVISION), \
+         patch.object(tsq, "persist_rulebook", new=AsyncMock()), \
          patch.object(tsq, "write_report", new=AsyncMock()):
         out = _run(tsq._study_pipeline(db, FUNDS, "2026-08-21", step=None))
-    assert out["funds"] == [{"fund": "Situational Awareness LP", "rules": 1}]
+    assert out["funds"] == [{"fund": "Situational Awareness LP", "rules": 1,
+                             "rulebook_version": 1}]
     assert out["failures"] == []
     persist.assert_awaited_once()
     assert persist.call_args.args[1] == "2026-08-21"
@@ -67,12 +71,15 @@ def test_replay_bills_the_paid_step_once():
     with patch.object(tsq, "fetch_13f_history", return_value=HISTORY), \
          patch.object(tsq, "reason_study", paid), \
          patch.object(tsq, "persist_digest", new=AsyncMock()) as persist, \
+         patch.object(tsq, "load_rulebook", new=AsyncMock(return_value=None)), \
+         patch.object(tsq, "reason_revision", return_value=GOOD_REVISION), \
+         patch.object(tsq, "persist_rulebook", new=AsyncMock()), \
          patch.object(tsq, "write_report", new=AsyncMock()):
         _run(tsq._study_pipeline(db, FUNDS, "2026-08-21", step=step))
         _run(tsq._study_pipeline(db, FUNDS, "2026-08-21", step=step))  # replay
     assert paid.call_count == 1
     assert persist.await_count == 1
-    assert len(step.executed) == 2          # study-… and study-persist-…
+    assert len(step.executed) == 4    # study-…, study-persist-…, revise-…, revise-persist-…
 
 
 def test_parse_failure_journals_engine_failure_and_skips_persist():
@@ -100,10 +107,14 @@ def test_fund_failure_isolates_the_other_fund():
     with patch.object(tsq, "fetch_13f_history", side_effect=_fetch), \
          patch.object(tsq, "reason_study", return_value=GOOD_RAW), \
          patch.object(tsq, "persist_digest", new=AsyncMock()), \
+         patch.object(tsq, "load_rulebook", new=AsyncMock(return_value=None)), \
+         patch.object(tsq, "reason_revision", return_value=GOOD_REVISION), \
+         patch.object(tsq, "persist_rulebook", new=AsyncMock()), \
          patch.object(tsq, "write_report", new=AsyncMock()) as report:
         out = _run(tsq._study_pipeline(db, funds, "2026-08-21", step=None))
     assert out["failures"] == ["BOOM FUND"]
-    assert out["funds"] == [{"fund": "Situational Awareness LP", "rules": 1}]
+    assert out["funds"] == [{"fund": "Situational Awareness LP", "rules": 1,
+                             "rulebook_version": 1}]
     assert any(c.args[0] == "engine_failure" for c in report.call_args_list)
 
 
@@ -118,3 +129,86 @@ def test_fewer_than_two_filings_is_a_journaled_noop():
     persist.assert_not_awaited()
     assert out["failures"] == ["Situational Awareness LP"]
     assert any(c.args[0] == "engine_failure" for c in report.call_args_list)
+
+
+# ── revise step (Phase B2) ───────────────────────────────────────────────────
+
+GOOD_REVISION = json.dumps({
+    "verdicts": [], "new_rules": [{"rule": "a learned rule", "rationale": "r"}],
+    "calibration": {"typical_lead_quarters": 2.0}, "summary": "synthesis"})
+
+
+def _patch_study(paid_study=GOOD_RAW):
+    """Study half always succeeds; tests vary the revise half."""
+    return [patch.object(tsq, "fetch_13f_history", return_value=HISTORY),
+            patch.object(tsq, "reason_study", return_value=paid_study),
+            patch.object(tsq, "persist_digest", new=AsyncMock())]
+
+
+def test_revise_merges_and_persists_a_new_rulebook_version():
+    db = MagicMock()
+    ctx = _patch_study()
+    with ctx[0], ctx[1], ctx[2], \
+         patch.object(tsq, "load_rulebook", new=AsyncMock(return_value=None)), \
+         patch.object(tsq, "reason_revision", return_value=GOOD_REVISION), \
+         patch.object(tsq, "persist_rulebook", new=AsyncMock()) as persist_rb, \
+         patch.object(tsq, "write_report", new=AsyncMock()):
+        out = _run(tsq._study_pipeline(db, FUNDS, "2026-08-21", step=None))
+    assert out["funds"][0]["rulebook_version"] == 1
+    book = persist_rb.call_args.args[3]
+    assert [r["rule"] for r in book["rules"]] == ["a learned rule"]
+
+
+def test_revise_builds_on_the_existing_rulebook():
+    db = MagicMock()
+    prior = {"version": 4, "as_of": "2026-03-31", "retired": [],
+             "calibration": {}, "summary": "old",
+             "rules": [{"id": "keep-me", "rule": "keep me", "rationale": "r",
+                        "confirmations": 2, "first_seen": "2025-06-30",
+                        "last_reviewed": "2026-03-31",
+                        "evidence_quarters": ["2026-03-31"], "status": "active"}]}
+    ctx = _patch_study()
+    with ctx[0], ctx[1], ctx[2], \
+         patch.object(tsq, "load_rulebook", new=AsyncMock(return_value=prior)), \
+         patch.object(tsq, "reason_revision", return_value=GOOD_REVISION), \
+         patch.object(tsq, "persist_rulebook", new=AsyncMock()) as persist_rb, \
+         patch.object(tsq, "write_report", new=AsyncMock()):
+        _run(tsq._study_pipeline(db, FUNDS, "2026-08-21", step=None))
+    book = persist_rb.call_args.args[3]
+    assert book["version"] == 5
+    assert sorted(r["id"] for r in book["rules"]) == ["a-learned-rule", "keep-me"]
+
+
+def test_drifted_revise_KEEPS_the_prior_rulebook_and_still_persists_the_digest():
+    """The compounding invariant: a bad revise must never cost us the book."""
+    db = MagicMock()
+    ctx = _patch_study()
+    with ctx[0], ctx[1], ctx[2] as persist_digest, \
+         patch.object(tsq, "load_rulebook", new=AsyncMock(return_value=None)), \
+         patch.object(tsq, "reason_revision", return_value="not json"), \
+         patch.object(tsq, "persist_rulebook", new=AsyncMock()) as persist_rb, \
+         patch.object(tsq, "write_report", new=AsyncMock()) as report:
+        out = _run(tsq._study_pipeline(db, FUNDS, "2026-08-21", step=None))
+    persist_digest.assert_awaited_once()          # study was paid for — keep it
+    persist_rb.assert_not_awaited()               # no new version written
+    assert out["funds"][0]["rulebook_version"] is None
+    assert any(c.args[0] == "engine_failure" for c in report.call_args_list)
+
+
+def test_replay_bills_study_and_revise_exactly_once_each():
+    db = MagicMock()
+    step = _MemoStep()
+    paid_study = MagicMock(return_value=GOOD_RAW)
+    paid_revise = MagicMock(return_value=GOOD_REVISION)
+    with patch.object(tsq, "fetch_13f_history", return_value=HISTORY), \
+         patch.object(tsq, "reason_study", paid_study), \
+         patch.object(tsq, "reason_revision", paid_revise), \
+         patch.object(tsq, "load_rulebook", new=AsyncMock(return_value=None)), \
+         patch.object(tsq, "persist_digest", new=AsyncMock()), \
+         patch.object(tsq, "persist_rulebook", new=AsyncMock()) as persist_rb, \
+         patch.object(tsq, "write_report", new=AsyncMock()):
+        _run(tsq._study_pipeline(db, FUNDS, "2026-08-21", step=step))
+        _run(tsq._study_pipeline(db, FUNDS, "2026-08-21", step=step))   # replay
+    assert paid_study.call_count == 1 and paid_revise.call_count == 1
+    assert persist_rb.await_count == 1
+    assert len(step.executed) == 4      # study, persist, revise, revise-persist
