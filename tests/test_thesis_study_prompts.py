@@ -117,3 +117,12 @@ def test_malformed_earliness_entries_skip_with_reasons():
     assert len(out["earliness"]) == 1
     assert out["earliness"][0]["lead_quarters"] is None         # coerced, kept
     assert len(out["skipped"]) == 2
+
+
+def test_prompt_distinguishes_forced_selling_from_method():
+    """SALP lesson (2026-07-30): a margin-driven unwind is not reasoning. The
+    study must be told to check whether exits were forced before reading them
+    as thesis calls — and to extract the survival lesson instead."""
+    p = build_study_prompt(PACKET).lower()
+    assert "forced" in p and "margin" in p
+    assert "deliberate" in p

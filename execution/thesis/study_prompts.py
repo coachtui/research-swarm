@@ -55,6 +55,15 @@ capex became a consensus headline"; "when grid interconnect lead times
 blow out, they buy the deliver-now power name before the first big
 contract prints."
 
+Before reading ANY exit or reduction as a thesis call, check whether it was
+deliberate repositioning or forced selling. Use web search on the window:
+margin calls, redemptions, fund distress, or a whole-book liquidation mean
+the selling carried no view — a fund carried out by its prime broker did
+not "go to cash," it was removed from the game. Never extract a method
+rule from forced selling; extract the survival lesson instead (what about
+their sizing, leverage, or concentration made the position unsurvivable),
+and say explicitly which moves you discarded as forced.
+
 Then measure how EARLY they were. For each move that worked, use web search to
 find the quarter this thesis became a mainstream story — the consensus
 headline, not the first obscure mention — and compare it with the quarter the

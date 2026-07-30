@@ -51,8 +51,29 @@ async def _study_pipeline(db, funds: List[Dict[str, Any]], week: str,
     """One study per trusted fund. NEVER raises."""
     import asyncio  # noqa: PLC0415
 
-    summary: Dict[str, Any] = {"funds": [], "failures": []}
+    summary: Dict[str, Any] = {"funds": [], "failures": [], "retired": []}
+
+    # Retirement gate (SALP forced liquidation, 2026-07-30): a fund past its
+    # retire_after date is skipped MECHANICALLY — a margin-driven unwind is
+    # not method, and the post-liquidation filing must never be read as a
+    # curriculum quarter, even if nobody edits constants before November.
+    # Journaled as a deliberate skip, not engine_failure, so an empty run
+    # reads as "retired", not as something to debug.
+    active = []
     for fund in funds:
+        retire_after = fund.get("retire_after")
+        if retire_after and week >= retire_after:
+            summary["retired"].append(fund["name"])
+        else:
+            active.append(fund)
+    if summary["retired"]:
+        await write_report(
+            "study_digest", "info", SOURCE,
+            f"13F study: retired fund(s) skipped this quarter: "
+            f"{', '.join(summary['retired'])}",
+            {"retired": summary["retired"], "week": week}, db=db)
+
+    for fund in active:
         name, ciks = fund["name"], fund["ciks"]
         slug = ciks[0]
         try:
