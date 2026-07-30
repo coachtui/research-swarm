@@ -39,7 +39,7 @@ _SA_METHOD = """## Method (follow it in order — this is how you reason)
    indicators to watch for every theme you propose.
 """
 
-_REVEALED_BEHAVIOR = """## Revealed behavior of the best thematic investors (13F study, 2026-07-10)
+_REVEALED_BEHAVIOR = """## Revealed behavior of the best thematic investors (from a 2026-07-10 study of 13F filings)
 - Buy the BINDING CONSTRAINT, not the beneficiary. Consensus buys who
   sells the theme; the re-rating lives in what the theme cannot proceed
   without (power -> cooling -> energized shells -> memory/storage ->
@@ -84,6 +84,11 @@ def build_monthly_prompt(context: Dict[str, Any]) -> str:
     research = context.get("research") or {}
     rankings = context.get("latest_rankings")
     retired = context.get("retired_themes") or []
+    study = context.get("study_digest") or []
+    study_block = (
+        "## 13F study digest (method rules from studying trusted funds — a\n"
+        "## curriculum for HOW to reason; never tickers to copy)\n"
+        f"{json.dumps(study)}\n\n" if study else "")
     return f"""You are the theme-discovery engine of a long-horizon systematic fund.
 Your job: maintain a list of investable THEMES — links in the AI buildout
 demand chain where a binding constraint creates a multi-year re-rating — and
@@ -102,7 +107,7 @@ the public-company CONSTITUENTS with material exposure to each.
 ## Latest theme rankings (relative strength vs SPY, if available)
 {json.dumps(rankings) if rankings else "none yet"}
 
-## Internal research context (owner's watchlist + supply-chain names seen in research)
+{study_block}## Internal research context (owner's watchlist + supply-chain names seen in research)
 - Watchlist tickers: {", ".join(research.get("watchlist") or []) or "none"}
 - Supply-chain names from recent reports: {", ".join(research.get("supply_chain") or []) or "none"}
 - News-entity names from recent reports: {", ".join(research.get("news_entities") or []) or "none"}

@@ -42,6 +42,7 @@ from inngest_app.functions.execution_weekly import execution_weekly
 from inngest_app.functions.theme_discovery_monthly import theme_discovery_monthly
 from inngest_app.functions.theme_delta_weekly import theme_delta_weekly
 from inngest_app.functions.sleeve_a_funnel import sleeve_a_funnel
+from inngest_app.functions.thirteenf_study_quarterly import thirteenf_study_quarterly
 
 # Dormant roster — intentionally NOT registered (need real batch data first):
 # from inngest_app.functions.send_teaser_digest import send_teaser_digest
@@ -54,7 +55,8 @@ from inngest_app.functions.sleeve_a_funnel import sleeve_a_funnel
 ACTIVE_FUNCTIONS = [
     fn
     for fn in [weekly_market_outlook, weekly_batch, execution_daily, execution_weekly,
-               theme_discovery_monthly, theme_delta_weekly, sleeve_a_funnel]
+               theme_discovery_monthly, theme_delta_weekly, sleeve_a_funnel,
+               thirteenf_study_quarterly]
     if fn is not None
 ]
 

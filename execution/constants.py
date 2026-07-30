@@ -184,3 +184,19 @@ ROLE_BANDS = {
     "catalyst": (ENTRY_WEIGHT_MIN, 0.05),
 }
 THESIS_LEDGER_WEEKS = 8             # memo context window into its own past
+
+# ── Quarterly 13F study pass (spec §5) — a CURRICULUM, never copy-trading ────
+# Tickers seen in filings carry ZERO order authority (guard-tested in
+# tests/test_thesis_study_guards.py).
+TRUSTED_FUNDS_13F = [
+    {"name": "Situational Awareness LP",
+     # Both registrants file; history is merged and deduped by period.
+     "ciks": ["0002045724", "0002038540"]},
+]
+STUDY_MODEL = "claude-sonnet-5"
+STUDY_MAX_TOKENS = 32768
+STUDY_WEB_SEARCH_MAX_USES = 15   # pointed at the entry WINDOW's news, not today's
+STUDY_QUARTERS_BACK = 8          # filing history for first-appearance reconstruction
+STUDY_MATERIAL_DELTA = 0.20      # |Δvalue|/prior ≥ 20% counts as a material resize
+STUDY_TOP_WEIGHT_PCT = 3.0       # positions ≥ this % of book are studied regardless
+SEC_EDGAR_USER_AGENT = "DVRG Autopilot tui@tuialailima.com"  # SEC fair-access rule

@@ -1,4 +1,28 @@
-# Current Phase: MVP Launch — Path to First Revenue
+# Current Phase: Autopilot Thesis Engine — Phase B complete (13F Study Pass)
+
+**Updated**: 2026-07-29
+**Branch/PR**: feat/13f-study-pass
+
+Phase B of the thesis-first entry redesign (spec
+docs/superpowers/specs/2026-07-27-thesis-first-entry-redesign-design.md §5)
+is built: a quarterly cron (21st of Feb/May/Aug/Nov, one week after the
+45-day 13F deadline) pulls trusted-fund 13F info tables from EDGAR, diffs
+quarters (puts/calls included), reconstructs each material move's
+entry/exit window (first-appearance quarter, share deltas, implied
+quarter-end prices), and has the LLM + web search reconstruct what was
+publicly knowable DURING the window. Deliverable is METHOD RULES, landed
+in ThesisEvidence as kind=study_digest — the slot the weekly memo has read
+since Phase A (no longer None) and now the monthly discovery prompt too.
+Founding premise enforced by guard tests: curriculum, never copy-trading;
+filing tickers have zero order authority. Trusted funds: SALP (CIKs
+0002045724, 0002038540); list is extensible in execution/constants.py.
+
+Next: Phase C — memo-trail admin UI (rides the after-the-fact audit-trail
+design when it lands).
+
+---
+
+## Previous Phase: MVP Launch — Path to First Revenue
 
 **Created**: 2026-02-12
 **Timeline**: 3 weeks (Feb 12 — Mar 5, 2026)
