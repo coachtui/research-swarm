@@ -41,6 +41,24 @@ INFO_TABLE_XML = """<?xml version="1.0" encoding="UTF-8"?>
 </informationTable>"""
 
 
+# The shape REAL SALP filings use (verified against EDGAR 2026-07-29): the root
+# and every child carry an `ns1:` prefix. The default-namespace fixture above
+# passed while production found no info table in 5 of 6 filings.
+INFO_TABLE_XML_PREFIXED = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns1:informationTable xmlns:ns1="http://www.sec.gov/edgar/document/thirteenf/informationtable">
+  <ns1:infoTable>
+    <ns1:nameOfIssuer>APPLIED DIGITAL CORP</ns1:nameOfIssuer>
+    <ns1:titleOfClass>COM</ns1:titleOfClass>
+    <ns1:cusip>03828A102</ns1:cusip>
+    <ns1:value>7400000</ns1:value>
+    <ns1:shrsOrPrnAmt>
+      <ns1:sshPrnamt>250000</ns1:sshPrnamt>
+      <ns1:sshPrnamtType>SH</ns1:sshPrnamtType>
+    </ns1:shrsOrPrnAmt>
+  </ns1:infoTable>
+</ns1:informationTable>"""
+
+
 def _resp(payload, is_json=True):
     r = MagicMock()
     r.raise_for_status = MagicMock()
@@ -99,6 +117,48 @@ def test_fetch_info_table_xml_picks_the_information_table_file():
     with patch("execution.thesis.study_edgar.requests.get", side_effect=_get):
         xml = fetch_info_table_xml("0002045724", "0002045724-26-000004")
     assert xml is not None and "informationTable" in xml
+
+
+def test_fetch_info_table_finds_a_PREFIXED_information_table():
+    """Regression (2026-07-29 live EDGAR run): real SALP filings name the root
+    `<ns1:informationTable>`, so a raw `"<informationtable"` substring check
+    misses them and the pass reports 'no info table' for every quarter."""
+    index = {"directory": {"item": [
+        {"name": "primary_doc.xml"}, {"name": "SALP_13FQ425.xml"}]}}
+    primary = ('<?xml version="1.0"?><edgarSubmission '
+               'xmlns="http://www.sec.gov/edgar/thirteenffiler">'
+               '<submissionType>13F-HR</submissionType></edgarSubmission>')
+
+    def _get(url, headers=None, timeout=None):
+        if url.endswith("index.json"):
+            return _resp(index)
+        if url.endswith("primary_doc.xml"):
+            return _resp(primary, is_json=False)
+        return _resp(INFO_TABLE_XML_PREFIXED, is_json=False)
+
+    with patch("execution.thesis.study_edgar.requests.get", side_effect=_get):
+        xml = fetch_info_table_xml("0002045724", "0002045724-26-000002")
+    assert xml is not None and "informationTable" in xml
+    # ...and the rows parse (the parser was already namespace-agnostic)
+    rows = parse_info_table(xml)
+    assert len(rows) == 1 and rows[0]["cusip"] == "03828A102"
+    assert rows[0]["issuer"] == "APPLIED DIGITAL CORP" and rows[0]["shares"] == 250000.0
+
+
+def test_fetch_info_table_never_returns_the_cover_page():
+    """primary_doc.xml is the cover page — it must never be mistaken for the
+    info table, even when it is the only XML file present."""
+    index = {"directory": {"item": [{"name": "primary_doc.xml"}]}}
+    primary = ('<?xml version="1.0"?><edgarSubmission '
+               'xmlns="http://www.sec.gov/edgar/thirteenffiler"/>')
+
+    def _get(url, headers=None, timeout=None):
+        if url.endswith("index.json"):
+            return _resp(index)
+        return _resp(primary, is_json=False)
+
+    with patch("execution.thesis.study_edgar.requests.get", side_effect=_get):
+        assert fetch_info_table_xml("0002045724", "0002045724-26-000002") is None
 
 
 def test_fetch_history_dedupes_periods_and_merges_ciks():

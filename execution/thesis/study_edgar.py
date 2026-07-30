@@ -7,6 +7,7 @@ asyncio.to_thread. SEC fair access: identifying User-Agent, trivial
 volume (a handful of requests per quarter).
 """
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -26,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 _HEADERS = {"User-Agent": SEC_EDGAR_USER_AGENT}
 _TIMEOUT = 30
+
+# Filers use BOTH a default namespace (<informationTable xmlns=...>) and a
+# prefixed one (<ns1:informationTable xmlns:ns1=...>) — SALP's own filings
+# switched to the prefixed form. Match either; a bare substring check on
+# "<informationtable" silently misses every prefixed filing.
+_INFO_TABLE_ROOT_RE = re.compile(r"<(?:[\w.-]+:)?informationTable[\s>]", re.IGNORECASE)
 
 
 def _get(url: str) -> requests.Response:
@@ -62,7 +69,7 @@ def fetch_info_table_xml(cik: str, accession: str) -> Optional[str]:
     names.sort(key=lambda n: n.lower().startswith("primary"))
     for name in names:
         text = _get(f"{base}/{name}").text
-        if "<informationtable" in text.lower():
+        if _INFO_TABLE_ROOT_RE.search(text):
             return text
     return None
 
