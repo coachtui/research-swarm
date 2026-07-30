@@ -55,6 +55,13 @@ capex became a consensus headline"; "when grid interconnect lead times
 blow out, they buy the deliver-now power name before the first big
 contract prints."
 
+Then measure how EARLY they were. For each move that worked, use web search to
+find the quarter this thesis became a mainstream story — the consensus
+headline, not the first obscure mention — and compare it with the quarter the
+position first appears above. The gap, in quarters, is the number we care
+about: not how extended a name was when they bought it, but how far ahead of
+the crowd they were and what tipped them off that early.
+
 Respond with ONLY a JSON object, no other text:
 {{
   "method_rules": [{{
@@ -67,6 +74,13 @@ Respond with ONLY a JSON object, no other text:
     "direction": "<new long | new put | exited | increased | decreased>",
     "window": "<when they likely acted>",
     "what_was_knowable": "<the public record during the window, with sources>"
+  }}],
+  "earliness": [{{
+    "issuer": "<issuer name>",
+    "first_appeared": "<quarter the position first appears>",
+    "mainstream_quarter": "<quarter it became a consensus headline>",
+    "lead_quarters": 0,
+    "the_tell": "<what was observable in the earlier window>"
   }}],
   "summary": "<3-5 sentences: the quarter's thesis in their voice>"
 }}"""
@@ -99,6 +113,27 @@ def _move(raw: Any, skipped: List[str]) -> Optional[Dict[str, str]]:
             "what_was_knowable": str(raw.get("what_was_knowable") or "").strip()}
 
 
+def _earliness(raw: Any, skipped: List[str]) -> Optional[Dict[str, Any]]:
+    """How far ahead of the headline they were. Optional enrichment — a bad
+    entry costs calibration, never the digest."""
+    if not isinstance(raw, dict):
+        skipped.append("earliness: not an object")
+        return None
+    issuer = str(raw.get("issuer") or "").strip()
+    if not issuer:
+        skipped.append("earliness: missing issuer")
+        return None
+    try:
+        lead = float(raw.get("lead_quarters"))
+    except (TypeError, ValueError):
+        lead = None            # keep the qualitative answer, drop the number
+    return {"issuer": issuer,
+            "first_appeared": str(raw.get("first_appeared") or "").strip(),
+            "mainstream_quarter": str(raw.get("mainstream_quarter") or "").strip(),
+            "lead_quarters": lead,
+            "the_tell": str(raw.get("the_tell") or "").strip()}
+
+
 def parse_study_response(raw: str) -> Dict[str, Any]:
     try:
         obj = _extract_json(raw)
@@ -115,5 +150,8 @@ def parse_study_response(raw: str) -> Dict[str, Any]:
     moves = [m for m in (_move(x, skipped) for x in moves_raw) if m]
     if not rules:
         raise StudyParseError("no usable method rules — digest refused")
-    return {"method_rules": rules, "moves": moves, "summary": summary,
-            "skipped": skipped}
+    early_raw = obj.get("earliness")
+    earliness = ([e for e in (_earliness(x, skipped) for x in early_raw) if e]
+                 if isinstance(early_raw, list) else [])
+    return {"method_rules": rules, "moves": moves, "earliness": earliness,
+            "summary": summary, "skipped": skipped}

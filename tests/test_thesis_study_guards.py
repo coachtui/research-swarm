@@ -35,7 +35,7 @@ def test_digest_schema_carries_method_rules_never_actions():
         "summary": "s",
         # a drifted model trying to smuggle orders in:
         "actions": [{"action": "enter", "ticker": "NVDA"}]}))
-    assert set(out) == {"method_rules", "moves", "summary", "skipped"}
+    assert set(out) == {"method_rules", "moves", "earliness", "summary", "skipped"}
     assert "actions" not in out
 
 
