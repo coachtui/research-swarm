@@ -1642,6 +1642,64 @@ def test_at_market_entry_prices_at_last_close_with_one_week_ttl():
     assert (kwargs["expires_at"] - NOW).days == 7
 
 
+# ── Phase C: the order journal carries the plan and its price math ───────────
+
+_PLAN = {"ladder": [{"price": 340.0, "size_pct": 0.5, "why": "first rung"}],
+         "thesis_break": "capex guidance cut two quarters running",
+         "exit_plan": {"posture": "let_run", "why": "constraint intact"}}
+
+
+def test_entry_journal_carries_position_plan_and_price_math():
+    """Phase C §3.1-3.2: the journal is the vehicle that gets the plan to the
+    position row, and the price-math inputs make every limit self-explaining.
+    A missing plan journals as None — never invented."""
+    db = MagicMock()
+    client = MagicMock()
+    client.submit_limit_buy = AsyncMock()
+    entry = _planned("AEHR")
+    entry["position_plan"] = _PLAN
+    with patch.object(saf, "check_disqualifiers",
+                      new=AsyncMock(return_value={"disqualified": False,
+                                                  "checked": True})), \
+         patch.object(saf, "_latest_full_signal_id",
+                      new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=AsyncMock()):
+        _run(saf._handshake_and_enter(
+            db, client, planned_entries=[entry],
+            screen_by_symbol={"AEHR": _memo_screen("AEHR")},
+            run_date=NOW, sleeve_equity=70_000.0, deployable=49_000.0,
+            cash_available=49_000.0, holdings=[], sector_by_symbol={},
+            other_sleeve_sector_notional={}, allow_buys=True, step=None,
+        ))
+    journal = client.submit_limit_buy.call_args.kwargs["journal"]
+    assert journal["position_plan"] == _PLAN
+    screen = _memo_screen("AEHR")
+    assert journal["price"] == float(screen["price"])
+    assert journal["sma20"] == float(screen["sma20"])
+    assert journal["atr"] == float(screen["atr"])
+
+
+def test_entry_without_plan_journals_none_not_missing():
+    db = MagicMock()
+    client = MagicMock()
+    client.submit_limit_buy = AsyncMock()
+    with patch.object(saf, "check_disqualifiers",
+                      new=AsyncMock(return_value={"disqualified": False,
+                                                  "checked": True})), \
+         patch.object(saf, "_latest_full_signal_id",
+                      new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=AsyncMock()):
+        _run(saf._handshake_and_enter(
+            db, client, planned_entries=[_planned("AEHR")],
+            screen_by_symbol={"AEHR": _memo_screen("AEHR")},
+            run_date=NOW, sleeve_equity=70_000.0, deployable=49_000.0,
+            cash_available=49_000.0, holdings=[], sector_by_symbol={},
+            other_sleeve_sector_notional={}, allow_buys=True, step=None,
+        ))
+    journal = client.submit_limit_buy.call_args.kwargs["journal"]
+    assert "position_plan" in journal and journal["position_plan"] is None
+
+
 def test_positive_disqualifier_is_the_only_veto():
     """VETO-ONLY: a positive finding blocks the entry and journals
     exit_sell_verdict with the reason. A clean screen does NOT — the screen may

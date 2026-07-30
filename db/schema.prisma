@@ -1052,6 +1052,7 @@ model EnginePosition {
   sourceTags      Json?    // {themes: [slug], industries: [key], watchlist: bool}
   reportRef       String?  // WeeklySignal id of the full run that justified entry
   dcaState        Json?    // thesis-hold ladder: {"armed_high": float, "used": [0.2,...]}
+  positionPlan    Json?    // memo's plan at entry: ladder rungs, thesis_break, exit posture (Phase C)
 
   @@unique([sleeve, symbol])
 }

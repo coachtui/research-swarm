@@ -597,6 +597,14 @@ async def _handshake_and_enter(
                 "sourceTags": source_tags, "convictionScore": memo_conviction,
                 "reportRef": report_ref,
                 "dist_200wma": screen.get("dist_200wma"),
+                # Phase C (audit surface): the plan rides the journal to the
+                # position row, and the price-math inputs make the limit
+                # self-explaining forever (limit = last close for at_market;
+                # max(sma20, price − ATR) for on_pullback). A memo entry whose
+                # plan was dropped as malformed journals None — the absence is
+                # part of the record.
+                "position_plan": entry.get("position_plan"),
+                "price": price, "sma20": sma20, "atr": atr,
             }
             try:
                 await client.submit_limit_buy(
