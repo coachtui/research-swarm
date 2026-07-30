@@ -1,7 +1,7 @@
-# Current Phase: Autopilot Thesis Engine — Phase B complete (13F Study Pass)
+# Current Phase: Autopilot Thesis Engine — Phase B2 complete (Compounding 13F Rulebook)
 
 **Updated**: 2026-07-29
-**Branch/PR**: feat/13f-study-pass
+**Branch/PR**: feat/13f-method-rulebook
 
 Phase B2 (compounding rulebook) is built: the quarterly pass now revises a
 living method rulebook instead of writing a throwaway digest. The study asks
