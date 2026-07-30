@@ -50,7 +50,7 @@ def test_prompt_carries_the_moves_the_window_and_the_framing():
 
 def test_parse_happy_path():
     out = parse_study_response(json.dumps(GOOD))
-    assert set(out) == {"method_rules", "moves", "summary", "skipped"}
+    assert set(out) == {"method_rules", "moves", "earliness", "summary", "skipped"}
     assert out["method_rules"][0]["moves_cited"] == ["NVIDIA CORP put"]
     assert out["skipped"] == []
 
@@ -78,3 +78,42 @@ def test_parse_skips_malformed_items_but_keeps_usable():
 def test_parse_loud_on_drift(bad):
     with pytest.raises(StudyParseError):
         parse_study_response(bad)
+
+
+# ── §4 earliness calibration ─────────────────────────────────────────────────
+
+def test_prompt_asks_how_many_quarters_ahead_of_the_headline_they_were():
+    p = build_study_prompt(PACKET)
+    low = p.lower()
+    assert "mainstream" in low or "consensus headline" in low
+    assert "quarters" in low and "first_appeared" in p
+    assert "the_tell" in p
+
+
+def test_parse_reads_earliness_when_present():
+    doc = {**GOOD, "earliness": [
+        {"issuer": "NVIDIA CORP", "first_appeared": "2025-09-30",
+         "mainstream_quarter": "2026-03-31", "lead_quarters": 2,
+         "the_tell": "capex guidance beat three prints running"}]}
+    out = parse_study_response(json.dumps(doc))
+    assert out["earliness"][0]["lead_quarters"] == 2
+    assert out["earliness"][0]["the_tell"].startswith("capex guidance")
+
+
+def test_missing_earliness_costs_calibration_not_the_digest():
+    out = parse_study_response(json.dumps(GOOD))     # no earliness key
+    assert out["earliness"] == []
+    assert out["method_rules"] and out["summary"]    # digest still usable
+
+
+def test_malformed_earliness_entries_skip_with_reasons():
+    doc = {**GOOD, "earliness": [
+        "nope",
+        {"first_appeared": "2025-09-30"},                       # no issuer
+        {"issuer": "OK CORP", "first_appeared": "2025-09-30",
+         "mainstream_quarter": "2026-03-31", "lead_quarters": "two",
+         "the_tell": "t"}]}                                     # non-numeric
+    out = parse_study_response(json.dumps(doc))
+    assert len(out["earliness"]) == 1
+    assert out["earliness"][0]["lead_quarters"] is None         # coerced, kept
+    assert len(out["skipped"]) == 2

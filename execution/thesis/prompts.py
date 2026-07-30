@@ -7,7 +7,7 @@ Framing that is load-bearing:
 - The BE anatomy is the calibration example for pre-consensus entries.
 """
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from execution.constants import (
     ENTRY_LEGAL_STAGES, THESIS_ROLES, THESIS_STAGES,
@@ -116,6 +116,18 @@ def _macro_block(macro: Dict[str, Any], regime: Any) -> str:
     return "\n".join(lines)
 
 
+def _rulebook_block(book: Optional[Dict[str, Any]]) -> str:
+    """Method + calibration only. Never the fund's positions."""
+    if not book or not (book.get("rules") or []):
+        return "No rulebook yet — the quarterly 13F study has not run."
+    return _j({"version": book.get("version"), "as_of": book.get("as_of"),
+               "summary": book.get("summary"),
+               "calibration": book.get("calibration") or {},
+               "rules": [{"rule": r.get("rule"),
+                          "confirmations": r.get("confirmations")}
+                         for r in book.get("rules") or []]})
+
+
 def build_weekly_memo_prompt(packet: Dict[str, Any]) -> str:
     theses = packet.get("theses") or []
     theses_block = _j(theses) if theses else "no active theses"
@@ -146,9 +158,9 @@ never select. You hold until a thesis is priced or broken.
 ## fractional distance above the 200-week MA — 1.0 means +100%)
 {_j(packet.get("candidates"))}
 
-## Latest 13F study digest (method rules from studying trusted funds —
-## curriculum, never tickers to copy)
-{_j(packet.get("study_digest"))}
+## 13F method rulebook (how a trusted fund reasons, learned quarter by
+## quarter — a CURRICULUM; it contains no tickers to copy)
+{_rulebook_block(packet.get("method_rulebook"))}
 
 ## Regime context (information only): {packet.get("regime") or "unknown"}
 

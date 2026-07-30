@@ -200,3 +200,10 @@ STUDY_QUARTERS_BACK = 8          # filing history for first-appearance reconstru
 STUDY_MATERIAL_DELTA = 0.20      # |Δvalue|/prior ≥ 20% counts as a material resize
 STUDY_TOP_WEIGHT_PCT = 3.0       # positions ≥ this % of book are studied regardless
 SEC_EDGAR_USER_AGENT = "DVRG Autopilot tui@tuialailima.com"  # SEC fair-access rule
+
+# ── Compounding method rulebook (Phase B2) ───────────────────────────────────
+# The rulebook is the memo's prompt-facing curriculum. It carries METHOD ONLY —
+# no issuers, cusips, weights, or values (guard-tested).
+RULEBOOK_MAX_RULES = 25          # revise must retire to stay under; never truncate silently
+RULEBOOK_MODEL = "claude-sonnet-5"
+RULEBOOK_MAX_TOKENS = 32768      # revise emits verdicts + calibration, no web search

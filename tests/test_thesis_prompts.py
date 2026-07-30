@@ -19,7 +19,8 @@ _PACKET = {
     "crowdedness": {"theme_rankings": [{"slug": "photonics", "score": 0.0437, "rank_change": 4}]},
     "candidates": {"BE": {"dist_200wma": -0.05, "rsi14": 41.0,
                           "fair_value_gap_pct": 22.0, "short_pct_float": 0.08}},
-    "study_digest": {"body": {"rules": ["deliver-now power repriced first"]}},
+    "method_rulebook": {"version": 1, "rules": [
+        {"rule": "deliver-now power repriced first", "confirmations": 2}]},
     "regime": "neutral",
 }
 
@@ -30,7 +31,7 @@ def test_prompt_carries_ledger_indicators_and_inversion_framing():
     assert "watched turbine lead times" in p  # ledger excerpt (reconciliation)
     assert "already priced" in p              # crowdedness inversion framing
     assert "reconcile" in p.lower()
-    assert "deliver-now power repriced first" in p  # study digest rules
+    assert "deliver-now power repriced first" in p  # rulebook rule text
 
 
 def test_prompt_states_output_schema_and_stage_rules():

@@ -21,6 +21,13 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from execution.reporting import write_report
+from execution.thesis.ledger import load_rulebook
+from execution.thesis.rulebook import (
+    merge_rulebook, persist_rulebook, reason_revision,
+)
+from execution.thesis.rulebook_prompts import (
+    RevisionParseError, parse_revision_response,
+)
 from execution.thesis.study import build_study_packet, persist_digest, reason_study
 from execution.thesis.study_edgar import fetch_13f_history
 from execution.thesis.study_prompts import StudyParseError, parse_study_response
@@ -75,8 +82,48 @@ async def _study_pipeline(db, funds: List[Dict[str, Any]], week: str,
                 return True
 
             await _run_step(step, f"study-persist-{slug}", _persist)
+
+            # ── revise the rulebook (PAID, own memoized step) ───────────────
+            # A failure here must NOT cost us the accumulated rulebook: the
+            # digest is already persisted, the prior version stays
+            # authoritative, and we journal loudly (spec §7).
+            rulebook_version = None
+            try:
+                current = await load_rulebook(db)
+
+                async def _revise() -> str:
+                    return await asyncio.to_thread(
+                        reason_revision, current, digest, name,
+                        bundle["packet"]["as_of"])
+
+                raw_revision = await _run_step(step, f"revise-{slug}", _revise)
+                revision = parse_revision_response(raw_revision)   # pure
+                merged = merge_rulebook(current, revision,
+                                        bundle["packet"]["as_of"])
+
+                async def _persist_book() -> bool:
+                    await persist_rulebook(db, week, name, merged, raw_revision)
+                    return True
+
+                await _run_step(step, f"revise-persist-{slug}", _persist_book)
+                rulebook_version = merged["version"]
+            except RevisionParseError as exc:
+                await write_report(
+                    "engine_failure", "critical", SOURCE,
+                    f"13F rulebook: {name} revision unusable — prior rulebook "
+                    f"stands, digest kept",
+                    {"fund": name, "error": str(exc)}, db=db)
+            except Exception as exc:  # noqa: BLE001 — never raises
+                logger.exception("13F rulebook: %s revise failed", name)
+                await write_report(
+                    "engine_failure", "critical", SOURCE,
+                    f"13F rulebook: {name} revise failed — prior rulebook "
+                    f"stands — {exc}",
+                    {"fund": name, "error": str(exc)}, db=db)
+
             summary["funds"].append({"fund": name,
-                                     "rules": len(digest["method_rules"])})
+                                     "rules": len(digest["method_rules"]),
+                                     "rulebook_version": rulebook_version})
         except StudyParseError as exc:
             await write_report(
                 "engine_failure", "critical", SOURCE,

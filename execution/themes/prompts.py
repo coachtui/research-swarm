@@ -84,11 +84,13 @@ def build_monthly_prompt(context: Dict[str, Any]) -> str:
     research = context.get("research") or {}
     rankings = context.get("latest_rankings")
     retired = context.get("retired_themes") or []
-    study = context.get("study_digest") or []
+    book = context.get("method_rulebook") or {}
+    rules = [r.get("rule") for r in (book.get("rules") or [])]
     study_block = (
-        "## 13F study digest (method rules from studying trusted funds — a\n"
-        "## curriculum for HOW to reason; never tickers to copy)\n"
-        f"{json.dumps(study)}\n\n" if study else "")
+        "## 13F method rulebook (how a trusted fund reasons — a curriculum\n"
+        "## for HOW to think; never tickers to copy)\n"
+        f"{json.dumps({'version': book.get('version'), 'rules': rules, 'calibration': book.get('calibration') or {}})}\n\n"
+        if rules else "")
     return f"""You are the theme-discovery engine of a long-horizon systematic fund.
 Your job: maintain a list of investable THEMES — links in the AI buildout
 demand chain where a binding constraint creates a multi-year re-rating — and

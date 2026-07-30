@@ -35,7 +35,7 @@ def test_digest_schema_carries_method_rules_never_actions():
         "summary": "s",
         # a drifted model trying to smuggle orders in:
         "actions": [{"action": "enter", "ticker": "NVDA"}]}))
-    assert set(out) == {"method_rules", "moves", "summary", "skipped"}
+    assert set(out) == {"method_rules", "moves", "earliness", "summary", "skipped"}
     assert "actions" not in out
 
 
@@ -56,3 +56,65 @@ def test_trusted_fund_list_shape_is_extensible():
         assert fund["name"] and isinstance(fund["ciks"], list) and fund["ciks"]
     salp = TRUSTED_FUNDS_13F[0]
     assert set(salp["ciks"]) == {"0002045724", "0002038540"}
+
+
+# ── Phase B2: the rulebook is the buy-authority prompt's input ───────────────
+
+def test_rulebook_modules_never_touch_orders_or_broker():
+    import execution.thesis.rulebook as rb
+    import execution.thesis.rulebook_prompts as rbp
+    for mod in (rb, rbp):
+        src = inspect.getsource(mod).lower()
+        for banned in _BANNED:
+            assert banned not in src, f"{mod.__name__} references {banned!r}"
+
+
+def test_rulebook_carries_no_positions_only_method():
+    """The rulebook is what the memo — the only buy authority — reads. It must
+    contain no issuer, cusip, weight, or value field, so the fund's book
+    structurally cannot reach the prompt that authorizes orders."""
+    from execution.thesis.rulebook import merge_rulebook
+    book = merge_rulebook(None, {
+        "verdicts": [],
+        "new_rules": [{"rule": "a method rule", "rationale": "why"}],
+        "calibration": {"typical_lead_quarters": 2.0},
+        "summary": "s",
+        # a drifted model trying to smuggle the book in:
+        "material_moves": [{"issuer": "NVDA", "cusip": "67066G104",
+                            "weight_pct": 11.5}],
+        "positions": ["NVDA"]}, as_of="2026-03-31")
+    assert set(book) == {"version", "as_of", "rules", "retired",
+                         "calibration", "summary"}
+    flat = json.dumps(book).lower()
+    for leaked in ("cusip", "weight_pct", "material_moves", "nvda"):
+        assert leaked not in flat
+
+
+def test_a_drifted_revision_cannot_blank_an_existing_rulebook():
+    """Compounding invariant: no parseable revision may empty the book."""
+    from execution.thesis.rulebook import merge_rulebook
+    prior = {"version": 3, "as_of": "2026-03-31", "retired": [],
+             "calibration": {}, "summary": "s",
+             "rules": [{"id": "a", "rule": "keep", "rationale": "r",
+                        "confirmations": 3, "first_seen": "2025-06-30",
+                        "last_reviewed": "2026-03-31",
+                        "evidence_quarters": [], "status": "active"}]}
+    for revision in ({"verdicts": [], "new_rules": [], "calibration": {},
+                      "summary": "s"},
+                     {"verdicts": [{"id": "ghost", "verdict": "retired",
+                                    "retired_because": "x"}],
+                      "new_rules": [], "calibration": {}, "summary": "s"},
+                     {"verdicts": [{"id": "a", "verdict": "sharpened"}],
+                      "new_rules": [], "calibration": {}, "summary": "s"}):
+        out = merge_rulebook(prior, revision, as_of="2026-06-30")
+        assert out["rules"], f"revision emptied the rulebook: {revision}"
+        assert out["rules"][0]["rule"] == "keep"
+
+
+def test_revise_prompt_states_the_premise_and_licenses_retirement():
+    from execution.thesis.rulebook_prompts import build_revise_prompt
+    p = build_revise_prompt(None, {"method_rules": [], "moves": [],
+                                   "earliness": [], "summary": "s",
+                                   "skipped": []}, "F", "2026-03-31").lower()
+    assert "do not copy" in p or "not copy trades" in p
+    assert "stale" in p and "retir" in p

@@ -133,24 +133,24 @@ def test_persist_writes_ledger_row_and_journal():
 from execution.themes.prompts import build_monthly_prompt
 
 
-def test_monthly_prompt_renders_study_digest_when_present():
+def test_monthly_prompt_renders_the_rulebook_when_present():
     ctx = {"active_themes": [], "retired_themes": [], "latest_rankings": None,
-           "research": {}, "study_digest": [
-               {"fund": "SALP", "method_rules": [
-                   {"rule": "buy the deliver-now power name", "evidence": "e",
-                    "moves_cited": []}], "summary": "s"}]}
+           "research": {}, "method_rulebook": {
+               "version": 2, "rules": [
+                   {"rule": "buy the deliver-now power name",
+                    "confirmations": 2}]}}
     p = build_monthly_prompt(ctx)
     assert "deliver-now power name" in p
     assert "curriculum" in p.lower()
 
 
-def test_monthly_prompt_omits_study_section_when_absent():
+def test_monthly_prompt_omits_rulebook_section_when_absent():
     ctx = {"active_themes": [], "retired_themes": [], "latest_rankings": None,
            "research": {}}
-    assert "13F study" not in build_monthly_prompt(ctx)
+    assert "13F method rulebook" not in build_monthly_prompt(ctx)
 
 
-def test_gather_monthly_context_includes_study_digest():
+def test_gather_monthly_context_includes_the_rulebook():
     import asyncio
     from unittest.mock import AsyncMock, patch
 
@@ -160,7 +160,51 @@ def test_gather_monthly_context_includes_study_digest():
                       new=AsyncMock(return_value=[])), \
          patch.object(discovery, "get_research_context",
                       new=AsyncMock(return_value={})), \
-         patch("execution.thesis.ledger.load_study_digest",
-               new=AsyncMock(return_value=[{"fund": "SALP"}])):
+         patch("execution.thesis.ledger.load_rulebook",
+               new=AsyncMock(return_value={"version": 2, "rules": []})):
         out = asyncio.run(discovery.gather_monthly_context(db=None))
-    assert out["study_digest"] == [{"fund": "SALP"}]
+    assert out["method_rulebook"] == {"version": 2, "rules": []}
+
+
+# ── the memo + monthly prompts read the RULEBOOK ─────────────────────────────
+
+def test_memo_prompt_renders_the_rulebook_and_never_the_funds_book():
+    from execution.thesis.prompts import build_weekly_memo_prompt
+    packet = {"theses": [], "hypotheses": [], "book": [], "candidates": {},
+              "crowdedness": {}, "regime": "neutral", "macro": {},
+              "method_rulebook": {
+                  "version": 3, "as_of": "2026-03-31",
+                  "summary": "how they reason",
+                  "calibration": {"typical_lead_quarters": 2.5},
+                  "rules": [{"id": "a", "rule": "buy the deliver-now name",
+                             "confirmations": 2}], "retired": []}}
+    p = build_weekly_memo_prompt(packet)
+    assert "buy the deliver-now name" in p and "typical_lead_quarters" in p
+    assert "curriculum" in p.lower()
+    for leaked in ("cusip", "material_moves", "weight_pct"):
+        assert leaked not in p
+
+
+def test_memo_prompt_survives_no_rulebook():
+    from execution.thesis.prompts import build_weekly_memo_prompt
+    p = build_weekly_memo_prompt({"theses": [], "hypotheses": [], "book": [],
+                                  "candidates": {}, "crowdedness": {},
+                                  "regime": "neutral", "macro": {},
+                                  "method_rulebook": None})
+    assert "no rulebook yet" in p.lower()
+
+
+def test_gather_memo_packet_carries_the_rulebook():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    from execution.thesis import memo as memo_mod
+
+    with patch.object(memo_mod, "_current_theme_state",
+                      new=AsyncMock(return_value=[])), \
+         patch.object(memo_mod, "load_ledger_context", new=AsyncMock(
+             return_value={"by_theme": {}, "hypotheses": [],
+                           "method_rulebook": {"version": 9, "rules": []}})):
+        out = asyncio.run(memo_mod.gather_memo_packet(
+            db=None, outlook={}, book=[], candidates={}))
+    assert out["method_rulebook"]["version"] == 9
