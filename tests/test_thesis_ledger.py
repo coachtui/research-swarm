@@ -91,3 +91,22 @@ def test_load_degrades_to_empty_on_failure():
             raise RuntimeError("db down")
     out = asyncio.run(load_ledger_context(SimpleNamespace(thesisevidence=_Boom()), ["a"]))
     assert out == {"by_theme": {"a": []}, "hypotheses": [], "study_digest": []}
+
+
+def test_load_rulebook_returns_the_newest_body():
+    from execution.thesis.ledger import load_rulebook
+    rows = [_row("method_rulebook", body={"version": 4, "rules": []}),
+            _row("method_rulebook", body={"version": 3, "rules": []})]
+    db = SimpleNamespace(thesisevidence=_Table(rows))
+    assert asyncio.run(load_rulebook(db))["version"] == 4
+
+
+def test_load_rulebook_returns_None_when_absent_or_broken():
+    from execution.thesis.ledger import load_rulebook
+    db = SimpleNamespace(thesisevidence=_Table([]))
+    assert asyncio.run(load_rulebook(db)) is None
+
+    class _Boom:
+        async def find_many(self, **kw):
+            raise RuntimeError("db down")
+    assert asyncio.run(load_rulebook(SimpleNamespace(thesisevidence=_Boom()))) is None

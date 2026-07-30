@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 from execution.constants import RULEBOOK_MAX_RULES
+from execution.reporting import write_report  # noqa: E402  (module-level: patch target)
 
 logger = logging.getLogger(__name__)
 
@@ -116,3 +117,36 @@ def merge_rulebook(current: Optional[Dict[str, Any]], revision: Dict[str, Any],
             "rules": kept, "retired": retired,
             "calibration": revision.get("calibration") or {},
             "summary": str(revision.get("summary") or "").strip()}
+
+
+def reason_revision(current: Optional[Dict[str, Any]], digest: Dict[str, Any],
+                    fund_name: str, as_of: str, llm_call=None) -> str:
+    """The PAID revise call — its own memoized step in the cron.
+
+    No web search: the study already paid for the period research, and this
+    call reasons over that digest plus the standing rulebook.
+    """
+    from execution.constants import RULEBOOK_MAX_TOKENS, RULEBOOK_MODEL  # noqa: PLC0415
+    from execution.themes.discovery import _call_llm  # noqa: PLC0415
+    from execution.thesis.rulebook_prompts import build_revise_prompt  # noqa: PLC0415
+
+    call = llm_call or _call_llm
+    return call(RULEBOOK_MODEL,
+                build_revise_prompt(current, digest, fund_name, as_of),
+                use_web_search=False, max_tokens=RULEBOOK_MAX_TOKENS)
+
+
+async def persist_rulebook(db, week: str, fund_name: str,
+                           rulebook: Dict[str, Any], raw: str) -> None:
+    """Append the new rulebook version + journal it. Both writers swallow their
+    own failures. The row history IS the record of how the engine's thinking
+    evolved, so versions are never overwritten."""
+    from execution.thesis.ledger import append_evidence  # noqa: PLC0415
+
+    body = {"fund": fund_name, **rulebook}
+    await append_evidence(db, "method_rulebook", body, week=week)
+    await write_report(
+        "study_digest", "info", SOURCE,
+        f"13F rulebook: {fund_name} v{rulebook['version']} — "
+        f"{len(rulebook['rules'])} active, {len(rulebook['retired'])} retired",
+        {"raw": raw, **body}, db=db)

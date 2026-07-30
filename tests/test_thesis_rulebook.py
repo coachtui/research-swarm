@@ -179,3 +179,49 @@ def test_merge_never_returns_an_empty_rulebook_from_a_populated_one():
                                "calibration": CAL, "summary": "s"},
                          as_of="2026-03-31")
     assert len(out["rules"]) == 2
+
+
+# ── paid revise call + persist ───────────────────────────────────────────────
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+from execution.thesis.rulebook import persist_rulebook, reason_revision
+
+BOOK = {"version": 3, "as_of": "2026-03-31", "rules": [_rule("a")],
+        "retired": [], "calibration": CAL, "summary": "s"}
+
+
+def test_reason_revision_uses_NO_web_search():
+    """The revise call reasons over evidence already gathered by the study —
+    a second web-search budget would double the quarter's search spend for
+    nothing."""
+    seen = {}
+
+    def fake_llm(model, prompt, use_web_search=False, max_uses=0, max_tokens=0):
+        seen.update(model=model, web=use_web_search, tokens=max_tokens,
+                    prompt=prompt)
+        return "{}"
+
+    reason_revision(None, {"method_rules": [], "moves": [], "earliness": [],
+                           "summary": "s", "skipped": []},
+                    "Situational Awareness LP", "2026-03-31", llm_call=fake_llm)
+    assert seen["web"] is False
+    assert seen["tokens"] > 0 and "2026-03-31" in seen["prompt"]
+
+
+def test_persist_rulebook_writes_ledger_row_and_journal():
+    created = []
+
+    class _Table:
+        async def create(self, data):
+            created.append(data)
+
+    db = SimpleNamespace(thesisevidence=_Table())
+    with patch("execution.thesis.rulebook.write_report", new=AsyncMock()) as rep:
+        asyncio.run(persist_rulebook(db, "2026-08-21", "SALP", BOOK, "raw"))
+    assert created[0]["kind"] == "method_rulebook"
+    assert created[0]["week"] == "2026-08-21"
+    args = rep.call_args.args
+    assert args[0] == "study_digest" and "v3" in args[3]
+    assert args[4]["raw"] == "raw"

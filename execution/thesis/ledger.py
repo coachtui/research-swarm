@@ -58,6 +58,25 @@ async def load_study_digest(db, take: int = 8) -> List[Dict[str, Any]]:
     return out
 
 
+async def load_rulebook(db, take: int = 4) -> Optional[Dict[str, Any]]:
+    """The current method rulebook — newest `method_rulebook` row, or None.
+
+    Dedicated query for the same reason as load_study_digest: a QUARTERLY row
+    ages out of load_ledger_context's bounded newest-first scan within weeks.
+    Degrades to None, which the memo renders as "no rulebook yet"."""
+    try:
+        rows = await db.thesisevidence.find_many(
+            where={"kind": "method_rulebook"}, order={"createdAt": "desc"},
+            take=take)
+        for r in rows:
+            body = r.body or {}
+            if isinstance(body, dict) and body.get("rules") is not None:
+                return body
+    except Exception:  # noqa: BLE001
+        logger.exception("thesis ledger: rulebook load failed")
+    return None
+
+
 async def load_ledger_context(
     db, active_slugs: List[str], weeks: int = THESIS_LEDGER_WEEKS,
 ) -> Dict[str, Any]:
