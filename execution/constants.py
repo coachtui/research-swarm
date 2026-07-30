@@ -191,7 +191,14 @@ THESIS_LEDGER_WEEKS = 8             # memo context window into its own past
 TRUSTED_FUNDS_13F = [
     {"name": "Situational Awareness LP",
      # Both registrants file; history is merged and deduped by period.
-     "ciks": ["0002045724", "0002038540"]},
+     "ciks": ["0002045724", "0002038540"],
+     # Margin-called into a whole-book liquidation 2026-07-30 (4x leverage;
+     # +439% after fees through June, then forced to sell everything to a
+     # single buyer at the lows — the method survived, the fund did not).
+     # The 2026-08-21 run still studies Q2, the last clean quarter; after
+     # that the cron skips them so the post-liquidation Q3 filing is never
+     # read as a curriculum quarter. Owner ruling 2026-07-30.
+     "retire_after": "2026-09-01"},
 ]
 STUDY_MODEL = "claude-sonnet-5"
 STUDY_MAX_TOKENS = 32768

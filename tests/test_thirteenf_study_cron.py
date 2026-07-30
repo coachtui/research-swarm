@@ -212,3 +212,62 @@ def test_replay_bills_study_and_revise_exactly_once_each():
     assert paid_study.call_count == 1 and paid_revise.call_count == 1
     assert persist_rb.await_count == 1
     assert len(step.executed) == 4      # study, persist, revise, revise-persist
+
+
+# ── trusted-fund retirement (SALP forced liquidation, 2026-07-30) ────────────
+# A fund past its retire_after date must not be studied: a margin-driven
+# unwind is not method, and the November run must not read SALP's zeroed
+# Q3 book as a curriculum quarter even if nobody edits constants by then.
+
+RETIRED = [{"name": "Situational Awareness LP", "ciks": ["0002045724"],
+            "retire_after": "2026-09-01"}]
+
+
+def test_fund_past_retire_after_is_skipped_without_a_paid_call():
+    db = MagicMock()
+    with patch.object(tsq, "fetch_13f_history") as fetch, \
+         patch.object(tsq, "reason_study") as paid, \
+         patch.object(tsq, "persist_digest", new=AsyncMock()) as persist, \
+         patch.object(tsq, "write_report", new=AsyncMock()) as report:
+        out = _run(tsq._study_pipeline(db, RETIRED, "2026-11-21", step=None))
+    fetch.assert_not_called()
+    paid.assert_not_called()
+    persist.assert_not_awaited()
+    assert out["funds"] == [] and out["failures"] == []
+    assert out["retired"] == ["Situational Awareness LP"]
+    # journaled as deliberate retirement, NOT engine_failure — a November
+    # operator must see "retired", not debug a silent empty run
+    types = [c.args[0] for c in report.call_args_list]
+    assert "engine_failure" not in types
+    assert any("retired" in (c.args[3] or "").lower()
+               for c in report.call_args_list)
+
+
+def test_fund_before_retire_after_is_still_studied():
+    """The Aug 21 run studies Q2 — the last clean quarter — because the run
+    date precedes retire_after."""
+    db = MagicMock()
+    with patch.object(tsq, "fetch_13f_history", return_value=HISTORY), \
+         patch.object(tsq, "reason_study", return_value=GOOD_RAW) as paid, \
+         patch.object(tsq, "load_rulebook", new=AsyncMock(return_value=None)), \
+         patch.object(tsq, "reason_revision", return_value=GOOD_REVISION), \
+         patch.object(tsq, "persist_rulebook", new=AsyncMock()), \
+         patch.object(tsq, "persist_digest", new=AsyncMock()), \
+         patch.object(tsq, "write_report", new=AsyncMock()):
+        out = _run(tsq._study_pipeline(db, RETIRED, "2026-08-21", step=None))
+    paid.assert_called_once()
+    assert out["funds"][0]["fund"] == "Situational Awareness LP"
+    assert out["retired"] == []
+
+
+def test_fund_without_retire_after_is_unaffected():
+    db = MagicMock()
+    with patch.object(tsq, "fetch_13f_history", return_value=HISTORY), \
+         patch.object(tsq, "reason_study", return_value=GOOD_RAW), \
+         patch.object(tsq, "load_rulebook", new=AsyncMock(return_value=None)), \
+         patch.object(tsq, "reason_revision", return_value=GOOD_REVISION), \
+         patch.object(tsq, "persist_rulebook", new=AsyncMock()), \
+         patch.object(tsq, "persist_digest", new=AsyncMock()), \
+         patch.object(tsq, "write_report", new=AsyncMock()):
+        out = _run(tsq._study_pipeline(db, FUNDS, "2026-11-21", step=None))
+    assert out["funds"] and out["retired"] == []
