@@ -83,6 +83,9 @@ export function PositionCard({ p }: { p: WeekPosition }) {
 
       {p.why_now && <Why label="Why now">{p.why_now}</Why>}
       {p.why_this_expression && <Why label="Why this name">{p.why_this_expression}</Why>}
+      {!p.why_now && p.sleeve === 'A' && (
+        <p className="mt-1.5 text-sm italic text-muted-foreground">No memo reasoning recorded for this position.</p>
+      )}
 
       {open && (
         <div className="mt-2 rounded-md bg-muted/40 px-3 py-2">

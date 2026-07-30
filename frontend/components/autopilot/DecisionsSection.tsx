@@ -38,7 +38,6 @@ function ActionRow({ a }: { a: WeekAction }) {
 }
 
 export function DecisionsSection({ actions }: { actions: WeekAction[] }) {
-  if (actions.length === 0) return null
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -47,7 +46,13 @@ export function DecisionsSection({ actions }: { actions: WeekAction[] }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {actions.map((a, i) => <ActionRow key={`${a.ticker}-${i}`} a={a} />)}
+        {actions.length === 0 ? (
+          <p className="text-sm italic text-muted-foreground">
+            Nothing recorded. Candidates the memo declined appear here from the first run after the passed-on field shipped.
+          </p>
+        ) : (
+          actions.map((a, i) => <ActionRow key={`${a.ticker}-${i}`} a={a} />)
+        )}
       </CardContent>
     </Card>
   )
