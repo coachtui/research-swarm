@@ -89,7 +89,15 @@ export function PositionCard({ p }: { p: WeekPosition }) {
 
       {open && (
         <div className="mt-2 rounded-md bg-muted/40 px-3 py-2">
-          {math && <Why label="Why this price">{math}</Why>}
+          {math ? (
+            <Why label="Why this price">{math}</Why>
+          ) : (
+            !p.entry_forensics && (
+              <p className="mt-1.5 text-sm italic text-muted-foreground">
+                No price forensics recorded (pre–Phase C entry).
+              </p>
+            )
+          )}
           {p.plan ? (
             <>
               <Why label="Thesis breaks if">{p.plan.thesis_break}</Why>

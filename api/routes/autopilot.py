@@ -449,6 +449,8 @@ def _entry_forensics_map(rows) -> Dict[str, dict]:
     out: Dict[str, dict] = {}
     for r in rows:
         body = r.body or {}
+        if not isinstance(body, dict):
+            continue
         symbol = body.get("symbol")
         if not symbol or symbol in out:
             continue
@@ -460,6 +462,8 @@ def _market_view(row) -> Optional[str]:
     """The memo's 3-6-sentence read, verbatim from the latest thesis_memo
     journal row. Never recomputed, never summarized."""
     body = getattr(row, "body", None) or {}
+    if not isinstance(body, dict):
+        return None
     view = body.get("market_view")
     return view if isinstance(view, str) and view.strip() else None
 

@@ -7,7 +7,7 @@ import type { WeekResponse } from '@/types/api'
  * the memo ran (market_view exists) and placed no entries. */
 export function NoBuyBanner({ week }: { week: WeekResponse }) {
   const boughtSomething =
-    week.open_orders.some((o) => o.side === 'buy') ||
+    week.open_orders.some((o) => o.side.toLowerCase() === 'buy') ||
     week.actions.some((a) => a.outcome === 'not_placed') ||
     week.positions.some((p) => p.why_now != null)
   if (boughtSomething || !week.market_view) return null
