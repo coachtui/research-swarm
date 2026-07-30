@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from execution.thesis.parser import parse_memo_response
+from execution.thesis.parser import _passed_on, parse_memo_response
 from execution.thesis.prompts import build_weekly_memo_prompt
 
 BASE = {
@@ -78,3 +78,31 @@ def test_prompt_asks_for_declined_candidates(phrase):
         "book": [], "candidates": {}, "crowdedness": {}, "regime": "neutral",
     })
     assert phrase in prompt.lower()
+
+
+# ── Phase C: what would change our mind ──────────────────────────────────────
+
+def test_passed_on_carries_reconsider_if_when_stated():
+    out = _passed_on([{"ticker": "mu", "reason": "crowded at $990",
+                       "reconsider_if": "below ~$700 or HBM pricing breaks"}],
+                     "memory-hbm", [])
+    assert out == [{"ticker": "MU", "reason": "crowded at $990",
+                    "reconsider_if": "below ~$700 or HBM pricing breaks"}]
+
+
+def test_passed_on_omits_reconsider_if_when_absent_or_blank():
+    """Never fabricated: absent stays absent, whitespace collapses to absent."""
+    for raw in ({"ticker": "MU", "reason": "crowded"},
+                {"ticker": "MU", "reason": "crowded", "reconsider_if": "  "}):
+        out = _passed_on([raw], "memory-hbm", [])
+        assert out and "reconsider_if" not in out[0]
+
+
+def test_prompt_teaches_reconsider_if():
+    from execution.thesis.prompts import build_weekly_memo_prompt
+    p = build_weekly_memo_prompt({"theses": [], "hypotheses": [], "book": [],
+                                  "candidates": {}, "crowdedness": {},
+                                  "regime": None, "macro": {},
+                                  "method_rulebook": None})
+    assert "reconsider_if" in p
+    assert "change your mind" in p.lower() or "change our mind" in p.lower()

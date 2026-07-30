@@ -4,7 +4,10 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWeek } from '@/lib/hooks/useAdmin'
-import type { WeekAction, WeekPosition, WeekResponse } from '@/types/api'
+import { PositionCard } from './PositionCard'
+import { DecisionsSection } from './DecisionsSection'
+import { NoBuyBanner } from './NoBuyBanner'
+import type { WeekResponse } from '@/types/api'
 
 /**
  * One page for the whole week: what we own, what we're bidding for, what we
@@ -22,12 +25,6 @@ const STAGE_TONE: Record<string, string> = {
   priced: 'bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200',
 }
 
-const OUTCOME_LABEL: Record<string, string> = {
-  not_placed: 'authorised, not placed',
-  exited: 'exited',
-  passed_on: 'considered, passed',
-}
-
 const money = (n: number | null | undefined) =>
   n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 
@@ -36,70 +33,6 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
     <div className="flex-1 min-w-[7rem] border-r last:border-r-0 px-4 py-3">
       <div className={`font-mono text-xl font-semibold tabular-nums ${tone ?? ''}`}>{value}</div>
       <div className="text-[0.7rem] uppercase tracking-wider text-muted-foreground">{label}</div>
-    </div>
-  )
-}
-
-function PositionRow({ p }: { p: WeekPosition }) {
-  const up = p.unrealized_pl >= 0
-  return (
-    <div className="border-b last:border-b-0 py-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-mono font-semibold">{p.symbol}</span>
-        {p.sleeve && <Badge variant="secondary" className="text-[0.65rem]">Sleeve {p.sleeve}</Badge>}
-        {p.themes.map((t) => (
-          <Badge key={t} variant="secondary" className="text-[0.65rem]">{t}</Badge>
-        ))}
-        {p.themes.length === 0 && p.sleeve === 'A' && (
-          <Badge variant="warning" className="text-[0.65rem]">no thesis</Badge>
-        )}
-        <span className="ml-auto font-mono text-sm tabular-nums text-muted-foreground">
-          {p.qty} sh · {money(p.market_value)}
-        </span>
-        <span className={`font-mono text-sm tabular-nums ${up ? 'text-emerald-600' : 'text-red-600'}`}>
-          {up ? '+' : ''}{p.unrealized_pl.toFixed(0)} ({(p.unrealized_plpc * 100).toFixed(1)}%)
-        </span>
-      </div>
-      {p.why_now && (
-        <p className="mt-1.5 text-sm text-muted-foreground max-w-[70ch]">
-          <span className="uppercase text-[0.62rem] tracking-wider font-semibold text-primary mr-2">
-            Why now
-          </span>
-          {p.why_now}
-        </p>
-      )}
-      {p.why_this_expression && (
-        <p className="mt-1 text-sm text-muted-foreground max-w-[70ch]">
-          <span className="uppercase text-[0.62rem] tracking-wider font-semibold text-primary mr-2">
-            Why this name
-          </span>
-          {p.why_this_expression}
-        </p>
-      )}
-      {!p.why_now && p.sleeve === 'A' && (
-        <p className="mt-1.5 text-sm italic text-muted-foreground">
-          No memo reasoning recorded for this position.
-        </p>
-      )}
-    </div>
-  )
-}
-
-function ActionRow({ a }: { a: WeekAction }) {
-  return (
-    <div className="border-b last:border-b-0 py-2.5">
-      <div className="flex flex-wrap items-baseline gap-x-3">
-        <span className="font-mono font-semibold">{a.ticker}</span>
-        {a.slug && <Badge variant="secondary" className="text-[0.65rem]">{a.slug}</Badge>}
-        {a.role && <Badge variant="secondary" className="text-[0.65rem]">{a.role.replace('_', ' ')}</Badge>}
-        {a.conviction != null && (
-          <span className="font-mono text-xs text-muted-foreground">conviction {a.conviction.toFixed(2)}</span>
-        )}
-        <span className="ml-auto text-[0.65rem] uppercase tracking-wider font-semibold text-muted-foreground">
-          {OUTCOME_LABEL[a.outcome] ?? a.outcome}
-        </span>
-      </div>
-      {a.reason && <p className="mt-1 text-sm text-muted-foreground max-w-[70ch]">{a.reason}</p>}
     </div>
   )
 }
@@ -134,6 +67,9 @@ export function WeekPanel() {
               <Badge variant="warning">broker unreachable — positions may be stale</Badge>
             )}
           </CardTitle>
+          {w.market_view && (
+            <p className="text-sm text-muted-foreground max-w-[80ch]">{w.market_view}</p>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           <div className="flex flex-wrap border-t">
@@ -152,6 +88,8 @@ export function WeekPanel() {
           </div>
         </CardContent>
       </Card>
+
+      <NoBuyBanner week={w} />
 
       {w.macro_reasoning && (
         <Card>
@@ -204,7 +142,7 @@ export function WeekPanel() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {w.positions.map((p) => <PositionRow key={p.symbol} p={p} />)}
+          {w.positions.map((p) => <PositionCard key={p.symbol} p={p} />)}
         </CardContent>
       </Card>
 
@@ -232,23 +170,7 @@ export function WeekPanel() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground">
-            Decided against — authorised but not placed, exited, and considered but passed
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {w.actions.length === 0 ? (
-            <p className="py-4 text-sm italic text-muted-foreground">
-              Nothing recorded. Candidates the memo declined appear here from the first run
-              after the passed-on field shipped.
-            </p>
-          ) : (
-            w.actions.map((a) => <ActionRow key={a.ticker + a.outcome} a={a} />)
-          )}
-        </CardContent>
-      </Card>
+      <DecisionsSection actions={w.actions} />
     </div>
   )
 }

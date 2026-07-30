@@ -51,10 +51,11 @@ def stop_levels(high_water: float, today_close: float, atr: float) -> Tuple[floa
 
 
 async def _persist_position_provenance(db, order: Any) -> None:
-    """Copy sourceTags / convictionScore / reportRef from a filled buy's order
-    journal onto its EnginePosition row (C1a). The columns were migrated but
-    left dead; the weekly theme review needs the persisted sourceTags to flag
-    only theme-sourced holdings. Best-effort — never sinks the fills sweep."""
+    """Copy sourceTags / convictionScore / reportRef / positionPlan from a
+    filled buy's order journal onto its EnginePosition row (C1a). The columns
+    were migrated but left dead; the weekly theme review needs the persisted
+    sourceTags to flag only theme-sourced holdings. Best-effort — never sinks
+    the fills sweep."""
     from execution.constants import SLEEVE_A  # noqa: PLC0415
 
     try:
@@ -73,6 +74,15 @@ async def _persist_position_provenance(db, order: Any) -> None:
         report_ref = journal.get("reportRef")
         if report_ref is not None:
             data["reportRef"] = report_ref
+        # Phase C: the memo's plan at entry — ladder, thesis_break, exit
+        # posture — persisted for the life of the position. Latest plan wins
+        # (an add that re-states the plan overwrites); an order with no plan
+        # leaves the existing column alone rather than blanking it.
+        plan = journal.get("position_plan")
+        if isinstance(plan, dict):
+            from prisma import Json  # noqa: PLC0415
+
+            data["positionPlan"] = Json(plan)
         if not data:
             return
         await db.engineposition.update(

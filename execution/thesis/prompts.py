@@ -76,7 +76,10 @@ _METHOD = """## Your job this week
    will not reach the catalyst. Naming what you rejected and why is as much
    the deliverable as what you bought; a candidate that made the screen and
    then vanished silently is the one gap the owner cannot audit. Do not list
-   names you never seriously considered.
+   names you never seriously considered. For each pass, where you can, also
+   state what would change your mind in "reconsider_if" — a price ("below
+   ~$700"), an evidence condition ("interconnect lead times blowing out"),
+   or both.
 8. HYPOTHESES: update each next-constraint hypothesis from its indicators;
    graduate one to a theme only when they confirm.
 9. If web search was unavailable or you could not verify this week's
@@ -197,7 +200,8 @@ Respond with ONLY a JSON object, no other text:
     }}],
     "passed_on": [{{
       "ticker": "<SYMBOL>",
-      "reason": "<1 sentence: why this candidate did NOT earn capital>"
+      "reason": "<1 sentence: why this candidate did NOT earn capital>",
+      "reconsider_if": "<optional: the price or evidence that would change your mind>"
     }}]
   }}],
   "hypothesis_updates": [{{

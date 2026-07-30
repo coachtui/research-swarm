@@ -1,24 +1,21 @@
-# Current Phase: Autopilot Thesis Engine — Phase B2 complete (Compounding 13F Rulebook)
+# Current Phase: Autopilot Thesis Engine — Phase C complete (Audit Surface)
 
 **Updated**: 2026-07-29
-**Branch/PR**: feat/13f-method-rulebook
+**Branch/PR**: feat/phase-c-audit-surface
 
-Phase B2 (compounding rulebook) is built: the quarterly pass now revises a
-living method rulebook instead of writing a throwaway digest. The study asks
-how many quarters ahead of the mainstream story the fund was; a second paid
-step (no web search) issues per-rule verdicts — confirmed / sharpened /
-unchanged / retired — and pure Python does the bookkeeping (version,
-confirmations, identity, 25-rule cap with logged eviction). The weekly memo and
-monthly discovery prompts read the RULEBOOK, which carries method and
-calibration only — no issuers, cusips, or weights — so the fund's book
-structurally cannot reach the prompt that authorizes buys. A failed or drifted
-revise leaves the prior rulebook authoritative and keeps the paid digest.
-Spec: docs/superpowers/specs/2026-07-29-13f-method-rulebook-design.md.
-No mechanical entry filter: measured evidence (BE entered +448% over its
-200-week MA and won; MU +511% and lost 25%) says distance-from-anchor does not
-discriminate — see memory autopilot-no-mechanical-entry-filters.
+Phase C (audit surface) is built: the This Week tab is now the weekly audit.
+Position plans persist at fill (ladder, thesis_break, exit posture — the
+crowded-winner review finally has "what was our plan entering?" to read);
+every order journals its price math (price/SMA20/ATR beside the limit they
+produced); passes record what would change the memo's mind (reconsider_if);
+and the UI renders each position's dossier, every decision with its
+reasoning, and a zero-buy week as a deliberate call quoting the memo's
+market view. Records more, shows more, decides nothing. Deferred (spec §5):
+rung resting orders, fill attribution, theme trails, rulebook UI.
+Spec: docs/superpowers/specs/2026-07-30-phase-c-audit-surface-design.md.
 
-Next: Phase C — memo-trail admin UI.
+Next: place ladder rungs as resting orders (after watching plans render),
+or surface the A-vs-B-vs-SPY scorecard.
 
 ---
 

@@ -369,3 +369,61 @@ def test_fills_settle_before_reconcile():
     assert "a_recon" not in fills_body, (
         "fills cannot read a_recon once it runs first — it would be undefined"
     )
+
+
+# ── Phase C: the plan lands on the position at fill ──────────────────────────
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import inngest_app.functions.execution_daily as xd
+
+_PLAN = {"ladder": [{"price": 340.0, "size_pct": 0.5, "why": "r"}],
+         "thesis_break": "capex cut", "exit_plan": None}
+
+
+def _order(symbol="AEHR", journal=None):
+    return SimpleNamespace(symbol=symbol, journal=journal or {})
+
+
+def test_provenance_copies_position_plan():
+    db = MagicMock()
+    db.engineposition.update = AsyncMock()
+    order = _order(journal={"sourceTags": {"themes": ["x"]},
+                            "position_plan": _PLAN})
+    asyncio.run(xd._persist_position_provenance(db, order))
+    data = db.engineposition.update.call_args.kwargs["data"]
+    assert "positionPlan" in data          # Json-wrapped plan present
+
+
+def test_provenance_without_plan_leaves_column_untouched():
+    """Latest plan wins on adds — but an add with NO plan must not blank the
+    plan already on the row. Absent key → no positionPlan in the update."""
+    db = MagicMock()
+    db.engineposition.update = AsyncMock()
+    asyncio.run(xd._persist_position_provenance(
+        db, _order(journal={"sourceTags": {"themes": ["x"]},
+                            "position_plan": None})))
+    data = db.engineposition.update.call_args.kwargs["data"]
+    assert "positionPlan" not in data
+
+
+def test_provenance_is_replay_idempotent():
+    """The fills sweep re-runs on Inngest replay (PR #12 lesson). Running the
+    provenance copy twice must produce the identical update both times and
+    never raise."""
+    db = MagicMock()
+    db.engineposition.update = AsyncMock()
+    order = _order(journal={"position_plan": _PLAN})
+    asyncio.run(xd._persist_position_provenance(db, order))
+    asyncio.run(xd._persist_position_provenance(db, order))
+    first, second = db.engineposition.update.call_args_list
+    assert first.kwargs["where"] == second.kwargs["where"]
+    assert str(first.kwargs["data"]) == str(second.kwargs["data"])
+
+
+def test_provenance_still_never_raises():
+    db = MagicMock()
+    db.engineposition.update = AsyncMock(side_effect=RuntimeError("db down"))
+    asyncio.run(xd._persist_position_provenance(
+        db, _order(journal={"position_plan": _PLAN})))   # must not raise

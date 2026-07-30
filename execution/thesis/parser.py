@@ -106,7 +106,15 @@ def _passed_on(raw: Any, slug: str, skipped: List[str]) -> List[Dict[str, str]]:
         if not reason:
             skipped.append(f"{slug}: passed_on {ticker} without a reason")
             continue
-        out.append({"ticker": ticker, "reason": reason})
+        item = {"ticker": ticker, "reason": reason}
+        # Phase C: the memo's own statement of what would change its mind —
+        # a price, an evidence condition, or both. Optional; only recorded
+        # when stated, never fabricated.
+        raw_reconsider = p.get("reconsider_if")
+        reconsider = raw_reconsider.strip() if isinstance(raw_reconsider, str) else ""
+        if reconsider:
+            item["reconsider_if"] = reconsider
+        out.append(item)
     return out
 
 
