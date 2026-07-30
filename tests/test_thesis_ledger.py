@@ -44,23 +44,22 @@ def test_append_writes_one_row_and_never_raises():
 def test_load_groups_by_theme_and_splits_kinds():
     rows = [_row("weekly_memo", slug="dc-energy", stage="catching_on"),
             _row("hypothesis", key="hbm-packaging"),
-            _row("study_digest", body={"fund": "SALP", "method_rules": []}),
             _row("weekly_memo", slug="photonics", stage="crowded")]
     db = SimpleNamespace(thesisevidence=_Table(rows))
     out = asyncio.run(load_ledger_context(db, ["dc-energy", "photonics"]))
     assert [r["stage"] for r in out["by_theme"]["dc-energy"]] == ["catching_on"]
     assert out["hypotheses"][0]["hypothesisKey"] == "hbm-packaging"
-    assert out["study_digest"] == [{"fund": "SALP", "method_rules": []}]
 
 
-def test_study_digest_survives_aging_out_of_the_scan_window():
-    """A QUARTERLY digest must not vanish because 8 weeks of weekly rows
-    pushed it past the bounded newest-first take window."""
-    weekly = [_row("weekly_memo", slug="dc-energy") for _ in range(200)]
-    old_digest = _row("study_digest", body={"fund": "SALP", "method_rules": ["r"]})
-    db = SimpleNamespace(thesisevidence=_Table(weekly + [old_digest]))
+def test_load_context_carries_the_rulebook_not_the_raw_digest():
+    rows = [_row("weekly_memo", slug="dc-energy", stage="catching_on"),
+            _row("hypothesis", key="hbm-packaging"),
+            _row("study_digest", body={"fund": "SALP", "material_moves": [1]}),
+            _row("method_rulebook", body={"version": 2, "rules": [{"id": "a"}]})]
+    db = SimpleNamespace(thesisevidence=_Table(rows))
     out = asyncio.run(load_ledger_context(db, ["dc-energy"]))
-    assert out["study_digest"] == [{"fund": "SALP", "method_rules": ["r"]}]
+    assert "study_digest" not in out
+    assert out["method_rulebook"]["version"] == 2
 
 
 def test_load_study_digest_newest_per_fund():
@@ -90,7 +89,8 @@ def test_load_degrades_to_empty_on_failure():
         async def find_many(self, **kw):
             raise RuntimeError("db down")
     out = asyncio.run(load_ledger_context(SimpleNamespace(thesisevidence=_Boom()), ["a"]))
-    assert out == {"by_theme": {"a": []}, "hypotheses": [], "study_digest": []}
+    assert out == {"by_theme": {"a": []}, "hypotheses": [],
+                   "method_rulebook": None}
 
 
 def test_load_rulebook_returns_the_newest_body():

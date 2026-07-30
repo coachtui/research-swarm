@@ -97,6 +97,7 @@ async def load_ledger_context(
     except Exception:  # noqa: BLE001
         logger.exception("thesis ledger: load failed — memo runs stateless")
     return {"by_theme": by_theme, "hypotheses": hypotheses,
-            # Quarterly rows need their own query — the scan window above
-            # ages them out within weeks (Phase B fix).
-            "study_digest": await load_study_digest(db)}
+            # Quarterly rows need their own query — the scan above ages them
+            # out within weeks. The memo reads the RULEBOOK (bounded, method
+            # only), never the raw digest (which carries the fund's book).
+            "method_rulebook": await load_rulebook(db)}

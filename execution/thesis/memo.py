@@ -55,7 +55,7 @@ async def gather_memo_packet(
         "industry_rankings": _rankings(outlook.get("industryRankings")),
     }
     return {"theses": active, "hypotheses": ledger["hypotheses"],
-            "study_digest": ledger["study_digest"], "book": book,
+            "method_rulebook": ledger.get("method_rulebook"), "book": book,
             "candidates": candidates, "crowdedness": crowd,
             "regime": outlook.get("regime"),
             # The strategist's macro read — what is driving this tape, not just
