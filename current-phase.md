@@ -3,22 +3,22 @@
 **Updated**: 2026-07-29
 **Branch/PR**: feat/13f-study-pass
 
-Phase B of the thesis-first entry redesign (spec
-docs/superpowers/specs/2026-07-27-thesis-first-entry-redesign-design.md §5)
-is built: a quarterly cron (21st of Feb/May/Aug/Nov, one week after the
-45-day 13F deadline) pulls trusted-fund 13F info tables from EDGAR, diffs
-quarters (puts/calls included), reconstructs each material move's
-entry/exit window (first-appearance quarter, share deltas, implied
-quarter-end prices), and has the LLM + web search reconstruct what was
-publicly knowable DURING the window. Deliverable is METHOD RULES, landed
-in ThesisEvidence as kind=study_digest — the slot the weekly memo has read
-since Phase A (no longer None) and now the monthly discovery prompt too.
-Founding premise enforced by guard tests: curriculum, never copy-trading;
-filing tickers have zero order authority. Trusted funds: SALP (CIKs
-0002045724, 0002038540); list is extensible in execution/constants.py.
+Phase B2 (compounding rulebook) is built: the quarterly pass now revises a
+living method rulebook instead of writing a throwaway digest. The study asks
+how many quarters ahead of the mainstream story the fund was; a second paid
+step (no web search) issues per-rule verdicts — confirmed / sharpened /
+unchanged / retired — and pure Python does the bookkeeping (version,
+confirmations, identity, 25-rule cap with logged eviction). The weekly memo and
+monthly discovery prompts read the RULEBOOK, which carries method and
+calibration only — no issuers, cusips, or weights — so the fund's book
+structurally cannot reach the prompt that authorizes buys. A failed or drifted
+revise leaves the prior rulebook authoritative and keeps the paid digest.
+Spec: docs/superpowers/specs/2026-07-29-13f-method-rulebook-design.md.
+No mechanical entry filter: measured evidence (BE entered +448% over its
+200-week MA and won; MU +511% and lost 25%) says distance-from-anchor does not
+discriminate — see memory autopilot-no-mechanical-entry-filters.
 
-Next: Phase C — memo-trail admin UI (rides the after-the-fact audit-trail
-design when it lands).
+Next: Phase C — memo-trail admin UI.
 
 ---
 
