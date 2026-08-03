@@ -106,7 +106,22 @@ async def lifespan(app: FastAPI):
     # Fire-and-forget: connect in background, don't block startup.
     asyncio.create_task(connect_db())
     asyncio.create_task(start_scheduler())
+
+    # Inngest Connect worker — the outbound WebSocket that replaced the
+    # /api/inngest HTTP mount. Started here because connect() needs a running
+    # event loop; start_worker() never raises, so a dead worker leaves the API
+    # (and the dashboard the owner would use to notice) fully up.
+    if _inngest_worker_args is not None:
+        from inngest_app.worker import start_worker  # noqa: PLC0415
+
+        await start_worker(*_inngest_worker_args)
+
     yield
+
+    if _inngest_worker_args is not None:
+        from inngest_app.worker import stop_worker  # noqa: PLC0415
+
+        await stop_worker()
     await stop_scheduler()
     await disconnect_db()
 
@@ -167,15 +182,19 @@ app.include_router(weekly_signals_route.router, prefix="/api", tags=["Weekly Sig
 app.include_router(autopilot_route.router, prefix="/api", tags=["Autopilot"])
 app.include_router(webhook.router, prefix="/api/webhook", tags=["Webhooks"])
 
-# ── Inngest handler mount (guarded, opt-in per host) ─────────────────────────
-# Serves registered Inngest functions at /api/inngest (SDK default path).
-# Wrapped so a missing/broken inngest SDK can never take down the API.
+# ── Inngest Connect worker (guarded, opt-in per host) ────────────────────────
+# Registered functions are served over a persistent OUTBOUND WebSocket, not the
+# old inbound /api/inngest HTTP mount. HTTP serving made each step's duration a
+# single inbound request, and Railway's edge proxy cut those at ~5 minutes —
+# which killed the sleeve-a-funnel memo step twice on 2026-08-03. See
+# inngest_app/worker.py for the full write-up.
+#
+# Resolved at import; actually started in lifespan (needs a running loop).
 # Vercel installs the SDK transitively (requirements-vercel.txt ->
-# requirements.txt), so SDK presence alone must not trigger the mount:
+# requirements.txt), so SDK presence alone must not start a worker:
 # only the cron host (Railway) sets INNGEST_SIGNING_KEY.
+_inngest_worker_args = None
 try:
-    import inngest.fast_api  # pip SDK (the local package is inngest_app)
-
     from inngest_app.index import (
         ACTIVE_FUNCTIONS,
         inngest_client,
@@ -184,26 +203,25 @@ try:
 
     _inngest_signing_key = os.getenv("INNGEST_SIGNING_KEY")
     if should_mount_inngest(_inngest_signing_key, inngest_client, ACTIVE_FUNCTIONS):
-        inngest.fast_api.serve(app, inngest_client, ACTIVE_FUNCTIONS)
+        _inngest_worker_args = (inngest_client, ACTIVE_FUNCTIONS)
         _startup_logger.info(
-            "Inngest handler mounted at /api/inngest with %d function(s)",
+            "Inngest Connect worker enabled with %d function(s)",
             len(ACTIVE_FUNCTIONS),
         )
     elif not _inngest_signing_key:
         _startup_logger.info(
-            "INNGEST_SIGNING_KEY not set — Inngest handler not mounted "
+            "INNGEST_SIGNING_KEY not set — Inngest worker disabled "
             "(set it on the cron host, e.g. Railway)"
         )
     else:
         _startup_logger.warning(
-            "Inngest handler NOT mounted (client=%s, active_functions=%d)",
+            "Inngest worker NOT enabled (client=%s, active_functions=%d)",
             "ok" if inngest_client is not None else "unavailable",
             len(ACTIVE_FUNCTIONS) if ACTIVE_FUNCTIONS else 0,
         )
 except Exception as _inngest_exc:  # pragma: no cover — env-dependent
     _startup_logger.warning(
-        "Inngest handler NOT mounted — SDK unavailable or serve failed: %s",
-        _inngest_exc,
+        "Inngest worker NOT enabled — SDK unavailable: %s", _inngest_exc,
     )
 
 # Root endpoint

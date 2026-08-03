@@ -17,6 +17,15 @@ from fastapi import APIRouter, HTTPException
 router = APIRouter()
 
 
+def _worker_status() -> dict:
+    """Inngest Connect worker state, or why it is unavailable. Never raises."""
+    try:
+        from inngest_app.worker import worker_status
+        return worker_status()
+    except Exception as exc:  # noqa: BLE001 — readiness must not 500 on this
+        return {"running": False, "state": "unavailable", "error": str(exc)}
+
+
 @router.get("/health")
 async def health_check():
     """
@@ -38,7 +47,14 @@ async def readiness_check():
         from api.lib.db import get_db
         db = await asyncio.wait_for(get_db(), timeout=2.0)
         await asyncio.wait_for(db.execute_raw("SELECT 1"), timeout=2.0)
-        return {"status": "ready", "db": "connected", "timestamp": datetime.utcnow().isoformat()}
+        return {
+            "status": "ready", "db": "connected",
+            # Cron transport. Reported here (not gating the 200) because a dead
+            # Inngest worker means every cron is silently gone, and the only
+            # other symptom is a Monday that produces no funnel_summary row.
+            "inngest_worker": _worker_status(),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
     except asyncio.TimeoutError:
         raise HTTPException(status_code=503, detail={"status": "not_ready", "reason": "db_timeout"})
     except Exception as e:

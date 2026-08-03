@@ -66,9 +66,13 @@ def should_mount_inngest(
     client: Optional[Any],
     functions: Optional[List[Any]],
 ) -> bool:
-    """Decide whether api/index.py should mount the Inngest handler.
+    """Decide whether api/index.py should run the Inngest Connect worker.
 
-    Mount only when ALL hold:
+    (Named for the old HTTP `serve` mount it used to gate. Since 2026-08-03 the
+    functions are served over a persistent outbound WebSocket instead — see
+    inngest_app/worker.py — but the host-selection rule is unchanged.)
+
+    Serve only when ALL hold:
     - INNGEST_SIGNING_KEY is set (opt-in per host — Railway yes, Vercel no,
       even though Vercel installs the SDK transitively via
       requirements-vercel.txt -> requirements.txt)
