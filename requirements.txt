@@ -50,8 +50,13 @@ markdown>=3.5.0
 weasyprint>=60.0
 
 # Background Jobs (Inngest) — pip SDK; the local package was renamed to
-# inngest_app so it no longer shadows this import
-inngest>=0.3.0
+# inngest_app so it no longer shadows this import.
+# The [connect] extra (protobuf, psutil, websockets) is REQUIRED: functions are
+# served over a persistent outbound WebSocket, not the old /api/inngest HTTP
+# mount, because inbound HTTP steps were being cut at ~5 min by Railway's edge
+# proxy. Connect landed in 0.5.0; pinned below 0.6 so a major SDK change can't
+# silently arrive on a redeploy and take every cron down.
+inngest[connect]>=0.5.19,<0.6
 
 # API Framework (for FastAPI deployment)
 fastapi>=0.109.0
