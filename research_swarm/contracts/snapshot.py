@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -245,6 +245,13 @@ class TickerSnapshot(BaseModel):
         description="Keyed by section name ('quote', 'filings', 'news', ...). "
         "Every section above MUST have an entry, including missing ones.",
     )
+
+    # ── Transitional (Phase A) ──────────────────────────────────────────────
+    # The legacy shared_swarm_data payloads (raw DataFrames, filing text, etc.)
+    # exactly as the agents consume them today. Excluded from serialization.
+    # Phases B/C migrate consumers onto the typed sections above, then this
+    # field is deleted.
+    raw_bundle: Dict[str, Any] = Field(default_factory=dict, exclude=True)
 
     def completeness_pct(self) -> float:
         """Share of sections that arrived fresh or cached (0-100)."""

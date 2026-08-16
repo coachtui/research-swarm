@@ -53,14 +53,18 @@ def fetch_swarm_data_node(state: ManagerState) -> ManagerState:
             }
             logger.success(f"✓ ETF data fetched: {state['ticker']} AUM=${etf_data.get('aum_billions')}B")
         else:
-            # Equity path: existing hybrid provider fetch
-            from research_swarm.data.data_provider_hybrid import hybrid_provider
-            period = "1y"
-            shared_data = hybrid_provider.get_complete_swarm_data(state["ticker"], period=period)
-            state["shared_swarm_data"] = shared_data
+            # Equity path: single assembly point (Phase A). The snapshot carries
+            # per-section provenance; agents consume the legacy bundle shape.
+            from research_swarm.data.snapshot_assembler import (
+                assemble_snapshot,
+                snapshot_to_swarm_bundle,
+            )
+            snapshot = assemble_snapshot(state["ticker"], period="1y")
+            state["shared_swarm_data"] = snapshot_to_swarm_bundle(snapshot)
             logger.success(
-                f"✓ Swarm data fetched: {state['ticker']} "
-                f"(Foreign: {shared_data.get('is_foreign', False)})"
+                f"✓ Swarm data assembled: {state['ticker']} "
+                f"({snapshot.completeness_pct():.0f}% complete, "
+                f"Foreign: {snapshot.is_foreign_filer})"
             )
 
     except Exception as e:
