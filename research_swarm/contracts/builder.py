@@ -42,18 +42,17 @@ from research_swarm.contracts.report import (
 # Mirrors QualityScoreBreakdown.weighted_average (manager/models.py) — the
 # weights are recorded on the report so the formula is auditable from the
 # payload itself.
+# Mirrors QualityScoreBreakdown.quality_score(). Valuation and sentiment are
+# deliberately absent: v4.0 reports quality and valuation as separate axes, so
+# listing valuation as a "component" of quality would contradict the split.
 _WEIGHTS_V3 = {
-    "roic_wacc_spread": 0.25,
-    "financial_health": 0.25,
-    "earnings_momentum": 0.20,
-    "valuation": 0.15,
-    "sentiment_catalysts": 0.10,
+    "roic_wacc_spread": 0.35,
+    "financial_health": 0.35,
+    "earnings_momentum": 0.30,
 }
 _WEIGHTS_FALLBACK = {
-    "financial_health": 0.30,
-    "earnings_momentum": 0.25,
-    "valuation": 0.25,
-    "sentiment_catalysts": 0.20,
+    "financial_health": 0.55,
+    "earnings_momentum": 0.45,
 }
 
 _RISK_LEVEL_MAP = {"low": RiskLevel.LOW, "medium": RiskLevel.MEDIUM, "high": RiskLevel.HIGH}
@@ -81,8 +80,18 @@ def _build_scores(full_output: Dict[str, Any]) -> Scores:
         for name, weight in weights.items()
         if breakdown.get(name) is not None
     ]
+    from research_swarm.agents.manager.scorer import ManagerScorer
+
+    quality = float(full_output.get("moat_score") or 0.0)
+    valuation = full_output.get("normalized_valuation_score")
+
     return Scores(
-        quality_score=float(full_output.get("moat_score") or 0.0),
+        quality_score=quality,
+        valuation_score=valuation,
+        quality_tier=ManagerScorer._quality_tier(quality),
+        valuation_tier=(
+            ManagerScorer._valuation_tier(valuation) if valuation is not None else None
+        ),
         components=components,
         technical_score=breakdown.get("technical_strength"),
         confidence=float(full_output.get("confidence") or 0.0),
@@ -292,10 +301,17 @@ def _build_decision(full_output: Dict[str, Any], di: Dict[str, Any]) -> Decision
 
     moat_score = full_output.get("moat_score")
     recommendation = full_output.get("recommendation")
-    rating_basis = (
-        f"Quality score {moat_score:.1f}/10 → {rating.value}"
-        if moat_score is not None else f"Rating {rating.value}"
-    )
+    valuation_axis = full_output.get("normalized_valuation_score")
+    # State BOTH axes: the whole point of the v4.0 split is that the reader can
+    # see whether a HOLD is "mediocre business" or "good business, wrong price".
+    if moat_score is not None and valuation_axis is not None:
+        rating_basis = (
+            f"Quality {moat_score:.1f}/10 x Valuation {valuation_axis:.1f}/10 → {rating.value}"
+        )
+    elif moat_score is not None:
+        rating_basis = f"Quality score {moat_score:.1f}/10 → {rating.value}"
+    else:
+        rating_basis = f"Rating {rating.value}"
     if recommendation and str(recommendation).upper() != rating.value:
         rating_basis += f" (LLM recommendation: {recommendation}; write-time reconciliation applied)"
 
