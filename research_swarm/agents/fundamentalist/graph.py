@@ -23,6 +23,10 @@ from research_swarm.agents.fundamentalist.models import (
     DCFInputs,
 )
 from research_swarm.agents.fundamentalist.blended_valuation import blended_valuation_calculator
+from research_swarm.agents.fundamentalist.capital_efficiency import (
+    compute_roic,
+    quarterly_to_annual_fcf,
+)
 from research_swarm.agents.fundamentalist.fair_value_calibrator import fair_value_calibrator
 
 
@@ -35,10 +39,13 @@ def _compute_roic_wacc_spread_score(
     dcf_inputs: Any,
 ) -> Optional[float]:
     """
-    Score ROIC-WACC spread on a 0-10 scale.
+    Score the return-on-capital spread over cost of capital on a 0-10 scale.
 
-    ROIC proxy: returnOnEquity (ROE) from yfinance — decimal (e.g. 0.15 = 15%).
-    WACC: derived from beta, market cap, debt, and tax rate using CAPM.
+    Two regimes, because the correct pairing differs by business model:
+      - Operating companies: ROIC (unlevered) vs WACC.
+      - Banks/insurers: ROE (levered) vs COST OF EQUITY. Invested capital is
+        not a meaningful concept for a balance sheet where debt is raw
+        material, so ROIC vs WACC would be a category error there.
 
     Spread thresholds (percentage points above/below cost of capital):
       >=10%  → 9.5  Clear structural moat
@@ -51,10 +58,6 @@ def _compute_roic_wacc_spread_score(
 
     +0.5 persistence bonus when margin trend is stable/expanding and spread > 2%.
     """
-    roic = stock_info.get("returnOnEquity")
-    if roic is None:
-        return None
-
     beta = (dcf_inputs.beta or stock_info.get("beta") or 1.0)
     risk_free = dcf_inputs.risk_free_rate / 100.0
     erp = dcf_inputs.equity_risk_premium / 100.0
@@ -81,7 +84,34 @@ def _compute_roic_wacc_spread_score(
     wacc = (equity_weight * cost_of_equity) + (debt_weight * cost_of_debt * (1 - tax_rate))
     wacc = max(0.05, min(wacc, 0.20))
 
-    spread = roic - wacc
+    # Pick the return/hurdle pair that matches the business model.
+    sector = (stock_info.get("sector") or "").strip()
+    is_financial = sector in ("Financial Services", "Financials")
+
+    if is_financial:
+        # Banks and insurers fund themselves with deposits and debt as raw
+        # material, so invested capital is not meaningful. ROE against cost of
+        # equity is the standard read for them.
+        roic = stock_info.get("returnOnEquity")
+        hurdle = cost_of_equity
+        return_label, hurdle_label = "ROE", "cost of equity"
+        method = "ROE vs cost of equity (financials)"
+    else:
+        roic, method = compute_roic(stock_info, tax_rate)
+        hurdle = wacc
+        return_label, hurdle_label = "ROIC", "WACC"
+        if roic is None:
+            # No fallback to ROE here: comparing a levered return to WACC is
+            # what produced the 128%-ROE "moat" readings. Better to report no
+            # score and let the quality formula reweight than to publish a
+            # number that means something else.
+            logger.info(
+                f"ROIC unavailable for {stock_info.get('symbol', 'ticker')} "
+                "(missing revenue/margin/book value) — no capital-efficiency score"
+            )
+            return None
+
+    spread = roic - hurdle
 
     if spread >= 0.10:
         score = 9.5
@@ -102,8 +132,8 @@ def _compute_roic_wacc_spread_score(
         score = min(10.0, score + 0.5)
 
     logger.info(
-        f"ROIC-WACC: ROE={roic*100:.1f}% WACC={wacc*100:.1f}% "
-        f"spread={spread*100:+.1f}% → score={score:.1f}/10"
+        f"Capital efficiency [{method}]: {return_label}={roic*100:.1f}% "
+        f"{hurdle_label}={hurdle*100:.1f}% spread={spread*100:+.1f}% → score={score:.1f}/10"
     )
     return round(score, 1)
 
@@ -1075,16 +1105,28 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                                     )
 
                             if _needs_fcf:
-                                _fh = [
+                                _fq = [
                                     r["free_cash_flow"]
                                     for r in _fin_rows_asc
                                     if r.get("free_cash_flow") is not None
                                 ]
-                                if len(_fh) >= 2:
+                                # These rows are QUARTERLY; fcf_history is
+                                # defined as annual and the DCF grows its last
+                                # entry for five years. Fold to trailing-annual
+                                # totals before assigning.
+                                _fh = quarterly_to_annual_fcf(_fq)
+                                if _fh:
                                     dcf_inputs.fcf_history = _fh
                                     logger.info(
                                         f"DCF supplement: {state['ticker']} FCF history "
-                                        f"({len(_fh)} quarters) from financials cache"
+                                        f"({len(_fq)} quarters → {len(_fh)} annual "
+                                        f"totals, latest TTM ${_fh[-1]:,.0f}M) from financials cache"
+                                    )
+                                elif _fq:
+                                    logger.info(
+                                        f"DCF supplement: {state['ticker']} has only "
+                                        f"{len(_fq)} quarters of FCF — fewer than the 4 needed "
+                                        "for an annual total, leaving fcf_history empty"
                                     )
                     except Exception as _fin_exc:
                         logger.warning(
@@ -1202,6 +1244,22 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                 except Exception as e:
                     logger.debug(f"Could not fetch 10yr yield (^TNX): {e}")
                 # ──────────────────────────────────────────────────────────────────
+
+                # ── Backfill shares outstanding ────────────────────────────────────
+                # The DCF aborts without it, and it is a single LLM-extracted point
+                # estimate that frequently comes back empty — while yfinance carries
+                # the figure directly. NVDA is the case that exposed this: archetype
+                # weighting assigned the DCF 50% (high-growth, DCF-dominant), then
+                # the DCF silently returned None for want of a share count and the
+                # valuation quietly renormalized onto P/E and EV/EBITDA alone.
+                if dcf_inputs and not dcf_inputs.shares_outstanding and stock_info:
+                    _shares = stock_info.get("sharesOutstanding")
+                    if _shares and _shares > 0:
+                        dcf_inputs.shares_outstanding = _shares / 1_000_000  # → millions
+                        logger.info(
+                            f"DCF supplement: {state['ticker']} shares outstanding "
+                            f"{dcf_inputs.shares_outstanding:,.0f}M from yfinance"
+                        )
 
                 # ── Normalize DCF FCF history to USD ───────────────────────────────
                 # dcf_inputs.fcf_history is extracted from SEC filing text by an LLM

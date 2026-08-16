@@ -20,6 +20,7 @@ DVRG Engine Refinements (Phase 2):
 import statistics
 from typing import Optional, Dict, Any, List, Tuple
 from research_swarm.logger import logger
+from research_swarm.agents.fundamentalist.capital_efficiency import compute_roic
 from research_swarm.agents.fundamentalist.models import PriceTargetScenarios, DCFInputs
 
 
@@ -104,7 +105,7 @@ class BlendedValuationCalculator:
         beta = None
 
         # Quality metric inputs (for Part 3 capital efficiency scoring)
-        roic: Optional[float] = None        # returnOnEquity proxy
+        roic: Optional[float] = None        # NOPAT / invested capital
         fcf_margin: Optional[float] = None  # freeCashflow / totalRevenue
         net_debt_ebitda: Optional[float] = None  # (totalDebt - cash) / ebitda
         revenue: Optional[float] = None     # totalRevenue (for excess cash calc, Part 1)
@@ -136,7 +137,11 @@ class BlendedValuationCalculator:
             # Quality & sector inputs
             revenue = stock_info.get("totalRevenue")
             sector_name = stock_info.get("sector", "") or ""
-            roic = stock_info.get("returnOnEquity")  # ROE as ROIC proxy
+            # Real ROIC (NOPAT / invested capital), not returnOnEquity. ROE is
+            # levered and sits over book equity, so buyback-heavy names posted
+            # 100%+ "ROIC" and pinned this quality score at its ceiling.
+            _tax = (dcf_inputs.effective_tax_rate / 100.0) if (dcf_inputs and dcf_inputs.effective_tax_rate) else 0.21
+            roic, _roic_method = compute_roic(stock_info, _tax)
             if revenue and revenue > 0:
                 free_cf = stock_info.get("freeCashflow")
                 if free_cf is not None:
@@ -775,7 +780,7 @@ class BlendedValuationCalculator:
 
     def _calculate_quality_score(
         self,
-        roic: Optional[float],         # returnOnEquity as proxy (0.0–1.0 decimal)
+        roic: Optional[float],         # NOPAT / invested capital (0.0–1.0 decimal)
         fcf_margin: Optional[float],   # freeCashflow/totalRevenue (0.0–1.0 decimal)
         net_debt_ebitda: Optional[float],  # (totalDebt - cash) / ebitda
     ) -> Optional[float]:
@@ -787,7 +792,7 @@ class BlendedValuationCalculator:
         """
         score_items: List[Tuple[float, float]] = []  # (score, weight)
 
-        # ROIC score (returnOnEquity as proxy; higher = better)
+        # ROIC score (NOPAT / invested capital; higher = better)
         if roic is not None:
             roic_pct = roic * 100
             if roic_pct >= 25:
