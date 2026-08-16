@@ -14,6 +14,7 @@ const VIEW_MODE_KEY = 'dvrg_execution_view_mode'
 interface ExecutionLayerProps {
   ticker: string
   rating: string
+  riskLevel?: string | null
   moatScore: number
   financialHealthScore?: number
   sector?: string
@@ -30,6 +31,7 @@ type ViewMode = 'pm' | 'trader'
 export function ExecutionLayer({
   ticker,
   rating,
+  riskLevel,
   moatScore,
   financialHealthScore,
   sector,
@@ -134,6 +136,7 @@ export function ExecutionLayer({
               <FinalWeightResolver
                 ticker={ticker}
                 rating={rating}
+                riskLevel={riskLevel}
                 signalBreakdown={signalBreakdown}
                 convictionPosition={convictionPosition}
               />

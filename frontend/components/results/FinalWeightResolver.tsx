@@ -28,6 +28,7 @@ import type { SignalBreakdown, ConvictionPosition, CapitalDeploymentDriver } fro
 interface FinalWeightResolverProps {
   ticker: string
   rating?: string | null
+  riskLevel?: string | null
   signalBreakdown?: SignalBreakdown | null
   convictionPosition?: ConvictionPosition | null
 }
@@ -193,6 +194,7 @@ function ArbitrationRow({
 export function FinalWeightResolver({
   ticker,
   rating,
+  riskLevel,
   signalBreakdown,
   convictionPosition,
 }: FinalWeightResolverProps) {
@@ -267,6 +269,51 @@ export function FinalWeightResolver({
   }, [rating, signalBreakdown, convictionPosition, executionWeightPct, policyCap, resolver])
 
   const [rationaleOpen, setRationaleOpen] = useState(true)
+
+  // ── Why the Policy Cap is the number it is ─────────────────────────────────
+  // The resolver already explained WHICH constraint binds; without this it never
+  // explained where the cap itself came from, so an enforced cap read as an
+  // arbitrary ceiling. The cap is derived upstream from risk level (base
+  // allowance), then scaled by rating conviction — and the sizing engine already
+  // ships a rationale string that nothing rendered.
+  const policyCapBasis = useMemo(() => {
+    const risk = (riskLevel ?? '').trim()
+    const steps: { label: string; detail: string }[] = []
+
+    const baseByRisk: Record<string, string> = {
+      Low: 'Low risk profile → 12.0% base allowance',
+      Medium: 'Medium risk profile → 7.5% base allowance',
+      High: 'High risk profile → 4.0% base allowance',
+    }
+    if (baseByRisk[risk]) {
+      steps.push({ label: 'Risk level', detail: baseByRisk[risk] })
+    }
+
+    const r = (rating ?? '').toUpperCase()
+    if (r === 'STRONG BUY') {
+      steps.push({ label: 'Rating', detail: 'STRONG BUY → base allowance raised 20%' })
+    } else if (r === 'SELL' || r === 'STRONG SELL') {
+      steps.push({ label: 'Rating', detail: `${r} → base allowance halved` })
+    } else if (r) {
+      steps.push({ label: 'Rating', detail: `${r} → base allowance unchanged` })
+    }
+
+    if (convictionPosition?.conviction_level) {
+      steps.push({
+        label: 'Conviction',
+        detail: `${convictionPosition.conviction_level}${
+          convictionPosition.conviction_score ? ` (${convictionPosition.conviction_score})` : ''
+        } — sets the recommended weight within the cap`,
+      })
+    }
+
+    return {
+      steps,
+      rationale: convictionPosition?.rationale?.trim() || null,
+      justification: convictionPosition?.conviction_justification?.trim() || null,
+      recommendedPct: convictionPosition?.recommended_pct ?? null,
+    }
+  }, [riskLevel, rating, convictionPosition])
 
   // ── Early return: insufficient data ────────────────────────────────────────
   if (!resolver || executionWeightPct == null || policyCap == null) {
@@ -355,6 +402,66 @@ export function FinalWeightResolver({
             />
           </div>
         </div>
+
+        {/* ── How the Policy Cap was derived ─────────────────────────────────
+            The resolver above says WHICH constraint binds. Without this block
+            it never said where the cap itself came from, so an enforced cap
+            read as an arbitrary ceiling. */}
+        {(policyCapBasis.steps.length > 0 || policyCapBasis.rationale) && (
+          <div
+            className={cn(
+              'rounded-lg border px-3 py-2.5',
+              capEnforced ? 'border-warning/30 bg-warning/5' : 'border-border/50 bg-surface-elevated/30'
+            )}
+          >
+            <div className="flex items-center gap-1.5 mb-2">
+              <Shield className="h-3 w-3 text-text-tertiary" />
+              <p className="text-[9px] uppercase tracking-wider text-text-tertiary/60 font-semibold">
+                How the {fmt(policyCap)} Policy Cap Was Set
+              </p>
+            </div>
+
+            {policyCapBasis.steps.length > 0 && (
+              <div className="space-y-1 mb-2">
+                {policyCapBasis.steps.map((step, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className="text-[9px] uppercase tracking-wider text-text-tertiary/50 font-semibold w-16 shrink-0 pt-0.5">
+                      {step.label}
+                    </span>
+                    <span className="text-[11px] text-text-secondary leading-relaxed">{step.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {policyCapBasis.recommendedPct != null && (
+              <p className="text-[11px] text-text-secondary leading-relaxed">
+                Within that ceiling the framework recommends{' '}
+                <span className="font-mono font-semibold text-text-primary">
+                  {policyCapBasis.recommendedPct.toFixed(1)}%
+                </span>{' '}
+                as the starting weight.
+              </p>
+            )}
+
+            {policyCapBasis.rationale && (
+              <p className="text-[10px] text-text-tertiary leading-relaxed mt-1.5 border-l-2 border-border pl-2">
+                {policyCapBasis.rationale}
+              </p>
+            )}
+            {policyCapBasis.justification && (
+              <p className="text-[10px] text-text-tertiary/80 leading-relaxed mt-1 border-l-2 border-border pl-2">
+                {policyCapBasis.justification}
+              </p>
+            )}
+
+            <p className="text-[10px] text-text-tertiary/70 leading-relaxed mt-2 pt-2 border-t border-border/40">
+              {capEnforced
+                ? 'This ceiling is the binding constraint: the position is limited by concentration policy, not by current market conditions.'
+                : 'This ceiling is not binding: the position is limited by the signal environment, not by concentration policy.'}
+            </p>
+          </div>
+        )}
 
         {/* ── Resolver rule ─────────────────────────────────────────────────── */}
         <div className="rounded-lg border border-border/50 bg-surface-elevated/30 px-3 py-2.5">
