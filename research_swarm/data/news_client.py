@@ -195,6 +195,73 @@ class NewsClient:
             logger.error(f"Error fetching news for {ticker}: {e}")
             return []
 
+    def get_macro_news(
+        self,
+        query: str,
+        days_back: int = 7,
+        max_results: int = 12,
+    ) -> List[Dict]:
+        """Fetch macro/geopolitical headlines for an arbitrary query.
+
+        Separate from get_company_news because the intent is inverted: company
+        news wants a precise phrase anchored to one issuer, while macro news
+        wants broad topical coverage of world events. Results are shared across
+        every ticker, so this is called once per macro-brief refresh — not per
+        analysis.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        cache_key = f"macro_{abs(hash(query)) % (10 ** 10)}_{days_back}d_{today}"
+
+        cached = cache.get("news", cache_key)
+        if cached:
+            return cached
+
+        if not self.api_key:
+            logger.warning("No NEWS_API_KEY set — macro headlines unavailable")
+            return []
+
+        try:
+            to_date = datetime.now()
+            from_date = to_date - timedelta(days=days_back)
+            rate_limiter.wait_if_needed("news")
+
+            response = requests.get(
+                f"{self.BASE_URL}/everything",
+                params={
+                    "apiKey": self.api_key,
+                    "q": query,
+                    "searchIn": "title,description",
+                    "from": from_date.strftime("%Y-%m-%d"),
+                    "to": to_date.strftime("%Y-%m-%d"),
+                    "language": "en",
+                    "sortBy": "relevancy",
+                    "pageSize": min(max_results, 100),
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+            data = response.json()
+            if data.get("status") != "ok":
+                logger.error(f"NewsAPI macro error: {data.get('message', 'Unknown error')}")
+                return []
+
+            processed = [
+                {
+                    "title": a.get("title", ""),
+                    "description": a.get("description", ""),
+                    "url": a.get("url", ""),
+                    "source": (a.get("source") or {}).get("name", "Unknown"),
+                    "published_at": a.get("publishedAt", ""),
+                }
+                for a in data.get("articles", [])
+            ]
+            cache.set("news", cache_key, processed, ttl_days=1)
+            return processed
+
+        except Exception as e:
+            logger.error(f"Error fetching macro news: {e}")
+            return []
+
     def _get_mock_news(self, ticker: str, days_back: int) -> List[Dict]:
         """
         Generate mock news data for development/testing.

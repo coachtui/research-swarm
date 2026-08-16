@@ -39,6 +39,11 @@ _DEFAULT_TTL: Dict[str, float] = {
     "cache_8k_filings":              24.0,     # 24h
     "cache_price_snapshot":           0.25,    # 15 min
     "cache_filing_extraction":      365 * 24,  # 1 year — filings are immutable
+    # Macro state is the same for every ticker, so it is scanned once and read
+    # by every run. 4h keeps it fresh enough to catch an intraday risk event
+    # while still amortizing one scan across a day's reports.
+    "cache_macro_snapshot":           4.0,     # 4h — market state
+    "cache_macro_brief":              6.0,     # 6h — interpreted themes (1 LLM call)
 }
 
 
@@ -344,6 +349,20 @@ class DataCacheService:
 
     def set_filing_extraction(self, accession_number: str, extraction: Dict) -> None:
         self._set("cache_filing_extraction", accession_number, extraction)
+
+    # Macro entries are keyed by a plain scope string ("global") rather than a
+    # ticker — the row is shared by every analysis, which is the whole point.
+    def get_macro_snapshot(self, scope: str = "global") -> Optional[Dict]:
+        return self._get("cache_macro_snapshot", scope)
+
+    def set_macro_snapshot(self, snapshot: Dict, scope: str = "global") -> None:
+        self._set("cache_macro_snapshot", scope, snapshot)
+
+    def get_macro_brief(self, scope: str = "global") -> Optional[Dict]:
+        return self._get("cache_macro_brief", scope)
+
+    def set_macro_brief(self, brief: Dict, scope: str = "global") -> None:
+        self._set("cache_macro_brief", scope, brief)
 
     # ── Tier 3: Price Snapshot (15 min) ────────────────────────────────────────
     # Stores valuation_metrics (dict) + historical_data (DataFrame).

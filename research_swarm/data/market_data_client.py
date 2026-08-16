@@ -123,7 +123,11 @@ class MarketDataClient:
     def get_company_info(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get company info including sector."""
         ticker = ticker.upper()
-        cache_key = f"{ticker}_info"
+        # The suffix versions this payload's shape. Entries cached before
+        # `country` was added would otherwise keep serving a dict without it
+        # for the full TTL, silently disabling macro region matching. Bump the
+        # suffix whenever a field is added here.
+        cache_key = f"{ticker}_info_v2"
 
         # Cache company info for 7 days
         cached = cache.get("market_info", cache_key)
@@ -144,6 +148,7 @@ class MarketDataClient:
                 "name": info.get("shortName", info.get("longName", ticker)),
                 "sector": info.get("sector", "Unknown"),
                 "industry": info.get("industry", "Unknown"),
+                "country": info.get("country"),  # macro exposure: regional bloc mapping
                 "market_cap": info.get("marketCap"),
                 "exchange": info.get("exchange"),
                 "revenueGrowth": info.get("revenueGrowth"),  # Used for Growth score fallback

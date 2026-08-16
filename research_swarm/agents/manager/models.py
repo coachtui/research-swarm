@@ -236,6 +236,10 @@ class ManagerOutput(BaseModel):
         None,
         description="Structured risk breakdown with severity/likelihood/impact"
     )
+    macro_exposure: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Market state plus the macro themes with a concrete channel to this company"
+    )
     upgrade_triggers: Optional[List[Dict[str, str]]] = Field(
         None,
         description="Specific metrics/thresholds that would trigger rating upgrade"

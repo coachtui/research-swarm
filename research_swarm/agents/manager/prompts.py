@@ -116,6 +116,17 @@ NOTE: Events prefixed with [SEC 8-K] are official SEC filings — these are lega
 
 ---
 
+## 4. MACRO & GEOPOLITICAL CONTEXT
+
+This block describes the STATE OF THE WORLD, measured independently of this
+company, plus the live macro/geopolitical themes that have a concrete channel to
+it. Use it to separate what the market did from what the company did, and to
+name a real cause when one exists.
+
+{macro_context}
+
+---
+
 ## SIGNAL DIVERGENCE INTELLIGENCE
 
 **Smart Money Score** (Institutional + Insider + Dark Pool): {smart_money_score:.1f}/10
@@ -173,7 +184,11 @@ SHARED_WRITING_RULES = """**Guidelines**:
 - Never attribute a market-wide or sector-wide move to company-specific causes. If the market is down 8% and the stock is down 10%, the company-specific component is roughly 2 points — say so, rather than narrating a 10% decline as if the company caused it.
 - When a decline is mostly beta, say it plainly: "most of the decline tracks a broad market drawdown; the company-specific component is roughly Xpp."
 - Apply the same discipline to strength: a stock up 12% in a market up 10% is not evidence of company momentum.
-- You are given index and sector returns only. You do NOT have macro, geopolitical, rates, or commodity data — do not invent macro causes (wars, Fed decisions, trade policy, supply shocks) to explain a move. Describe the market-level move as observed and leave its cause unstated.
+- Cite macro or geopolitical causes ONLY from the MACRO & GEOPOLITICAL CONTEXT block above. That block is the complete set of macro facts available to you. Never introduce an event, policy decision, conflict, or data release that does not appear there — not from memory, not by inference from the price action.
+- If the market moved and no listed theme explains it, say the move is market-wide and leave the cause unstated. "The broad market declined 8% over the quarter" is honest; inventing a reason for it is not.
+- When a listed theme does apply, name it and state its transmission mechanism concretely ("higher energy input costs compress gross margin"), not vaguely ("macro headwinds").
+- Respect each theme's stated confidence and status. A `low` confidence theme is a watch item, not a thesis driver.
+- If the macro block reports no relevant themes, write the analysis without a macro angle. Do not manufacture one.
 
 **VALUATION LANGUAGE — REGIME FRAMING**:
 - NEVER write "trading X% above fair value" or "X% overvalued" — intrinsic anchors are structural references, not correct-price claims

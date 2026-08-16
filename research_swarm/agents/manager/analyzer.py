@@ -178,6 +178,7 @@ class ManagerAnalyzer:
         is_watchlist: bool = False,
         confidence: float = 0.7,
         dvrg_targets: Optional[Dict[str, Any]] = None,
+        macro_exposure: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], int]:
         """
         Synthesize findings from all three agents and write the investment
@@ -217,6 +218,13 @@ class ManagerAnalyzer:
         moat_breakdown = self._format_moat_breakdown(fundamentalist_output)
         valuation_summary = self._format_valuation_summary(fundamentalist_output)
         price_targets = self._format_price_targets(fundamentalist_output, dvrg_targets)
+
+        from research_swarm.data.macro_exposure import format_macro_block
+        macro_context_block = (
+            format_macro_block(macro_exposure)
+            if macro_exposure
+            else "Macro context unavailable for this run — do not cite macro or geopolitical causes."
+        )
         fundamentalist_summary = self._format_fundamentalist_summary(fundamentalist_output)
         peer_comparison = self._format_peer_comparison(fundamentalist_output)
         fundamentalist_narrative = fundamentalist_output.get("financial_analysis", "N/A")
@@ -297,6 +305,7 @@ class ManagerAnalyzer:
             smart_money_score=smart_money_score,
             public_sentiment_score=public_sentiment_score,
             divergence_pattern=divergence_pattern,
+            macro_context=macro_context_block,
         )
 
         # Shared, byte-identical prefix for both halves. Marked cacheable so

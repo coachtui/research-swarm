@@ -276,6 +276,13 @@ class HybridDataProvider:
 
         # ── Tier 1: Company profile (90 days) ──────────────────────────────────
         cached_profile = data_cache.get_company_profile(ticker)
+        # Profiles cached before `country` was added would keep serving a dict
+        # without it for the full 90-day TTL, silently disabling macro region
+        # matching (and the foreign-filer fallback check, which already reads
+        # this field). Treat a profile missing the key as a miss.
+        if cached_profile is not None and "country" not in cached_profile:
+            logger.info(f"Company profile for {ticker} predates the country field — refetching")
+            cached_profile = None
         if cached_profile is not None:
             bundle["company_info"] = cached_profile
         else:
