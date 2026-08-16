@@ -8,20 +8,13 @@ import math
 import pandas as pd
 from typing import List, Dict, Any, Tuple, Optional
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage
 from research_swarm.logger import logger
 from research_swarm.config import settings
 from research_swarm.utils import extract_token_usage
 from research_swarm.agents.news_hound.prompts import (
-    CATALYST_EXTRACTION_PROMPT,
-    REGULATORY_EXTRACTION_PROMPT,
-    SENTIMENT_ANALYSIS_PROMPT,
     EARNINGS_ESTIMATE_REVISION_PROMPT,
-    ANALYST_CONSENSUS_PROMPT,
-    INSTITUTIONAL_ACTIVITY_PROMPT,
-    INSIDER_ACTIVITY_PROMPT,
-    SHORT_INTEREST_PROMPT,
     UPCOMING_CATALYSTS_PROMPT,
-    MANAGEMENT_COMMENTARY_PROMPT
 )
 from research_swarm.agents.news_hound.models import (
     NewsArticle,
@@ -61,231 +54,89 @@ class NewsAnalyzer:
 
         logger.info("NewsAnalyzer initialized")
 
-    def extract_catalysts(
+    def interpret_news(
         self,
         articles: List[NewsArticle],
-        ticker: str,
-        days_back: int
-    ) -> Tuple[List[CatalystEvent], int]:
-        """
-        Extract catalyst events from news articles (9 categories).
-
-        Args:
-            articles: List of NewsArticle objects
-            ticker: Stock ticker
-            days_back: Number of days analyzed
-
-        Returns:
-            Tuple of (List of CatalystEvent objects, tokens_used)
-        """
-        if not articles:
-            logger.warning(f"No articles to analyze for catalysts for {ticker}")
-            return [], 0
-
-        logger.info(f"Extracting catalysts from {len(articles)} articles for {ticker}")
-
-        # Format articles for prompt (truncate content to first 500 chars)
-        articles_text = self._format_articles_for_analysis(articles)
-
-        prompt = CATALYST_EXTRACTION_PROMPT.format(
-            ticker=ticker,
-            days_back=days_back,
-            articles_text=articles_text
-        )
-
-        try:
-            response = self.haiku.invoke(prompt)
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            # Extract JSON from response
-            json_text = self._extract_json(response_text)
-            catalyst_data = json.loads(json_text)
-
-            # Parse catalysts into Pydantic models
-            catalysts = []
-            for cat_dict in catalyst_data.get("catalysts", []):
-                try:
-                    catalyst = CatalystEvent(**cat_dict)
-                    catalysts.append(catalyst)
-                except Exception as e:
-                    logger.debug(f"Failed to validate catalyst: {e}")
-                    continue
-
-            logger.success(f"✓ Extracted {len(catalysts)} catalysts for {ticker} ({tokens_used} tokens)")
-            return catalysts, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse catalyst JSON: {e}")
-            logger.debug(f"Response: {response_text[:500]}")
-            # Return empty list but track tokens used (API was called)
-            return [], tokens_used
-
-        except Exception as e:
-            logger.error(f"Error extracting catalysts: {e}")
-            # Return 0 tokens for general errors (API call may not have completed)
-            return [], 0
-
-    def extract_regulatory_events(
-        self,
-        articles: List[NewsArticle],
-        ticker: str
-    ) -> Tuple[List[CatalystEvent], int]:
-        """
-        Extract regulatory events from news articles with high detail.
-
-        Args:
-            articles: List of NewsArticle objects
-            ticker: Stock ticker
-
-        Returns:
-            Tuple of (List of CatalystEvent objects (regulatory type), tokens_used)
-        """
-        if not articles:
-            return [], 0
-
-        logger.info(f"Extracting regulatory events from {len(articles)} articles for {ticker}")
-
-        # Format articles for prompt
-        articles_text = self._format_articles_for_analysis(articles)
-
-        prompt = REGULATORY_EXTRACTION_PROMPT.format(
-            ticker=ticker,
-            articles_text=articles_text
-        )
-
-        try:
-            response = self.haiku.invoke(prompt)
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            # Extract JSON from response
-            json_text = self._extract_json(response_text)
-            reg_data = json.loads(json_text)
-
-            # Parse regulatory events into Pydantic models
-            reg_events = []
-            for event_dict in reg_data.get("regulatory_events", []):
-                try:
-                    event = CatalystEvent(**event_dict)
-                    reg_events.append(event)
-                except Exception as e:
-                    logger.debug(f"Failed to validate regulatory event: {e}")
-                    continue
-
-            if reg_events:
-                logger.success(f"✓ Extracted {len(reg_events)} regulatory events for {ticker} ({tokens_used} tokens)")
-            else:
-                logger.info(f"No regulatory events detected for {ticker}")
-
-            return reg_events, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse regulatory JSON: {e}")
-            logger.debug(f"Response: {response_text[:500]}")
-            # Return empty list but track tokens used (API was called)
-            return [], tokens_used
-
-        except Exception as e:
-            logger.error(f"Error extracting regulatory events: {e}")
-            # Return 0 tokens for general errors (API call may not have completed)
-            return [], 0
-
-    def analyze_sentiment(
-        self,
-        articles: List[NewsArticle],
-        catalyst_events: List[CatalystEvent],
         ticker: str,
         days_back: int,
-        system_addendum: str = ""
-    ) -> Tuple[str, int]:
+        analysis_date: str = "",
+        system_addendum: str = "",
+    ) -> Tuple[Dict[str, Any], int]:
         """
-        Perform nuanced sentiment analysis on news coverage.
-
-        Args:
-            articles: List of NewsArticle objects
-            catalyst_events: Detected catalyst events
-            ticker: Stock ticker
-            days_back: Number of days analyzed
-            system_addendum: Optional text appended to the system prompt (e.g. ETF context)
+        One structured Sonnet call over the article set producing catalysts
+        (regulatory included), the sentiment narrative + 4-dimension breakdown,
+        and management commentary. Replaces five separate LLM calls (catalyst
+        extraction, regulatory extraction, sentiment narrative, sentiment
+        scoring, management commentary) that each re-read the same articles.
 
         Returns:
-            Tuple of (sentiment analysis narrative, tokens_used)
+            Tuple of (interpretation dict, tokens_used). The dict carries:
+            catalysts (List[CatalystEvent]), sentiment_narrative (str),
+            sentiment_breakdown (dict), sentiment_confidence (float),
+            management_commentary (dict | None).
         """
+        from research_swarm.agents.news_hound.prompts import NEWS_INTERPRETATION_PROMPT
+
+        empty: Dict[str, Any] = {
+            "catalysts": [],
+            "sentiment_narrative": "",
+            "sentiment_breakdown": None,
+            "sentiment_confidence": None,
+            "management_commentary": None,
+        }
         if not articles:
-            logger.warning(f"No articles for sentiment analysis for {ticker}")
-            return "No news articles available for sentiment analysis.", 0
+            logger.warning(f"No articles to interpret for {ticker}")
+            return empty, 0
 
-        logger.info(f"Analyzing sentiment for {ticker} ({len(articles)} articles, {len(catalyst_events)} catalysts)")
+        logger.info(f"Interpreting {len(articles)} articles for {ticker} (single pass)")
 
-        # Format articles for prompt (limit to first 20 to control token usage)
-        articles_subset = articles[:20]
-        articles_text = self._format_articles_for_analysis(articles_subset)
-
-        # Format catalyst events
-        catalysts_text = self._format_catalysts_for_prompt(catalyst_events)
-
-        prompt = SENTIMENT_ANALYSIS_PROMPT.format(
+        articles_text = self._format_articles_for_analysis(articles)
+        prompt = NEWS_INTERPRETATION_PROMPT.format(
             ticker=ticker,
+            analysis_date=analysis_date,
             days_back=days_back,
             article_count=len(articles),
             articles_text=articles_text,
-            catalyst_events=catalysts_text
         )
-
-        # Inject ETF or other system-level addendum when provided
         if system_addendum:
             prompt = prompt + "\n\n" + system_addendum
 
+        tokens_used = 0
         try:
-            response = self.sonnet.invoke(prompt)
-            sentiment_analysis = response.content.strip()
+            response = self.sonnet.invoke([HumanMessage(content=[{
+                "type": "text",
+                "text": prompt,
+                "cache_control": {"type": "ephemeral"},
+            }])])
             tokens_used = extract_token_usage(response.response_metadata)
+            data = json.loads(self._extract_json(response.content.strip()))
 
+            catalysts: List[CatalystEvent] = []
+            for cat_dict in data.get("catalysts", []):
+                try:
+                    catalysts.append(CatalystEvent(**cat_dict))
+                except Exception as e:
+                    logger.debug(f"Failed to validate catalyst: {e}")
+
+            result = {
+                "catalysts": catalysts,
+                "sentiment_narrative": data.get("sentiment_narrative") or "",
+                "sentiment_breakdown": data.get("sentiment_breakdown"),
+                "sentiment_confidence": data.get("sentiment_confidence"),
+                "management_commentary": data.get("management_commentary"),
+            }
             logger.success(
-                f"✓ Generated sentiment analysis for {ticker} ({len(sentiment_analysis)} chars, {tokens_used} tokens)"
+                f"✓ Interpreted news for {ticker}: {len(catalysts)} catalysts, "
+                f"narrative {len(result['sentiment_narrative'])} chars ({tokens_used} tokens)"
             )
-            return sentiment_analysis, tokens_used
+            return result, tokens_used
 
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse news interpretation JSON: {e}")
+            return empty, tokens_used
         except Exception as e:
-            logger.error(f"Error in sentiment analysis: {e}")
-            return f"Error performing sentiment analysis: {str(e)}", 0
-
-    def batch_analyze(
-        self,
-        articles: List[NewsArticle],
-        ticker: str,
-        days_back: int
-    ) -> Tuple[Dict[str, Any], int]:
-        """
-        Perform all analysis steps in batch: catalysts, regulatory, sentiment.
-
-        Args:
-            articles: List of NewsArticle objects
-            ticker: Stock ticker
-            days_back: Number of days analyzed
-
-        Returns:
-            Tuple of (Dict with all analysis results, total_tokens_used)
-        """
-        logger.info(f"Batch analyzing {len(articles)} articles for {ticker}")
-        total_tokens = 0
-
-        # Extract all catalysts (including regulatory via main extraction)
-        catalysts, cat_tokens = self.extract_catalysts(articles, ticker, days_back)
-        total_tokens += cat_tokens
-
-        # Additional pass for regulatory events if needed (optional enhancement)
-        # For now, regulatory events are part of catalyst extraction
-
-        # Perform sentiment analysis
-        sentiment_analysis, sent_tokens = self.analyze_sentiment(articles, catalysts, ticker, days_back)
-        total_tokens += sent_tokens
-
-        return {
-            "catalyst_events": catalysts,
-            "sentiment_analysis": sentiment_analysis
-        }, total_tokens
+            logger.error(f"Error interpreting news: {e}")
+            return empty, tokens_used
 
     def _format_articles_for_analysis(
         self,
@@ -572,69 +423,4 @@ class NewsAnalyzer:
 
         return result
 
-    def analyze_management_commentary(
-        self,
-        earnings_articles: List[NewsArticle],
-        ticker: str,
-        analysis_date: str
-    ) -> Tuple[Dict[str, Any], int]:
-        """
-        Analyze management commentary and guidance quality.
-
-        Args:
-            earnings_articles: News articles about earnings calls
-            ticker: Stock ticker
-            analysis_date: Analysis date
-
-        Returns:
-            Tuple of (management_commentary_dict, tokens_used)
-        """
-        from research_swarm.agents.news_hound.prompts import MANAGEMENT_COMMENTARY_PROMPT
-
-        logger.info(f"Analyzing management commentary for {ticker}")
-
-        # Format earnings-related articles
-        articles_text = "No earnings-related news available"
-        if earnings_articles:
-            articles_text = self._format_articles_for_analysis(earnings_articles, max_articles=10)
-
-        # Build prompt
-        prompt = MANAGEMENT_COMMENTARY_PROMPT.format(
-            ticker=ticker,
-            analysis_date=analysis_date,
-            earnings_call_data="No earnings call transcripts available",
-            management_news=articles_text,
-            guidance_history="No guidance history available"
-        )
-
-        try:
-            # Use Sonnet for this nuanced analysis
-            response = self.sonnet.invoke(prompt)
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            # Extract JSON from response
-            json_text = self._extract_json(response_text)
-            result = json.loads(json_text)
-
-            logger.info(f"✓ Management commentary analyzed ({tokens_used} tokens)")
-            return result, tokens_used
-
-        except Exception as e:
-            logger.error(f"Error analyzing management commentary: {e}")
-            return {
-                "guidance_raised": False,
-                "guidance_lowered": False,
-                "guidance_maintained": True,
-                "management_tone": "neutral",
-                "transparency": "medium",
-                "key_themes": [],
-                "red_flag_language": [],
-                "guidance_track_record": "unknown",
-                "capital_allocation_quality": "unknown",
-                "strategic_clarity": "medium"
-            }, 0
-
-
-# Global analyzer instance
 analyzer = NewsAnalyzer()

@@ -635,11 +635,31 @@ def extract_metrics_ttm_node(state: FundamentalistState) -> FundamentalistState:
     state["status"] = "analyzing"
 
     try:
-        quarterly_metrics, ttm_metrics, trends, tokens = analyzer.extract_metrics_quarterly(
-            state["ticker"],
-            state["analysis_period"],
-            state["quarters"],
-            state["parsed_sections_by_quarter"]
+        # Phase B: one cached extraction per filing (keyed by SEC accession
+        # number — zero LLM calls once a filing has ever been extracted),
+        # then deterministic TTM aggregation in Python. Replaces the old
+        # all-quarters mega-prompt that also asked the LLM to do arithmetic.
+        from research_swarm.agents.fundamentalist.filing_extractor import filing_extractor
+        from research_swarm.agents.fundamentalist.ttm_aggregator import aggregate_ttm
+
+        extractions: dict = {}
+        tokens = 0
+        for quarter_label in state["quarters"]:
+            filing = (state.get("filings_raw") or {}).get(quarter_label)
+            sections = (state.get("parsed_sections_by_quarter") or {}).get(quarter_label)
+            if not filing or not sections:
+                extractions[quarter_label] = None
+                continue
+            extraction, call_tokens = filing_extractor.extract(
+                state["ticker"], quarter_label, filing, sections
+            )
+            extractions[quarter_label] = extraction
+            tokens += call_tokens
+
+        state["filing_extractions"] = extractions
+
+        quarterly_metrics, ttm_metrics, trends = aggregate_ttm(
+            state["quarters"], extractions
         )
 
         # Store as dicts for state
@@ -928,19 +948,36 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
             import statistics as _statistics
 
             if state.get("parsed_sections_by_quarter"):
-                # Use most recent quarter's filing for DCF inputs
-                most_recent = list(state["parsed_sections_by_quarter"].keys())[-1]
-                most_recent_sections = state["parsed_sections_by_quarter"][most_recent]
-                combined_text = "\n".join(most_recent_sections.values())[:30000]
-
-                # Extract DCF inputs (one Haiku call)
                 market_data_for_dcf = state.get("valuation_metrics")
-                dcf_inputs, dcf_tokens = enhanced_parser.extract_dcf_inputs(
-                    state["ticker"],
-                    combined_text,
-                    market_data=market_data_for_dcf
-                )
-                state["tokens_used"] = state.get("tokens_used", 0) + dcf_tokens
+
+                # Phase B: DCF inputs come from the annual filing's cached
+                # per-filing extraction (zero LLM calls on warm tickers).
+                dcf_inputs = None
+                extractions = state.get("filing_extractions") or {}
+                for _label in reversed(list(extractions.keys())):  # most recent annual wins
+                    _ext = extractions.get(_label) or {}
+                    if _ext.get("period_type") == "fiscal_year" and _ext.get("dcf"):
+                        from research_swarm.agents.fundamentalist.models import DCFInputs
+                        _valid = DCFInputs.model_fields.keys()
+                        dcf_inputs = DCFInputs(**{
+                            k: v for k, v in _ext["dcf"].items() if k in _valid
+                        })
+                        logger.info(f"✓ DCF inputs from cached filing extraction ({_label})")
+                        break
+
+                if dcf_inputs is None:
+                    # Fallback: legacy one-off Haiku extraction over the most
+                    # recent filing (no annual filing in the TTM window, or its
+                    # extraction failed / carried no DCF data).
+                    most_recent = list(state["parsed_sections_by_quarter"].keys())[-1]
+                    most_recent_sections = state["parsed_sections_by_quarter"][most_recent]
+                    combined_text = "\n".join(most_recent_sections.values())[:30000]
+                    dcf_inputs, dcf_tokens = enhanced_parser.extract_dcf_inputs(
+                        state["ticker"],
+                        combined_text,
+                        market_data=market_data_for_dcf
+                    )
+                    state["tokens_used"] = state.get("tokens_used", 0) + dcf_tokens
 
                 # Supplement DCF inputs with yfinance data not in filing
                 if market_data_for_dcf:

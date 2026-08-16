@@ -206,61 +206,6 @@ HEALTH_SCORE_PROMPT = """You are a financial analyst scoring a company's financi
 # Purpose: Extract quarterly metrics and calculate TTM aggregates
 # ============================================================================
 
-FINANCIAL_METRICS_PROMPT_TTM = """You are extracting financial metrics from SEC filings.
-
-**Company**: {ticker}
-**Analysis Period**: {analysis_period}
-**Quarters Being Analyzed**: {quarters}
-
-**Quarterly Filing Data**:
-{quarterly_sections}
-
----
-
-**Task**: Extract financial metrics for each quarter AND calculate TTM totals.
-
-Return your response as a JSON object:
-
-{{
-  "quarterly": [
-    {{
-      "quarter": "Q4_2024",
-      "revenue": <float in millions USD>,
-      "gross_profit": <float in millions USD>,
-      "operating_income": <float in millions USD>,
-      "net_income": <float in millions USD>,
-      "operating_cash_flow": <float in millions USD or null>,
-      "free_cash_flow": <float in millions USD or null>
-    }},
-    // ... Q1_2025, Q2_2025, Q3_2025
-  ],
-  "ttm": {{
-    "ttm_revenue": <sum of quarterly revenues>,
-    "ttm_gross_profit": <sum>,
-    "ttm_operating_income": <sum>,
-    "ttm_net_income": <sum>,
-    "ttm_free_cash_flow": <sum>,
-    "gross_margin": <float as percentage>,
-    "operating_margin": <float as percentage>,
-    "net_margin": <float as percentage>,
-    "revenue_growth_yoy": <float as percentage vs prior TTM if calculable, else null>
-  }},
-  "trends": {{
-    "revenue_trend": [<Q4 rev>, <Q1 rev>, <Q2 rev>, <Q3 rev>],
-    "margin_trend": [<Q4 margin>, <Q1 margin>, <Q2 margin>, <Q3 margin>],
-    "trend_direction": "<improving|stable|declining>",
-    "sequential_growth_rates": [<Q4-Q1 growth %>, <Q1-Q2 growth %>, <Q2-Q3 growth %>]
-  }}
-}}
-
-**Instructions**:
-- Extract metrics for each quarter separately
-- Sum quarterly figures for TTM totals
-- Calculate margins from TTM figures (e.g., gross_margin = ttm_gross_profit / ttm_revenue * 100)
-- Determine trend direction based on sequential growth (improving if mostly positive, declining if mostly negative)
-- Use null for metrics not found
-- Return ONLY valid JSON, no other text
-"""
 
 # ============================================================================
 # QUALITATIVE ANALYSIS PROMPT - TTM (Sonnet)

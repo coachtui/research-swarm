@@ -38,6 +38,7 @@ _DEFAULT_TTL: Dict[str, float] = {
     "cache_dark_pool":               24.0,     # 24h
     "cache_8k_filings":              24.0,     # 24h
     "cache_price_snapshot":           0.25,    # 15 min
+    "cache_filing_extraction":      365 * 24,  # 1 year — filings are immutable
 }
 
 
@@ -335,6 +336,14 @@ class DataCacheService:
 
     def set_8k_filings(self, ticker: str, filings_data: Any) -> None:
         self._set("cache_8k_filings", ticker, filings_data)
+
+    # ── Filing extractions (1 year, keyed by SEC accession number) ─────────────
+
+    def get_filing_extraction(self, accession_number: str) -> Optional[Dict]:
+        return self._get("cache_filing_extraction", accession_number)
+
+    def set_filing_extraction(self, accession_number: str, extraction: Dict) -> None:
+        self._set("cache_filing_extraction", accession_number, extraction)
 
     # ── Tier 3: Price Snapshot (15 min) ────────────────────────────────────────
     # Stores valuation_metrics (dict) + historical_data (DataFrame).
