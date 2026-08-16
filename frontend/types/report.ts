@@ -174,8 +174,14 @@ export interface ScoreComponent {
 }
 
 export interface Scores {
-  /** The headline 0-10 score */
+  /** Business quality only — durability and execution. Price is NOT in it. */
   quality_score: number
+  /** The second rating axis: how attractive the price is (higher = cheaper). Kept separate from quality so 'excellent business, rich price' is distinguishable from 'average business, fair price' — a blended score cannot express the difference. */
+  valuation_score?: number | null
+  /** high | mid | low — the quality axis of the rating matrix */
+  quality_tier?: string | null
+  /** attractive | fair | expensive — the valuation axis */
+  valuation_tier?: string | null
   /** Weighted components; weights sum to 1.0 */
   components: ScoreComponent[]
   /** Tracked separately; gates the rating but is not in quality_score */

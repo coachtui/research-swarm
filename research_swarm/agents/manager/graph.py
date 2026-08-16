@@ -549,8 +549,12 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
             sentiment_catalysts=sentiment_score,
         )
 
-        # Calculate quality score
-        moat_score = breakdown.weighted_average()
+        # Two axes, computed separately (v4.0). `moat_score` now carries pure
+        # business quality — valuation is no longer folded into it, so the two
+        # can disagree and the rating matrix can say which is driving the call.
+        moat_score = breakdown.quality_score()
+        normalized_valuation = breakdown.normalized_valuation()
+        state["normalized_valuation_score"] = normalized_valuation
 
         # Calculate confidence using all v2.0 components
         component_scores = [
@@ -594,12 +598,14 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
                 f"{original_confidence:.3f} → {confidence:.3f}"
             )
 
-        # Determine watchlist eligibility
-        is_watchlist = manager_scorer.determine_watchlist(moat_score)
+        # Watchlist = quality business, price not yet attractive
+        is_watchlist = manager_scorer.determine_watchlist(moat_score, normalized_valuation)
 
-        # NEW v2.0: Determine 5-tier rating (with manager technical override)
+        # v4.0: rating reads the quality x valuation matrix, then the technical override
         rating, rating_score = manager_scorer.determine_rating(
-            moat_score, technical_score=technical_score
+            moat_score,
+            technical_score=technical_score,
+            valuation_score=normalized_valuation,
         )
 
         # Determine risk level using quality formula inputs only (drop technical, add roic_wacc)
@@ -1140,6 +1146,7 @@ def analyze_swarm(
         vgm_scores=vgm_scores,  # Extract from fundamentalist output
         # Investment recommendations (v2.0)
         price_targets=final_state.get("price_targets"),
+        normalized_valuation_score=final_state.get("normalized_valuation_score"),
         macro_exposure=final_state.get("macro_exposure"),
         structured_risks=final_state.get("structured_risks"),
         upgrade_triggers=final_state.get("upgrade_triggers"),

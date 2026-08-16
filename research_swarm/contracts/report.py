@@ -61,7 +61,22 @@ class ScoreComponent(BaseModel):
 
 
 class Scores(BaseModel):
-    quality_score: float = Field(..., ge=0, le=10, description="The headline 0-10 score")
+    quality_score: float = Field(
+        ..., ge=0, le=10,
+        description="Business quality only — durability and execution. Price is NOT in it.",
+    )
+    valuation_score: Optional[float] = Field(
+        None, ge=0, le=10,
+        description="The second rating axis: how attractive the price is (higher = cheaper). "
+        "Kept separate from quality so 'excellent business, rich price' is distinguishable "
+        "from 'average business, fair price' — a blended score cannot express the difference.",
+    )
+    quality_tier: Optional[str] = Field(
+        None, description="high | mid | low — the quality axis of the rating matrix"
+    )
+    valuation_tier: Optional[str] = Field(
+        None, description="attractive | fair | expensive — the valuation axis"
+    )
     components: List[ScoreComponent] = Field(
         ..., description="Weighted components; weights sum to 1.0"
     )
