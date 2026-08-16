@@ -46,6 +46,7 @@ import type {
   TrackRecordResponse,
   WeeklySignalPublic,
 } from '@/types/weekly-signals'
+import type { AnalysisReport } from '@/types/report'
 
 class ApiClient {
   private baseUrl: string
@@ -240,6 +241,22 @@ class ApiClient {
 
   async getAnalysis(runId: string): Promise<RunResponse> {
     return this.request(`/api/runs/${runId}`)
+  }
+
+  /**
+   * Phase D: fetch the persisted AnalysisReport (built once at write time,
+   * served verbatim). Returns null for runs analyzed before Phase C or when
+   * the user's tier lacks full-report access — callers fall back to
+   * full_output-derived rendering.
+   */
+  async getAnalysisReport(runId: string): Promise<AnalysisReport | null> {
+    try {
+      return await this.request<AnalysisReport>(`/api/runs/${runId}/report`)
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      if (status === 404 || status === 403) return null
+      throw error
+    }
   }
 
   /** Public — no auth required. Returns the latest completed NVDA run for the example report. */

@@ -27,6 +27,8 @@ interface PMSnapshotCardProps {
   fairValueCalibration?: FairValueCalibration | null
   initiationStatus?: string | null
   signalBreakdown?: SignalBreakdown | null
+  /** Server-computed probability-weighted EV from the persisted AnalysisReport */
+  probabilityWeightedEv?: number | null
 }
 
 // ── Derivation helpers ────────────────────────────────────────────────────────
@@ -164,6 +166,7 @@ export function PMSnapshotCard({
   fairValueCalibration,
   initiationStatus,
   signalBreakdown,
+  probabilityWeightedEv,
 }: PMSnapshotCardProps) {
   const [showCapitalEnv, setShowCapitalEnv] = useState(false)
 
@@ -182,7 +185,9 @@ export function PMSnapshotCard({
   const macroRegime = deriveMacroRegime(divergenceOverlay)
   const capitalBias = deriveCapitalBias(initiationStatus)
 
-  // Probability-weighted EV (same logic as PriceTargetsCard — display only)
+  // Probability-weighted EV — Phase D: prefer the server-computed value from
+  // the persisted AnalysisReport (single source); fall back to local math
+  // only for pre-Phase-C runs.
   let evPct: number | null = null
   let rrRatio: number | null = null
   if (priceTargets && currentPrice && currentPrice > 0) {
@@ -190,9 +195,10 @@ export function PMSnapshotCard({
     const baseW = priceTargets.base_probability ?? 0.50
     const bullW = priceTargets.bull_probability ?? 0.25
     const probWeightedEV =
-      priceTargets.bear_target * bearW +
-      priceTargets.base_target * baseW +
-      priceTargets.bull_target * bullW
+      probabilityWeightedEv ??
+      (priceTargets.bear_target * bearW +
+        priceTargets.base_target * baseW +
+        priceTargets.bull_target * bullW)
     const rawEvPct = ((probWeightedEV - currentPrice) / currentPrice) * 100
     const stabilityMod = signalBreakdown?.data_integrity_confidence_factor ?? 1.0
     evPct = rawEvPct * stabilityMod
