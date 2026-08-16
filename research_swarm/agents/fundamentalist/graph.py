@@ -756,29 +756,21 @@ def analyze_qualitative_ttm_node(state: FundamentalistState) -> FundamentalistSt
         ttm_metrics = TTMMetrics(**state["ttm_metrics"])
         quarterly_trends = QuarterlyTrends(**state["quarterly_trends"])
 
-        # Fetch supplemental market data to enrich analysis context
-        from research_swarm.data.market_data_client import market_data_client as _mdc
-        key_stats = _mdc.get_key_stats(state["ticker"])
-        supplemental_market_data = {
-            "valuation_metrics": state.get("valuation_metrics"),
-            "key_stats": key_stats,
-        }
+        # Phase B3: deterministic digest of the computed metrics + cached
+        # filing extractions — the Sonnet qualitative call is gone. The
+        # Manager's synthesis writes the interpretive narrative with full
+        # cross-agent context. (This also drops the get_key_stats fetch that
+        # mixed reporting-currency figures into the prompt for ADRs.)
+        from research_swarm.agents.fundamentalist.financial_digest import build_financial_digest
 
-        analysis, tokens = analyzer.analyze_qualitative_ttm(
+        state["financial_analysis"] = build_financial_digest(
             state["ticker"],
             state["analysis_period"],
-            state["quarters"],
-            state["parsed_sections_by_quarter"],
             ttm_metrics,
             quarterly_trends,
-            supplemental_market_data=supplemental_market_data,
+            filing_extractions=state.get("filing_extractions"),
+            valuation_metrics=state.get("valuation_metrics"),
         )
-
-        if not analysis:
-            raise ValueError("analyze_qualitative_ttm returned None")
-
-        state["financial_analysis"] = analysis
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
     except Exception as e:
         logger.error(f"Failed TTM qualitative analysis: {e}")

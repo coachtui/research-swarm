@@ -198,14 +198,12 @@ def analyze_combined_node(state: QuantState) -> QuantState:
     technical_indicators = TechnicalIndicators(**state["technical_indicators"])
     supply_chain_graph = SupplyChainGraph(**state["supply_chain_graph"])
 
-    # Generate technical analysis
-    technical_analysis, tech_tokens = quant_analyzer.generate_technical_analysis(
-        ticker=state["ticker"],
-        analysis_date=state["analysis_date"],
-        indicators=technical_indicators
-    )
-    state["technical_analysis"] = technical_analysis
-    state["tokens_used"] = state.get("tokens_used", 0) + tech_tokens
+    # Phase B3: deterministic digest of the computed indicators — the Sonnet
+    # narrative call is gone. The Manager's synthesis (which sees all agents'
+    # data) writes the actual interpretation.
+    from research_swarm.agents.quant.analyzer import build_technical_digest
+    tech_tokens = 0
+    state["technical_analysis"] = build_technical_digest(technical_indicators)
 
     # Generate supply chain analysis only when there is a graph to describe.
     # Production runs with supply_chain_depth=0 (empty graph), where this was

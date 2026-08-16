@@ -375,3 +375,236 @@ def calculate_dark_pool_activity(
         result["confidence"] = "medium"
 
     return result
+
+
+# ── Earnings estimates (Phase B3) ───────────────────────────────────────────
+
+
+def _rows_by_period(estimates_data: Any) -> Dict[str, Dict[str, Any]]:
+    """yfinance earnings_estimate rows keyed by period (0q/+1q/0y/+1y).
+    Handles both the live shape (period as index) and the cache round-trip
+    shape (period as a column after reset_index)."""
+    rows: Dict[str, Dict[str, Any]] = {}
+    if estimates_data is None:
+        return rows
+    try:
+        if isinstance(estimates_data, pd.DataFrame):
+            if estimates_data.empty:
+                return rows
+            df = estimates_data
+            if "period" in df.columns:
+                for rec in df.to_dict(orient="records"):
+                    rows[str(rec.get("period"))] = rec
+            elif "index" in df.columns:
+                for rec in df.to_dict(orient="records"):
+                    rows[str(rec.get("index"))] = rec
+            else:
+                for idx, rec in zip(df.index, df.to_dict(orient="records")):
+                    rows[str(idx)] = rec
+    except Exception as e:
+        logger.warning(f"Could not read earnings estimates: {e}")
+    return rows
+
+
+def _clean_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        f = float(value)
+        return None if math.isnan(f) else f
+    except (TypeError, ValueError):
+        return None
+
+
+def calculate_earnings_estimates(
+    estimates_data: Any,
+    earnings_history: Any,
+) -> Dict[str, Any]:
+    """EPS estimates, growth, dispersion, and surprise history — all direct
+    reads/arithmetic over yfinance data. The old Sonnet call was handed the
+    same DataFrames as text and asked to copy numbers into JSON; it was never
+    given the earnings history at all, so the surprise fields it reported had
+    no basis. Revision counts/direction/momentum are filled by the caller
+    from calculate_revision_metrics (unchanged).
+    """
+    rows = _rows_by_period(estimates_data)
+    q0 = rows.get("0q") or {}
+    y0 = rows.get("0y") or {}
+    y1 = rows.get("+1y") or {}
+
+    current_quarter_eps = _clean_float(q0.get("avg"))
+    current_fy_eps = _clean_float(y0.get("avg"))
+    next_fy_eps = _clean_float(y1.get("avg"))
+
+    def _growth_pct(row: Dict[str, Any]) -> Optional[float]:
+        g = _clean_float(row.get("growth"))
+        return round(g * 100, 2) if g is not None else None
+
+    current_year_growth = _growth_pct(y0)
+    next_year_growth = _growth_pct(y1)
+
+    # Two-year CAGR: year-ago FY EPS → next-FY estimate
+    two_year_cagr = None
+    year_ago_fy = _clean_float(y0.get("yearAgoEps"))
+    if year_ago_fy and next_fy_eps and year_ago_fy > 0 and next_fy_eps > 0:
+        two_year_cagr = round(((next_fy_eps / year_ago_fy) ** 0.5 - 1) * 100, 2)
+
+    analyst_coverage = None
+    coverage_raw = _clean_float(q0.get("numberOfAnalysts") or y0.get("numberOfAnalysts"))
+    if coverage_raw is not None:
+        analyst_coverage = int(coverage_raw)
+
+    # Dispersion: (high - low) relative to the mean estimate
+    dispersion = "medium"
+    agreement = 0.5
+    low, high = _clean_float(q0.get("low")), _clean_float(q0.get("high"))
+    if low is not None and high is not None and current_quarter_eps:
+        spread = abs(high - low) / abs(current_quarter_eps)
+        if spread < 0.10:
+            dispersion, agreement = "low", 0.85
+        elif spread < 0.25:
+            dispersion, agreement = "medium", 0.6
+        else:
+            dispersion, agreement = "high", 0.35
+
+    # Surprise history from actual earnings results (most recent first)
+    surprises: List[Optional[float]] = []
+    hist_rows: List[Dict[str, Any]] = []
+    try:
+        if isinstance(earnings_history, pd.DataFrame) and not earnings_history.empty:
+            hist_rows = earnings_history.to_dict(orient="records")
+    except Exception as e:
+        logger.warning(f"Could not read earnings history: {e}")
+    for rec in reversed(hist_rows[-4:]):  # newest first
+        actual = _clean_float(rec.get("epsActual"))
+        estimate = _clean_float(rec.get("epsEstimate"))
+        if actual is not None and estimate not in (None, 0):
+            surprises.append(round((actual - estimate) / abs(estimate) * 100, 2))
+        else:
+            surprises.append(None)
+
+    known_surprises = [s for s in surprises if s is not None]
+    beats = sum(1 for s in known_surprises if s > 0)
+    beat_pattern = f"Beat {beats}/{len(known_surprises)}" if known_surprises else ""
+    avg_surprise = round(sum(known_surprises) / len(known_surprises), 2) if known_surprises else None
+
+    padded = (surprises + [None] * 4)[:4]
+
+    return {
+        "current_quarter_eps": current_quarter_eps,
+        "current_fy_eps": current_fy_eps,
+        "next_fy_eps": next_fy_eps,
+        # Filled by the caller from calculate_revision_metrics:
+        "upward_revisions": 0,
+        "downward_revisions": 0,
+        "net_revision_direction": "neutral",
+        "momentum": "stable",
+        "consensus_change_pct": None,  # needs historical consensus — not in the data
+        "analyst_coverage": analyst_coverage or 0,
+        "estimate_dispersion": dispersion,
+        "estimate_agreement": agreement,
+        "q1_surprise_pct": padded[0],
+        "q2_surprise_pct": padded[1],
+        "q3_surprise_pct": padded[2],
+        "q4_surprise_pct": padded[3],
+        "avg_surprise_pct": avg_surprise,
+        "beat_pattern": beat_pattern,
+        "current_year_growth_pct": current_year_growth,
+        "next_year_growth_pct": next_year_growth,
+        "two_year_cagr": two_year_cagr,
+    }
+
+
+# ── Upcoming catalysts (Phase B3) ───────────────────────────────────────────
+
+
+def calculate_upcoming_catalysts(
+    earnings_dates: Any,
+    catalyst_events: List[Dict[str, Any]],
+    analysis_date: str,
+) -> Dict[str, Any]:
+    """Forward catalyst calendar assembled from the earnings-dates calendar
+    plus future-dated news catalysts — deterministic date filtering and
+    counting that a Haiku call previously performed."""
+    from datetime import date, datetime
+
+    try:
+        today = datetime.strptime(analysis_date, "%Y-%m-%d").date() if analysis_date else date.today()
+    except ValueError:
+        today = date.today()
+
+    # ── Next earnings date: earliest future date in the calendar ───────────
+    next_earnings: Optional[date] = None
+    candidate_values: List[Any] = []
+    if earnings_dates is not None:
+        try:
+            if isinstance(earnings_dates, pd.DataFrame) and not earnings_dates.empty:
+                candidate_values.extend(list(earnings_dates.index))
+                for col in earnings_dates.columns:
+                    if "date" in str(col).lower():
+                        candidate_values.extend(list(earnings_dates[col]))
+        except Exception as e:
+            logger.warning(f"Could not read earnings dates: {e}")
+    for value in candidate_values:
+        try:
+            parsed = pd.to_datetime(value, errors="coerce")
+            if parsed is None or pd.isna(parsed):
+                continue
+            parsed_date = parsed.date()
+            if parsed_date >= today and (next_earnings is None or parsed_date < next_earnings):
+                next_earnings = parsed_date
+        except Exception:
+            continue
+
+    catalysts: List[Dict[str, Any]] = []
+    if next_earnings is not None:
+        catalysts.append({
+            "event_type": "earnings",
+            "event_date": next_earnings.isoformat(),
+            "description": f"Next earnings announcement scheduled for {next_earnings.isoformat()}",
+            "potential_impact": "high",
+            "impact_direction": "neutral",
+            "confidence": 0.9,
+        })
+
+    # ── Future-dated news catalysts ────────────────────────────────────────
+    directions: List[str] = []
+    for event in catalyst_events or []:
+        event_date = event.get("date")
+        if not event_date:
+            continue
+        try:
+            parsed_date = datetime.strptime(str(event_date)[:10], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if parsed_date < today:
+            continue
+        impact = str(event.get("impact", "neutral")).lower()
+        directions.append(impact)
+        confidence = event.get("confidence")
+        catalysts.append({
+            "event_type": str(event.get("event_type", "other")),
+            "event_date": parsed_date.isoformat(),
+            "description": event.get("description", "Upcoming catalyst"),
+            "potential_impact": "high" if (confidence or 0) >= 0.8 else "medium",
+            "impact_direction": impact,
+            "confidence": confidence if confidence is not None else 0.5,
+        })
+
+    density = "high" if len(catalysts) >= 4 else ("medium" if len(catalysts) >= 2 else "low")
+    positives = sum(1 for d in directions if d == "positive")
+    negatives = sum(1 for d in directions if d == "negative")
+    if positives > negatives:
+        outlook = "positive"
+    elif negatives > positives:
+        outlook = "negative"
+    else:
+        outlook = "neutral"
+
+    return {
+        "next_earnings_date": next_earnings.isoformat() if next_earnings else None,
+        "earnings_confirmed": next_earnings is not None,
+        "catalysts": catalysts,
+        "catalyst_density": density,
+        "outlook": outlook,
+    }
