@@ -76,6 +76,7 @@ class ManagerState(TypedDict, total=False):
     upgrade_triggers: Optional[List[Dict[str, str]]]  # Specific metrics → action for upgrades
     downgrade_triggers: Optional[List[Dict[str, str]]]  # Specific metrics → action for downgrades
     price_targets: Optional[Dict[str, Any]]  # Bull/Base/Bear price target scenarios
+    normalized_valuation_score: Optional[float]  # Valuation on the normalized scale (rating axis)
     macro_context: Optional[Dict[str, Any]]  # Shared market state + macro brief (company-neutral)
     macro_exposure: Optional[Dict[str, Any]]  # Themes filtered to this company's actual channels
     conviction_statement: Optional[Dict[str, Any]]  # Conviction level, bottom line, best suited for
