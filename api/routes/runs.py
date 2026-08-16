@@ -17,18 +17,17 @@ router = APIRouter()
 
 # Keys in full_output that are safe to return on the Starter (snapshot) tier.
 # Everything NOT in this set is stripped before the response leaves the server.
+# These must be keys that actually exist at the top level of ManagerOutput —
+# a previous version listed mostly nonexistent keys, so Starter users received
+# a three-field payload.
 _SNAPSHOT_KEYS = {
     "ticker",
-    "current_price",
-    "fair_value",
     "moat_score",
-    "financial_health_score",
-    "sentiment_score",
-    "signal_divergence",        # surface-level divergence summary only
     "recommendation",
-    "summary",                  # short one-liner summary
-    "ev_summary",               # EV summary (not full engine)
-    "scenarios_basic",
+    "rating",
+    "rating_score",
+    "risk_level",
+    "confidence",
     "previous_analysis_delta",  # longitudinal delta is safe
 }
 
@@ -41,7 +40,24 @@ def _shape_snapshot(full_output: dict) -> dict:
     risk diagnostics, and execution infrastructure. The set of keys exposed
     maps to report.snapshot.read capabilities defined in TIER_CONFIG.
     """
-    return {k: v for k, v in full_output.items() if k in _SNAPSHOT_KEYS}
+    shaped = {k: v for k, v in full_output.items() if k in _SNAPSHOT_KEYS}
+
+    # Lift the headline numbers out of the nested structures they live in —
+    # they are not top-level keys on full_output.
+    di = full_output.get("decision_intelligence") or {}
+    if di.get("current_price"):
+        shaped["current_price"] = di["current_price"]
+
+    from api.lib.verdict import resolve_fair_value
+    fair_value = resolve_fair_value(full_output)
+    if fair_value:
+        shaped["fair_value"] = fair_value
+
+    thesis = full_output.get("investment_thesis")
+    if isinstance(thesis, dict) and thesis.get("recommendation_summary"):
+        shaped["summary"] = thesis["recommendation_summary"]
+
+    return shaped
 
 @router.get("/preview/nvda")
 async def get_nvda_preview():

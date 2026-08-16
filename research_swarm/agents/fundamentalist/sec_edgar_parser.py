@@ -22,29 +22,6 @@ from research_swarm.agents.fundamentalist.prompts import (
 # Static instruction prefixes — cached across all tickers via Anthropic prompt caching.
 # Dynamic content (ticker, filing text) is placed in the HumanMessage so the static
 # prefix can be reused on cache hits.
-_STRUCTURED_EXTRACTION_SYSTEM = (
-    "You are extracting structured data from SEC filings.\n\n"
-    "**Task**: Extract the following information as JSON.\n\n"
-    "{\n"
-    '  "business_description": "<2-3 sentence summary of how the company makes money>",\n'
-    '  "risk_factors": ["<risk 1>", "<risk 2>", "<risk 3>", "<risk 4>", "<risk 5>"],\n'
-    '  "financial_metrics": {\n'
-    '    "revenue_millions": <float or null>,\n'
-    '    "gross_profit_millions": <float or null>,\n'
-    '    "operating_income_millions": <float or null>,\n'
-    '    "net_income_millions": <float or null>,\n'
-    '    "free_cash_flow_millions": <float or null>,\n'
-    '    "total_debt_millions": <float or null>,\n'
-    '    "cash_millions": <float or null>,\n'
-    '    "shares_outstanding_millions": <float or null>\n'
-    "  },\n"
-    '  "management_outlook": "<summary of management forward guidance>",\n'
-    '  "competitive_position": "<market position and key competitive advantages>",\n'
-    '  "growth_drivers": ["<driver 1>", "<driver 2>", "<driver 3>"]\n'
-    "}\n\n"
-    "Instructions: Extract exact values. Use null for missing metrics. Return ONLY valid JSON."
-)
-
 _DCF_INPUTS_EXTRACTION_SYSTEM = (
     "You are extracting DCF valuation inputs from SEC filings.\n\n"
     "Extract inputs needed to build a Discounted Cash Flow model. "
@@ -77,85 +54,6 @@ class EnhancedFilingParser:
             extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
         )
         logger.info("EnhancedFilingParser initialized")
-
-    def extract_structured_data(
-        self,
-        ticker: str,
-        filing_text: str,
-        filing_type: str = "10-K",
-        year: Optional[int] = None,
-        use_cache: bool = True
-    ) -> Tuple[FilingExtraction, int]:
-        """
-        Extract structured data from a SEC filing using Haiku.
-
-        Args:
-            ticker: Stock ticker
-            filing_text: Raw filing text
-            filing_type: "10-K", "20-F", "10-Q", or "6-K"
-            year: Fiscal year (for cache key)
-            use_cache: Whether to use cached results
-
-        Returns:
-            Tuple of (FilingExtraction, tokens_used)
-        """
-        cache_key = f"{ticker}_{filing_type}_{year or 'latest'}"
-
-        if use_cache:
-            cached = cache.get("sec_structured", cache_key)
-            if cached:
-                logger.info(f"Using cached structured extraction for {ticker}")
-                return FilingExtraction(**cached), 0
-
-        # Truncate filing text for context window
-        truncated_text = filing_text[:MAX_FILING_LENGTH]
-
-        # Use structured messages so Anthropic can cache the static instruction prefix
-        # and the large filing text block independently.
-        messages = [
-            SystemMessage(content=[{
-                "type": "text",
-                "text": _STRUCTURED_EXTRACTION_SYSTEM,
-                "cache_control": {"type": "ephemeral"},
-            }]),
-            HumanMessage(content=[{
-                "type": "text",
-                "text": (
-                    f"Filing Type: {filing_type}\n"
-                    f"Company: {ticker}\n\n"
-                    f"Filing Text (truncated to ~30k chars):\n{truncated_text}"
-                ),
-                "cache_control": {"type": "ephemeral"},
-            }]),
-        ]
-
-        try:
-            response = self.haiku.invoke(messages)
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            json_text = self._extract_json(response_text)
-            data = json.loads(json_text)
-
-            # Add filing type to extracted data
-            data["filing_type"] = filing_type
-
-            extraction = FilingExtraction(**data)
-
-            # Cache for 90 days
-            if use_cache:
-                cache.set("sec_structured", cache_key, extraction.dict(), ttl_days=90)
-
-            logger.success(f"✓ Extracted structured data for {ticker} ({tokens_used} tokens)")
-            return extraction, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse structured extraction JSON: {e}")
-            return FilingExtraction(filing_type=filing_type), tokens_used if 'tokens_used' in locals() else 0
-
-        except Exception as e:
-            logger.error(f"Error in structured extraction for {ticker}: {e}")
-            return FilingExtraction(filing_type=filing_type), 0
 
     def extract_dcf_inputs(
         self,
@@ -197,21 +95,30 @@ class EnhancedFilingParser:
                          "forward_pe", "dividend_yield", "ev_ebitda"]
             }, indent=2, default=str)
 
+        # Filing text is the large stable prefix — cache it. Market data is
+        # volatile (price changes between runs), so it goes AFTER the last
+        # cache breakpoint; including it in the cached block meant the same
+        # filing never produced a cache hit across runs.
         messages = [
             SystemMessage(content=[{
                 "type": "text",
                 "text": _DCF_INPUTS_EXTRACTION_SYSTEM,
                 "cache_control": {"type": "ephemeral"},
             }]),
-            HumanMessage(content=[{
-                "type": "text",
-                "text": (
-                    f"Company: {ticker}\n\n"
-                    f"Filing Text (truncated):\n{truncated_text}\n\n"
-                    f"Current Market Data:\n{market_data_str}"
-                ),
-                "cache_control": {"type": "ephemeral"},
-            }]),
+            HumanMessage(content=[
+                {
+                    "type": "text",
+                    "text": (
+                        f"Company: {ticker}\n\n"
+                        f"Filing Text (truncated):\n{truncated_text}"
+                    ),
+                    "cache_control": {"type": "ephemeral"},
+                },
+                {
+                    "type": "text",
+                    "text": f"Current Market Data:\n{market_data_str}",
+                },
+            ]),
         ]
 
         try:

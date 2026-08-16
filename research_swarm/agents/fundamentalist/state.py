@@ -74,7 +74,6 @@ class FundamentalistState(TypedDict, total=False):
 
     # Hybrid provider fields
     is_foreign: Optional[bool]  # Whether ticker is a foreign ADR (20-F/6-K filer)
-    structured_filing_data: Optional[Dict[str, Any]]  # FilingExtraction dict from enhanced parser
 
     # DCF valuation
     price_targets: Optional[Dict[str, Any]]  # PriceTargetScenarios dict from DCF calculator

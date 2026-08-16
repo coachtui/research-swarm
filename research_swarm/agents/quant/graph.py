@@ -184,39 +184,6 @@ def build_supply_chain_node(state: QuantState) -> QuantState:
     return state
 
 
-def identify_hidden_deps_node(state: QuantState) -> QuantState:
-    """
-    Node 4: Identify hidden dependencies using LLM (Haiku).
-
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with hidden dependencies analysis
-    """
-    logger.info(f"[Node 4] Identifying hidden dependencies for {state['ticker']}")
-
-    state["node_timestamps"] = {**state.get("node_timestamps", {}), "identify_hidden_deps": time.time()}
-
-    # Reconstruct supply chain graph
-    supply_chain_graph = SupplyChainGraph(**state["supply_chain_graph"])
-
-    # Analyze hidden dependencies
-    hidden_deps, tokens = quant_analyzer.analyze_hidden_dependencies(
-        ticker=state["ticker"],
-        analysis_date=state["analysis_date"],
-        supply_chain_graph=supply_chain_graph
-    )
-
-    # Update state
-    state["hidden_dependencies_analysis"] = hidden_deps.get("summary", "")
-    state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-    logger.success(f"✓ Analyzed hidden dependencies ({tokens} tokens)")
-
-    return state
-
-
 def analyze_combined_node(state: QuantState) -> QuantState:
     """
     Node 5: Generate narrative analyses using LLM (Sonnet).
@@ -245,14 +212,20 @@ def analyze_combined_node(state: QuantState) -> QuantState:
     state["technical_analysis"] = technical_analysis
     state["tokens_used"] = state.get("tokens_used", 0) + tech_tokens
 
-    # Generate supply chain analysis
-    sc_analysis, sc_tokens = quant_analyzer.generate_supply_chain_analysis(
-        ticker=state["ticker"],
-        analysis_date=state["analysis_date"],
-        supply_chain_graph=supply_chain_graph
-    )
-    state["supply_chain_analysis"] = sc_analysis
-    state["tokens_used"] = state.get("tokens_used", 0) + sc_tokens
+    # Generate supply chain analysis only when there is a graph to describe.
+    # Production runs with supply_chain_depth=0 (empty graph), where this was
+    # a Sonnet call narrating an intentionally empty structure.
+    sc_tokens = 0
+    if supply_chain_graph.nodes:
+        sc_analysis, sc_tokens = quant_analyzer.generate_supply_chain_analysis(
+            ticker=state["ticker"],
+            analysis_date=state["analysis_date"],
+            supply_chain_graph=supply_chain_graph
+        )
+        state["supply_chain_analysis"] = sc_analysis
+        state["tokens_used"] = state.get("tokens_used", 0) + sc_tokens
+    else:
+        state["supply_chain_analysis"] = "Supply chain analysis not performed (disabled)."
 
     logger.success(
         f"✓ Generated analyses "
@@ -338,14 +311,18 @@ def _calculate_confidence(
     if indicators.relative_strength.vs_market_3m is None:
         confidence -= 0.05
 
-    # Reduce confidence for limited supply chain data
-    if len(graph.nodes) <= 1:
-        confidence -= 0.2
-    elif len(graph.nodes) <= 3:
-        confidence -= 0.1
+    # Reduce confidence for limited supply chain data — but only when supply
+    # chain analysis was actually requested. Production runs with depth=0
+    # (feature disabled); penalizing the deliberately empty graph capped every
+    # report's quant confidence at ~0.7.
+    if graph.max_depth > 0:
+        if len(graph.nodes) <= 1:
+            confidence -= 0.2
+        elif len(graph.nodes) <= 3:
+            confidence -= 0.1
 
-    if graph.max_depth < 2:
-        confidence -= 0.1
+        if graph.max_depth < 2:
+            confidence -= 0.1
 
     return max(0.0, min(1.0, confidence))
 
@@ -382,7 +359,6 @@ def build_quant_graph() -> StateGraph:
     workflow.add_node("fetch_market_data", fetch_market_data_node)
     workflow.add_node("calculate_indicators", calculate_indicators_node)
     workflow.add_node("build_supply_chain", build_supply_chain_node)
-    workflow.add_node("identify_hidden_deps", identify_hidden_deps_node)
     workflow.add_node("analyze_combined", analyze_combined_node)
     workflow.add_node("score_quant", score_quant_node)
 
@@ -392,8 +368,7 @@ def build_quant_graph() -> StateGraph:
     # Add edges - sequential flow
     workflow.add_edge("fetch_market_data", "calculate_indicators")
     workflow.add_edge("calculate_indicators", "build_supply_chain")
-    workflow.add_edge("build_supply_chain", "identify_hidden_deps")
-    workflow.add_edge("identify_hidden_deps", "analyze_combined")
+    workflow.add_edge("build_supply_chain", "analyze_combined")
     workflow.add_edge("analyze_combined", "score_quant")
 
     # Score quant is the final node
@@ -454,7 +429,6 @@ def analyze_quant(
         "networkx_graph": None,
         "technical_analysis": None,
         "supply_chain_analysis": None,
-        "hidden_dependencies_analysis": None,
         "technical_score": None,
         "technical_breakdown": None,
         "supply_chain_score": None,

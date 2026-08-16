@@ -23,6 +23,7 @@ import logging
 from typing import Optional
 
 from api.lib.compounder_owner_v3 import SignalInput
+from api.lib.verdict import resolve_engine_verdict, resolve_fair_value
 
 logger = logging.getLogger(__name__)
 
@@ -49,30 +50,30 @@ def extract_signal_from_full_output(
     news = full_output.get("news_hound_output") or {}
 
     # ── Report-level verdict and fair value — primary authority ──────────────
-    # verdict lives at the top level of fullOutput (set by decision_intelligence)
-    raw_verdict = (full_output.get("verdict") or "hold").lower()
-    # Normalise to the four values the engine understands
-    verdict = raw_verdict if raw_verdict in ("buy", "hold", "avoid", "sell") else "hold"
-
-    # fair_value from DCF in fundamentalist output
-    valuation = fund.get("valuation") or {}
-    fair_value = _safe_float(
-        valuation.get("fair_value")
-        or valuation.get("intrinsic_value")
-        or full_output.get("fair_value")
-    )
+    # Resolved from decision_intelligence.rating / rating via the shared helper
+    # (the previously-read "verdict" and fundamentalist "valuation" keys never
+    # existed, which hardcoded every signal to hold with no fair value).
+    verdict = resolve_engine_verdict(full_output)
+    fair_value = resolve_fair_value(full_output)
 
     # ── Financial metrics from fundamentalist ────────────────────────────────
     fm = fund.get("financial_metrics") or {}
 
-    revenue_3y_cagr = _safe_float(fm.get("revenue_cagr_3y") or fm.get("revenue_3y_cagr"))
-    revenue_growth_yoy = _safe_float(fm.get("revenue_growth_yoy") or fm.get("revenue_growth"))
-    revenue_growth_persistence = _safe_int(fm.get("revenue_growth_persistence"))
+    # Not produced by the pipeline yet; SignalInput treats None as "unknown"
+    revenue_3y_cagr = None
+    revenue_growth_yoy = _safe_float(fm.get("revenue_growth_yoy"))
     gross_margin = _safe_float(fm.get("gross_margin"))
-    fcf_margin = _safe_float(fm.get("fcf_margin") or fm.get("free_cash_flow_margin"))
 
-    # Margin trend: check for explicit field or derive from financial_analysis
-    margin_trend = _extract_margin_trend(fm, fund)
+    # FCF margin: derived — FinancialMetricsOutput carries only the absolutes
+    fcf_margin = None
+    fcf = _safe_float(fm.get("free_cash_flow"))
+    revenue = _safe_float(fm.get("revenue"))
+    if fcf is not None and revenue:
+        fcf_margin = round(fcf / revenue * 100.0, 2)
+
+    trends = fund.get("quarterly_trends") or {}
+    revenue_growth_persistence = _persistence_from_trends(trends)
+    margin_trend = _extract_margin_trend(trends, fund)
 
     # ── Earnings revision from news hound ────────────────────────────────────
     earnings_est = news.get("earnings_estimates") or {}
@@ -139,34 +140,29 @@ def _safe_float(val) -> Optional[float]:
         return None
 
 
-def _safe_int(val) -> Optional[int]:
-    """Safely convert a value to int, returning None on failure."""
-    if val is None:
-        return None
-    try:
-        return int(val)
-    except (ValueError, TypeError):
-        return None
+def _persistence_from_trends(trends: dict) -> Optional[int]:
+    """Consecutive positive QoQ growth quarters, counted from the most recent
+    quarter backwards, using QuarterlyTrends.sequential_growth_rates."""
+    rates = trends.get("sequential_growth_rates") or []
+    streak = 0
+    for rate in reversed(rates):
+        if rate is None or rate <= 0:
+            break
+        streak += 1
+    return streak if rates else None
 
 
-def _extract_margin_trend(fm: dict, fund: dict) -> str:
+def _extract_margin_trend(trends: dict, fund: dict) -> str:
     """
-    Determine margin trend from financial metrics.
-
-    Checks for explicit margin_trend field, or derives from gross_margin_change.
-    Falls back to "unknown".
+    Determine margin trend from QuarterlyTrends.margin_trend (a series of
+    margin values per quarter), falling back to the profitability score.
     """
-    # Explicit field
-    trend = fm.get("margin_trend")
-    if trend and isinstance(trend, str) and trend in ("expanding", "stable", "contracting"):
-        return trend
-
-    # Derive from gross margin change (if available)
-    gm_change = _safe_float(fm.get("gross_margin_change") or fm.get("margin_change_yoy"))
-    if gm_change is not None:
-        if gm_change > 1.0:
+    margins = [m for m in (trends.get("margin_trend") or []) if m is not None]
+    if len(margins) >= 2:
+        change = margins[-1] - margins[0]
+        if change > 1.0:
             return "expanding"
-        elif gm_change < -1.0:
+        elif change < -1.0:
             return "contracting"
         else:
             return "stable"
