@@ -1,6 +1,6 @@
 'use client'
 
-import { CheckCircle2, AlertTriangle, BookOpen } from 'lucide-react'
+import { CheckCircle2, AlertTriangle } from 'lucide-react'
 import type { InvestmentThesisStructured } from '@/types/api'
 
 /**
@@ -40,15 +40,9 @@ export function InvestmentThesisPanel({
         </p>
       )}
 
-      {/* Recommendation summary — highlighted */}
-      {thesis.recommendation_summary && (
-        <div className="flex items-start gap-2.5 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
-          <BookOpen className="h-3.5 w-3.5 text-primary mt-0.5 flex-shrink-0" />
-          <p className="text-sm font-medium text-text-primary leading-relaxed">
-            {thesis.recommendation_summary}
-          </p>
-        </div>
-      )}
+      {/* recommendation_summary is deliberately NOT rendered here — it is the
+          headline of VerdictHeader at the top of the report. Showing it twice
+          made the two thesis blocks read as duplicates of each other. */}
 
       {/* Investment highlights */}
       {thesis.investment_highlights && thesis.investment_highlights.length > 0 && (

@@ -1099,17 +1099,71 @@ Return ONLY the JSON object."""
         return f"POC: ${poc:.2f}, Value Area: ${va_low:.2f}-${va_high:.2f}"
 
     def _format_relative_strength(self, output: Dict[str, Any]) -> str:
-        """Format relative strength vs sector/market."""
+        """Format relative strength AND the absolute market/sector levels.
+
+        The absolute returns were computed and then discarded here, leaving the
+        synthesis with only the differences. That made two very different worlds
+        indistinguishable: a stock up 6% in a +10% market and a stock down 14%
+        in a -10% market both read as "vs Market -4pp". With no way to see that
+        the tape itself was down, a market-wide drawdown got attributed to the
+        company. The levels are now passed through with an explicit attribution
+        note.
+        """
         indicators = output.get("technical_indicators", {})
         rs = indicators.get("relative_strength", {})
 
         if not rs:
             return "N/A"
 
-        vs_sector_3m = rs.get("vs_sector_3m") or 0
-        vs_market_3m = rs.get("vs_market_3m") or 0
+        stock_3m = rs.get("ticker_return_3m")
+        sector_3m = rs.get("sector_return_3m")
+        market_3m = rs.get("market_return_3m")
+        stock_1m = rs.get("ticker_return_1m")
+        market_1m = rs.get("market_return_1m")
+        vs_sector_3m = rs.get("vs_sector_3m")
+        vs_market_3m = rs.get("vs_market_3m")
 
-        return f"vs Sector (3M): {vs_sector_3m:+.1f}pp, vs Market (3M): {vs_market_3m:+.1f}pp"
+        def _pct(v):
+            return f"{v:+.1f}%" if isinstance(v, (int, float)) else "n/a"
+
+        def _pp(v):
+            return f"{v:+.1f}pp" if isinstance(v, (int, float)) else "n/a"
+
+        lines = [
+            f"Absolute 3M returns — Stock: {_pct(stock_3m)} | Sector: {_pct(sector_3m)} | Market (SPY): {_pct(market_3m)}",
+            f"Absolute 1M returns — Stock: {_pct(stock_1m)} | Market (SPY): {_pct(market_1m)}",
+            f"Relative — vs Sector (3M): {_pp(vs_sector_3m)}, vs Market (3M): {_pp(vs_market_3m)}",
+        ]
+
+        # Explicit attribution guidance so a broad drawdown or melt-up is not
+        # narrated as company-specific.
+        if isinstance(market_3m, (int, float)):
+            if market_3m <= -5.0:
+                lines.append(
+                    f"ATTRIBUTION: the broad market is DOWN {abs(market_3m):.1f}% over 3M. Any decline in this "
+                    "stock is partly market-wide — do not attribute the full move to company-specific factors. "
+                    "State plainly how much is market/sector versus idiosyncratic."
+                )
+            elif market_3m >= 5.0:
+                lines.append(
+                    f"ATTRIBUTION: the broad market is UP {market_3m:.1f}% over 3M. A rising share price here is "
+                    "partly beta — do not present a market-wide advance as company-specific strength."
+                )
+            else:
+                lines.append(
+                    f"ATTRIBUTION: the broad market is roughly flat over 3M ({market_3m:+.1f}%), so the stock's "
+                    "move is mostly idiosyncratic."
+                )
+        if isinstance(sector_3m, (int, float)) and isinstance(market_3m, (int, float)):
+            sector_vs_market = sector_3m - market_3m
+            if abs(sector_vs_market) >= 5.0:
+                direction = "outperforming" if sector_vs_market > 0 else "underperforming"
+                lines.append(
+                    f"SECTOR ROTATION: the sector is {direction} the market by {abs(sector_vs_market):.1f}pp over 3M — "
+                    "a sector-level flow, not a company-specific one."
+                )
+
+        return "\n".join(lines)
 
     def _format_entry_exit_signal(self, output: Dict[str, Any]) -> str:
         """Format aggregated entry/exit signal."""

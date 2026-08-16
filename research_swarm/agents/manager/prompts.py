@@ -168,6 +168,13 @@ SHARED_WRITING_RULES = """**Guidelines**:
 - Avoid time precision for price targets (e.g., "will break out this week") — use "if price holds above $X over the coming sessions"
 - When discussing scenarios, frame as probabilities: "bear case (25% probability)" not "the stock will fall to $X"
 
+**PRICE MOVE ATTRIBUTION (market vs company)**:
+- The Relative Strength block gives ABSOLUTE stock, sector, and market returns alongside the relative ones. Read the absolute market return BEFORE explaining any price move.
+- Never attribute a market-wide or sector-wide move to company-specific causes. If the market is down 8% and the stock is down 10%, the company-specific component is roughly 2 points — say so, rather than narrating a 10% decline as if the company caused it.
+- When a decline is mostly beta, say it plainly: "most of the decline tracks a broad market drawdown; the company-specific component is roughly Xpp."
+- Apply the same discipline to strength: a stock up 12% in a market up 10% is not evidence of company momentum.
+- You are given index and sector returns only. You do NOT have macro, geopolitical, rates, or commodity data — do not invent macro causes (wars, Fed decisions, trade policy, supply shocks) to explain a move. Describe the market-level move as observed and leave its cause unstated.
+
 **VALUATION LANGUAGE — REGIME FRAMING**:
 - NEVER write "trading X% above fair value" or "X% overvalued" — intrinsic anchors are structural references, not correct-price claims
 - INSTEAD: "Price operates in Structural Premium regime" / "extended relative to the Structural Valuation Reference"

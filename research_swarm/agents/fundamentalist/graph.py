@@ -20,6 +20,7 @@ from research_swarm.agents.fundamentalist.models import (
     BusinessModelScoreBreakdown,
     FinancialMetricsOutput,
     BusinessModelOutput,
+    DCFInputs,
 )
 from research_swarm.agents.fundamentalist.blended_valuation import blended_valuation_calculator
 from research_swarm.agents.fundamentalist.fair_value_calibrator import fair_value_calibrator
@@ -1293,6 +1294,12 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                     if roic_wacc is not None:
                         state["roic_wacc_spread_score"] = roic_wacc
 
+                # Persist the DCF inputs so downstream consumers can display the
+                # same assumptions the valuation actually used. operating_margin_trend
+                # in particular drives the archetype weighting and the scenario
+                # spread, and the UI reads it — it was computed here and dropped.
+                state["dcf_inputs"] = dcf_inputs.model_dump()
+
         except Exception as e:
             logger.warning(f"DCF/structured extraction failed (non-fatal): {e}")
             # DCF is optional — don't fail the whole analysis
@@ -1751,6 +1758,7 @@ def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: 
         earnings_momentum_score=final_state.get("earnings_momentum_score", 5.0),
         earnings_momentum_breakdown=final_state.get("earnings_momentum_breakdown"),
         roic_wacc_spread_score=final_state.get("roic_wacc_spread_score"),
+        dcf_inputs=DCFInputs(**final_state["dcf_inputs"]) if final_state.get("dcf_inputs") else None,
         valuation_score=final_state.get("valuation_score", 5.0),
         valuation_metrics=ValuationMetrics(**final_state["valuation_metrics"]) if final_state.get("valuation_metrics") else None,
         price_targets=PriceTargetScenarios(**final_state["price_targets"]) if final_state.get("price_targets") else None,
