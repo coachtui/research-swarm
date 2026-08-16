@@ -36,8 +36,15 @@ def fetch_news_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "fetching"
 
-    # Fetch from NewsAPI (via aggregator)
-    articles = aggregator.fetch_news(state["ticker"], state["days_back"])
+    # Fetch from NewsAPI (via aggregator). The company name comes from the
+    # pre-fetched bundle so the query is a real phrase search, not a bare
+    # ticker — critical for short word-like symbols (BE, ALL, IT, ON).
+    company_info = (state.get("shared_swarm_data") or {}).get("company_info") or {}
+    company_name = company_info.get("name") or company_info.get("longName")
+
+    articles = aggregator.fetch_news(
+        state["ticker"], state["days_back"], company_name=company_name
+    )
 
     if not articles:
         logger.warning(f"No articles found for {state['ticker']}")
@@ -601,11 +608,18 @@ def score_sentiment_node(state: NewsHoundState) -> NewsHoundState:
         logger.warning("No articles/breakdown - assigning neutral sentiment (5.0)")
 
         if not sentiment_analysis:
+            # State the coverage gap as a data limitation. Do NOT infer that the
+            # company had a quiet news period — an empty result set is far more
+            # often a search/coverage failure than genuine media silence, and
+            # asserting the latter puts a false claim about the company in the
+            # report.
             state["sentiment_analysis"] = (
-                f"No news articles were found for {state['ticker']} in the last {state['days_back']} days. "
-                "This suggests limited media coverage during this period, which could indicate a lack of "
-                "significant news events or a quieter period for the company. A neutral sentiment score of "
-                "5.0 is assigned due to insufficient data."
+                f"No qualifying news articles were retrieved for {state['ticker']} over the last "
+                f"{state['days_back']} days, so no news-based sentiment reading was produced. "
+                "This reflects the limits of this report's news coverage for this ticker — it is "
+                "not evidence that the company was free of news. Treat the sentiment component as "
+                "unavailable rather than neutral, and weigh the fundamental, valuation, and "
+                "technical components accordingly."
             )
 
         breakdown = SentimentBreakdown(

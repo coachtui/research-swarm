@@ -9,7 +9,7 @@ Each prompt is designed for specific LLM models and tasks.
 # Purpose: Combine findings from all agents into unified analysis
 # ============================================================================
 
-SYNTHESIS_PROMPT = """You are a senior investment analyst synthesizing comprehensive research from multiple specialized teams AND writing the final investment thesis in a single pass.
+SYNTHESIS_CONTEXT = """You are a senior investment analyst synthesizing comprehensive research from multiple specialized teams AND writing the final investment thesis in a single pass.
 
 **Company**: {ticker}
 **Analysis Date**: {analysis_date}
@@ -130,45 +130,10 @@ NOTE: Events prefixed with [SEC 8-K] are official SEC filings — these are lega
 - CRITICAL: Do NOT mention these probability percentages (e.g., "40/45/15" or "40% bear / 45% base") anywhere in your text outputs — they are proprietary internal calibration parameters.
 
 ---
+"""
 
-## YOUR TASK
 
-Synthesize these three comprehensive perspectives into a unified investment analysis that leverages ALL the enhanced data. Generate:
-
-1. **Synthesis Narrative** (600-800 words):
-   - **Multi-Signal Convergence**: Do the 7 news signals align or diverge? Does earnings estimate momentum confirm or contradict price action?
-   - **Fundamental-Technical Alignment**: Do VGM scores, moat strength, and valuation align with technical setup and entry/exit signals?
-   - **Catalyst Timing**: How do upcoming catalysts interact with current technical levels (e.g., earnings in 2 weeks + price at support)?
-   - **Smart Money Confirmation**: Do institutional flows and insider activity confirm or contradict the fundamental/technical picture?
-   - **Valuation Context**: Are price targets achievable given technical resistance levels?
-   - **Moat Sustainability**: Does the 8-category moat analysis support the competitive position suggested by peers?
-   - **Management Factor**: How does management quality and tone affect confidence in the thesis?
-   - **Risk Integration**: Synthesize short interest, operational risks, and negative catalysts into cohesive risk assessment
-
-2. **Key Insights** (3-5 bullet points):
-   - The most important cross-signal insights for an investor
-   - Each insight must synthesize data from MULTIPLE sources across agents
-   - Highlight where signals converge powerfully (e.g., "Bullish earnings revisions + institutional accumulation + technical breakout + upcoming product launch")
-   - Note critical divergences (e.g., "Strong fundamentals but bearish insider selling signals caution")
-   - Reference specific data points (scores, percentages, price levels)
-
-3. **Risk Factors** (3-5 bullet points):
-   - The most significant multi-dimensional risks
-   - Consider: fundamental deterioration, catalyst disappointment, technical breakdowns, operational disruptions, valuation compression, sentiment reversal
-   - Be specific with numbers and scenarios
-   - Prioritize by impact and probability
-
-4. **Structured Investment Risks** (3-7 risks with detail):
-   - For each risk, provide: severity (HIGH/MEDIUM/LOW), likelihood (High/Medium/Low), specific impact, and mitigation factors
-   - Prioritize by severity and likelihood combination
-   - Be quantitative where possible
-
-5. **Upgrade/Downgrade Triggers**:
-   - Specific metrics or events that would trigger a rating upgrade
-   - Specific metrics or events that would trigger a rating downgrade
-   - Be precise with thresholds (e.g., "EPS growth > 20% for 2 quarters → Upgrade to STRONG BUY")
-
-**Guidelines**:
+SHARED_WRITING_RULES = """**Guidelines**:
 - This is an ENHANCED synthesis - leverage all the new data points (VGM, moat categories, signals, technical indicators)
 - Look for powerful convergences across multiple signals (highest conviction)
 - Flag divergences that create uncertainty (e.g., "bullish technicals but weak earnings revisions")
@@ -179,8 +144,6 @@ Synthesize these three comprehensive perspectives into a unified investment anal
 - Consider management quality when assessing execution risk
 - Be quantitative: cite specific scores, percentages, price targets
 - Focus on actionable insights with clear evidence chains
-- The recommendation and investment_thesis sections ARE part of this response —
-  anchor the recommendation_summary to the Model Rating shown above
 - PROPRIETARY — Do NOT cite raw internal signal scores (e.g., "2.2/10", "Smart Money Score of X/10", "Public Sentiment of X/10") in key_insights or synthesis_narrative text. Describe signal strength qualitatively: "bearish", "strongly bullish", "elevated", "weak", "conflicting". The precise numeric scores are internal only.
 - PROPRIETARY — Do NOT disclose probability split percentages (e.g., "40/45/15", "40% bear / 45% base / 15% bull") in any text output. Apply them silently to price_targets only.
 
@@ -216,6 +179,46 @@ Synthesize these three comprehensive perspectives into a unified investment anal
 - **Death cross / overhead supply**: If significant resistance sits between current price and a target, name it in the scenario's assumptions and technical level — the target is reached only after that level clears.
 - **Large upside (>50% from current)**: label the timeframe honestly in assumptions ("3–5 year regime expansion scenario", not "12–24 months").
 - In `*_technical_level` fields: always name the specific resistance/support that anchors each target and state what must happen for price to clear it.
+"""
+
+
+# Half A — cross-agent analysis (narrative, insights, risks, triggers).
+SYNTHESIS_TASK_ANALYSIS = """## YOUR TASK
+
+Synthesize these three comprehensive perspectives into a unified investment analysis that leverages ALL the enhanced data. Generate:
+
+1. **Synthesis Narrative** (600-800 words):
+   - **Multi-Signal Convergence**: Do the 7 news signals align or diverge? Does earnings estimate momentum confirm or contradict price action?
+   - **Fundamental-Technical Alignment**: Do VGM scores, moat strength, and valuation align with technical setup and entry/exit signals?
+   - **Catalyst Timing**: How do upcoming catalysts interact with current technical levels (e.g., earnings in 2 weeks + price at support)?
+   - **Smart Money Confirmation**: Do institutional flows and insider activity confirm or contradict the fundamental/technical picture?
+   - **Valuation Context**: Are price targets achievable given technical resistance levels?
+   - **Moat Sustainability**: Does the 8-category moat analysis support the competitive position suggested by peers?
+   - **Management Factor**: How does management quality and tone affect confidence in the thesis?
+   - **Risk Integration**: Synthesize short interest, operational risks, and negative catalysts into cohesive risk assessment
+
+2. **Key Insights** (3-5 bullet points):
+   - The most important cross-signal insights for an investor
+   - Each insight must synthesize data from MULTIPLE sources across agents
+   - Highlight where signals converge powerfully (e.g., "Bullish earnings revisions + institutional accumulation + technical breakout + upcoming product launch")
+   - Note critical divergences (e.g., "Strong fundamentals but bearish insider selling signals caution")
+   - Reference specific data points (scores, percentages, price levels)
+
+3. **Risk Factors** (3-5 bullet points):
+   - The most significant multi-dimensional risks
+   - Consider: fundamental deterioration, catalyst disappointment, technical breakdowns, operational disruptions, valuation compression, sentiment reversal
+   - Be specific with numbers and scenarios
+   - Prioritize by impact and probability
+
+4. **Structured Investment Risks** (3-7 risks with detail):
+   - For each risk, provide: severity (HIGH/MEDIUM/LOW), likelihood (High/Medium/Low), specific impact, and mitigation factors
+   - Prioritize by severity and likelihood combination
+   - Be quantitative where possible
+
+5. **Upgrade/Downgrade Triggers**:
+   - Specific metrics or events that would trigger a rating upgrade
+   - Specific metrics or events that would trigger a rating downgrade
+   - Be precise with thresholds (e.g., "EPS growth > 20% for 2 quarters → Upgrade to STRONG BUY")
 
 Return your response as a JSON object:
 
@@ -257,7 +260,28 @@ Return your response as a JSON object:
       "threshold": "<precise threshold value>",
       "action": "Downgrade to HOLD|SELL|STRONG SELL"
     }}
-  ],
+  ]
+}}
+
+Return ONLY valid JSON, no other text.
+"""
+
+
+# Half B — the verdict (thesis, recommendation, scenario prose, catalysts).
+SYNTHESIS_TASK_VERDICT = """## YOUR TASK
+
+Write the investment verdict for this company: the thesis, the recommendation,
+the qualitative scenario framing around the FIXED price targets, and any
+forward-looking strategic catalysts.
+
+- Anchor recommendation_summary to the Model Rating shown above — open with that exact rating word.
+- investment_highlights and key_risks must cite specific figures from the data above.
+- The price targets are precomputed and fixed; you supply only the assumptions,
+  growth projection, valuation multiple, and technical level for each scenario.
+
+Return your response as a JSON object:
+
+{{
   "price_targets": {{
     "bull_target": <copy the DVRG BULL target from the PRICE TARGETS section exactly>,
     "bull_probability": <apply calibration rules above — 0.15 to 0.45>,
@@ -310,7 +334,10 @@ Return your response as a JSON object:
 }}
 
 Return ONLY valid JSON, no other text.
+
+Return ONLY valid JSON, no other text.
 """
+
 
 # ============================================================================
 # INVESTMENT THESIS PROMPT (Sonnet)

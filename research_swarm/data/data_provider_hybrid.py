@@ -21,6 +21,7 @@ Cache TTL summary (see data_cache_service.py for full config):
   8k_filings           —  24h     (SEC 8-K material events)
   price_snapshot       —  15 min  (valuation metrics + OHLCV)
 """
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Optional
 
 from research_swarm.logger import logger
@@ -286,28 +287,71 @@ class HybridDataProvider:
             if bundle["company_info"]:
                 data_cache.set_company_profile(ticker, bundle["company_info"])
 
-        # ── Tier 3: Price snapshot (15 min) ────────────────────────────────────
-        # Double-check on miss: if a concurrent request already wrote while we
-        # fetched, adopt its data so both runs use identical valuation inputs.
+        # ── Concurrent fetch of every cache miss ───────────────────────────────
+        # These yfinance endpoints are independent of one another. Fetching them
+        # one after another made Node 0 the second-largest block of wall clock
+        # in the pipeline (~17s of the 19s spent here) purely from serialized
+        # network round-trips. Cache checks stay sequential (they are local and
+        # cheap); only the misses fan out.
+        tasks: Dict[str, Any] = {}
+
         cached_price = data_cache.get_price_snapshot(ticker)
         if cached_price is not None:
             bundle["valuation_metrics"] = cached_price.get("valuation_metrics")
             bundle["historical_data"] = cached_price.get("historical_data")
         else:
-            try:
-                bundle["valuation_metrics"] = market_data_client.get_valuation_metrics(ticker)
-            except Exception as e:
-                logger.warning(f"Failed to get valuation metrics for {ticker}: {e}")
-                bundle["valuation_metrics"] = None
-            try:
-                bundle["historical_data"] = market_data_client.get_historical_data(
-                    ticker, period=period
-                )
-                logger.debug(f"Fetched historical data for {ticker} ({period})")
-            except Exception as e:
-                logger.warning(f"Failed to get historical data for {ticker}: {e}")
-                bundle["historical_data"] = None
-            # Re-check: prefer concurrent writer's data over our own fetch
+            tasks["valuation_metrics"] = lambda: market_data_client.get_valuation_metrics(ticker)
+            tasks["historical_data"] = lambda: market_data_client.get_historical_data(ticker, period=period)
+
+        cached_earnings = data_cache.get_earnings_calendar(ticker)
+        earnings_data: Dict[str, Any] = dict(cached_earnings) if cached_earnings is not None else {}
+        if cached_earnings is None:
+            tasks["earnings_history"] = lambda: market_data_client.get_earnings_history(ticker)
+            tasks["earnings_dates"] = lambda: market_data_client.get_earnings_dates(ticker)
+
+        cached_analyst = data_cache.get_analyst_data(ticker)
+        if cached_analyst is not None:
+            earnings_data["recommendations"] = cached_analyst.get("recommendations")
+            earnings_data["price_target"] = cached_analyst.get("price_target")
+            bundle["analyst_estimates"] = cached_analyst.get("analyst_estimates")
+            bundle["upgrades_downgrades"] = cached_analyst.get("upgrades_downgrades")
+        else:
+            tasks["recommendations"] = lambda: market_data_client.get_analyst_recommendations(ticker)
+            tasks["price_target"] = lambda: market_data_client.get_analyst_price_target(ticker)
+            tasks["analyst_estimates"] = lambda: market_data_client.get_earnings_estimates(ticker)
+            tasks["upgrades_downgrades"] = lambda: market_data_client.get_upgrades_downgrades(ticker, days_back=90)
+
+        if quarterly_financials_override is not None:
+            bundle["quarterly_financials"] = quarterly_financials_override
+        else:
+            tasks["quarterly_financials"] = lambda: market_data_client.get_quarterly_financials(ticker)
+
+        cached_inst = data_cache.get_institutional_ownership(ticker)
+        if cached_inst is not None:
+            bundle["institutional_holders"] = cached_inst
+        else:
+            tasks["institutional_holders"] = lambda: market_data_client.get_institutional_holders(ticker)
+
+        cached_insider = data_cache.get_insider_transactions(ticker)
+        if cached_insider is not None:
+            bundle["insider_transactions"] = cached_insider
+        else:
+            tasks["insider_transactions"] = lambda: market_data_client.get_insider_transactions(ticker)
+
+        cached_short = data_cache.get_short_interest(ticker)
+        if cached_short is not None:
+            bundle["short_interest"] = cached_short
+        else:
+            tasks["short_interest"] = lambda: market_data_client.get_short_interest(ticker)
+
+        fetched = self._fetch_concurrently(ticker, tasks)
+
+        # ── Assign results and write caches (unchanged semantics) ──────────────
+        if cached_price is None:
+            bundle["valuation_metrics"] = fetched.get("valuation_metrics")
+            bundle["historical_data"] = fetched.get("historical_data")
+            # Re-check: prefer a concurrent writer's data over our own fetch so
+            # two simultaneous runs value the company off identical inputs.
             cached_price_recheck = data_cache.get_price_snapshot(ticker)
             if cached_price_recheck is not None:
                 bundle["valuation_metrics"] = cached_price_recheck.get("valuation_metrics")
@@ -317,118 +361,70 @@ class HybridDataProvider:
                     ticker, bundle["valuation_metrics"], bundle["historical_data"]
                 )
 
-        # ── Tier 2: Earnings calendar (7 days) ─────────────────────────────────
-        cached_earnings = data_cache.get_earnings_calendar(ticker)
-        if cached_earnings is not None:
-            earnings_data: Dict[str, Any] = cached_earnings
-        else:
-            earnings_data = {}
-            for key, method in [
-                ("earnings_history", market_data_client.get_earnings_history),
-                ("earnings_dates", market_data_client.get_earnings_dates),
-            ]:
-                try:
-                    earnings_data[key] = method(ticker)
-                except Exception:
-                    earnings_data[key] = None
+        if cached_earnings is None:
+            earnings_data["earnings_history"] = fetched.get("earnings_history")
+            earnings_data["earnings_dates"] = fetched.get("earnings_dates")
             data_cache.set_earnings_calendar(ticker, earnings_data)
 
-        # ── Tier 2: Analyst data (7 days) ──────────────────────────────────────
-        cached_analyst = data_cache.get_analyst_data(ticker)
-        if cached_analyst is not None:
-            earnings_data["recommendations"] = cached_analyst.get("recommendations")
-            earnings_data["price_target"] = cached_analyst.get("price_target")
-            bundle["analyst_estimates"] = cached_analyst.get("analyst_estimates")
-            bundle["upgrades_downgrades"] = cached_analyst.get("upgrades_downgrades")
-        else:
-            recommendations: Any = None
-            price_target: Any = None
-            analyst_estimates: Any = None
-            upgrades_downgrades: Any = None
-            try:
-                recommendations = market_data_client.get_analyst_recommendations(ticker)
-            except Exception:
-                pass
-            try:
-                price_target = market_data_client.get_analyst_price_target(ticker)
-            except Exception:
-                pass
-            try:
-                analyst_estimates = market_data_client.get_earnings_estimates(ticker)
-                logger.debug(f"Fetched analyst estimates for {ticker}")
-            except Exception as e:
-                logger.warning(f"Failed to get analyst estimates for {ticker}: {e}")
-            try:
-                upgrades_downgrades = market_data_client.get_upgrades_downgrades(
-                    ticker, days_back=90
-                )
-                logger.debug(f"Fetched upgrades/downgrades for {ticker}")
-            except Exception as e:
-                logger.warning(f"Failed to get upgrades/downgrades for {ticker}: {e}")
-            earnings_data["recommendations"] = recommendations
-            earnings_data["price_target"] = price_target
-            bundle["analyst_estimates"] = analyst_estimates
-            bundle["upgrades_downgrades"] = upgrades_downgrades
+        if cached_analyst is None:
+            earnings_data["recommendations"] = fetched.get("recommendations")
+            earnings_data["price_target"] = fetched.get("price_target")
+            bundle["analyst_estimates"] = fetched.get("analyst_estimates")
+            bundle["upgrades_downgrades"] = fetched.get("upgrades_downgrades")
             data_cache.set_analyst_data(
-                ticker, recommendations, price_target, analyst_estimates, upgrades_downgrades
+                ticker,
+                fetched.get("recommendations"),
+                fetched.get("price_target"),
+                fetched.get("analyst_estimates"),
+                fetched.get("upgrades_downgrades"),
             )
 
         bundle["earnings_data"] = earnings_data
 
-        # ── Tier 1: Quarterly financials (supplied by financial_statements cache) ─
-        if quarterly_financials_override is not None:
-            bundle["quarterly_financials"] = quarterly_financials_override
-        else:
-            try:
-                bundle["quarterly_financials"] = market_data_client.get_quarterly_financials(ticker)
-                logger.debug(f"Fetched quarterly financials for {ticker}")
-            except Exception as e:
-                logger.warning(f"Failed to get quarterly financials for {ticker}: {e}")
-                bundle["quarterly_financials"] = None
+        if quarterly_financials_override is None:
+            bundle["quarterly_financials"] = fetched.get("quarterly_financials")
 
-        # ── Tier 2C: Institutional holders (48h) ───────────────────────────────
-        cached_inst = data_cache.get_institutional_ownership(ticker)
-        if cached_inst is not None:
-            bundle["institutional_holders"] = cached_inst
-        else:
-            try:
-                bundle["institutional_holders"] = market_data_client.get_institutional_holders(ticker)
-                logger.debug(f"Fetched institutional holders for {ticker}")
-            except Exception as e:
-                logger.warning(f"Failed to get institutional holders for {ticker}: {e}")
-                bundle["institutional_holders"] = None
+        if cached_inst is None:
+            bundle["institutional_holders"] = fetched.get("institutional_holders")
             if bundle["institutional_holders"] is not None:
                 data_cache.set_institutional_ownership(ticker, bundle["institutional_holders"])
 
-        # ── Tier 2C: Insider transactions (48h) ────────────────────────────────
-        cached_insider = data_cache.get_insider_transactions(ticker)
-        if cached_insider is not None:
-            bundle["insider_transactions"] = cached_insider
-        else:
-            try:
-                bundle["insider_transactions"] = market_data_client.get_insider_transactions(ticker)
-                logger.debug(f"Fetched insider transactions for {ticker}")
-            except Exception as e:
-                logger.warning(f"Failed to get insider transactions for {ticker}: {e}")
-                bundle["insider_transactions"] = None
+        if cached_insider is None:
+            bundle["insider_transactions"] = fetched.get("insider_transactions")
             if bundle["insider_transactions"] is not None:
                 data_cache.set_insider_transactions(ticker, bundle["insider_transactions"])
 
-        # ── Tier 2B: Short interest (24h) ──────────────────────────────────────
-        cached_short = data_cache.get_short_interest(ticker)
-        if cached_short is not None:
-            bundle["short_interest"] = cached_short
-        else:
-            try:
-                bundle["short_interest"] = market_data_client.get_short_interest(ticker)
-                logger.debug(f"Fetched short interest for {ticker}")
-            except Exception as e:
-                logger.warning(f"Failed to get short interest for {ticker}: {e}")
-                bundle["short_interest"] = None
+        if cached_short is None:
+            bundle["short_interest"] = fetched.get("short_interest")
             if bundle["short_interest"] is not None:
                 data_cache.set_short_interest(ticker, bundle["short_interest"])
 
         return bundle
+
+    @staticmethod
+    def _fetch_concurrently(ticker: str, tasks: Dict[str, Any]) -> Dict[str, Any]:
+        """Run independent provider fetches in parallel, isolating failures.
+
+        A failing endpoint yields None for its key — same as the previous
+        per-call try/except — so partial provider outages degrade the bundle
+        rather than the run. Worker count is capped to stay a polite client.
+        """
+        results: Dict[str, Any] = {name: None for name in tasks}
+        if not tasks:
+            return results
+
+        with ThreadPoolExecutor(max_workers=min(6, len(tasks))) as pool:
+            futures = {pool.submit(fn): name for name, fn in tasks.items()}
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    results[name] = future.result()
+                except Exception as e:
+                    logger.warning(f"Failed to fetch {name} for {ticker}: {e}")
+                    results[name] = None
+
+        logger.debug(f"[Swarm Data] Fetched {len(tasks)} endpoints concurrently for {ticker}")
+        return results
 
     # ── SEC Edgar bundle ───────────────────────────────────────────────────────
 

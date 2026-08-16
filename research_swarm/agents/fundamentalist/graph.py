@@ -4,6 +4,7 @@ LangGraph workflow for the Fundamentalist agent.
 Orchestrates the analysis pipeline from 10-K fetching to health scoring.
 """
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 from research_swarm.logger import logger
@@ -642,20 +643,40 @@ def extract_metrics_ttm_node(state: FundamentalistState) -> FundamentalistState:
         from research_swarm.agents.fundamentalist.filing_extractor import filing_extractor
         from research_swarm.agents.fundamentalist.ttm_aggregator import aggregate_ttm
 
+        # Each filing is extracted independently (one Haiku call, keyed by
+        # accession number), so the quarters fan out instead of queueing behind
+        # one another — on a cold run this was ~4 sequential calls of 5-7s each.
         extractions: dict = {}
         tokens = 0
+        pending = {}
         for quarter_label in state["quarters"]:
             filing = (state.get("filings_raw") or {}).get(quarter_label)
             sections = (state.get("parsed_sections_by_quarter") or {}).get(quarter_label)
             if not filing or not sections:
                 extractions[quarter_label] = None
                 continue
-            extraction, call_tokens = filing_extractor.extract(
-                state["ticker"], quarter_label, filing, sections
-            )
-            extractions[quarter_label] = extraction
-            tokens += call_tokens
+            pending[quarter_label] = (filing, sections)
 
+        if pending:
+            with ThreadPoolExecutor(max_workers=min(4, len(pending))) as pool:
+                futures = {
+                    pool.submit(
+                        filing_extractor.extract, state["ticker"], label, filing, sections
+                    ): label
+                    for label, (filing, sections) in pending.items()
+                }
+                for future in as_completed(futures):
+                    label = futures[future]
+                    try:
+                        extraction, call_tokens = future.result()
+                        extractions[label] = extraction
+                        tokens += call_tokens
+                    except Exception as e:
+                        logger.warning(f"Filing extraction failed for {label}: {e}")
+                        extractions[label] = None
+
+        # Preserve the caller's quarter ordering — aggregate_ttm relies on it.
+        extractions = {q: extractions.get(q) for q in state["quarters"]}
         state["filing_extractions"] = extractions
 
         quarterly_metrics, ttm_metrics, trends = aggregate_ttm(
