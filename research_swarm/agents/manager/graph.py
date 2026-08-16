@@ -705,9 +705,9 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
         # currently always empty, kept for when agents emit them)
         state["synthesis_narrative"] = synthesis.get("synthesis_narrative", "")
         if not state.get("key_insights"):
-            state["key_insights"] = synthesis.get("key_insights", [])
+            state["key_insights"] = (synthesis.get("key_insights") or [])[:10]
         if not state.get("risk_factors"):
-            state["risk_factors"] = synthesis.get("risk_factors", [])
+            state["risk_factors"] = (synthesis.get("risk_factors") or [])[:10]
         state["structured_risks"] = synthesis.get("structured_risks", [])
         state["upgrade_triggers"] = synthesis.get("upgrade_triggers", [])
         state["downgrade_triggers"] = synthesis.get("downgrade_triggers", [])
@@ -737,14 +737,24 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
 
         # Thesis fields
         thesis = synthesis
-        state["investment_thesis"] = thesis.get("investment_thesis", {
+        investment_thesis = thesis.get("investment_thesis") or {}
+        if investment_thesis:
+            # ManagerOutput caps these lists. A model returning one extra
+            # highlight or risk is a formatting overshoot, not a failed
+            # analysis — trim rather than fail the whole run on validation.
+            for field, cap in (("investment_highlights", 4), ("key_risks", 3)):
+                values = investment_thesis.get(field)
+                if isinstance(values, list) and len(values) > cap:
+                    logger.debug(f"Trimming {field} from {len(values)} to {cap}")
+                    investment_thesis[field] = values[:cap]
+        state["investment_thesis"] = investment_thesis or {
             "company_overview": "Error",
             "recommendation_summary": "HOLD",
             "investment_highlights": ["Error generating thesis"],
             "valuation_signal_analysis": "Error",
             "key_risks": ["Error generating thesis"],
             "entry_strategy": "Error"
-        })
+        }
         # A missing LLM recommendation must NOT default to "HOLD" — the
         # reconciler below would read that as a real analyst downgrade of the
         # scorer's rating. No opinion → defer to the scorer.

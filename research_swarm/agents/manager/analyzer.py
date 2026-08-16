@@ -5,6 +5,7 @@ Generates synthesis narratives and investment theses by combining
 findings from all three research agents.
 """
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Any, List, Optional, Tuple
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
@@ -12,7 +13,10 @@ from loguru import logger
 from research_swarm.utils import extract_token_usage
 
 from .prompts import (
-    SYNTHESIS_PROMPT,
+    SYNTHESIS_CONTEXT,
+    SHARED_WRITING_RULES,
+    SYNTHESIS_TASK_ANALYSIS,
+    SYNTHESIS_TASK_VERDICT,
     MOAT_SCORING_PROMPT,
 )
 from .signal_divergence import (
@@ -168,7 +172,7 @@ class ManagerAnalyzer:
         fundamentalist_output: Dict[str, Any],
         news_hound_output: Dict[str, Any],
         quant_output: Dict[str, Any],
-        # Phase B3: score/rating context so the single call also writes the thesis
+        # Score/rating context so the verdict half is anchored to the scorer
         moat_score: float = 5.0,
         model_rating: str = "HOLD",
         is_watchlist: bool = False,
@@ -176,9 +180,17 @@ class ManagerAnalyzer:
         dvrg_targets: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], int]:
         """
-        Synthesize findings from all three agents AND write the investment
-        thesis in one Sonnet call (Phase B3 — previously two sequential calls
-        with largely overlapping context).
+        Synthesize findings from all three agents and write the investment
+        thesis in TWO CONCURRENT Sonnet calls that share one context prefix.
+
+        Phase B3 merged what were two sequential calls into one to stop paying
+        for the context twice. That fixed cost but not latency: the merged call
+        emitted the whole report body serially (~79s for a 6k-token JSON).
+        The two halves have no data dependency on each other — both read the
+        same agent outputs and the same deterministic scores — so they now run
+        in parallel, roughly halving this stage. The context is sent twice
+        (marked cacheable to recover part of it), which costs a few cents of
+        input tokens and buys back ~35 seconds of wall clock.
 
         Requires the deterministic scores/rating to be computed first — the
         graph runs calculate_moat_score before this call.
@@ -238,7 +250,7 @@ class ManagerAnalyzer:
         company_overview = self._build_company_overview(ticker, fundamentalist_output)
         valuation_context = self._build_valuation_context(valuation_score, fundamentalist_output)
 
-        prompt = SYNTHESIS_PROMPT.format(
+        context = SYNTHESIS_CONTEXT.format(
             ticker=ticker,
             analysis_date=analysis_date,
             analysis_period=analysis_period,
@@ -287,76 +299,98 @@ class ManagerAnalyzer:
             divergence_pattern=divergence_pattern,
         )
 
+        # Shared, byte-identical prefix for both halves. Marked cacheable so
+        # retries (and the second half, when it lands after the first writes
+        # the cache) read it instead of re-billing the full context.
+        prefix = context + SHARED_WRITING_RULES
+
+        halves = (
+            ("analysis", SYNTHESIS_TASK_ANALYSIS,
+             ("synthesis_narrative", "key_insights")),
+            ("verdict", SYNTHESIS_TASK_VERDICT,
+             ("investment_thesis", "recommendation")),
+        )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {
+                label: pool.submit(self._run_synthesis_half, ticker, prefix, task, label, required)
+                for label, task, required in halves
+            }
+            results = {label: f.result() for label, f in futures.items()}
+
+        merged: Dict[str, Any] = {}
+        tokens_total = 0
+        for label, _task, _required in halves:
+            part, part_tokens = results[label]
+            merged.update(part or {})
+            tokens_total += part_tokens
+
+        if not merged.get("synthesis_narrative"):
+            merged.setdefault("synthesis_narrative", "")
+            merged.setdefault("key_insights", [])
+            merged.setdefault("risk_factors", [])
+        logger.success(f"✓ Synthesized findings for {ticker} (2 parallel halves)")
+        return merged, tokens_total
+
+    def _run_synthesis_half(
+        self,
+        ticker: str,
+        prefix: str,
+        task_tail: str,
+        label: str,
+        required_keys: Tuple[str, ...],
+    ) -> Tuple[Dict[str, Any], int]:
+        """One half of the synthesis. Retries once on malformed/incomplete JSON.
+
+        A failure is contained to its own half: the other half's output still
+        reaches the report, rather than one bad parse blanking the whole thing.
+        """
+        def _invoke(extra_instruction: str = "") -> Tuple[str, int]:
+            blocks = [
+                {"type": "text", "text": prefix, "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": task_tail},
+            ]
+            if extra_instruction:
+                blocks.append({"type": "text", "text": extra_instruction})
+            response = self.sonnet.invoke([HumanMessage(content=blocks)])
+            if (response.response_metadata or {}).get("stop_reason") == "max_tokens":
+                logger.warning(f"Synthesis[{label}] truncated at max_tokens for {ticker}")
+            return response.content.strip(), extract_token_usage(response.response_metadata)
+
+        tokens_used = 0
         try:
-            # Largest Sonnet prompt in the pipeline — mark it cacheable so the
-            # JSON-repair retry below (which embeds this prompt verbatim) and
-            # full-swarm retries get cache hits on the shared prefix.
-            response = self.sonnet.invoke(
-                [HumanMessage(content=[{
-                    "type": "text",
-                    "text": prompt,
-                    "cache_control": {"type": "ephemeral"},
-                }])],
-                config={"max_tokens": 12288},
-            )
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-            stop_reason = (response.response_metadata or {}).get("stop_reason")
-            if stop_reason == "max_tokens":
-                logger.warning(f"Synthesis response truncated at max_tokens for {ticker}")
-
-            synthesis = self._parse_json_with_repair(response_text)
-            self._require_synthesis_keys(synthesis, response_text)
-
-            logger.success(f"✓ Synthesized findings for {ticker}")
-            return synthesis, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.warning(f"Synthesis JSON parse failed (including repair attempt), retrying with LLM: {e}")
-            logger.debug(f"Bad response (first 500 chars): {response_text[:500]}")
-            try:
-                # Keep the original prompt as the FIRST block so the retry hits
-                # the cache entry the first attempt just wrote (prefix match);
-                # the JSON-only instruction goes after the breakpoint.
-                retry_response = self.sonnet.invoke(
-                    [HumanMessage(content=[
-                        {
-                            "type": "text",
-                            "text": prompt,
-                            "cache_control": {"type": "ephemeral"},
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                "CRITICAL: Return ONLY the JSON object. Start with { and end with }. "
-                                "Output ONLY a valid JSON object with NO other text. "
-                                "All string values must use \\n for line breaks — never use actual newlines inside strings."
-                            ),
-                        },
-                    ])],
-                    config={"max_tokens": 12288},
-                )
-                retry_text = retry_response.content.strip()
-                retry_tokens = extract_token_usage(retry_response.response_metadata)
-                synthesis = self._parse_json_with_repair(retry_text)
-                self._require_synthesis_keys(synthesis, retry_text)
-                logger.success(f"✓ Synthesized findings for {ticker} (retry succeeded)")
-                return synthesis, tokens_used + retry_tokens
-            except Exception as retry_e:
-                logger.error(f"Synthesis retry also failed: {retry_e}")
-                return {
-                    "synthesis_narrative": "Error: Failed to generate synthesis narrative. The analysis pipeline encountered a JSON parsing error and could not produce a complete synthesis. Please retry the analysis.",
-                    "key_insights": ["Error parsing synthesis — retry required", "Analysis pipeline failed to generate insights", "Please rerun the analysis for this ticker"],
-                    "risk_factors": ["Analysis pipeline error — results unreliable", "Synthesis generation failed", "Retry required before making investment decisions"],
-                }, 0
-
+            text, tokens_used = _invoke()
+            parsed = self._parse_json_with_repair(text)
+            self._require_synthesis_keys(parsed, text, required_keys)
+            logger.info(f"✓ Synthesis[{label}] complete for {ticker}")
+            return parsed, tokens_used
         except Exception as e:
-            logger.error(f"Error synthesizing findings: {e}")
+            logger.warning(f"Synthesis[{label}] parse failed for {ticker}, retrying: {e}")
+
+        try:
+            text, retry_tokens = _invoke(
+                "CRITICAL: Return ONLY the JSON object. Start with { and end with }. "
+                "All string values must use \\n for line breaks — never actual newlines inside strings."
+            )
+            tokens_used += retry_tokens
+            parsed = self._parse_json_with_repair(text)
+            self._require_synthesis_keys(parsed, text, required_keys)
+            logger.success(f"✓ Synthesis[{label}] retry succeeded for {ticker}")
+            return parsed, tokens_used
+        except Exception as e:
+            logger.error(f"Synthesis[{label}] failed after retry for {ticker}: {e}")
+
+        if label == "analysis":
             return {
-                "synthesis_narrative": "Error: Failed to generate synthesis narrative. The analysis pipeline encountered an unexpected error and could not produce a complete synthesis. Please retry the analysis.",
-                "key_insights": ["Error in synthesis — retry required", "Analysis pipeline failed to generate insights", "Please rerun the analysis for this ticker"],
-                "risk_factors": ["Analysis pipeline error — results unreliable", "Synthesis generation failed", "Retry required before making investment decisions"],
-            }, 0
+                "synthesis_narrative": (
+                    "The cross-signal analysis could not be generated for this run. "
+                    "The scores, valuation, and price targets shown elsewhere in this "
+                    "report are computed deterministically and remain valid."
+                ),
+                "key_insights": [],
+                "risk_factors": [],
+            }, tokens_used
+        return {}, tokens_used
 
     def synthesize_etf_findings(
         self,
@@ -477,12 +511,13 @@ Return ONLY the JSON object."""
         return text
 
     @staticmethod
-    def _require_synthesis_keys(synthesis: dict, response_text: str) -> None:
+    def _require_synthesis_keys(
+        synthesis: dict, response_text: str, required: Tuple[str, ...]
+    ) -> None:
         """Truncated-but-repairable JSON parses 'successfully' with the tail
         keys missing — which downstream turns into error placeholders and a
-        phantom HOLD. Treat a structurally incomplete synthesis as a parse
-        failure so the existing retry path fires."""
-        required = ("synthesis_narrative", "key_insights", "investment_thesis", "recommendation")
+        phantom HOLD. Treat a structurally incomplete response as a parse
+        failure so the retry path fires."""
         missing = [k for k in required if not synthesis.get(k)]
         if missing:
             raise json.JSONDecodeError(

@@ -11,6 +11,62 @@ from research_swarm.data.cache import cache
 from research_swarm.data.rate_limiter import rate_limiter
 
 
+# Corporate suffixes stripped before using a company name as a search phrase.
+_NAME_SUFFIXES = (
+    ", inc.", ", inc", " inc.", " inc", ", corp.", ", corp", " corp.", " corp",
+    " corporation", " incorporated", ", ltd.", ", ltd", " ltd.", " ltd",
+    " limited", " plc", " n.v.", " nv", " s.a.", " sa", " ag", " co.",
+    " holdings", " holding", " group", " company", " & co",
+)
+
+
+def build_news_query(ticker: str, company_name: Optional[str] = None) -> str:
+    """Build a NewsAPI `q` expression that actually matches the company.
+
+    Querying the bare ticker is only safe when the symbol is distinctive.
+    Short symbols that are also English words ("BE", "ALL", "IT", "ON", "SO",
+    "A") match essentially every article in the corpus — a BE search returned
+    68 Gizmodo/BBC/Verge articles containing the word "be" and zero about
+    Bloom Energy. The company name as a quoted phrase is the reliable anchor;
+    the bare ticker is added only when it is long enough to be unambiguous.
+    """
+    ticker = (ticker or "").upper().strip()
+
+    name = (company_name or "").strip()
+    if name:
+        if name.lower().startswith("the "):
+            name = name[4:].strip()
+        lowered = name.lower()
+        # Strip repeatedly: "Foo Holdings Corp." -> "Foo"
+        for _ in range(3):
+            for suffix in _NAME_SUFFIXES:
+                if lowered.endswith(suffix):
+                    name = name[: len(name) - len(suffix)].strip(" ,")
+                    lowered = name.lower()
+                    break
+            else:
+                break
+        name = name.strip(' ,."')
+
+    parts = []
+    if name and len(name) >= 3:
+        parts.append(f'"{name}"')
+    # A 4+ character symbol (NVDA, AAPL, GOOGL) is specific enough to search
+    # directly; shorter ones are only safe alongside an explicit finance word.
+    if ticker:
+        if len(ticker) >= 4:
+            parts.append(ticker)
+        elif parts:
+            parts.append(f'"{ticker} stock"')
+        else:
+            # No usable name — fall back to the ticker disambiguated by context
+            # rather than the bare word.
+            parts.append(f'"{ticker} stock" OR "{ticker} shares" OR "{ticker} earnings"')
+            return " OR ".join(parts)
+
+    return " OR ".join(parts) if parts else ticker
+
+
 class NewsClient:
     """Client for NewsAPI.org (Developer tier: $50/month, 100 requests/day)."""
 
@@ -30,7 +86,8 @@ class NewsClient:
         self,
         ticker: str,
         days_back: int = 30,
-        max_results: int = 100
+        max_results: int = 100,
+        company_name: Optional[str] = None,
     ) -> List[Dict]:
         """
         Fetch news articles for a company.
@@ -39,6 +96,9 @@ class NewsClient:
             ticker: Stock ticker (e.g., 'NVDA')
             days_back: Number of days to look back (default 30)
             max_results: Maximum articles to return (default 100)
+            company_name: Company name used to build a precise search phrase.
+                Without it, short word-like tickers ("BE", "ALL", "IT") match
+                arbitrary prose instead of the company.
 
         Returns:
             List of article dictionaries with keys:
@@ -51,11 +111,15 @@ class NewsClient:
                 - author: Article author (if available)
         """
         ticker = ticker.upper()
+        query = build_news_query(ticker, company_name)
         # Key includes today's date so a run never reads articles fetched on an
         # earlier day (which would silently miss the news in between), while
-        # repeat runs on the same day still share one API call.
+        # repeat runs on the same day still share one API call. The query is
+        # part of the key so a name-resolved search never reads a bare-ticker
+        # result cached earlier the same day.
         today = datetime.now().strftime("%Y-%m-%d")
-        cache_key = f"{ticker}_news_{days_back}d_{today}"
+        query_tag = "named" if company_name else "bare"
+        cache_key = f"{ticker}_news_{days_back}d_{query_tag}_{today}"
 
         cached = cache.get("news", cache_key)
         if cached:
@@ -79,9 +143,11 @@ class NewsClient:
             # Rate limit check
             rate_limiter.wait_if_needed("news")
 
+            logger.info(f"News query for {ticker}: {query}")
             params = {
                 "apiKey": self.api_key,
-                "q": ticker,  # Search query
+                "q": query,
+                "searchIn": "title,description",  # body matches pull in passing mentions
                 "from": from_date.strftime("%Y-%m-%d"),
                 "to": to_date.strftime("%Y-%m-%d"),
                 "language": "en",
