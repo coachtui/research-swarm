@@ -69,9 +69,9 @@ export default function Home() {
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <LandingHero />
 
-      {/* ── Proof-of-edge strip ──────────────────────────────────────────── */}
+      {/* ── Proof strip ──────────────────────────────────────────────────── */}
       <div
-        className="py-3"
+        className="py-4"
         style={{
           background: 'var(--surface-1)',
           borderTop: '1px solid var(--border)',
@@ -80,31 +80,22 @@ export default function Home() {
       >
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <div className="flex items-center justify-center gap-6 sm:gap-10 flex-wrap">
-            {[
-              { label: 'EV Percentile',     value: '62nd' },
-              { label: 'Risk Efficiency',   value: '76th percentile' },
-              { label: 'Stop Risk Rank',    value: '75th percentile' },
-            ].map(({ label, value }, i) => (
-              <div key={label} className="flex items-center gap-2 text-xs">
-                {i > 0 && (
-                  <span className="text-text-tertiary hidden sm:block select-none">·</span>
-                )}
-                <span
-                  className="uppercase tracking-wider"
-                  style={{ fontSize: '9px', color: 'var(--text-subtle)' }}
-                >
-                  {label}:
-                </span>
-                <span className="font-mono font-semibold text-text-primary">{value}</span>
-              </div>
-            ))}
+            <Link
+              href="/preview/nvda"
+              className="text-sm font-semibold text-primary hover:underline"
+            >
+              Read the sample NVDA report →
+            </Link>
+            <Link
+              href="/track-record"
+              className="text-sm font-semibold text-primary hover:underline"
+            >
+              See the track record →
+            </Link>
+            <span className="text-xs text-text-tertiary">
+              Every report public to its buyer. Nothing back-edited.
+            </span>
           </div>
-          <p
-            className="text-center mt-1.5 uppercase tracking-wider"
-            style={{ fontSize: '9px', color: 'var(--text-subtle)' }}
-          >
-            Illustrative — relative to calibrated universe
-          </p>
         </div>
       </div>
 
@@ -118,10 +109,36 @@ export default function Home() {
           <br />
           <span className="text-primary">compounds mistakes.</span>
         </p>
-        <p className="mt-3 text-sm text-text-secondary max-w-lg mx-auto leading-relaxed">
-          DVRG structures what brokers and screeners ignore.
-        </p>
       </div>
+
+      {/* ── Founder ──────────────────────────────────────────────────────── */}
+      <section
+        className="py-16"
+        style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}
+      >
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto">
+            <p className="text-lg md:text-xl font-medium text-text-primary leading-relaxed tracking-tight">
+              DVRG started as a research system I built for my own money. I wanted a
+              fund&apos;s discipline — probability-weighted outcomes, regime-aware sizing,
+              defined invalidation — without a fund&apos;s minimums.{' '}
+              <em className="not-italic" style={{ color: 'var(--accent)' }}>
+                My own capital runs through this process. If it breaks, it breaks on me
+                first.
+              </em>
+            </p>
+            <div className="mt-6 flex items-center gap-4">
+              <div className="w-8 h-px" style={{ background: 'var(--text-subtle)' }} />
+              <span
+                className="text-[11px] font-mono uppercase tracking-widest"
+                style={{ color: 'var(--text-subtle)' }}
+              >
+                Tui Alailima — Founder, AIGA
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ── The Problem ──────────────────────────────────────────────────── */}
       <section className="py-20" style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-1)' }}>
@@ -453,57 +470,28 @@ export default function Home() {
               </p>
             </div>
 
-            <div className="grid lg:grid-cols-2 gap-10">
-              {/* System component list */}
-              <div style={{ borderTop: '1px solid var(--border)' }}>
-                {[
-                  { icon: <BarChart3 className="w-4 h-4" />, label: 'Expected value compression' },
-                  { icon: <TrendingUp className="w-4 h-4" />, label: 'Regime-aware multipliers' },
-                  { icon: <Target className="w-4 h-4" />, label: 'Stop probability modeling' },
-                  { icon: <Shield className="w-4 h-4" />, label: 'Policy cap enforcement' },
-                  { icon: <Zap className="w-4 h-4" />, label: 'Capital deployment translation' },
-                ].map(({ icon, label }) => (
+            <div className="max-w-2xl" style={{ borderTop: '1px solid var(--border)' }}>
+              {[
+                { icon: <BarChart3 className="w-4 h-4" />, label: 'Every scenario priced, weighted, and summed' },
+                { icon: <TrendingUp className="w-4 h-4" />, label: 'Conviction scaled to the regime you are actually in' },
+                { icon: <Target className="w-4 h-4" />, label: 'Stop probability modeled before entry, not after' },
+                { icon: <Shield className="w-4 h-4" />, label: 'Policy caps enforced — no position outgrows its risk budget' },
+                { icon: <Zap className="w-4 h-4" />, label: 'Ends with a number: how big the position should be' },
+              ].map(({ icon, label }) => (
+                <div
+                  key={label}
+                  className="flex items-center gap-4 py-3.5"
+                  style={{ borderBottom: '1px solid var(--border)' }}
+                >
                   <div
-                    key={label}
-                    className="flex items-center gap-4 py-3.5"
-                    style={{ borderBottom: '1px solid var(--border)' }}
+                    className="w-7 h-7 rounded flex items-center justify-center shrink-0 text-primary"
+                    style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}
                   >
-                    <div
-                      className="w-7 h-7 rounded flex items-center justify-center shrink-0 text-primary"
-                      style={{ background: 'var(--accent-weak)', border: '1px solid var(--accent-border)' }}
-                    >
-                      {icon}
-                    </div>
-                    <span className="text-sm font-medium text-text-primary">{label}</span>
+                    {icon}
                   </div>
-                ))}
-              </div>
-
-              {/* Key differentiators panel */}
-              <div
-                className="rounded-card p-6"
-                style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
-              >
-                <h4 className="text-[10px] font-semibold uppercase tracking-widest text-text-tertiary mb-5">
-                  Output vs Alternatives
-                </h4>
-                <div className="space-y-3">
-                  {[
-                    ['Expected Value', 'not guesswork'],
-                    ['Probability', 'not narrative'],
-                    ['Conviction Sizing', 'not gut positioning'],
-                    ['Capital Translation', 'not data overload'],
-                  ].map(([title, sub]) => (
-                    <div key={title} className="flex items-center gap-3">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0" />
-                      <span className="text-sm text-text-secondary">
-                        <strong className="text-text-primary">{title}</strong>
-                        <span className="text-text-tertiary"> — {sub}</span>
-                      </span>
-                    </div>
-                  ))}
+                  <span className="text-sm font-medium text-text-primary">{label}</span>
                 </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
@@ -537,15 +525,20 @@ export default function Home() {
             <div className="mb-12">
               <SectionLabel>Pricing</SectionLabel>
               <h2 className="text-2xl md:text-4xl font-bold text-text-primary tracking-tight">
-                Select Your Depth of Capital Discipline
+                Start Free. Stay for the Process.
               </h2>
               <p className="mt-4 text-sm text-text-secondary leading-relaxed max-w-xl">
-                Each tier reflects a different depth of the capital allocation framework. Start with structured research. Expand into full probabilistic deployment controls as your process demands.
+                Two full reports free, no card required. Then pick the depth your process
+                demands.
               </p>
             </div>
             <PricingCards />
             <p className="mt-8 text-center text-sm text-text-secondary">
-              Designed for systematic capital allocation workflows.
+              Not sure?{' '}
+              <Link href="/preview/nvda" className="font-semibold text-primary hover:underline">
+                Read the sample report first
+              </Link>{' '}
+              — then decide if the process fits yours.
             </p>
           </div>
         </div>
@@ -720,24 +713,21 @@ export default function Home() {
             <p className="text-text-secondary">
               Institutional structure. Retail access.
             </p>
+            <p className="text-xs" style={{ color: 'var(--text-subtle)' }}>
+              The same process the founder runs on his own capital.
+            </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Link href="/welcome/free">
+              <Link href="/preview/nvda">
                 <Button size="lg">
-                  Start Building Your Edge <ArrowRight className="ml-2 w-4 h-4" />
+                  Read a Sample Report <ArrowRight className="ml-2 w-4 h-4" />
                 </Button>
               </Link>
-              <Link href="/preview/nvda">
+              <Link href="/welcome/free">
                 <Button size="lg" variant="outline">
-                  Explore a Sample Report
+                  Try Free — 2 Full Reports
                 </Button>
               </Link>
             </div>
-            <p
-              className="text-[10px] uppercase tracking-widest"
-              style={{ color: 'var(--text-subtle)' }}
-            >
-              Structured capital allocation framework.
-            </p>
           </div>
         </div>
       </section>

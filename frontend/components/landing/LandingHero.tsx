@@ -135,13 +135,6 @@ const TOGGLE_BUTTONS: { key: StateKey; label: string }[] = [
   { key: 'avoid', label: 'Risk-Off' },
 ]
 
-const MICRO_PROOF = [
-  { label: 'Expected Value',   value: '+7.41%', green: true  },
-  { label: 'Risk Efficiency',  value: '0.49',   green: true  },
-  { label: 'Stop Probability', value: '20%',    green: false },
-  { label: 'Final Allocation', value: '6.2%',   green: false },
-]
-
 /* ─── SVG smooth-curve helpers ────────────────────────────────────────────── */
 
 // Catmull-Rom → cubic bezier: produces a smooth C1 curve through the points
@@ -735,7 +728,7 @@ function EngineCard() {
         style={{ borderTop: '1px solid var(--border)' }}
       >
         <p className="text-[9px] uppercase tracking-wider text-text-tertiary">
-          Modeled on institutional capital discipline · Illustrative values only
+          Interactive demonstration · Illustrative values only
         </p>
       </div>
     </div>
@@ -764,16 +757,16 @@ export function LandingHero() {
 
             {/* Headline */}
             <h1 className="text-[2.25rem] md:text-[2.75rem] font-bold text-text-primary leading-[1.15] tracking-tight">
-              Capital without structure
+              The discipline of a fund.
               <br />
-              <span style={{ color: 'var(--accent)' }}>compounds mistakes.</span>
+              <span style={{ color: 'var(--accent)' }}>For your own money.</span>
             </h1>
 
             {/* Subheadline */}
-            <p className="text-base md:text-lg font-semibold text-text-primary leading-tight tracking-tight">
-              DVRG brings institutional discipline to retail capital —
-              <br className="hidden sm:block" />
-              turning scattered research into probabilistic, risk-aware allocation.
+            <p className="text-base text-text-secondary leading-relaxed max-w-md">
+              DVRG turns research into a structured capital decision — expected value,
+              scenario probabilities, regime context, and a position size. Not a hot list.
+              Not a newsletter. A process.
             </p>
 
             {/* Supporting lines */}
@@ -783,47 +776,16 @@ export function LandingHero() {
               <p className="text-sm text-text-secondary leading-snug">Deploy capital with structure.</p>
             </div>
 
-            {/* Micro authority line */}
-            <p
-              className="text-[10px] font-medium uppercase tracking-widest"
-              style={{ color: 'var(--text-subtle)' }}
-            >
-              Institutional structure. Retail access.
-            </p>
-
-            {/* Edge line */}
-            <p className="text-xs leading-snug" style={{ color: 'var(--text-subtle)' }}>
-              Capital is deployed only when probabilistic edge exceeds risk threshold.
-            </p>
-
-            {/* Micro-proof bullets */}
-            <div
-              className="rounded-card p-4 space-y-2.5"
-              style={{ background: 'var(--surface-1)', border: '1px solid var(--border)' }}
-            >
-              {MICRO_PROOF.map(({ label, value, green }) => (
-                <div key={label} className="flex items-center justify-between gap-4">
-                  <span className="text-xs text-text-secondary">• {label}</span>
-                  <span
-                    className="text-xs font-bold font-mono tabular-nums shrink-0"
-                    style={{ color: green ? '#10B981' : 'var(--text-primary)' }}
-                  >
-                    {value}
-                  </span>
-                </div>
-              ))}
-            </div>
-
             {/* CTAs */}
             <div className="flex flex-col sm:flex-row gap-3 pt-1">
-              <Link href="/welcome/free">
+              <Link href="/preview/nvda">
                 <Button size="lg" className="w-full sm:w-auto">
-                  Build Conviction. Deploy with Discipline. <ArrowRight className="ml-1.5 w-4 h-4" />
+                  Read a Sample Report <ArrowRight className="ml-1.5 w-4 h-4" />
                 </Button>
               </Link>
-              <Link href="/preview/nvda">
+              <Link href="/welcome/free">
                 <Button size="lg" variant="outline" className="w-full sm:w-auto">
-                  View Sample Report
+                  Try Free — 2 Full Reports
                 </Button>
               </Link>
             </div>
