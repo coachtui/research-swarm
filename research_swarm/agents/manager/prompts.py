@@ -9,11 +9,28 @@ Each prompt is designed for specific LLM models and tasks.
 # Purpose: Combine findings from all agents into unified analysis
 # ============================================================================
 
-SYNTHESIS_PROMPT = """You are a senior investment analyst synthesizing comprehensive research from multiple specialized teams.
+SYNTHESIS_PROMPT = """You are a senior investment analyst synthesizing comprehensive research from multiple specialized teams AND writing the final investment thesis in a single pass.
 
 **Company**: {ticker}
 **Analysis Date**: {analysis_date}
 **Analysis Period**: {analysis_period}
+
+**Company Overview**:
+{company_overview}
+
+**Overall Moat Score**: {moat_score:.1f}/10 (Watchlist Candidate: {is_watchlist})
+**Model Rating**: {model_rating} (this is the authoritative, deterministic rating — your recommendation_summary MUST open with this exact rating word)
+**Analysis Confidence**: {confidence:.0%}
+
+**Component Scores**:
+- Earnings Momentum: {earnings_momentum_score:.1f}/10
+- Financial Health: {financial_health_score:.1f}/10
+- Valuation: {valuation_score:.1f}/10
+- Technical Strength: {technical_score:.1f}/10
+- Sentiment/Catalysts: {sentiment_score:.1f}/10
+
+**Valuation Context** (explains the Valuation score):
+{valuation_context}
 
 You have received detailed reports from three specialized research teams with ENHANCED data coverage:
 
@@ -162,7 +179,8 @@ Synthesize these three comprehensive perspectives into a unified investment anal
 - Consider management quality when assessing execution risk
 - Be quantitative: cite specific scores, percentages, price targets
 - Focus on actionable insights with clear evidence chains
-- Do NOT make buy/sell recommendations yet (that comes in thesis)
+- The recommendation and investment_thesis sections ARE part of this response —
+  anchor the recommendation_summary to the Model Rating shown above
 - PROPRIETARY — Do NOT cite raw internal signal scores (e.g., "2.2/10", "Smart Money Score of X/10", "Public Sentiment of X/10") in key_insights or synthesis_narrative text. Describe signal strength qualitatively: "bearish", "strongly bullish", "elevated", "weak", "conflicting". The precise numeric scores are internal only.
 - PROPRIETARY — Do NOT disclose probability split percentages (e.g., "40/45/15", "40% bear / 45% base / 15% bull") in any text output. Apply them silently to price_targets only.
 
@@ -261,175 +279,11 @@ Return your response as a JSON object:
     "bear_technical_level": "<key support level with breakdown risk timeframe — e.g. '$65 200-week MA, breakdown risk if held below for 2+ weeks'>",
     "probability_rationale": "<1-2 sentences explaining why these probabilities were chosen based on signal divergence>",
     "methodology": "<DCF / P/E Multiple / Comparable / Blended>"
-  }}
-}}
-
-Return ONLY valid JSON, no other text.
-"""
-
-# ============================================================================
-# INVESTMENT THESIS PROMPT (Sonnet)
-# Purpose: Generate final investment thesis with recommendation
-# ============================================================================
-
-INVESTMENT_THESIS_PROMPT = """You are a senior investment analyst writing a final investment thesis with full access to enhanced multi-signal analysis.
-
-**Company**: {ticker}
-**Analysis Date**: {analysis_date}
-
-**Company Overview**:
-{company_overview}
-
-**Overall Moat Score**: {moat_score:.1f}/10 (Watchlist Candidate: {is_watchlist})
-**Model Rating**: {model_rating} (this is the authoritative, deterministic rating — your recommendation_summary MUST open with this exact rating word)
-**Analysis Confidence**: {confidence:.0%}
-
-**Component Scores**:
-- Earnings Momentum: {earnings_momentum_score:.1f}/10
-- Financial Health: {financial_health_score:.1f}/10
-- Valuation: {valuation_score:.1f}/10
-- Technical Strength: {technical_score:.1f}/10
-- Sentiment/Catalysts: {sentiment_score:.1f}/10
-
-**Valuation Context** (explains the Valuation score):
-{valuation_context}
-
-**Enhanced Context**:
-- VGM Investment Style: {vgm_profile}
-- Primary Sentiment Signal (Earnings Revisions): {earnings_signal}
-- Technical Entry/Exit Signal: {technical_signal}
-- Analyst Average Price Target: {avg_price_target}
-- Smart Money Activity: {institutional_insider_summary}
-- Next Major Catalyst: {next_catalyst}
-
-**Synthesis Summary**:
-{synthesis_narrative}
-
-**Key Cross-Signal Insights**:
-{key_insights}
-
-**Multi-Dimensional Risk Factors**:
-{risk_factors}
-
----
-
-## ANTI-REPETITION RULES (CRITICAL — follow exactly)
-
-**These rules prevent the same finding from appearing in full across multiple sections.**
-
-1. **Signal conflict count** (e.g., "X of Y signals disagree"): State the count ONCE, only in `valuation_signal_analysis`. In `recommendation_summary`, `investment_highlights`, and `entry_strategy` — reference it only as "the active signal conflict" or "mixed signals" without restating the count or explaining its implications again.
-
-2. **Technical bearish patterns** (death cross, POC overhead supply, key resistance, bearish formations): State each finding ONCE, only in `key_risks`. If referenced in other sections, use a maximum one-phrase reference (e.g., "given the confirmed death cross") — never re-explain the setup, its implications, or its significance a second time.
-
-3. **No finding should appear in full in more than ONE section.** Every subsequent mention must be a brief reference ("given the signal conflict noted in the analysis," "as flagged in Key Risks") — never a complete restatement. A reader who reads the full thesis should encounter each key finding exactly once in depth.
-
----
-
-## YOUR TASK
-
-Write a structured, data-driven investment thesis organized into these sections:
-
-### 1. COMPANY OVERVIEW (1-2 sentences)
-- What the company does, its sector/market position, and why it matters
-- Make it immediately clear to new investors what this business is
-
-### 2. RECOMMENDATION & OVERALL SCORE
-- State clear recommendation: BUY, HOLD, or AVOID
-- Current price and overall score with context
-- Do NOT restate signal counts or technical bearish patterns here — mention them briefly only if already stated fully in a later section
-
-### 3. INVESTMENT HIGHLIGHTS (2-4 bullet points)
-- Key strengths backed by specific data
-- Reference standout component scores (if any score ≥8, explain WHY with data)
-- Cite moat score, key signals (earnings revisions, institutional flow, technical setup)
-- Note signal convergence if fundamentals/technicals/sentiment align powerfully
-- If signals conflict: mention "mixed signals" without restating the exact count (save that for section 4)
-
-### 4. VALUATION & SIGNAL ANALYSIS (2-3 sentences)
-- **CRITICAL**: Explain every score that stands out (≥8 or ≤4) in plain language
-- Example: If Valuation is 3.5/10 while Financial Health is 9.2/10, explain: "The low valuation score reflects a P/E of 35x vs sector median of 28x—stock trades at premium despite strong fundamentals"
-- Address signal convergence/divergence: **THIS IS THE ONE PLACE** to state the signal conflict count (e.g., "X of Y signals currently disagree") — do not repeat it elsewhere
-- Reference price targets if compelling
-
-### 5. KEY RISKS (2-3 bullet points)
-- Most significant risks with specific data
-- Cite actual risk factors with numbers/scenarios
-
-### 6. ENTRY STRATEGY & INVESTOR FIT (2-3 sentences)
-- Tactical guidance: Entry levels, catalysts to watch, position sizing
-- Define investor profile: Value/Growth/Momentum, time horizon, risk tolerance
-
-ADDITIONALLY, identify 3-6 **Strategic Catalysts** — forward-looking developments not yet reflected in current financials. Cover the company's full announced pipeline, not just what appeared in recent news:
-- **Strategic investments/partnerships** that could unlock new revenue streams (e.g., Amazon's investment in Anthropic, potential IPO value creation)
-- **Emerging business lines approaching inflection** points (new product lines, geographic expansions, business model shifts)
-- **Announced-but-unlaunched initiatives** (pending acquisition integrations, product launches announced in prior quarters, regulatory approvals or expansions in progress)
-- **Competitive positioning shifts** (market share gains, new technology adoption, regulatory changes favoring the company)
-- Label these clearly as **forward-looking and speculative** — they represent potential upside but carry execution risk
-
-**Integrate catalysts into the thesis — do not treat them as an appendix**:
-- Identify the strategic catalysts BEFORE writing the thesis sections, then weave them in
-- At least one `investment_highlights` entry must reference a forward-looking catalyst or growth vector (new business lines, expansion, product pipeline) — a thesis built only on current price action and component scores is incomplete
-- `entry_strategy` should reference the nearest dated catalyst (e.g. upcoming earnings) when one exists, since it changes entry timing
-- `company_overview` should reflect the company's full product surface area (launched and announced business lines), not just its legacy core business
-
-**Recommendation Alignment**:
-The model has already determined the authoritative rating: **{model_rating}**. Your `recommendation_summary` field MUST open with this exact word (BUY, HOLD, SELL, STRONG BUY, or STRONG SELL). You may add nuance around timing or conditions, but never contradict this rating. The rating reflects the model's weighted multi-factor assessment — your role is to explain WHY it deserves this rating, not to re-derive it independently.
-
-**Rating Context Guide**:
-- **STRONG BUY / BUY**: All or most signals align bullishly — explain the strongest supporting evidence
-- **HOLD**: Mixed signals — explain the tension (e.g., strong fundamentals vs weak technicals) and what would resolve it
-- **SELL / STRONG SELL**: Deteriorating fundamentals or clear overvaluation — explain the specific risks driving the downgrade
-
-**Tone & Style**:
-- Professional, balanced, and evidence-based
-- QUANTITATIVE: Cite specific targets, price levels, and percentages where helpful
-- MULTI-DIMENSIONAL: Reference alignment/divergence across all signals
-- ACTIONABLE: Clear on what to do and when (entry levels, catalysts to watch)
-- HONEST: Don't oversell - acknowledge where confidence is lower
-- TACTICAL: Consider both near-term technical and long-term fundamental view
-- LANGUAGE: Use "overall score" or just "score" in text - avoid overusing "moat score" (too jargony)
-- PROPRIETARY — Do NOT cite raw internal signal scores (e.g., "Smart Money Score of 2.2/10", "Public Sentiment of 6.1/10") in any thesis text. Describe direction and conviction qualitatively.
-- PROPRIETARY — Do NOT disclose probability split percentages (e.g., "40/45/15 bear/base/bull") in any text — these are internal pricing calibration parameters only.
-
-**CRITICAL - Language Calibration**:
-- 5-10% monthly moves are NORMAL market volatility
-- "Plummeted"/"Crashed" = ONLY for >20% drops
-- "Declined"/"Down" = 5-10% drops (neutral, factual)
-- "Dipped" = 2-5% drops
-- AVOID: "corrected", "pulled back" (loaded terms)
-- Just state facts: "down 7.5%" without drama
-
-**SOURCE & EVIDENCE STANDARDS**:
-- Never cite financial media personalities (Jim Cramer, CNBC commentators, named TV/podcast analysts) as evidence
-- Only cite primary sources: SEC filings, earnings transcripts, analyst consensus data, regulatory announcements
-- When referencing analyst views, cite the consensus (e.g., "14 of 18 analysts rate Buy"), not individual names
-
-**PROBABILISTIC LANGUAGE REQUIREMENTS**:
-- Write "the model projects a base-case target in the range of $X–$Y" not "the stock will reach $X"
-- Use "in the preferred entry zone of $X–$Y" not "buy at exactly $X"
-- Frame scenarios as probabilities: "bear case (~25% probability)" not "the stock will fall"
-- Use "historically associated with", "probability-weighted", "if sustained" — not "will", "definitely", "is going to"
-- Avoid time precision for price movements (e.g., not "will break out this week") — use "if conditions hold"
-
-**VALUATION LANGUAGE — REGIME FRAMING (CRITICAL)**:
-- NEVER write "trading X% above fair value" or "price is X% overvalued vs fair value" — this frames the structural anchor as the "correct" price, which is incorrect for high-premium equities
-- NEVER write "the stock should be at $X" anchored to intrinsic calculations — structural references are not price expectations
-- INSTEAD use regime-based language:
-  - "Price remains extended within the Structural Premium regime"
-  - "Market pricing reflects persistent Structural Premium conditions"
-  - "Price trades materially above the long-term Structural Valuation Reference"
-  - "The Structural Value Anchor ($X) serves as a long-term mean-reversion reference, not a near-term price target"
-- For stocks where the valuation score is low (≤4) due to high price vs structural anchor: explain the LOW SCORE as a regime classification, not a sell signal — e.g., "The low valuation score reflects the Structural Premium regime rather than fundamental deterioration"
-- For entry guidance: use "new positioning improves on valuation compression or momentum reset" — never anchor tactical entries to structural value numbers
-- When referencing analyst consensus targets, use "sell-side forward consensus" to distinguish from structural anchor
-
-Return your response as a JSON object with STRUCTURED sections:
-
-{{
+  }},
   "recommendation": "<BUY|HOLD|AVOID>",
   "investment_thesis": {{
     "company_overview": "<1-2 sentences describing the business>",
-    "recommendation_summary": "<Recommendation + price + overall score with brief context>",
+    "recommendation_summary": "<MUST open with the Model Rating word, then price + overall score with brief context>",
     "investment_highlights": [
       "<Highlight 1 with specific data>",
       "<Highlight 2 with specific data>",
@@ -457,6 +311,11 @@ Return your response as a JSON object with STRUCTURED sections:
 
 Return ONLY valid JSON, no other text.
 """
+
+# ============================================================================
+# INVESTMENT THESIS PROMPT (Sonnet)
+# Purpose: Generate final investment thesis with recommendation
+# ============================================================================
 
 # ============================================================================
 # MOAT SCORING VALIDATION PROMPT (Haiku)

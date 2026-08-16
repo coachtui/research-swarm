@@ -274,15 +274,14 @@ def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
         # Calculate revision metrics from upgrades/downgrades
         revision_metrics = calculate_revision_metrics(upgrades_downgrades)
 
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_earnings_estimates(
-            estimates_data,
-            recommendations_data,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
+        # Phase B3: pure calculation — the old Sonnet call was handed these
+        # DataFrames as text and asked to copy numbers into JSON (and reported
+        # surprise history it was never given; surprises now come from the
+        # actual earnings_history data).
+        from research_swarm.agents.news_hound.signal_calculators import calculate_earnings_estimates
+        earnings_history = shared_data.get("earnings_data", {}).get("earnings_history")
+        result = calculate_earnings_estimates(estimates_data, earnings_history)
 
-        # CRITICAL: Override LLM-generated revision metrics with calculated metrics
         result["upward_revisions"] = revision_metrics["upward_revisions"]
         result["downward_revisions"] = revision_metrics["downward_revisions"]
         result["net_revision_direction"] = revision_metrics["net_revision_direction"]
@@ -290,7 +289,6 @@ def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
 
         # Store in state
         state["earnings_estimates"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
         logger.success(f"✓ Earnings estimates analyzed (revisions: {revision_metrics['upward_revisions']} up, {revision_metrics['downward_revisions']} down)")
 
@@ -553,31 +551,22 @@ def analyze_upcoming_catalysts_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_catalysts"
 
-    from research_swarm.agents.news_hound.models import CatalystEvent
-
     try:
         # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         earnings_dates = shared_data.get("earnings_data", {}).get("earnings_dates")
 
-        # Get detected catalyst events
-        catalyst_events = []
-        if state.get("catalyst_events"):
-            catalyst_events = [CatalystEvent(**cat) for cat in state["catalyst_events"]]
-
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_upcoming_catalysts(
+        # Phase B3: pure calculation — forward calendar from the earnings
+        # dates plus future-dated news catalysts (date filtering + counting
+        # that a Haiku call previously performed).
+        from research_swarm.agents.news_hound.signal_calculators import calculate_upcoming_catalysts
+        state["upcoming_catalysts"] = calculate_upcoming_catalysts(
             earnings_dates,
-            catalyst_events,
-            state["ticker"],
-            state.get("analysis_date", "")
+            state.get("catalyst_events") or [],
+            state.get("analysis_date", ""),
         )
 
-        # Store in state
-        state["upcoming_catalysts"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Upcoming catalysts analyzed")
+        logger.success(f"✓ Upcoming catalysts analyzed (deterministic)")
 
     except Exception as e:
         logger.error(f"Error in upcoming catalysts node: {e}")

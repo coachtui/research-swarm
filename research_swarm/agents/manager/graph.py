@@ -426,37 +426,14 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
 
         logger.info(f"Deduplicated: {len(all_insights)} insights → {len(deduplicated_insights)}, {len(all_risks)} risks → {len(deduplicated_risks)}")
 
-        # Synthesize findings
-        synthesis, tokens = manager_analyzer.synthesize_findings(
-            ticker=state["ticker"],
-            analysis_date=state["analysis_date"],
-            analysis_period=state["analysis_period"],
-            fundamentalist_output=state["fundamentalist_output"],
-            news_hound_output=state["news_hound_output"],
-            quant_output=state["quant_output"],
-        )
+        # Phase B3: no LLM call here. This node is now deterministic prep —
+        # the single merged synthesis+thesis Sonnet call runs in Node 7, after
+        # the deterministic scores and rating exist to anchor it.
+        state["key_insights"] = deduplicated_insights
+        state["risk_factors"] = deduplicated_risks
 
-        # Update state with deduplicated insights (override LLM-generated if present)
-        state["synthesis_narrative"] = synthesis.get("synthesis_narrative", "")
-        state["key_insights"] = deduplicated_insights if deduplicated_insights else synthesis.get("key_insights", [])
-        state["risk_factors"] = deduplicated_risks if deduplicated_risks else synthesis.get("risk_factors", [])
-
-        # NEW v2.0: Extract structured risks and triggers
-        state["structured_risks"] = synthesis.get("structured_risks", [])
-        state["upgrade_triggers"] = synthesis.get("upgrade_triggers", [])
-        state["downgrade_triggers"] = synthesis.get("downgrade_triggers", [])
-
-        # NEW: Extract LLM-generated price targets
-        price_targets = synthesis.get("price_targets")
-        if price_targets and price_targets.get("base_target"):
-            state["price_targets"] = price_targets
-            logger.info(f"✓ Price targets: Bull ${price_targets.get('bull_target', 0):.2f} / Base ${price_targets.get('base_target', 0):.2f} / Bear ${price_targets.get('bear_target', 0):.2f}")
-        else:
-            state["price_targets"] = None
-
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        # NEW v2.0: Calculate signal divergence analysis
+        # NEW v2.0: Calculate signal divergence analysis (deterministic; the
+        # moat-score node consumes its data-integrity factor)
         signal_breakdown = calculate_signal_divergence(
             fundamentalist_output=state["fundamentalist_output"],
             news_hound_output=state["news_hound_output"],
@@ -467,7 +444,7 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
             state["signal_breakdown"] = signal_breakdown
             logger.info(f"✓ Signal divergence: {signal_breakdown['alignment_status']}")
 
-        logger.success(f"✓ Synthesis complete ({tokens} tokens, {len(state.get('structured_risks', []))} structured risks)")
+        logger.success("✓ Synthesis prep complete (LLM synthesis deferred to thesis node)")
 
     except Exception as e:
         logger.error(f"Synthesis failed: {e}")
@@ -690,35 +667,42 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
             logger.success(f"✓ ETF thesis assembled from synthesis")
             return state
 
-        # Equity path: existing code below, unchanged
-        # Get v2.0 component scores from fundamentalist
-        fundamentalist_output = state.get("fundamentalist_output", {})
-        earnings_momentum_score = fundamentalist_output.get("earnings_momentum_score", 5.0)
-        valuation_score = fundamentalist_output.get("valuation_score", 5.0)
-
-        # Generate investment thesis
-        thesis, tokens = manager_analyzer.generate_investment_thesis(
+        # Equity path (Phase B3): ONE Sonnet call produces the synthesis AND
+        # the thesis, anchored to the deterministic scores/rating computed in
+        # Node 6. Previously two sequential calls with overlapping context.
+        synthesis, tokens = manager_analyzer.synthesize_findings(
             ticker=state["ticker"],
             analysis_date=state["analysis_date"],
+            analysis_period=state["analysis_period"],
+            fundamentalist_output=state["fundamentalist_output"],
+            news_hound_output=state["news_hound_output"],
+            quant_output=state["quant_output"],
             moat_score=state["moat_score"],
-            confidence=state["confidence"],
-            earnings_momentum_score=earnings_momentum_score,
-            financial_health_score=state["financial_health_score"],
-            valuation_score=valuation_score,
-            sentiment_score=state["sentiment_score"],
-            technical_score=state["technical_score"],
+            model_rating=state.get("rating", "HOLD"),
             is_watchlist=state["is_watchlist_candidate"],
-            synthesis_narrative=state["synthesis_narrative"] or "",
-            key_insights=state["key_insights"] or [],
-            risk_factors=state["risk_factors"] or [],
-            rating=state.get("rating", "HOLD"),
-            # Enhanced context
-            fundamentalist_output=state.get("fundamentalist_output"),
-            news_hound_output=state.get("news_hound_output"),
-            quant_output=state.get("quant_output"),
+            confidence=state["confidence"],
         )
 
-        # Update state
+        # Synthesis fields (deduplicated agent insights win when present —
+        # currently always empty, kept for when agents emit them)
+        state["synthesis_narrative"] = synthesis.get("synthesis_narrative", "")
+        if not state.get("key_insights"):
+            state["key_insights"] = synthesis.get("key_insights", [])
+        if not state.get("risk_factors"):
+            state["risk_factors"] = synthesis.get("risk_factors", [])
+        state["structured_risks"] = synthesis.get("structured_risks", [])
+        state["upgrade_triggers"] = synthesis.get("upgrade_triggers", [])
+        state["downgrade_triggers"] = synthesis.get("downgrade_triggers", [])
+
+        price_targets = synthesis.get("price_targets")
+        if price_targets and price_targets.get("base_target"):
+            state["price_targets"] = price_targets
+            logger.info(f"✓ Price targets: Bull ${price_targets.get('bull_target', 0):.2f} / Base ${price_targets.get('base_target', 0):.2f} / Bear ${price_targets.get('bear_target', 0):.2f}")
+        else:
+            state["price_targets"] = None
+
+        # Thesis fields
+        thesis = synthesis
         state["investment_thesis"] = thesis.get("investment_thesis", {
             "company_overview": "Error",
             "recommendation_summary": "HOLD",

@@ -13,7 +13,6 @@ from research_swarm.utils import extract_token_usage
 
 from .prompts import (
     SYNTHESIS_PROMPT,
-    INVESTMENT_THESIS_PROMPT,
     MOAT_SCORING_PROMPT,
 )
 from .signal_divergence import (
@@ -166,23 +165,28 @@ class ManagerAnalyzer:
         fundamentalist_output: Dict[str, Any],
         news_hound_output: Dict[str, Any],
         quant_output: Dict[str, Any],
+        # Phase B3: score/rating context so the single call also writes the thesis
+        moat_score: float = 5.0,
+        model_rating: str = "HOLD",
+        is_watchlist: bool = False,
+        confidence: float = 0.7,
     ) -> Tuple[Dict[str, Any], int]:
         """
-        Synthesize findings from all three agents into unified analysis.
+        Synthesize findings from all three agents AND write the investment
+        thesis in one Sonnet call (Phase B3 — previously two sequential calls
+        with largely overlapping context).
 
-        Args:
-            ticker: Stock ticker
-            analysis_date: Analysis date
-            analysis_period: Analysis period (e.g., "TTM Q4 2024 - Q3 2025")
-            fundamentalist_output: Output from Fundamentalist agent
-            news_hound_output: Output from News Hound agent
-            quant_output: Output from Quant agent
+        Requires the deterministic scores/rating to be computed first — the
+        graph runs calculate_moat_score before this call.
 
         Returns:
             Tuple of (synthesis_dict, tokens_used)
-            synthesis_dict contains: synthesis_narrative, key_insights, risk_factors
+            synthesis_dict contains: synthesis_narrative, key_insights,
+            risk_factors, structured_risks, upgrade/downgrade_triggers,
+            price_targets, recommendation, investment_thesis,
+            strategic_catalysts
         """
-        logger.info(f"Synthesizing findings for {ticker}")
+        logger.info(f"Synthesizing findings + thesis for {ticker} (single pass)")
 
         # Extract key scores — use `or 0` to handle keys present with None values
         financial_health_score = fundamentalist_output.get("financial_health_score") or 0
@@ -224,10 +228,25 @@ class ManagerAnalyzer:
 
         public_sentiment_score = self._compute_public_sentiment_score(news_hound_output)
 
+        # Thesis context (Phase B3)
+        earnings_momentum_score = fundamentalist_output.get("earnings_momentum_score") or 5.0
+        valuation_score = fundamentalist_output.get("valuation_score") or 5.0
+        company_overview = self._build_company_overview(ticker, fundamentalist_output)
+        valuation_context = self._build_valuation_context(valuation_score, fundamentalist_output)
+
         prompt = SYNTHESIS_PROMPT.format(
             ticker=ticker,
             analysis_date=analysis_date,
             analysis_period=analysis_period,
+            # Thesis context (Phase B3)
+            company_overview=company_overview,
+            moat_score=moat_score,
+            model_rating=model_rating,
+            is_watchlist="YES" if is_watchlist else "NO",
+            confidence=confidence,
+            earnings_momentum_score=earnings_momentum_score,
+            valuation_score=valuation_score,
+            valuation_context=valuation_context,
             # Fundamentalist
             financial_health_score=financial_health_score,
             vgm_summary=vgm_summary,
@@ -328,198 +347,6 @@ class ManagerAnalyzer:
                 "synthesis_narrative": "Error: Failed to generate synthesis narrative. The analysis pipeline encountered an unexpected error and could not produce a complete synthesis. Please retry the analysis.",
                 "key_insights": ["Error in synthesis — retry required", "Analysis pipeline failed to generate insights", "Please rerun the analysis for this ticker"],
                 "risk_factors": ["Analysis pipeline error — results unreliable", "Synthesis generation failed", "Retry required before making investment decisions"],
-            }, 0
-
-    def generate_investment_thesis(
-        self,
-        ticker: str,
-        analysis_date: str,
-        moat_score: float,
-        confidence: float,
-        earnings_momentum_score: float,
-        financial_health_score: float,
-        valuation_score: float,
-        sentiment_score: float,
-        technical_score: float,
-        is_watchlist: bool,
-        synthesis_narrative: str,
-        key_insights: List[str],
-        risk_factors: List[str],
-        rating: str = "HOLD",
-        # Enhanced context
-        fundamentalist_output: Dict[str, Any] = None,
-        news_hound_output: Dict[str, Any] = None,
-        quant_output: Dict[str, Any] = None,
-    ) -> Tuple[Dict[str, Any], int]:
-        """
-        Generate investment thesis with buy/hold/avoid recommendation.
-
-        Args:
-            ticker: Stock ticker
-            analysis_date: Analysis date
-            moat_score: Calculated moat score
-            confidence: Confidence level
-            earnings_momentum_score: Earnings momentum component score (v2.0)
-            financial_health_score: Financial health component score
-            valuation_score: Valuation component score (v2.0)
-            sentiment_score: Sentiment component score
-            technical_score: Technical component score
-            is_watchlist: Watchlist candidate flag
-            synthesis_narrative: Synthesis narrative
-            key_insights: Key insights list
-            risk_factors: Risk factors list
-            fundamentalist_output: Optional fundamentalist output for enhanced context
-            news_hound_output: Optional news hound output for enhanced context
-            quant_output: Optional quant output for enhanced context
-
-        Returns:
-            Tuple of (thesis_dict, tokens_used)
-            thesis_dict contains: recommendation, investment_thesis
-        """
-        logger.info(f"Generating investment thesis for {ticker}")
-
-        # Format lists for prompt
-        key_insights_text = "\n".join([f"• {insight}" for insight in key_insights])
-        risk_factors_text = "\n".join([f"• {risk}" for risk in risk_factors])
-
-        # Extract enhanced context if available
-        vgm_profile = "N/A"
-        earnings_signal = "N/A"
-        technical_signal = "N/A"
-        avg_price_target = "N/A"
-        institutional_insider_summary = "N/A"
-        next_catalyst = "N/A"
-
-        if fundamentalist_output:
-            vgm = fundamentalist_output.get("vgm_scores", {})
-            if vgm:
-                v_grade = vgm.get("value_grade", "N/A")
-                g_grade = vgm.get("growth_grade", "N/A")
-                m_grade = vgm.get("momentum_grade", "N/A")
-                vgm_profile = f"V:{v_grade}/G:{g_grade}/M:{m_grade}"
-
-            pt = fundamentalist_output.get("price_targets") or {}
-            base_target = pt.get("base_target")
-            if base_target:
-                current = (fundamentalist_output.get("valuation_metrics") or {}).get("current_price")
-                if current:
-                    upside = (base_target - current) / current * 100
-                    avg_price_target = f"${base_target:.2f} ({upside:+.1f}%)"
-                else:
-                    avg_price_target = f"${base_target:.2f}"
-
-        if news_hound_output:
-            # Schema key is "earnings_estimates" (flat), not "earnings_estimate_revisions"
-            est = news_hound_output.get("earnings_estimates") or news_hound_output.get("earnings_estimate_revisions") or {}
-            if est:
-                direction = est.get("net_revision_direction") or est.get("momentum") or "neutral"
-                earnings_signal = str(direction).upper()
-
-            consensus = news_hound_output.get("analyst_consensus", {})
-            if consensus and (not avg_price_target or avg_price_target == "N/A"):
-                avg = consensus.get("avg_price_target") or 0
-                upside = consensus.get("target_upside_pct")
-                if avg > 0:
-                    upside_str = f" ({upside:+.1f}%)" if upside is not None else ""
-                    avg_price_target = f"${avg:.2f}{upside_str}"
-
-            # institutional_activity is flat; insider data lives under "insider_activity"
-            inst = news_hound_output.get("institutional_activity", {})
-            insider = news_hound_output.get("insider_activity") or news_hound_output.get("insider_trading") or {}
-            inst_trend = inst.get("trend") or "neutral"
-            insider_signal = insider.get("insider_sentiment") or "neutral"
-            institutional_insider_summary = f"Institutional: {inst_trend}, Insider: {insider_signal}"
-
-            upcoming = news_hound_output.get("upcoming_catalysts", {})
-            if upcoming:
-                # Schema key is "catalysts"; "events" is the legacy error-fallback key
-                events = upcoming.get("catalysts") or upcoming.get("events") or []
-                if events:
-                    next_event = events[0]
-                    date = next_event.get("event_date") or next_event.get("date", "TBD")
-                    event_type = next_event.get("event_type") or next_event.get("type", "unknown")
-                    next_catalyst = f"{event_type} on {date}"
-                elif upcoming.get("next_earnings_date"):
-                    next_catalyst = f"Earnings on {upcoming['next_earnings_date']}"
-
-        if quant_output:
-            indicators = quant_output.get("technical_indicators", {})
-            if indicators:
-                signals = indicators.get("entry_exit_signals", {})
-                if signals:
-                    overall = signals.get("overall_signal", "neutral")
-                    conf = signals.get("confidence", 0.5)
-                    technical_signal = f"{overall.upper()} ({conf:.0%})"
-
-        # Build company overview from fundamentalist data
-        company_overview = self._build_company_overview(ticker, fundamentalist_output)
-
-        # Build valuation context explaining the valuation score
-        valuation_context = self._build_valuation_context(valuation_score, fundamentalist_output)
-
-        prompt = INVESTMENT_THESIS_PROMPT.format(
-            ticker=ticker,
-            analysis_date=analysis_date,
-            moat_score=moat_score,
-            model_rating=rating,
-            confidence=confidence,
-            earnings_momentum_score=earnings_momentum_score,
-            financial_health_score=financial_health_score,
-            valuation_score=valuation_score,
-            sentiment_score=sentiment_score,
-            technical_score=technical_score,
-            is_watchlist="YES" if is_watchlist else "NO",
-            synthesis_narrative=synthesis_narrative,
-            key_insights=key_insights_text,
-            risk_factors=risk_factors_text,
-            # Enhanced context
-            company_overview=company_overview,
-            valuation_context=valuation_context,
-            vgm_profile=vgm_profile,
-            earnings_signal=earnings_signal,
-            technical_signal=technical_signal,
-            avg_price_target=avg_price_target,
-            institutional_insider_summary=institutional_insider_summary,
-            next_catalyst=next_catalyst,
-        )
-
-        try:
-            response = self.sonnet.invoke(prompt, config={"max_tokens": 4096})
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            thesis = self._parse_json_with_repair(response_text)
-
-            logger.success(f"✓ Generated investment thesis for {ticker}")
-            return thesis, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse thesis JSON: {e}")
-            logger.debug(f"Response: {response_text[:500]}")
-            return {
-                "recommendation": "HOLD",
-                "investment_thesis": {
-                    "company_overview": "Error: Failed to parse investment thesis JSON",
-                    "recommendation_summary": "HOLD - Error in analysis",
-                    "investment_highlights": ["Error parsing thesis"],
-                    "valuation_signal_analysis": "Error parsing thesis",
-                    "key_risks": ["Error parsing thesis"],
-                    "entry_strategy": "Error parsing thesis"
-                },
-            }, 0
-
-        except Exception as e:
-            logger.error(f"Error generating investment thesis: {e}")
-            return {
-                "recommendation": "HOLD",
-                "investment_thesis": {
-                    "company_overview": "Error: Failed to generate investment thesis",
-                    "recommendation_summary": "HOLD - Error in analysis",
-                    "investment_highlights": ["Error generating thesis"],
-                    "valuation_signal_analysis": "Error generating thesis",
-                    "key_risks": ["Error generating thesis"],
-                    "entry_strategy": "Error generating thesis"
-                },
             }, 0
 
     def synthesize_etf_findings(
