@@ -7,6 +7,7 @@ findings from all three research agents.
 import json
 from typing import Dict, Any, List, Tuple
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage
 from loguru import logger
 from research_swarm.utils import extract_token_usage
 
@@ -264,7 +265,17 @@ class ManagerAnalyzer:
         )
 
         try:
-            response = self.sonnet.invoke(prompt, config={"max_tokens": 8192})
+            # Largest Sonnet prompt in the pipeline — mark it cacheable so the
+            # JSON-repair retry below (which embeds this prompt verbatim) and
+            # full-swarm retries get cache hits on the shared prefix.
+            response = self.sonnet.invoke(
+                [HumanMessage(content=[{
+                    "type": "text",
+                    "text": prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }])],
+                config={"max_tokens": 8192},
+            )
             response_text = response.content.strip()
             tokens_used = extract_token_usage(response.response_metadata)
 
@@ -277,14 +288,27 @@ class ManagerAnalyzer:
             logger.warning(f"Synthesis JSON parse failed (including repair attempt), retrying with LLM: {e}")
             logger.debug(f"Bad response (first 500 chars): {response_text[:500]}")
             try:
-                retry_prompt = (
-                    "You are a JSON generator. Output ONLY a valid JSON object with NO other text.\n\n"
-                    "The following synthesis data needs to be formatted as JSON:\n\n"
-                    + prompt
-                    + "\n\nCRITICAL: Return ONLY the JSON object. Start with { and end with }. "
-                    "All string values must use \\n for line breaks — never use actual newlines inside strings."
+                # Keep the original prompt as the FIRST block so the retry hits
+                # the cache entry the first attempt just wrote (prefix match);
+                # the JSON-only instruction goes after the breakpoint.
+                retry_response = self.sonnet.invoke(
+                    [HumanMessage(content=[
+                        {
+                            "type": "text",
+                            "text": prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "CRITICAL: Return ONLY the JSON object. Start with { and end with }. "
+                                "Output ONLY a valid JSON object with NO other text. "
+                                "All string values must use \\n for line breaks — never use actual newlines inside strings."
+                            ),
+                        },
+                    ])],
+                    config={"max_tokens": 8192},
                 )
-                retry_response = self.sonnet.invoke(retry_prompt, config={"max_tokens": 8192})
                 retry_text = retry_response.content.strip()
                 retry_tokens = extract_token_usage(retry_response.response_metadata)
                 synthesis = self._parse_json_with_repair(retry_text)

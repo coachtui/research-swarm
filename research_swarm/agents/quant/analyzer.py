@@ -11,7 +11,6 @@ from research_swarm.utils import extract_token_usage
 
 from .models import TechnicalIndicators, SupplyChainGraph, NodeType
 from .prompts import (
-    HIDDEN_DEPENDENCY_PROMPT,
     TECHNICAL_ANALYSIS_PROMPT,
     SUPPLY_CHAIN_ANALYSIS_PROMPT,
 )
@@ -29,14 +28,6 @@ class QuantAnalyzer:
 
     def __init__(self):
         """Initialize analyzer with LLM models."""
-        # Haiku for cost-effective hidden dependency analysis
-        self.haiku = ChatAnthropic(
-            model="claude-haiku-4-5-20251001",
-            api_key=ANTHROPIC_API_KEY,
-            temperature=0.0,
-            max_tokens=4096,
-        )
-
         # Sonnet for deeper qualitative analysis
         # max_tokens must be set explicitly — LangChain defaults to 1024 and
         # silently truncates the narrative output.
@@ -48,57 +39,6 @@ class QuantAnalyzer:
         )
 
         logger.info("QuantAnalyzer initialized")
-
-    def analyze_hidden_dependencies(
-        self,
-        ticker: str,
-        analysis_date: str,
-        supply_chain_graph: SupplyChainGraph
-    ) -> tuple[Dict[str, Any], int]:
-        """
-        Analyze hidden dependencies using LLM.
-
-        Args:
-            ticker: Stock ticker
-            analysis_date: Analysis date
-            supply_chain_graph: Supply chain graph
-
-        Returns:
-            Tuple of (hidden_dependencies_dict, tokens_used)
-        """
-        logger.info(f"Analyzing hidden dependencies for {ticker}")
-
-        # Format supply chain graph for prompt
-        graph_summary = self._format_supply_chain_summary(supply_chain_graph)
-
-        prompt = HIDDEN_DEPENDENCY_PROMPT.format(
-            ticker=ticker,
-            analysis_date=analysis_date,
-            supply_chain_summary=graph_summary,
-        )
-
-        try:
-            response = self.haiku.invoke(prompt)
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            # Extract JSON from response
-            json_text = self._extract_json(response_text)
-            hidden_deps = json.loads(json_text)
-
-            logger.success(f"✓ Analyzed hidden dependencies for {ticker}")
-            return hidden_deps, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse hidden dependencies JSON: {e}")
-            logger.debug(f"Response: {response_text[:500]}")
-            # Return default data but track tokens used (API was called)
-            return {"hidden_dependencies": [], "overall_risk_level": "medium", "summary": "Error parsing analysis"}, tokens_used
-
-        except Exception as e:
-            logger.error(f"Error analyzing hidden dependencies: {e}")
-            # Return 0 tokens for general errors (API call may not have completed)
-            return {"hidden_dependencies": [], "overall_risk_level": "medium", "summary": "Error in analysis"}, 0
 
     def generate_technical_analysis(
         self,

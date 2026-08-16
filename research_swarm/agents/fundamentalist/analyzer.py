@@ -6,6 +6,7 @@ Extracts financial metrics and performs qualitative analysis.
 import json
 from typing import Dict, Any, Tuple, List, Optional
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage
 from research_swarm.logger import logger
 from research_swarm.config import settings
 from research_swarm.utils import extract_token_usage
@@ -273,7 +274,14 @@ class FinancialAnalyzer:
         )
 
         try:
-            response = self.haiku.invoke(prompt)
+            # This is the largest prompt in the pipeline (filing sections for
+            # 4 quarters). Mark it cacheable so retries and duplicate runs of
+            # the same ticker within the cache TTL are served from cache.
+            response = self.haiku.invoke([HumanMessage(content=[{
+                "type": "text",
+                "text": prompt,
+                "cache_control": {"type": "ephemeral"},
+            }])])
             response_text = response.content.strip()
             tokens_used = extract_token_usage(response.response_metadata)
 
@@ -361,7 +369,12 @@ class FinancialAnalyzer:
         )
 
         try:
-            response = self.sonnet.invoke(prompt)
+            # Large filing-text prompt — cacheable for retries within the TTL.
+            response = self.sonnet.invoke([HumanMessage(content=[{
+                "type": "text",
+                "text": prompt,
+                "cache_control": {"type": "ephemeral"},
+            }])])
             analysis = response.content.strip()
             tokens_used = extract_token_usage(response.response_metadata)
             logger.success(f"✓ Generated TTM qualitative analysis ({len(analysis)} chars, {tokens_used} tokens)")

@@ -924,33 +924,39 @@ def analyze_swarm(
         "manager": 0.0,
     }
 
-    # Fundamentalist cost (using haiku for scorer + sonnet for analyzer, approximate 50/50 split)
+    # Agents only track a single summed token count, so the input/output split
+    # is an estimate. This workload is dominated by large prompts (filing text)
+    # with small structured outputs, so ~85/15 in/out is realistic; the previous
+    # 30/70 assumption was inverted and inflated the estimate.
+    INPUT_SHARE, OUTPUT_SHARE = 0.85, 0.15
+
+    # Fundamentalist cost (mix of haiku extraction + sonnet analysis, approximate 50/50 split)
     if final_state.get("fundamentalist_output"):
         fund_tokens = final_state["fundamentalist_output"].get("tokens_used", 0)
-        tokens_in = int(fund_tokens * 0.3)
-        tokens_out = int(fund_tokens * 0.7)
+        tokens_in = int(fund_tokens * INPUT_SHARE)
+        tokens_out = int(fund_tokens * OUTPUT_SHARE)
         # Mix of haiku (scorer) and sonnet (analyzer), use average
         cost_by_agent["fundamentalist"] = (
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "haiku") +
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "sonnet")
         )
 
-    # News Hound cost (using haiku for scorer + sonnet for analyzer, approximate 50/50 split)
+    # News Hound cost (mix of haiku extraction + sonnet analysis, approximate 50/50 split)
     if final_state.get("news_hound_output"):
         news_tokens = final_state["news_hound_output"].get("tokens_used", 0)
-        tokens_in = int(news_tokens * 0.3)
-        tokens_out = int(news_tokens * 0.7)
+        tokens_in = int(news_tokens * INPUT_SHARE)
+        tokens_out = int(news_tokens * OUTPUT_SHARE)
         # Mix of haiku (scorer) and sonnet (analyzer), use average
         cost_by_agent["news_hound"] = (
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "haiku") +
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "sonnet")
         )
 
-    # Quant cost (using haiku for scorer + sonnet for analyzer, approximate 50/50 split)
+    # Quant cost (mix of haiku extraction + sonnet analysis, approximate 50/50 split)
     if final_state.get("quant_output"):
         quant_tokens = final_state["quant_output"].get("tokens_used", 0)
-        tokens_in = int(quant_tokens * 0.3)
-        tokens_out = int(quant_tokens * 0.7)
+        tokens_in = int(quant_tokens * INPUT_SHARE)
+        tokens_out = int(quant_tokens * OUTPUT_SHARE)
         # Mix of haiku (scorer) and sonnet (analyzer), use average
         cost_by_agent["quant"] = (
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "haiku") +
@@ -965,8 +971,8 @@ def analyze_swarm(
     )
     manager_only_tokens = manager_tokens - agent_tokens
     if manager_only_tokens > 0:
-        tokens_in = int(manager_only_tokens * 0.3)
-        tokens_out = int(manager_only_tokens * 0.7)
+        tokens_in = int(manager_only_tokens * INPUT_SHARE)
+        tokens_out = int(manager_only_tokens * OUTPUT_SHARE)
         cost_by_agent["manager"] = cost_tracker.calculate_cost(tokens_in, tokens_out, "sonnet")
 
     # ETF path: assemble ETFManagerOutput from synthesis

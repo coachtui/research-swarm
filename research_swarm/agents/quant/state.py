@@ -47,7 +47,6 @@ class QuantState(TypedDict, total=False):
     # Analysis results
     technical_analysis: Optional[str]  # Qualitative technical analysis narrative
     supply_chain_analysis: Optional[str]  # Qualitative supply chain analysis narrative
-    hidden_dependencies_analysis: Optional[str]  # LLM analysis of hidden dependencies
 
     # Scoring
     technical_score: Optional[float]  # Overall technical score (0-10)

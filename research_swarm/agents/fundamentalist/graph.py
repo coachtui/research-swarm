@@ -1238,18 +1238,6 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                     if roic_wacc is not None:
                         state["roic_wacc_spread_score"] = roic_wacc
 
-                # Also extract structured filing data
-                filing_type = "10-K"
-                if state.get("is_foreign"):
-                    filing_type = "20-F"
-                structured_data, struct_tokens = enhanced_parser.extract_structured_data(
-                    state["ticker"],
-                    combined_text,
-                    filing_type=filing_type
-                )
-                state["structured_filing_data"] = structured_data.dict()
-                state["tokens_used"] = state.get("tokens_used", 0) + struct_tokens
-
         except Exception as e:
             logger.warning(f"DCF/structured extraction failed (non-fatal): {e}")
             # DCF is optional — don't fail the whole analysis
@@ -1633,7 +1621,6 @@ def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: 
         "analysis_period": "",
         "data_quality": {},
         "is_foreign": None,
-        "structured_filing_data": None,
         "price_targets": None,
         "shared_swarm_data": shared_swarm_data,  # NEW: Pre-fetched data from Manager
     }
