@@ -19,6 +19,7 @@ import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
 import { ThesisDriversPanel } from '@/components/results/ThesisDriversPanel'
 import { InvestmentThesisPanel } from '@/components/results/InvestmentThesisPanel'
 import { StrategicCatalystsPanel } from '@/components/results/StrategicCatalystsPanel'
+import { MacroContextPanel } from '@/components/results/MacroContextPanel'
 import { DislocationStatePanel } from '@/components/results/DislocationStatePanel'
 import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
 import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
@@ -419,6 +420,24 @@ export function ResultsContent({
                 catalysts={full_output?.strategic_catalysts}
                 upcoming={full_output?.news_hound_output?.upcoming_catalysts}
               />
+            </CollapsibleSection>
+          )}
+
+          {/* ══════════════════════════════════════════════════════════════════
+              SECTION IV.c — MACRO & GEOPOLITICAL CONTEXT  (collapsed by default)
+              Market backdrop · Themes with a concrete channel to this company
+              ══════════════════════════════════════════════════════════════════ */}
+          {analysisReport?.macro && (
+            <CollapsibleSection
+              title="Macro & Geopolitical Context"
+              sublabel="Market backdrop · How live macro themes reach this company"
+              badge={
+                (analysisReport.macro.themes?.length ?? 0) > 0
+                  ? `${analysisReport.macro.themes!.length} exposed`
+                  : 'no exposure'
+              }
+            >
+              <MacroContextPanel macro={analysisReport.macro} ticker={result.ticker} />
             </CollapsibleSection>
           )}
 

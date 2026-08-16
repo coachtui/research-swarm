@@ -736,6 +736,34 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
             state["key_insights"] = (synthesis.get("key_insights") or [])[:10]
         if not state.get("risk_factors"):
             state["risk_factors"] = (synthesis.get("risk_factors") or [])[:10]
+        # Fold the per-company macro assessment back onto the shared themes.
+        # The brief describes the world identically for every ticker; this is
+        # where it becomes an assessment OF THIS COMPANY. Matched by theme name
+        # so a hallucinated or renamed theme is simply dropped.
+        assessments = synthesis.get("macro_assessment") or []
+        exposure = state.get("macro_exposure") or {}
+        if assessments and exposure.get("themes"):
+            by_name = {
+                str(a.get("theme", "")).strip().lower(): a
+                for a in assessments
+                if isinstance(a, dict)
+            }
+            matched = 0
+            for theme in exposure["themes"]:
+                a = by_name.get(str(theme.get("name", "")).strip().lower())
+                if not a or not a.get("company_impact"):
+                    continue
+                theme["company_impact"] = str(a["company_impact"]).strip()
+                if a.get("materiality") in ("high", "moderate", "low"):
+                    theme["materiality"] = a["materiality"]
+                if a.get("already_visible"):
+                    theme["already_visible"] = str(a["already_visible"]).strip()
+                matched += 1
+            logger.info(
+                f"✓ Macro assessment: {matched}/{len(exposure['themes'])} themes given a "
+                f"company-specific impact read"
+            )
+
         state["structured_risks"] = synthesis.get("structured_risks", [])
         state["upgrade_triggers"] = synthesis.get("upgrade_triggers", [])
         state["downgrade_triggers"] = synthesis.get("downgrade_triggers", [])
