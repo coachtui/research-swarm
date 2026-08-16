@@ -12,6 +12,7 @@ import { usePortfolioPosition } from '@/lib/hooks/usePortfolio'
 import { GrowthQualityClassification } from '@/components/results/GrowthQualityClassification'
 import { PMSnapshotCard } from '@/components/results/PMSnapshotCard'
 import { VerdictHeader } from '@/components/results/VerdictHeader'
+import { useAnalysisReport } from '@/lib/hooks/useAnalysisReport'
 import { DivergenceIntelligencePanel } from '@/components/results/DivergenceIntelligencePanel'
 import { DeploymentDriversPanel } from '@/components/results/DeploymentDriversPanel'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
@@ -108,6 +109,14 @@ export function ResultsContent({
   // Must be called unconditionally before any early returns (Rules of Hooks)
   const _tickerForHook = run?.results?.[0]?.ticker ?? ''
   const { position: portfolioPosition } = usePortfolioPosition(_tickerForHook)
+
+  // Phase D: the persisted AnalysisReport (computed once at write time).
+  // Null for pre-Phase-C runs or snapshot-tier users — components fall back
+  // to full_output-derived values.
+  const { data: analysisReport } = useAnalysisReport(
+    previewData ? null : (runId ?? null),
+    run?.status === 'completed',
+  )
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -270,11 +279,11 @@ export function ResultsContent({
               Reconciled rating · one-line summary · key insights · synthesis.
               ══════════════════════════════════════════════════════════════════ */}
           <VerdictHeader
-            rating={full_output?.rating || decision_intelligence?.rating}
-            moatScore={moat_score}
-            summary={full_output?.investment_thesis?.recommendation_summary}
-            keyInsights={full_output?.key_insights}
-            synthesisNarrative={full_output?.synthesis_narrative}
+            rating={analysisReport?.decision.rating || full_output?.rating || decision_intelligence?.rating}
+            moatScore={analysisReport?.scores.quality_score ?? moat_score}
+            summary={analysisReport?.thesis.headline || full_output?.investment_thesis?.recommendation_summary}
+            keyInsights={analysisReport?.thesis.key_insights ?? full_output?.key_insights}
+            synthesisNarrative={analysisReport?.thesis.narrative || full_output?.synthesis_narrative}
           />
 
             {/* ══════════════════════════════════════════════════════════════════
@@ -290,6 +299,7 @@ export function ResultsContent({
             fairValueCalibration={full_output?.fair_value_calibration ?? null}
             initiationStatus={initiationStatus}
             signalBreakdown={signal_breakdown}
+            probabilityWeightedEv={analysisReport?.targets?.probability_weighted_ev}
           />
 
           {/* ══════════════════════════════════════════════════════════════════
@@ -340,6 +350,7 @@ export function ResultsContent({
                     currentPrice={currentPrice}
                     ticker={result.ticker}
                     signalBreakdown={signal_breakdown}
+                    probabilityWeightedEv={analysisReport?.targets?.probability_weighted_ev}
                   />
                 )}
 
