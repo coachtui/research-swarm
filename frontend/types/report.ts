@@ -44,6 +44,46 @@ export interface Divergence {
   summary?: string | null
 }
 
+/** Market state plus the themes that apply to this company. */
+export interface MacroContext {
+  /** risk-on | risk-off | mixed */
+  regime?: string | null
+  regime_rationale?: string | null
+  backdrop?: string | null
+  themes?: MacroTheme[]
+  /** How many themes were screened before exposure filtering */
+  themes_considered?: number
+  /** S&P 500 1-month return % */
+  market_return_1m?: number | null
+  /** S&P 500 3-month return % */
+  market_return_3m?: number | null
+  vix_level?: number | null
+  /** 10Y minus 3M, in pp */
+  yield_curve_slope?: number | null
+  sector_leaders?: string[]
+  sector_laggards?: string[]
+  as_of?: string | null
+}
+
+/** A live macro/geopolitical theme with a concrete channel to this company. */
+export interface MacroTheme {
+  name: string
+  summary?: string | null
+  /** escalating | stable | de-escalating */
+  status: string
+  /** headwind | tailwind | mixed */
+  direction: string
+  /** Mechanism by which it reaches company results */
+  transmission: string
+  /** The concrete link to this company */
+  why_relevant: string
+  /** high | moderate */
+  relevance: string
+  /** high | medium | low */
+  confidence: string
+  evidence?: string | null
+}
+
 /** What changed since this user's last analysis of the same ticker. */
 export interface PreviousAnalysisDelta {
   prior_analysis_id: string
@@ -189,6 +229,7 @@ export interface AnalysisReport {
   risks?: Risk[]
   catalysts?: Catalyst[]
   decision: Decision
+  macro?: MacroContext | null
   meta: RunMeta
   previous?: PreviousAnalysisDelta | null
 }

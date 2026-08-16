@@ -230,6 +230,43 @@ class RunMeta(BaseModel):
 # ── The report ──────────────────────────────────────────────────────────────
 
 
+class MacroTheme(BaseModel):
+    """A live macro/geopolitical theme with a concrete channel to this company.
+
+    Sourced from the shared, company-neutral macro brief and filtered by the
+    deterministic exposure join, so the reader can see both what is happening
+    in the world and why it reaches this particular name."""
+
+    name: str
+    summary: Optional[str] = None
+    status: str = Field(..., description="escalating | stable | de-escalating")
+    direction: str = Field(..., description="headwind | tailwind | mixed")
+    transmission: str = Field(..., description="Mechanism by which it reaches company results")
+    why_relevant: str = Field(..., description="The concrete link to this company")
+    relevance: str = Field(..., description="high | moderate")
+    confidence: str = Field(..., description="high | medium | low")
+    evidence: Optional[str] = None
+
+
+class MacroContext(BaseModel):
+    """Market state plus the themes that apply to this company."""
+
+    regime: Optional[str] = Field(None, description="risk-on | risk-off | mixed")
+    regime_rationale: Optional[str] = None
+    backdrop: Optional[str] = None
+    themes: List[MacroTheme] = Field(default_factory=list)
+    themes_considered: int = Field(
+        0, description="How many themes were screened before exposure filtering"
+    )
+    market_return_1m: Optional[float] = Field(None, description="S&P 500 1-month return %")
+    market_return_3m: Optional[float] = Field(None, description="S&P 500 3-month return %")
+    vix_level: Optional[float] = None
+    yield_curve_slope: Optional[float] = Field(None, description="10Y minus 3M, in pp")
+    sector_leaders: List[str] = Field(default_factory=list)
+    sector_laggards: List[str] = Field(default_factory=list)
+    as_of: Optional[str] = None
+
+
 class AnalysisReport(BaseModel):
     """The complete result of one ticker analysis. Persisted verbatim;
     served verbatim; rendered without re-derivation."""
@@ -248,6 +285,7 @@ class AnalysisReport(BaseModel):
     risks: List[Risk] = Field(default_factory=list)
     catalysts: List[Catalyst] = Field(default_factory=list)
     decision: Decision
+    macro: Optional[MacroContext] = None
     meta: RunMeta
 
     previous: Optional["PreviousAnalysisDelta"] = None

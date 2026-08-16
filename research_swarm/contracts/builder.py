@@ -22,6 +22,8 @@ from research_swarm.contracts.report import (
     Catalyst,
     Decision,
     Direction,
+    MacroContext,
+    MacroTheme,
     PriceTargets,
     QAFlag,
     Rating,
@@ -221,6 +223,54 @@ def _build_targets(full_output: Dict[str, Any], di: Dict[str, Any]) -> Optional[
     )
 
 
+def _build_macro(full_output: Dict[str, Any]) -> Optional[MacroContext]:
+    """Map the resolved macro exposure onto the report contract.
+
+    Reads what the manager already resolved at run time — nothing is
+    recomputed here, so the report shows exactly the macro picture the
+    synthesis was written against.
+    """
+    exposure = full_output.get("macro_exposure") or {}
+    if not exposure:
+        return None
+
+    market = exposure.get("market") or {}
+    spy = (market.get("indices") or {}).get("SPY") or {}
+    vix = (market.get("risk") or {}).get("^VIX") or {}
+
+    themes = []
+    for t in exposure.get("themes") or []:
+        try:
+            themes.append(MacroTheme(
+                name=str(t["name"]),
+                summary=t.get("summary"),
+                status=str(t.get("status") or "stable"),
+                direction=str(t.get("direction") or "mixed"),
+                transmission=str(t.get("transmission") or ""),
+                why_relevant=str(t.get("why_relevant") or ""),
+                relevance=str(t.get("relevance") or "moderate"),
+                confidence=str(t.get("confidence") or "low"),
+                evidence=t.get("evidence"),
+            ))
+        except Exception:
+            continue
+
+    return MacroContext(
+        regime=market.get("regime"),
+        regime_rationale=market.get("regime_rationale"),
+        backdrop=exposure.get("backdrop"),
+        themes=themes,
+        themes_considered=int(exposure.get("themes_considered") or 0),
+        market_return_1m=spy.get("return_1m"),
+        market_return_3m=spy.get("return_3m"),
+        vix_level=vix.get("last"),
+        yield_curve_slope=market.get("yield_curve_slope"),
+        sector_leaders=list(market.get("sector_leaders") or []),
+        sector_laggards=list(market.get("sector_laggards") or []),
+        as_of=market.get("as_of"),
+    )
+
+
 def _trigger_text(trigger: Any) -> str:
     if isinstance(trigger, dict):
         metric = trigger.get("metric", "")
@@ -354,6 +404,7 @@ def build_analysis_report(
 
         targets = _build_targets(full_output, di)
         decision = _build_decision(full_output, di)
+        macro = _build_macro(full_output)
 
         # Honesty check: a bullish rating whose base target sits meaningfully
         # below the current price (or the inverse for bearish ratings) is
@@ -393,6 +444,7 @@ def build_analysis_report(
             risks=risks,
             catalysts=catalysts,
             decision=decision,
+            macro=macro,
             meta=RunMeta(
                 analysis_id=analysis_id,
                 created_at=created_at or datetime.now(),

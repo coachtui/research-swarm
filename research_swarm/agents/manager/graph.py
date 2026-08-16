@@ -68,6 +68,17 @@ def fetch_swarm_data_node(state: ManagerState) -> ManagerState:
                 f"Foreign: {snapshot.is_foreign_filer})"
             )
 
+        # Macro context describes the world, not this company, so it is scanned
+        # once per TTL window and shared by every analysis. Never fatal — a
+        # report without macro is worse, not broken.
+        try:
+            from research_swarm.data.macro_brief import get_macro_context
+
+            state["macro_context"] = get_macro_context()
+        except Exception as macro_err:
+            logger.warning(f"Macro context unavailable (non-fatal): {macro_err}")
+            state["macro_context"] = None
+
     except Exception as e:
         logger.error(f"Failed to fetch swarm data for {state['ticker']}: {e}")
         state["status"] = "error"
@@ -613,6 +624,22 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
         state["rating_score"] = rating_score
         state["risk_level"] = risk_level
 
+        # Resolve which shared macro themes actually have a channel to this
+        # company. Deterministic join on sector / region / industry sensitivity.
+        try:
+            from research_swarm.data.macro_exposure import resolve_exposure
+
+            company_info = (state.get("shared_swarm_data") or {}).get("company_info") or {}
+            state["macro_exposure"] = resolve_exposure(
+                state.get("macro_context") or {},
+                sector=company_info.get("sector"),
+                industry=company_info.get("industry"),
+                country=company_info.get("country"),
+            )
+        except Exception as exposure_err:
+            logger.warning(f"Macro exposure resolution failed (non-fatal): {exposure_err}")
+            state["macro_exposure"] = None
+
         # DVRG divergence-weighted price targets — deterministic. The synthesis
         # LLM writes scenario assumptions around these numbers; it never authors them.
         state["price_targets"] = compute_dvrg_target(
@@ -699,6 +726,7 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
             is_watchlist=state["is_watchlist_candidate"],
             confidence=state["confidence"],
             dvrg_targets=state.get("price_targets"),
+            macro_exposure=state.get("macro_exposure"),
         )
 
         # Synthesis fields (deduplicated agent insights win when present —
@@ -1084,6 +1112,7 @@ def analyze_swarm(
         vgm_scores=vgm_scores,  # Extract from fundamentalist output
         # Investment recommendations (v2.0)
         price_targets=final_state.get("price_targets"),
+        macro_exposure=final_state.get("macro_exposure"),
         structured_risks=final_state.get("structured_risks"),
         upgrade_triggers=final_state.get("upgrade_triggers"),
         downgrade_triggers=final_state.get("downgrade_triggers"),
