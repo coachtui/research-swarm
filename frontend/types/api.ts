@@ -76,6 +76,12 @@ export interface FundamentalistOutput {
     operating_margin_trend?: 'expanding' | 'stable' | 'contracting'
     [key: string]: unknown
   }
+  quarterly_trends?: {
+    /** Gross margin % per quarter, oldest to newest */
+    margin_trend?: (number | null)[]
+    trend_direction?: string
+    [key: string]: unknown
+  }
   valuation_metrics?: {
     current_price?: number
     [key: string]: unknown
