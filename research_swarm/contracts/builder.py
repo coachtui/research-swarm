@@ -214,6 +214,10 @@ def _build_targets(full_output: Dict[str, Any], di: Dict[str, Any]) -> Optional[
         methodology=methodology,
         confidence_score=max(0, min(100, confidence_score)),
         is_heuristic=is_heuristic,
+        persistence_probability=manager_targets.get("persistence_probability"),
+        reversion_anchor=manager_targets.get("reversion_anchor"),
+        persistence_anchor=manager_targets.get("persistence_anchor"),
+        basis_note=manager_targets.get("basis_note"),
     )
 
 
@@ -348,6 +352,33 @@ def build_analysis_report(
             for flag in (di.get("report_qa_flags") or full_output.get("report_qa_flags") or [])
         ]
 
+        targets = _build_targets(full_output, di)
+        decision = _build_decision(full_output, di)
+
+        # Honesty check: a bullish rating whose base target sits meaningfully
+        # below the current price (or the inverse for bearish ratings) is
+        # surfaced to the reader instead of silently rendered.
+        if targets and targets.base and targets.current_price and decision:
+            gap_pct = (targets.base.target - targets.current_price) / targets.current_price * 100
+            rating = str(decision.rating.value if hasattr(decision.rating, "value") else decision.rating).upper()
+            if rating in ("BUY", "STRONG BUY") and gap_pct < -5:
+                qa_flags.append(QAFlag(
+                    code="rating_target_divergence",
+                    message=(
+                        f"Rating is {rating} (quality-driven) but the base target "
+                        f"${targets.base.target:,.2f} sits {abs(gap_pct):.0f}% below the "
+                        f"current price ${targets.current_price:,.2f}"
+                    ),
+                ))
+            elif rating in ("SELL", "STRONG SELL") and gap_pct > 5:
+                qa_flags.append(QAFlag(
+                    code="rating_target_divergence",
+                    message=(
+                        f"Rating is {rating} but the base target ${targets.base.target:,.2f} "
+                        f"sits {gap_pct:.0f}% above the current price ${targets.current_price:,.2f}"
+                    ),
+                ))
+
         return AnalysisReport(
             ticker=str(full_output.get("ticker") or "").upper(),
             company_name=company_name or fund.get("company_name"),
@@ -357,11 +388,11 @@ def build_analysis_report(
             scores=_build_scores(full_output),
             signals=_build_signals(full_output),
             divergence=divergence,
-            targets=_build_targets(full_output, di),
+            targets=targets,
             thesis=thesis,
             risks=risks,
             catalysts=catalysts,
-            decision=_build_decision(full_output, di),
+            decision=decision,
             meta=RunMeta(
                 analysis_id=analysis_id,
                 created_at=created_at or datetime.now(),

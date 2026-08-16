@@ -5,7 +5,7 @@ Generates synthesis narratives and investment theses by combining
 findings from all three research agents.
 """
 import json
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 from loguru import logger
@@ -58,7 +58,10 @@ class ManagerAnalyzer:
         self.sonnet = ChatAnthropic(
             model="claude-sonnet-5",
             api_key=ANTHROPIC_API_KEY,
-            max_tokens=8192,
+            # 12288: the single-pass synthesis+thesis JSON can exceed 8192
+            # output tokens; truncation silently drops the tail keys
+            # (recommendation, investment_thesis) after json_repair.
+            max_tokens=12288,
             extra_headers=_cache_header,
             thinking={"type": "disabled"},
         )
@@ -170,6 +173,7 @@ class ManagerAnalyzer:
         model_rating: str = "HOLD",
         is_watchlist: bool = False,
         confidence: float = 0.7,
+        dvrg_targets: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], int]:
         """
         Synthesize findings from all three agents AND write the investment
@@ -200,7 +204,7 @@ class ManagerAnalyzer:
         vgm_summary = self._format_vgm_summary(fundamentalist_output)
         moat_breakdown = self._format_moat_breakdown(fundamentalist_output)
         valuation_summary = self._format_valuation_summary(fundamentalist_output)
-        price_targets = self._format_price_targets(fundamentalist_output)
+        price_targets = self._format_price_targets(fundamentalist_output, dvrg_targets)
         fundamentalist_summary = self._format_fundamentalist_summary(fundamentalist_output)
         peer_comparison = self._format_peer_comparison(fundamentalist_output)
         fundamentalist_narrative = fundamentalist_output.get("financial_analysis", "N/A")
@@ -293,12 +297,16 @@ class ManagerAnalyzer:
                     "text": prompt,
                     "cache_control": {"type": "ephemeral"},
                 }])],
-                config={"max_tokens": 8192},
+                config={"max_tokens": 12288},
             )
             response_text = response.content.strip()
             tokens_used = extract_token_usage(response.response_metadata)
+            stop_reason = (response.response_metadata or {}).get("stop_reason")
+            if stop_reason == "max_tokens":
+                logger.warning(f"Synthesis response truncated at max_tokens for {ticker}")
 
             synthesis = self._parse_json_with_repair(response_text)
+            self._require_synthesis_keys(synthesis, response_text)
 
             logger.success(f"✓ Synthesized findings for {ticker}")
             return synthesis, tokens_used
@@ -326,11 +334,12 @@ class ManagerAnalyzer:
                             ),
                         },
                     ])],
-                    config={"max_tokens": 8192},
+                    config={"max_tokens": 12288},
                 )
                 retry_text = retry_response.content.strip()
                 retry_tokens = extract_token_usage(retry_response.response_metadata)
                 synthesis = self._parse_json_with_repair(retry_text)
+                self._require_synthesis_keys(synthesis, retry_text)
                 logger.success(f"✓ Synthesized findings for {ticker} (retry succeeded)")
                 return synthesis, tokens_used + retry_tokens
             except Exception as retry_e:
@@ -466,6 +475,19 @@ Return ONLY the JSON object."""
 
         # Last resort: return as-is and let json.loads fail with useful error
         return text
+
+    @staticmethod
+    def _require_synthesis_keys(synthesis: dict, response_text: str) -> None:
+        """Truncated-but-repairable JSON parses 'successfully' with the tail
+        keys missing — which downstream turns into error placeholders and a
+        phantom HOLD. Treat a structurally incomplete synthesis as a parse
+        failure so the existing retry path fires."""
+        required = ("synthesis_narrative", "key_insights", "investment_thesis", "recommendation")
+        missing = [k for k in required if not synthesis.get(k)]
+        if missing:
+            raise json.JSONDecodeError(
+                f"synthesis JSON incomplete — missing keys: {missing}", response_text[:80] or "{}", 0
+            )
 
     def _parse_json_with_repair(self, text: str) -> dict:
         """
@@ -662,12 +684,13 @@ Return ONLY the JSON object."""
         lines.append(f"\nOverall Valuation: {category.upper()}")
         return "\n".join(lines)
 
-    def _format_price_targets(self, output: Dict[str, Any]) -> str:
-        """Format price target scenarios (PriceTargetScenarios fields)."""
+    def _format_price_targets(
+        self,
+        output: Dict[str, Any],
+        dvrg_targets: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Format the intrinsic value band plus the fixed DVRG targets."""
         pt = output.get("price_targets") or {}
-        if not pt.get("base_target"):
-            return "Price targets not available"
-
         lines = []
         current = (output.get("valuation_metrics") or {}).get("current_price")
         if current:
@@ -675,23 +698,40 @@ Return ONLY the JSON object."""
 
         fv_low, fv_mid, fv_high = pt.get("fair_value_low"), pt.get("fair_value_mid"), pt.get("fair_value_high")
         if fv_low and fv_mid and fv_high:
-            lines.append(f"Intrinsic Value Zone: ${fv_low:.2f} – ${fv_mid:.2f} – ${fv_high:.2f}")
+            lines.append(
+                f"Intrinsic Value Zone (structural reference, NOT the target): "
+                f"${fv_low:.2f} – ${fv_mid:.2f} – ${fv_high:.2f}"
+            )
 
-        for case in ("bull", "base", "bear"):
-            target = pt.get(f"{case}_target")
-            if not target:
-                continue
-            prob = pt.get(f"{case}_probability") or 0
-            assumptions = pt.get(f"{case}_assumptions") or ""
-            upside_str = f" ({(target - current) / current * 100:+.1f}%)" if current else ""
-            lines.append(f"• {case.upper()}: ${target:.2f}{upside_str} - {prob:.0%} probability. {assumptions}")
+        if dvrg_targets and dvrg_targets.get("base_target"):
+            lines.append(
+                "DVRG 12-MONTH TARGETS — FIXED. Copy these exact numbers into the "
+                "price_targets JSON fields; write the scenario assumptions around them:"
+            )
+            for case in ("bull", "base", "bear"):
+                target = dvrg_targets.get(f"{case}_target")
+                if not target:
+                    continue
+                upside_str = f" ({(target - current) / current * 100:+.1f}%)" if current else ""
+                lines.append(f"• {case.upper()}: ${target:.2f}{upside_str}")
+            if dvrg_targets.get("basis_note"):
+                lines.append(f"Target basis: {dvrg_targets['basis_note']}")
+            lines.append(f"Methodology: {dvrg_targets.get('methodology', 'DVRG Divergence-Weighted')}")
+        elif pt.get("base_target"):
+            for case in ("bull", "base", "bear"):
+                target = pt.get(f"{case}_target")
+                if not target:
+                    continue
+                prob = pt.get(f"{case}_probability") or 0
+                assumptions = pt.get(f"{case}_assumptions") or ""
+                upside_str = f" ({(target - current) / current * 100:+.1f}%)" if current else ""
+                lines.append(f"• {case.upper()}: ${target:.2f}{upside_str} - {prob:.0%} probability. {assumptions}")
+            methodology = pt.get("methodology")
+            if methodology:
+                confidence = pt.get("confidence", "Moderate")
+                lines.append(f"Methodology: {methodology} (valuation confidence: {confidence})")
 
-        methodology = pt.get("methodology")
-        if methodology:
-            confidence = pt.get("confidence", "Moderate")
-            lines.append(f"Methodology: {methodology} (valuation confidence: {confidence})")
-
-        return "\n".join(lines)
+        return "\n".join(lines) if lines else "Price targets not available"
 
     def _format_peer_comparison(self, output: Dict[str, Any]) -> str:
         """Format peer competitive position (PeerComparison fields)."""

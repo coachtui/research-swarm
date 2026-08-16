@@ -73,6 +73,14 @@ export interface PriceTargets {
   confidence_score: number
   /** True when targets were derived from a scoring heuristic rather than a valuation model. The UI must label these differently. */
   is_heuristic?: boolean
+  /** Probability the premium/consensus regime persists over 12 months */
+  persistence_probability?: number | null
+  /** Intrinsic fair value midpoint (multiple-reversion anchor) */
+  reversion_anchor?: number | null
+  /** Analyst consensus mean target (premium-persistence anchor) */
+  persistence_anchor?: number | null
+  /** One-line explanation of how the base target was derived */
+  basis_note?: string | null
 }
 
 export interface QAFlag {
