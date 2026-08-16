@@ -33,7 +33,10 @@ class ManagerScorer:
         "sentiment_catalysts": 0.10,
     }
 
-    WATCHLIST_THRESHOLD = 7.0
+    # Must match the ManagerOutput validator's expectation (models.py) — these
+    # previously disagreed (7.0 vs 8.0), so every stock scoring 7.0-7.99 was
+    # flagged here and silently unflagged by the validator.
+    WATCHLIST_THRESHOLD = 8.0
 
     @classmethod
     def calculate_moat_score(
@@ -174,6 +177,55 @@ class ManagerScorer:
 
     # Tier order for downgrade logic
     _TIER_ORDER = ["STRONG SELL", "SELL", "HOLD", "BUY", "STRONG BUY"]
+
+    # Normalization of the LLM's free-text recommendation vocabulary into the
+    # 5-tier rating vocabulary. Single source of truth — previously duplicated
+    # (with disagreeing mappings) across graph.py, decision_intelligence.py,
+    # and weekly_signal_service.py.
+    _REC_NORMALIZE = {"AVOID": "SELL", "BUY NOW": "BUY", "SCALE IN": "HOLD", "WAIT": "HOLD"}
+
+    @classmethod
+    def normalize_recommendation(cls, recommendation: str) -> str:
+        """Map an LLM recommendation string onto the 5-tier vocabulary."""
+        rec = (recommendation or "").strip().upper()
+        return cls._REC_NORMALIZE.get(rec, rec)
+
+    @classmethod
+    def reconcile_rating(cls, rating: str, llm_recommendation: str = None) -> str:
+        """
+        Reconcile the deterministic rating with the LLM's recommendation by
+        taking the more conservative of the two.
+
+        The moat scorer and the LLM thesis generator can independently arrive
+        at different conclusions. When the scorer is more bullish than the LLM
+        (which has full narrative context), the badge follows the LLM so the
+        rating always matches the written verdict. This is THE reconciliation —
+        every surface (web, PDF, portfolio engine, weekly signals) must read a
+        rating that has passed through here rather than re-deriving its own.
+        """
+        if not llm_recommendation or rating not in cls._TIER_ORDER:
+            return rating
+        rec = cls.normalize_recommendation(llm_recommendation)
+        if rec not in cls._TIER_ORDER:
+            return rating
+        if cls._TIER_ORDER.index(rec) < cls._TIER_ORDER.index(rating):
+            return rec
+        return rating
+
+    @classmethod
+    def derive_rating(
+        cls,
+        moat_score: float,
+        technical_score: float = None,
+        llm_recommendation: str = None,
+    ) -> Tuple[str, float]:
+        """
+        Canonical rating derivation: base thresholds + technical override +
+        LLM reconciliation, in one place. Use this instead of re-implementing
+        thresholds (the audit found six divergent copies).
+        """
+        rating, score = cls.determine_rating(moat_score, technical_score=technical_score)
+        return cls.reconcile_rating(rating, llm_recommendation), score
 
     @classmethod
     def determine_rating(

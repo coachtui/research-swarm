@@ -416,20 +416,18 @@ class DataExtractor:
                     ),
                 }
 
-        # Derive fallback rating from moat_score if manager didn't produce one
+        # Rating: new records persist an already-reconciled rating; for older
+        # records derive + reconcile via the canonical scorer so the PDF can
+        # never disagree with the web badge on thresholds or reconciliation.
+        from research_swarm.agents.manager.scorer import ManagerScorer
+
+        llm_recommendation = output.get("recommendation")
         if not rating and result.moat_score is not None:
-            ms = result.moat_score
-            if ms >= 8.5:
-                rating = "STRONG BUY"
-            elif ms >= 7.0:
-                rating = "BUY"
-            elif ms >= 5.0:
-                rating = "HOLD"
-            elif ms >= 3.5:
-                rating = "SELL"
-            else:
-                rating = "STRONG SELL"
-            rating_score = ms
+            rating, rating_score = ManagerScorer.derive_rating(
+                result.moat_score, llm_recommendation=llm_recommendation
+            )
+        elif rating:
+            rating = ManagerScorer.reconcile_rating(rating, llm_recommendation)
 
         # Derive fallback risk_level from moat and valuation
         if not risk_level:

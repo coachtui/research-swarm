@@ -11,6 +11,7 @@ import { OwnershipStatusHeader } from '@/components/results/OwnershipStatusHeade
 import { usePortfolioPosition } from '@/lib/hooks/usePortfolio'
 import { GrowthQualityClassification } from '@/components/results/GrowthQualityClassification'
 import { PMSnapshotCard } from '@/components/results/PMSnapshotCard'
+import { VerdictHeader } from '@/components/results/VerdictHeader'
 import { DivergenceIntelligencePanel } from '@/components/results/DivergenceIntelligencePanel'
 import { DeploymentDriversPanel } from '@/components/results/DeploymentDriversPanel'
 import { ScoreBreakdownBars } from '@/components/results/ScoreBreakdownBars'
@@ -265,6 +266,18 @@ export function ResultsContent({
         <div className="max-w-6xl mx-auto space-y-3">
 
             {/* ══════════════════════════════════════════════════════════════════
+              VERDICT — The headline call.
+              Reconciled rating · one-line summary · key insights · synthesis.
+              ══════════════════════════════════════════════════════════════════ */}
+          <VerdictHeader
+            rating={full_output?.rating || decision_intelligence?.rating}
+            moatScore={moat_score}
+            summary={full_output?.investment_thesis?.recommendation_summary}
+            keyInsights={full_output?.key_insights}
+            synthesisNarrative={full_output?.synthesis_narrative}
+          />
+
+            {/* ══════════════════════════════════════════════════════════════════
               PM SNAPSHOT — Persistent top-of-report block
               Answers 7 key questions in under 15 seconds.
               Capital Alignment Matrix · Synthesis · Capital Environment
@@ -510,7 +523,7 @@ export function ResultsContent({
                 rating={decision_intelligence.rating || 'HOLD'}
                 moatScore={moat_score || 5.0}
                 financialHealthScore={moat_breakdown.financial_health}
-                sector="Technology"
+                sector={sector || 'Unknown'}
                 currentPrice={decision_intelligence.current_price || 0}
                 convictionPosition={decision_intelligence.conviction_position}
                 enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}

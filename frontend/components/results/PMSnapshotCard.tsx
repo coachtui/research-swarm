@@ -32,10 +32,11 @@ interface PMSnapshotCardProps {
 // ── Derivation helpers ────────────────────────────────────────────────────────
 
 function deriveStructuralStrength(moatScore: number | null): {
-  label: 'Strong' | 'Moderate' | 'Weak'
+  label: 'Strong' | 'Moderate' | 'Weak' | '—'
   color: string
 } {
-  if (moatScore === null) return { label: 'Weak', color: 'text-text-tertiary' }
+  // Missing data is an honest blank, not a negative signal
+  if (moatScore === null) return { label: '—', color: 'text-text-tertiary' }
   if (moatScore >= 7) return { label: 'Strong', color: 'text-success' }
   if (moatScore >= 5) return { label: 'Moderate', color: 'text-text-secondary' }
   return { label: 'Weak', color: 'text-text-tertiary' }
@@ -91,13 +92,15 @@ function derivePositioningAlignment(flow?: DivergenceOverlay['institutional_flow
 }
 
 function buildSynthesis(
-  structuralStrength: 'Strong' | 'Moderate' | 'Weak',
+  structuralStrength: 'Strong' | 'Moderate' | 'Weak' | '—',
   valuationAlignment: 'Attractive' | 'Fair' | 'Extended',
   positioningEdge: 'Absent' | 'Emerging' | 'Confirmed',
 ): string {
   // Sentence 1 — structural + valuation state
   let s1 = ''
-  if (structuralStrength === 'Strong' && valuationAlignment === 'Attractive') {
+  if (structuralStrength === '—') {
+    s1 = 'Structural quality unavailable — insufficient data.'
+  } else if (structuralStrength === 'Strong' && valuationAlignment === 'Attractive') {
     s1 = 'Structural quality confirmed with meaningful discount to intrinsic estimate.'
   } else if (structuralStrength === 'Strong' && valuationAlignment === 'Fair') {
     s1 = 'Structural quality confirmed with pricing near intrinsic estimate.'
