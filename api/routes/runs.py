@@ -179,6 +179,49 @@ async def list_runs(
         runs=run_list
     )
 
+@router.get("/runs/{run_id}/report")
+async def get_run_report(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    ent: EntitlementContext = Depends(load_entitlements),
+):
+    """
+    Phase C: serve the persisted AnalysisReport verbatim.
+
+    The report is built once at write time (research_swarm/contracts/builder.py)
+    and stored inside the result's full_output — this endpoint reads it back
+    without any re-derivation. Requires the full-report entitlement.
+    """
+    db = await get_db()
+
+    run = await db.run.find_unique(
+        where={"id": run_id},
+        include={"stockResults": True},
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.userId != user.id and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not ent.has_flag("report.full.read"):
+        raise HTTPException(status_code=403, detail="Full report requires an upgraded plan")
+
+    for result in run.stockResults or []:
+        full_output = result.fullOutput
+        if isinstance(full_output, str):
+            try:
+                full_output = json.loads(full_output)
+            except (json.JSONDecodeError, ValueError):
+                continue
+        report = (full_output or {}).get("analysis_report")
+        if report:
+            return report
+
+    raise HTTPException(
+        status_code=404,
+        detail="No AnalysisReport stored for this run (analyzed before Phase C)",
+    )
+
+
 @router.get("/runs/{run_id}", response_model=RunResponse)
 async def get_run(
     run_id: str,

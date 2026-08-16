@@ -255,6 +255,24 @@ async def save_analysis_result(
                 except Exception as di_err:
                     logger.warning(f"DI persistence failed (non-critical) for {ticker}: {di_err}")
 
+                # Phase C: build the AnalysisReport contract object from the
+                # enriched output and persist it verbatim inside full_output.
+                # This is the payload the /report endpoint serves and the
+                # frontend types are generated from.
+                try:
+                    from research_swarm.contracts.builder import build_analysis_report
+                    report = build_analysis_report(
+                        result['full_output'],
+                        analysis_id=run_id or "pending",
+                        tokens_used=result.get('tokens_used') or 0,
+                        cost_usd=result.get('cost_usd') or 0.0,
+                        duration_seconds=result.get('processing_time_seconds') or 0.0,
+                    )
+                    if report is not None:
+                        result['full_output']['analysis_report'] = report.model_dump(mode="json")
+                except Exception as report_err:
+                    logger.warning(f"AnalysisReport build failed (non-critical) for {ticker}: {report_err}")
+
             # --- Longitudinal Delta Tracking ---
             # Query for the most recent prior completed analysis by this user for the same ticker.
             # Compute delta metrics and inject into full_output before saving.
