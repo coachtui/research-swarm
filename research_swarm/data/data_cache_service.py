@@ -281,12 +281,14 @@ class DataCacheService:
         price_target: Any,
         analyst_estimates: Any,
         upgrades_downgrades: Any = None,
+        eps_revisions: Any = None,
     ) -> None:
         payload = {
             "recommendations": recommendations,
             "price_target": price_target,
             "analyst_estimates": analyst_estimates,
             "upgrades_downgrades": upgrades_downgrades,
+            "eps_revisions": eps_revisions,
         }
         self._set("cache_analyst_data", ticker, payload)
 

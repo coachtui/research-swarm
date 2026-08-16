@@ -319,11 +319,13 @@ class HybridDataProvider:
         cached_analyst = data_cache.get_analyst_data(ticker)
         if cached_analyst is not None:
             earnings_data["recommendations"] = cached_analyst.get("recommendations")
+            earnings_data["eps_revisions"] = cached_analyst.get("eps_revisions")
             earnings_data["price_target"] = cached_analyst.get("price_target")
             bundle["analyst_estimates"] = cached_analyst.get("analyst_estimates")
             bundle["upgrades_downgrades"] = cached_analyst.get("upgrades_downgrades")
         else:
             tasks["recommendations"] = lambda: market_data_client.get_analyst_recommendations(ticker)
+            tasks["eps_revisions"] = lambda: market_data_client.get_eps_revisions(ticker)
             tasks["price_target"] = lambda: market_data_client.get_analyst_price_target(ticker)
             tasks["analyst_estimates"] = lambda: market_data_client.get_earnings_estimates(ticker)
             tasks["upgrades_downgrades"] = lambda: market_data_client.get_upgrades_downgrades(ticker, days_back=90)
@@ -375,6 +377,7 @@ class HybridDataProvider:
 
         if cached_analyst is None:
             earnings_data["recommendations"] = fetched.get("recommendations")
+            earnings_data["eps_revisions"] = fetched.get("eps_revisions")
             earnings_data["price_target"] = fetched.get("price_target")
             bundle["analyst_estimates"] = fetched.get("analyst_estimates")
             bundle["upgrades_downgrades"] = fetched.get("upgrades_downgrades")
@@ -384,6 +387,7 @@ class HybridDataProvider:
                 fetched.get("price_target"),
                 fetched.get("analyst_estimates"),
                 fetched.get("upgrades_downgrades"),
+                fetched.get("eps_revisions"),
             )
 
         bundle["earnings_data"] = earnings_data

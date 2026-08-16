@@ -75,18 +75,30 @@ class EarningsCalculator:
 
     def _score_estimate_revisions(self, earnings_data: Dict) -> float:
         """
-        Score estimate revisions (0-10).
+        Score EPS estimate revisions (0-10).
 
-        Uses analyst recommendations to infer revision momentum:
-        - Recent upgrades vs downgrades
-        - Recommendation trend (improving vs deteriorating)
+        Primary source is yfinance's `eps_revisions` frame — the count of
+        analysts raising vs lowering their EPS estimates over the last 30 days.
+        That is the actual estimate-revision series this signal is named for.
 
-        Args:
-            earnings_data: Dict with recommendations DataFrame
+        The previous implementation branched on `Action` or `To Grade` /
+        `From Grade` columns of the recommendations frame. Modern yfinance
+        returns the SUMMARY frame instead (period, strongBuy, buy, hold, sell,
+        strongSell), so neither branch ever matched, `total` was always 0, and
+        the function returned a constant 5.0 — for a leg carrying 57% of
+        earnings momentum, itself ~20-25% of the quality score. The composite
+        was mathematically confined to [3.49, 7.15] on an advertised 0-10.
+
+        Falls back to the legacy grade inference when revisions are absent, so
+        tickers with thin estimate coverage still get whatever signal exists.
 
         Returns:
             Score from 0-10
         """
+        revision_score = self._score_from_eps_revisions(earnings_data.get("eps_revisions"))
+        if revision_score is not None:
+            return revision_score
+
         recommendations = earnings_data.get("recommendations")
         if recommendations is None or (isinstance(recommendations, pd.DataFrame) and recommendations.empty):
             logger.debug("No recommendations data, using neutral revision score")
@@ -153,6 +165,81 @@ class EarningsCalculator:
         except Exception as e:
             logger.error(f"Error scoring estimate revisions: {e}")
             return 5.0
+
+    # Annual estimate periods drive valuation; quarterly noise does not.
+    _REVISION_PERIODS = ("0y", "+1y")
+    _MIN_REVISION_SAMPLE = 3
+
+    def _score_from_eps_revisions(self, revisions) -> Optional[float]:
+        """Score net revision breadth from yfinance's eps_revisions frame.
+
+        Breadth is normalized — (up - down) / (up + down) — rather than a raw
+        net count, so a 40-analyst mega-cap and a 5-analyst small cap are on
+        the same scale. Returns None when the frame is missing or the sample
+        is too small to read, so the caller can fall back.
+        """
+        if revisions is None:
+            return None
+
+        try:
+            if isinstance(revisions, pd.DataFrame):
+                if revisions.empty:
+                    return None
+                rows = revisions.to_dict(orient="index")
+            elif isinstance(revisions, dict):
+                rows = revisions
+            else:
+                return None
+
+            up = down = 0
+            for period, values in rows.items():
+                if str(period) not in self._REVISION_PERIODS:
+                    continue
+                if not isinstance(values, dict):
+                    continue
+                up += int(values.get("upLast30days") or 0)
+                down += int(values.get("downLast30days") or 0)
+
+            total = up + down
+            if total < self._MIN_REVISION_SAMPLE:
+                logger.debug(f"EPS revision sample too small ({total}) — falling back")
+                return None
+
+            breadth = (up - down) / total
+
+            # Bands are centred on roughly +0.4, not 0. Aggregate revision
+            # breadth is right-skewed — sell-side analysts raise estimates more
+            # often than they cut — so a symmetric scale puts most of the market
+            # in the top bucket and discriminates no better than the constant it
+            # replaced. Measured across an 18-name spread the observed median
+            # breadth was ~+0.5, so a merely positive tape scores mid-range and
+            # only near-unanimous revisions reach the top.
+            if breadth >= 0.90:
+                score = 9.0
+            elif breadth >= 0.75:
+                score = 8.0
+            elif breadth >= 0.55:
+                score = 7.0
+            elif breadth >= 0.35:
+                score = 6.0
+            elif breadth >= 0.15:
+                score = 5.0
+            elif breadth >= -0.10:
+                score = 4.0
+            elif breadth >= -0.35:
+                score = 3.0
+            else:
+                score = 2.0
+
+            logger.info(
+                f"EPS revisions (30d, annual periods): {up} up / {down} down "
+                f"→ breadth {breadth:+.2f} → score {score:.1f}/10"
+            )
+            return score
+
+        except Exception as e:
+            logger.warning(f"Could not score EPS revisions: {e}")
+            return None
 
     def _score_surprise_pattern(self, earnings_data: Dict) -> float:
         """
