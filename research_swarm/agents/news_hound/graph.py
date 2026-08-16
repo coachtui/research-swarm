@@ -287,31 +287,17 @@ def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_earnings"
 
-    from research_swarm.data.market_data_client import market_data_client
     from research_swarm.data.analyst_revision_calculator import calculate_revision_metrics
 
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: all data comes from the pre-assembled bundle. Missing means
+        # the provider had nothing (visible in snapshot provenance) — no
+        # mid-run direct fetches, which tripled upstream load exactly when a
+        # provider was already failing.
         shared_data = state.get("shared_swarm_data", {})
         estimates_data = shared_data.get("analyst_estimates")
         recommendations_data = shared_data.get("earnings_data", {}).get("recommendations")
-
-        # Fallback if not in shared data
-        if estimates_data is None:
-            logger.debug("Fetching earnings estimates directly (no shared data)")
-            estimates_data = market_data_client.get_earnings_estimates(state["ticker"])
-        if recommendations_data is None:
-            logger.debug("Fetching analyst recommendations directly (no shared data)")
-            recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
-
-        # Upgrades/downgrades: use shared bundle first, fallback to direct fetch
         upgrades_downgrades = shared_data.get("upgrades_downgrades")
-        if upgrades_downgrades is None:
-            logger.debug("Fetching upgrades/downgrades data for revision metrics")
-            upgrades_downgrades = market_data_client.get_upgrades_downgrades(
-                state["ticker"],
-                days_back=90  # Last 3 months
-            )
 
         # Calculate revision metrics from upgrades/downgrades
         revision_metrics = calculate_revision_metrics(upgrades_downgrades)
@@ -357,21 +343,12 @@ def analyze_analyst_consensus_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_consensus"
 
-    from research_swarm.data.market_data_client import market_data_client
 
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         recommendations_data = shared_data.get("earnings_data", {}).get("recommendations")
         price_targets = shared_data.get("earnings_data", {}).get("price_target")
-
-        # Fallback if not in shared data
-        if recommendations_data is None:
-            logger.debug("Fetching analyst recommendations directly (no shared data)")
-            recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
-        if price_targets is None:
-            logger.debug("Fetching price targets directly (no shared data)")
-            price_targets = market_data_client.get_analyst_price_target(state["ticker"])
 
         # Pure calculation — no LLM (the old Haiku call just copied these
         # numbers into JSON)
@@ -401,17 +378,11 @@ def analyze_institutional_activity_node(state: NewsHoundState) -> NewsHoundState
 
     state["status"] = "analyzing_institutional"
 
-    from research_swarm.data.market_data_client import market_data_client
 
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         institutional_data = shared_data.get("institutional_holders")
-
-        # Fallback if not in shared data
-        if institutional_data is None:
-            logger.debug("Fetching institutional holders directly (no shared data)")
-            institutional_data = market_data_client.get_institutional_holders(state["ticker"])
 
         # Pure calculation — no LLM
         from research_swarm.agents.news_hound.signal_calculators import calculate_institutional_activity
@@ -440,17 +411,11 @@ def analyze_dark_pool_activity_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_dark_pool"
 
-    from research_swarm.data.finra_client import finra_client
 
     try:
         # Check for pre-fetched data from Manager's fetch_swarm_data_node
         shared_data = state.get("shared_swarm_data", {})
         dark_pool_data = shared_data.get("dark_pool_data")
-
-        # Fallback: Fetch directly if not in shared data
-        if dark_pool_data is None:
-            logger.debug("Fetching dark pool data directly from FINRA (no shared data)")
-            dark_pool_data = finra_client.get_dark_pool_activity(state["ticker"], weeks_back=13)
 
         # Pure calculation — no LLM (baseline z-score math was already
         # deterministic; the model call only narrated it)
@@ -481,7 +446,6 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
     state["status"] = "analyzing_insider"
 
     from research_swarm.data.openinsider_client import openinsider_client
-    from research_swarm.data.data_cache_service import data_cache
 
     try:
         # Pull market cap and float from pre-fetched shared data (best-effort)
@@ -491,20 +455,9 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
         market_cap = company_info.get("market_cap")        # dollars from yfinance
         float_shares = short_data.get("float_shares")     # share count
 
-        # Check Neon cache before hitting OpenInsider (HTML scrape — 3-5s each)
-        cached_oi = data_cache.get_openinsider(state["ticker"])
-        if cached_oi is not None:
-            logger.debug(f"Using cached OpenInsider transactions for {state['ticker']}")
-            transactions = cached_oi
-        else:
-            transactions = openinsider_client.get_insider_transactions(
-                state["ticker"],
-                days_back=365  # 1 year lookback
-            )
-            # Only cache non-empty results: the client returns [] on transient
-            # scrape failures, and caching that hides insider data for 48h.
-            if transactions:
-                data_cache.set_openinsider(state["ticker"], transactions)
+        # Phase A: OpenInsider transactions are fetched by the snapshot
+        # assembler (concurrently with the main bundle), never mid-run here.
+        transactions = shared_data.get("openinsider_transactions")
 
         # Calculate insider score using 5-component institutional framework
         insider_result = openinsider_client.calculate_insider_score(
@@ -594,17 +547,11 @@ def analyze_short_interest_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_short"
 
-    from research_swarm.data.market_data_client import market_data_client
 
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         short_data = shared_data.get("short_interest")
-
-        # Fallback if not in shared data
-        if short_data is None:
-            logger.debug("Fetching short interest directly (no shared data)")
-            short_data = market_data_client.get_short_interest(state["ticker"])
 
         # Pure calculation — no LLM (the old prompt asked Haiku to copy six
         # numbers into JSON and apply a hardcoded threshold table)
@@ -634,18 +581,12 @@ def analyze_upcoming_catalysts_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_catalysts"
 
-    from research_swarm.data.market_data_client import market_data_client
     from research_swarm.agents.news_hound.models import CatalystEvent
 
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         earnings_dates = shared_data.get("earnings_data", {}).get("earnings_dates")
-
-        # Fallback if not in shared data
-        if earnings_dates is None:
-            logger.debug("Fetching earnings dates directly (no shared data)")
-            earnings_dates = market_data_client.get_earnings_dates(state["ticker"])
 
         # Get detected catalyst events
         catalyst_events = []
@@ -936,6 +877,14 @@ def analyze_company_news(
     logger.info(f"=== Analyzing news for {ticker} (last {days_back} days) ===")
 
     start_time = time.time()
+
+    # Phase A: the graph nodes never fetch mid-run. When the caller didn't
+    # supply an equity bundle (standalone run, or the ETF path whose bundle
+    # only carries etf_data), assemble the market sections once, up front.
+    if not shared_swarm_data or "short_interest" not in shared_swarm_data:
+        from research_swarm.data.snapshot_assembler import assemble_market_bundle
+        market_bundle = assemble_market_bundle(ticker)
+        shared_swarm_data = {**market_bundle, **(shared_swarm_data or {})}
 
     # ETF mode: build sector context to enrich news analysis
     etf_system_addendum = ""

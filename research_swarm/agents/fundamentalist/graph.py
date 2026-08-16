@@ -459,7 +459,7 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
     """
     Node 1 (TTM): Fetch data from hybrid provider (SEC Edgar + yfinance).
 
-    NEW: Uses pre-fetched shared_swarm_data if available, falls back to direct fetch.
+    Phase A: consumes only the pre-assembled shared_swarm_data bundle.
 
     Args:
         state: Current workflow state

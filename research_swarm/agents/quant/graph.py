@@ -42,7 +42,7 @@ def fetch_market_data_node(state: QuantState) -> QuantState:
     """
     Node 1: Fetch historical market data from yfinance.
 
-    NEW: Uses pre-fetched shared_swarm_data if available, falls back to direct fetch.
+    Phase A: consumes only the pre-assembled shared_swarm_data bundle.
 
     Args:
         state: Current workflow state
@@ -56,16 +56,11 @@ def fetch_market_data_node(state: QuantState) -> QuantState:
     # Get data period
     period = state.get("data_period", "1y")
 
-    # NEW: Get from shared data first, fallback to direct fetch
-    shared_data = state.get("shared_swarm_data", {})
+    # Phase A: data comes only from the pre-assembled bundle. Standalone runs
+    # get one assembled at the entry point (analyze_company below) — no
+    # mid-run direct fetches inside graph nodes.
+    shared_data = state.get("shared_swarm_data") or {}
     df = shared_data.get("historical_data")
-
-    if df is not None and not df.empty:
-        logger.info(f"[Node 1] Using pre-fetched market data for {state['ticker']}")
-    else:
-        # Fallback: Direct fetch (for standalone execution or backward compatibility)
-        logger.info(f"[Node 1] No shared_swarm_data found, fetching market data directly for {state['ticker']}")
-        df = market_data_client.get_historical_data(state["ticker"], period=period)
 
     if df is None or df.empty:
         state["status"] = "error"
@@ -408,6 +403,13 @@ def analyze_quant(
 
     start_time = time.time()
     analysis_date = datetime.now().strftime("%Y-%m-%d")
+
+    # Phase A: graph nodes never fetch mid-run. Standalone/ETF callers (no
+    # equity bundle from the Manager) get the one section Quant consumes —
+    # price history — fetched here at the entry point instead.
+    if not shared_swarm_data or shared_swarm_data.get("historical_data") is None:
+        hist = market_data_client.get_historical_data(ticker, period="1y")
+        shared_swarm_data = {**(shared_swarm_data or {}), "historical_data": hist}
 
     # Initialize state
     initial_state: QuantState = {
