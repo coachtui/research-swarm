@@ -284,6 +284,18 @@ class OpenInsiderClient:
             logger.debug(f"No insider transactions for {ticker} - returning neutral")
             return _NEUTRAL
 
+        # Transactions served from the Neon cache round-trip through JSON
+        # (json.dumps(..., default=str)), which stringifies the datetimes.
+        # Coerce them back so the date arithmetic below doesn't TypeError.
+        for txn in transactions:
+            for key in ('trade_date', 'filing_date'):
+                value = txn.get(key)
+                if isinstance(value, str):
+                    try:
+                        txn[key] = datetime.fromisoformat(value)
+                    except ValueError:
+                        txn[key] = None
+
         now = datetime.now()
         key_transactions: List[str] = []
 

@@ -532,7 +532,9 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
                 state["ticker"],
                 days_back=365  # 1 year lookback
             )
-            if transactions is not None:
+            # Only cache non-empty results: the client returns [] on transient
+            # scrape failures, and caching that hides insider data for 48h.
+            if transactions:
                 data_cache.set_openinsider(state["ticker"], transactions)
 
         # Calculate insider score using 5-component institutional framework

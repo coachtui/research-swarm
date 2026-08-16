@@ -34,13 +34,17 @@ class QuantAnalyzer:
             model="claude-haiku-4-5-20251001",
             api_key=ANTHROPIC_API_KEY,
             temperature=0.0,
+            max_tokens=4096,
         )
 
         # Sonnet for deeper qualitative analysis
+        # max_tokens must be set explicitly — LangChain defaults to 1024 and
+        # silently truncates the narrative output.
         self.sonnet = ChatAnthropic(
             model="claude-sonnet-4-6",
             api_key=ANTHROPIC_API_KEY,
             temperature=0.3,
+            max_tokens=8192,
         )
 
         logger.info("QuantAnalyzer initialized")

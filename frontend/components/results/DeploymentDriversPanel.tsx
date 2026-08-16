@@ -37,7 +37,8 @@ export function DeploymentDriversPanel({
                 <span className="text-sm text-text-secondary">{driver.label}</span>
                 <div className="flex items-center gap-2">
                   <span className={`text-xs font-bold ${color}`}>
-                    {driver.sign} {(driver.delta * 100).toFixed(1)}%
+                    {/* delta is already in percentage points (e.g. 2.5 = 2.5%) */}
+                    {driver.sign} {driver.delta.toFixed(1)}%
                   </span>
                 </div>
               </div>
@@ -52,7 +53,7 @@ export function DeploymentDriversPanel({
             <div className="flex items-center justify-between py-2 px-2.5 rounded-lg bg-primary/10 border border-primary/20">
               <span className="font-semibold text-text-primary">Final Allocation</span>
               <span className="font-mono font-bold text-primary text-base tabular-nums">
-                {(finalAllocation * 100).toFixed(1)}%
+                {finalAllocation.toFixed(1)}%
               </span>
             </div>
           )}
