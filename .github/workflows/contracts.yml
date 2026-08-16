@@ -1,0 +1,37 @@
+name: Contracts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  type-generation:
+    name: Generated types match the Python contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install contract dependencies
+        run: pip install "pydantic>=2"
+
+      - name: Check frontend/types/report.ts is up to date
+        run: python scripts/generate_report_types.py --check
+
+  python-compile:
+    name: Python compiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile sweep
+        run: |
+          find research_swarm api inngest_app -name '*.py' -print0 | xargs -0 python -m py_compile

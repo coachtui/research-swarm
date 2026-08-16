@@ -202,6 +202,7 @@ class RunMeta(BaseModel):
     models_used: Dict[str, str] = Field(
         default_factory=dict, description="stage → model id, e.g. {'synthesis': 'claude-sonnet-5'}"
     )
+    tokens_total: int = Field(0, description="Total tokens (agents track a single sum today)")
     tokens_input: int = 0
     tokens_output: int = 0
     tokens_cache_read: int = 0
