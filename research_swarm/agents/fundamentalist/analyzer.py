@@ -37,14 +37,18 @@ class FinancialAnalyzer:
             model="claude-haiku-4-5-20251001",
             api_key=settings.anthropic_api_key,
             temperature=0.0,
+            max_tokens=4096,
             extra_headers=_cache_header,
         )
 
         # Sonnet for deeper qualitative analysis
+        # max_tokens must be set explicitly — LangChain defaults to 1024 and
+        # silently truncates the narrative output.
         self.sonnet = ChatAnthropic(
             model="claude-sonnet-4-6",
             api_key=settings.anthropic_api_key,
             temperature=0.3,
+            max_tokens=8192,
             extra_headers=_cache_header,
         )
 

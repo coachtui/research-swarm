@@ -189,7 +189,8 @@ export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligenceP
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-text-secondary">Base Allocation</span>
-                <span className="font-mono font-bold text-text-primary">{(initial_allocation_base * 100).toFixed(1)}%</span>
+                {/* allocation values are already in percentage points (e.g. 2.5 = 2.5%) */}
+                <span className="font-mono font-bold text-text-primary">{initial_allocation_base.toFixed(1)}%</span>
               </div>
               {initial_allocation_adjustment !== 0 && (
                 <div className="flex items-center justify-between">
@@ -198,14 +199,14 @@ export function DivergenceIntelligencePanel({ overlay }: DivergenceIntelligenceP
                   </span>
                   <span className={`font-mono font-bold ${initial_allocation_adjustment > 0 ? 'text-success' : 'text-error'}`}>
                     {initial_allocation_adjustment > 0 ? '+' : ''}
-                    {(initial_allocation_adjustment * 100).toFixed(1)}%
+                    {initial_allocation_adjustment.toFixed(1)}%
                   </span>
                 </div>
               )}
               <div className="flex items-center justify-between border-t border-border/40 pt-1.5">
                 <span className="text-sm font-semibold text-text-primary">Adjusted Allocation</span>
                 <span className="font-mono font-bold text-primary text-base">
-                  {(initial_allocation_final * 100).toFixed(1)}%
+                  {initial_allocation_final.toFixed(1)}%
                 </span>
               </div>
             </div>

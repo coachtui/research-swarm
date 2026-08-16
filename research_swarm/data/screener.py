@@ -87,8 +87,9 @@ class StockScreener:
 
         try:
             transactions = self._insider.get_insider_transactions(ticker, days_back=7)
+            # OpenInsiderClient emits trade_type: 'Purchase'/'Sale'/'Derivative'
             has_insider_buying = any(
-                str(t.get("transaction_type", "")).upper() == "P"
+                str(t.get("trade_type", "")).lower() == "purchase"
                 for t in (transactions or [])
             )
         except Exception as e:

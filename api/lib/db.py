@@ -240,6 +240,21 @@ async def save_analysis_result(
                     }
                 )
 
+            # Persist decision intelligence at write time. The delta below and
+            # any consumer of stored results need full_output.decision_intelligence,
+            # which was previously only grafted on at read time (so stored rows
+            # always compared as empty). Enrichment is deterministic, so the
+            # read-time recompute stays consistent with what we store here.
+            if result.get('status') == 'completed' and isinstance(result.get('full_output'), dict):
+                try:
+                    from api.lib.decision_intelligence import enrich_with_decision_intelligence
+                    result['full_output'] = enrich_with_decision_intelligence(
+                        result['full_output'],
+                        result.get('moat_score') or 0.0,
+                    )
+                except Exception as di_err:
+                    logger.warning(f"DI persistence failed (non-critical) for {ticker}: {di_err}")
+
             # --- Longitudinal Delta Tracking ---
             # Query for the most recent prior completed analysis by this user for the same ticker.
             # Compute delta metrics and inject into full_output before saving.
@@ -574,6 +589,9 @@ async def save_analysis_result(
             stock_result = await db.stockresult.create(
                 data={
                     "runId": run_id,
+                    # userId is required by the prior-analysis lookup that powers
+                    # previous_analysis_delta — omitting it left that feature inert.
+                    "userId": user_id,
                     "ticker": ticker,
                     "status": result['status'],
                     "moatScore": result.get('moat_score'),

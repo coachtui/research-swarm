@@ -198,7 +198,7 @@ class ManagerAnalyzer:
         price_targets = self._format_price_targets(fundamentalist_output)
         fundamentalist_summary = self._format_fundamentalist_summary(fundamentalist_output)
         peer_comparison = self._format_peer_comparison(fundamentalist_output)
-        fundamentalist_narrative = fundamentalist_output.get("analysis_summary", "N/A")
+        fundamentalist_narrative = fundamentalist_output.get("financial_analysis", "N/A")
 
         # Format News Hound data
         signal_breakdown = self._format_signal_breakdown(news_hound_output)
@@ -374,14 +374,15 @@ class ManagerAnalyzer:
                 m_grade = vgm.get("momentum_grade", "N/A")
                 vgm_profile = f"V:{v_grade}/G:{g_grade}/M:{m_grade}"
 
-            pt = fundamentalist_output.get("price_target_scenarios", {})
-            if pt:
-                scenarios = pt.get("scenarios", [])
-                base_case = next((s for s in scenarios if s.get("case") == "base"), None)
-                if base_case:
-                    target = base_case.get("target", 0)
-                    upside = base_case.get("upside_pct", 0)
-                    avg_price_target = f"${target:.2f} ({upside:+.1f}%)"
+            pt = fundamentalist_output.get("price_targets") or {}
+            base_target = pt.get("base_target")
+            if base_target:
+                current = (fundamentalist_output.get("valuation_metrics") or {}).get("current_price")
+                if current:
+                    upside = (base_target - current) / current * 100
+                    avg_price_target = f"${base_target:.2f} ({upside:+.1f}%)"
+                else:
+                    avg_price_target = f"${base_target:.2f}"
 
         if news_hound_output:
             # Schema key is "earnings_estimates" (flat), not "earnings_estimate_revisions"
@@ -664,10 +665,18 @@ Return ONLY the JSON object."""
         if debt_to_equity:
             summary_parts.append(f"Debt/Equity: {debt_to_equity:.2f}")
 
-        # ROE (already in percentage form)
-        roe = metrics.get("roe")
-        if roe:
-            summary_parts.append(f"ROE: {roe:.1f}%")
+        # Growth and cash generation (fields that exist on FinancialMetricsOutput)
+        revenue_growth = metrics.get("revenue_growth_yoy")
+        if revenue_growth is not None:
+            summary_parts.append(f"Revenue Growth YoY: {revenue_growth:+.1f}%")
+
+        operating_margin = metrics.get("operating_margin")
+        if operating_margin is not None:
+            summary_parts.append(f"Operating Margin: {operating_margin:.1f}%")
+
+        fcf = metrics.get("free_cash_flow")
+        if fcf is not None:
+            summary_parts.append(f"Free Cash Flow: ${fcf/1e3:.1f}B")
 
         return "\n".join([f"- {part}" for part in summary_parts]) if summary_parts else "No metrics available"
 
@@ -744,100 +753,163 @@ Return ONLY the JSON object."""
         return f"Value: {v_score} ({v_grade}), Growth: {g_score} ({g_grade}), Momentum: {m_score} ({m_grade})"
 
     def _format_moat_breakdown(self, output: Dict[str, Any]) -> str:
-        """Format 8-category moat breakdown."""
-        moat = output.get("enhanced_moat_analysis", {})
-        if not moat or not moat.get("moat_categories"):
+        """Format 8-category moat breakdown (EnhancedMoatBreakdown fields)."""
+        moat = output.get("enhanced_moat") or {}
+        categories = [
+            ("Network Effects", "network_effects"),
+            ("Switching Costs", "switching_costs"),
+            ("Brand Power", "brand_power"),
+            ("Cost Advantages", "cost_advantages"),
+            ("Scale Economies", "scale_economies"),
+            ("Intangible Assets", "intangible_assets"),
+            ("Regulatory Barriers", "regulatory_barriers"),
+            ("Distribution Advantages", "distribution_advantages"),
+        ]
+        lines = [
+            f"• {name}: {moat[key]:.1f}/10"
+            for name, key in categories
+            if moat.get(key)
+        ]
+        if not lines:
             return "Moat analysis not available"
 
-        categories = moat["moat_categories"]
-        lines = []
-        for cat in categories:
-            name = cat.get("name", "Unknown")
-            score = cat.get("score") or 0
-            strength = cat.get("strength", "none")
-            lines.append(f"• {name}: {score:.1f}/10 ({strength})")
-
+        width = moat.get("moat_width", "narrow")
+        durability = moat.get("moat_durability", "medium")
+        lines.append(f"\nMoat Width: {width.upper()}, Durability: {durability.upper()}")
         return "\n".join(lines)
 
     def _format_valuation_summary(self, output: Dict[str, Any]) -> str:
-        """Format valuation metrics."""
-        val = output.get("valuation_analysis", {})
-        if not val or not val.get("metrics"):
+        """Format valuation metrics (ValuationMetrics fields)."""
+        val = output.get("valuation_metrics") or {}
+        multiples = [
+            ("P/E (TTM)", "pe_ratio"),
+            ("Forward P/E", "forward_pe"),
+            ("PEG", "peg_ratio"),
+            ("P/B", "pb_ratio"),
+            ("P/S", "ps_ratio"),
+            ("EV/EBITDA", "ev_ebitda"),
+        ]
+        lines = [
+            f"• {name}: {val[key]:.2f}"
+            for name, key in multiples
+            if val.get(key) is not None
+        ]
+        if not lines:
             return "Valuation metrics not available"
 
-        metrics = val["metrics"]
-        lines = []
-        for m in metrics:
-            name = m.get("metric", "")
-            value = m.get("value", "N/A")
-            vs_sector = m.get("vs_sector_median", "N/A")
-            assessment = m.get("assessment", "neutral")
-            lines.append(f"• {name}: {value} (vs sector: {vs_sector}, {assessment})")
+        sector_pe = val.get("sector_avg_pe")
+        premium = val.get("pe_premium_discount")
+        if sector_pe is not None:
+            premium_str = f" ({premium:+.1f}% vs sector)" if premium is not None else ""
+            lines.append(f"• Sector Avg P/E: {sector_pe:.2f}{premium_str}")
 
-        overall = val.get("overall_valuation", "neutral")
-        lines.append(f"\nOverall Valuation: {overall.upper()}")
+        dividend = val.get("dividend_yield")
+        if dividend:
+            lines.append(f"• Dividend Yield: {dividend:.2f}%")
 
+        category = val.get("valuation_category", "fair")
+        lines.append(f"\nOverall Valuation: {category.upper()}")
         return "\n".join(lines)
 
     def _format_price_targets(self, output: Dict[str, Any]) -> str:
-        """Format price target scenarios."""
-        pt = output.get("price_target_scenarios", {})
-        if not pt or not pt.get("scenarios"):
+        """Format price target scenarios (PriceTargetScenarios fields)."""
+        pt = output.get("price_targets") or {}
+        if not pt.get("base_target"):
             return "Price targets not available"
 
-        scenarios = pt["scenarios"]
-        current = pt.get("current_price", 0)
         lines = []
+        current = (output.get("valuation_metrics") or {}).get("current_price")
+        if current:
+            lines.append(f"Current Price: ${current:.2f}")
 
-        for s in scenarios:
-            case = s.get("case", "")
-            target = s.get("target") or 0
-            upside = s.get("upside_pct") or 0
-            prob = s.get("probability") or 0
-            lines.append(f"• {case.upper()}: ${target:.2f} ({upside:+.1f}%) - {prob:.0%} probability")
+        fv_low, fv_mid, fv_high = pt.get("fair_value_low"), pt.get("fair_value_mid"), pt.get("fair_value_high")
+        if fv_low and fv_mid and fv_high:
+            lines.append(f"Intrinsic Value Zone: ${fv_low:.2f} – ${fv_mid:.2f} – ${fv_high:.2f}")
 
-        lines.insert(0, f"Current Price: ${current or 0:.2f}")
+        for case in ("bull", "base", "bear"):
+            target = pt.get(f"{case}_target")
+            if not target:
+                continue
+            prob = pt.get(f"{case}_probability") or 0
+            assumptions = pt.get(f"{case}_assumptions") or ""
+            upside_str = f" ({(target - current) / current * 100:+.1f}%)" if current else ""
+            lines.append(f"• {case.upper()}: ${target:.2f}{upside_str} - {prob:.0%} probability. {assumptions}")
+
+        methodology = pt.get("methodology")
+        if methodology:
+            confidence = pt.get("confidence", "Moderate")
+            lines.append(f"Methodology: {methodology} (valuation confidence: {confidence})")
+
         return "\n".join(lines)
 
     def _format_peer_comparison(self, output: Dict[str, Any]) -> str:
-        """Format peer competitive position."""
-        peer = output.get("peer_comparison", {})
-        if not peer or not peer.get("rankings"):
+        """Format peer competitive position (PeerComparison fields)."""
+        peer = output.get("peer_comparison") or {}
+        if not peer:
             return "Peer comparison not available"
 
-        rankings = peer["rankings"]
-        competitive_pos = peer.get("competitive_position", "middle-of-pack")
         lines = []
+        peers = peer.get("peers") or []
+        if peers:
+            lines.append(f"Peers: {', '.join(peers[:6])}")
 
-        for r in rankings[:5]:  # Top 5
-            metric = r.get("metric", "")
-            rank = r.get("rank", "N/A")
-            total = r.get("total_peers", "N/A")
-            lines.append(f"• {metric}: #{rank} of {total}")
+        total = len(peers) if peers else None
+        rank_fields = [
+            ("Revenue Growth", "revenue_growth_rank"),
+            ("Profit Margin", "profit_margin_rank"),
+            ("ROIC", "roic_rank"),
+            ("Valuation (1=cheapest)", "valuation_rank"),
+            ("Market Share", "market_share_rank"),
+        ]
+        for name, key in rank_fields:
+            rank = peer.get(key)
+            if rank is not None:
+                of_str = f" of {total}" if total else ""
+                lines.append(f"• {name}: #{rank}{of_str}")
 
+        if not lines:
+            return "Peer comparison not available"
+
+        competitive_pos = peer.get("competitive_position", "challenger")
         lines.append(f"\nCompetitive Position: {competitive_pos.upper()}")
         return "\n".join(lines)
 
     def _format_signal_breakdown(self, output: Dict[str, Any]) -> str:
-        """Format News Hound 7-signal breakdown."""
-        signals = output.get("signal_analysis", {})
-        if not signals or not signals.get("individual_signals"):
-            return "Signal breakdown not available"
-
-        individual = signals["individual_signals"]
-        overall = signals.get("overall_assessment", "neutral")
-
+        """Format News Hound 7-signal overview from the flat NewsHoundOutput fields."""
         lines = []
-        for s in individual:
-            name = s.get("name", "")
-            signal = s.get("signal", "neutral")
-            score = s.get("score") or 5.0
-            confidence = s.get("confidence") or 0.5
-            weight = s.get("weight") or 0.1
-            lines.append(f"• {name}: {signal.upper()} (score: {score:.1f}/10, confidence: {confidence:.0%}, weight: {weight:.0%})")
 
-        lines.insert(0, f"Overall: {overall.upper()}\n")
-        return "\n".join(lines)
+        sentiment = output.get("sentiment_score")
+        if sentiment is not None:
+            lines.append(f"• News Sentiment: {sentiment:.1f}/10")
+
+        est = output.get("earnings_estimates") or {}
+        if est.get("net_revision_direction"):
+            lines.append(f"• Earnings Revisions: {est['net_revision_direction'].upper()}")
+
+        consensus = output.get("analyst_consensus") or {}
+        if consensus.get("consensus_rating"):
+            momentum = consensus.get("rating_momentum", "stable")
+            lines.append(f"• Analyst Consensus: {consensus['consensus_rating'].upper()} (momentum: {momentum})")
+
+        institutional = output.get("institutional_activity") or {}
+        if institutional.get("trend"):
+            lines.append(f"• Institutional Activity: {institutional['trend'].upper()}")
+
+        insider = output.get("insider_activity") or {}
+        if insider.get("insider_score") is not None:
+            buys = insider.get("buy_transactions", 0)
+            sells = insider.get("sell_transactions", 0)
+            lines.append(f"• Insider Activity: {insider['insider_score']:.1f}/10 ({buys} buys / {sells} sells)")
+
+        short = output.get("short_interest") or {}
+        if short.get("squeeze_risk"):
+            lines.append(f"• Short Interest: squeeze risk {short['squeeze_risk'].upper()}")
+
+        dark_pool = output.get("dark_pool_activity") or {}
+        if dark_pool.get("trend"):
+            lines.append(f"• Dark Pool Activity: {dark_pool['trend'].upper()}")
+
+        return "\n".join(lines) if lines else "Signal breakdown not available"
 
     def _format_earnings_revisions(self, output: Dict[str, Any]) -> str:
         """Format earnings estimate revisions (primary signal)."""

@@ -73,6 +73,7 @@ class EnhancedFilingParser:
             model="claude-haiku-4-5-20251001",
             api_key=settings.anthropic_api_key,
             temperature=0.0,
+            max_tokens=8192,
             extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
         )
         logger.info("EnhancedFilingParser initialized")
