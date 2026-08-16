@@ -210,11 +210,11 @@ Synthesize these three comprehensive perspectives into a unified investment anal
 - INSTEAD: "Price operates in Structural Premium regime" / "extended relative to the Structural Valuation Reference"
 - A low valuation score reflects a regime classification (Structural Premium), not a signal that the stock must revert to intrinsic anchor levels imminently
 
-**PRICE TARGET FEASIBILITY RULES (apply before setting any target):**
-- **T1 / Bull target (near-term)**: Cap at the first meaningful technical resistance visible in the data (e.g., Bollinger Band middle, 50-day SMA, prior POC). Maximum ~15–20% from current price for targets implying a 1-3 month move. Targets requiring overhead supply clearance at multiple resistance levels are NOT 3-month targets — they are 12-month targets.
-- **T2 / Base target (medium-term)**: Anchor at SMA confluence (e.g., 50-day/200-day convergence), analyst consensus mean, or blended valuation midpoint. This is the 6–12 month scenario.
-- **Large upside (>50% from current)**: ALWAYS label as "3–5 year regime expansion scenario" in assumptions, NOT "12–24 months." Targets that require major multiple expansion beyond current sector norms to be reached within 24 months are structurally long-duration — label them honestly.
-- **Death cross / overhead supply**: If a death cross is confirmed or significant overhead supply exists at a level (e.g., prior POC, heavy resistance zone), that level IS the feasibility ceiling for near-term targets. Do not project through it without acknowledging the resistance must be cleared first.
+**PRICE TARGETS ARE FIXED (do not author or adjust them):**
+- The bull/base/bear targets are precomputed by the DVRG divergence-weighted model and shown in the PRICE TARGETS section above. Copy each number into the JSON EXACTLY as given — never invent, round, or "improve" a target.
+- Your job for each scenario is the QUALITATIVE content: assumptions, growth projection, valuation multiple, and technical level that would make that price realistic.
+- **Death cross / overhead supply**: If significant resistance sits between current price and a target, name it in the scenario's assumptions and technical level — the target is reached only after that level clears.
+- **Large upside (>50% from current)**: label the timeframe honestly in assumptions ("3–5 year regime expansion scenario", not "12–24 months").
 - In `*_technical_level` fields: always name the specific resistance/support that anchors each target and state what must happen for price to clear it.
 
 Return your response as a JSON object:
@@ -259,19 +259,19 @@ Return your response as a JSON object:
     }}
   ],
   "price_targets": {{
-    "bull_target": <bull case price — see feasibility rules below>,
+    "bull_target": <copy the DVRG BULL target from the PRICE TARGETS section exactly>,
     "bull_probability": <apply calibration rules above — 0.15 to 0.45>,
     "bull_assumptions": "<Re-rating Scenario: key assumptions — multiple expansion, earnings inflection, market share gains>",
     "bull_growth_assumption": "<revenue/earnings projection, e.g. '25% revenue growth, EPS of $X'>",
     "bull_valuation_multiple": "<P/E or P/S multiple driving this price, e.g. '28x forward P/E'>",
     "bull_technical_level": "<first meaningful resistance that must be cleared AND what timeframe — e.g. '$86 Bollinger Band middle must close above for 3 consecutive days'>",
-    "base_target": <base case price — see feasibility rules below>,
+    "base_target": <copy the DVRG BASE target from the PRICE TARGETS section exactly>,
     "base_probability": <apply calibration rules above — 0.40 to 0.50>,
     "base_assumptions": "<Continuation Scenario: key assumptions — business executes as modeled, no multiple expansion>",
     "base_growth_assumption": "<revenue/earnings projection, e.g. '12% revenue growth, EPS of $X'>",
     "base_valuation_multiple": "<P/E or P/S multiple driving this price, e.g. '22x forward P/E'>",
     "base_technical_level": "<SMA confluence or analyst consensus range that anchors this target — e.g. '$105–$106 50-day/200-day SMA convergence zone'>",
-    "bear_target": <downside scenario price>,
+    "bear_target": <copy the DVRG BEAR target from the PRICE TARGETS section exactly>,
     "bear_probability": <apply calibration rules above — 0.15 to 0.40>,
     "bear_assumptions": "<Risk Scenario: key assumptions — thesis underdelivers, competitive pressure, margin headwinds>",
     "bear_growth_assumption": "<revenue/earnings projection, e.g. 'Revenue contraction 5%, EPS of $X'>",

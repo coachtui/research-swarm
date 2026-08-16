@@ -20,6 +20,11 @@ interface PriceTargetsCardProps {
     bear_probability: number
     bear_assumptions: string
     methodology: string
+    /** DVRG divergence-weighted target provenance (present on new runs) */
+    persistence_probability?: number | null
+    reversion_anchor?: number | null
+    persistence_anchor?: number | null
+    basis_note?: string | null
   }
   currentPrice: number
   ticker: string
@@ -132,6 +137,13 @@ export function PriceTargetsCard({ priceTargets, currentPrice, signalBreakdown, 
           Scenario weights: heuristic-derived · regime-conditioned reliability
         </span>
       </p>
+
+      {/* DVRG target basis — how the base target bridges intrinsic value and market expectation */}
+      {priceTargets.basis_note && (
+        <p className="text-xs text-text-tertiary mb-4 leading-relaxed border-l-2 border-accent/40 pl-2.5">
+          {priceTargets.basis_note}
+        </p>
+      )}
 
       {/* Probability allocation strip — purely visual, reflects existing weight values */}
       <div className="mb-5">

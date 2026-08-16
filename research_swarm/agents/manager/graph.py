@@ -21,6 +21,7 @@ from .analyzer import ManagerAnalyzer
 from .scorer import ManagerScorer
 from .models import ManagerOutput, QualityScoreBreakdown, ETFManagerOutput
 from .signal_divergence import calculate_signal_divergence
+from .dvrg_target import compute_dvrg_target
 
 
 # Initialize singletons
@@ -612,6 +613,22 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
         state["rating_score"] = rating_score
         state["risk_level"] = risk_level
 
+        # DVRG divergence-weighted price targets — deterministic. The synthesis
+        # LLM writes scenario assumptions around these numbers; it never authors them.
+        state["price_targets"] = compute_dvrg_target(
+            state.get("fundamentalist_output") or {},
+            state.get("news_hound_output") or {},
+            state.get("quant_output") or {},
+            moat_score,
+        )
+        if state["price_targets"]:
+            pt = state["price_targets"]
+            logger.info(
+                f"✓ DVRG target: Bull ${pt['bull_target']:.2f} / Base ${pt['base_target']:.2f} / "
+                f"Bear ${pt['bear_target']:.2f} (p_persist={pt.get('persistence_probability')}, "
+                f"FV ${pt.get('reversion_anchor')} vs consensus ${pt.get('persistence_anchor')})"
+            )
+
         logger.success(
             f"✓ Quality score calculated: {state['ticker']} "
             f"(Score: {moat_score:.2f}, Watchlist: {is_watchlist}, Confidence: {confidence:.0%}, {roic_label})"
@@ -681,6 +698,7 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
             model_rating=state.get("rating", "HOLD"),
             is_watchlist=state["is_watchlist_candidate"],
             confidence=state["confidence"],
+            dvrg_targets=state.get("price_targets"),
         )
 
         # Synthesis fields (deduplicated agent insights win when present —
@@ -694,12 +712,28 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
         state["upgrade_triggers"] = synthesis.get("upgrade_triggers", [])
         state["downgrade_triggers"] = synthesis.get("downgrade_triggers", [])
 
-        price_targets = synthesis.get("price_targets")
-        if price_targets and price_targets.get("base_target"):
-            state["price_targets"] = price_targets
-            logger.info(f"✓ Price targets: Bull ${price_targets.get('bull_target', 0):.2f} / Base ${price_targets.get('base_target', 0):.2f} / Bear ${price_targets.get('bear_target', 0):.2f}")
-        else:
-            state["price_targets"] = None
+        # Node 6 computed the DVRG targets deterministically. Graft the LLM's
+        # qualitative scenario content (assumptions, probability calibration,
+        # per-case context) onto them — the numbers themselves are never
+        # LLM-authored.
+        dvrg = state.get("price_targets")
+        llm_pt = synthesis.get("price_targets") or {}
+        if dvrg and llm_pt:
+            for case in ("bull", "base", "bear"):
+                for suffix in ("assumptions", "growth_assumption", "valuation_multiple", "technical_level"):
+                    val = llm_pt.get(f"{case}_{suffix}")
+                    if val:
+                        dvrg[f"{case}_{suffix}"] = val
+                prob = llm_pt.get(f"{case}_probability")
+                if isinstance(prob, (int, float)) and 0 < prob < 1:
+                    dvrg[f"{case}_probability"] = float(prob)
+            if llm_pt.get("probability_rationale"):
+                dvrg["probability_rationale"] = llm_pt["probability_rationale"]
+        if dvrg:
+            logger.info(
+                f"✓ Price targets (DVRG): Bull ${dvrg.get('bull_target', 0):.2f} / "
+                f"Base ${dvrg.get('base_target', 0):.2f} / Bear ${dvrg.get('bear_target', 0):.2f}"
+            )
 
         # Thesis fields
         thesis = synthesis
@@ -711,7 +745,10 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
             "key_risks": ["Error generating thesis"],
             "entry_strategy": "Error"
         })
-        state["recommendation"] = thesis.get("recommendation", "HOLD")
+        # A missing LLM recommendation must NOT default to "HOLD" — the
+        # reconciler below would read that as a real analyst downgrade of the
+        # scorer's rating. No opinion → defer to the scorer.
+        state["recommendation"] = thesis.get("recommendation") or state.get("rating", "HOLD")
         state["strategic_catalysts"] = thesis.get("strategic_catalysts", None)
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
         state["status"] = "completed"

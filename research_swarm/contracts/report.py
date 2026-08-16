@@ -123,6 +123,21 @@ class PriceTargets(BaseModel):
         "than a valuation model. The UI must label these differently.",
     )
 
+    # ── DVRG divergence-weighted target provenance ──────────────────────────
+    persistence_probability: Optional[float] = Field(
+        None, ge=0, le=1,
+        description="Probability the premium/consensus regime persists over 12 months",
+    )
+    reversion_anchor: Optional[float] = Field(
+        None, description="Intrinsic fair value midpoint (multiple-reversion anchor)"
+    )
+    persistence_anchor: Optional[float] = Field(
+        None, description="Analyst consensus mean target (premium-persistence anchor)"
+    )
+    basis_note: Optional[str] = Field(
+        None, description="One-line explanation of how the base target was derived"
+    )
+
 
 # ── Narrative (LLM structured output — terminal, never re-parsed) ───────────
 
