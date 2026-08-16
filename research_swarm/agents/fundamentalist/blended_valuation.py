@@ -81,11 +81,16 @@ class BlendedValuationCalculator:
         market_cap = market_cap_millions * 1_000_000 if market_cap_millions else 0
         is_mega_cap = market_cap > 50_000_000_000
 
-        # Sector multiples — track whether they were defaulted
-        sector_pe = valuation_metrics.get("sector_avg_pe", 18.0)
-        sector_ev_ebitda = valuation_metrics.get("sector_avg_ev_ebitda", 12.0)
-        enterprise_value_millions = valuation_metrics.get("enterprise_value_millions")
+        # Sector multiples — track whether they were defaulted.
+        # `.get(key, default)` does NOT rescue a key that is present with value
+        # None, which is exactly what an unresolved sector produces. Coerce
+        # explicitly so a missing anchor degrades to the broad-market default
+        # (and is disclosed) instead of propagating None into the arithmetic
+        # and aborting the whole valuation.
         sector_multiples_defaulted = not valuation_metrics.get("sector_avg_pe")
+        sector_pe = valuation_metrics.get("sector_avg_pe") or 18.0
+        sector_ev_ebitda = valuation_metrics.get("sector_avg_ev_ebitda") or 12.0
+        enterprise_value_millions = valuation_metrics.get("enterprise_value_millions")
 
         # Raw data from stock_info
         ttm_eps = None
@@ -112,8 +117,19 @@ class BlendedValuationCalculator:
             ebitda = stock_info.get("ebitda")
             shares_outstanding = stock_info.get("sharesOutstanding")
             total_debt = stock_info.get("totalDebt", 0) or 0
-            cash = stock_info.get("cash", 0) or 0
+            # yfinance's .info exposes `totalCash`, not `cash`. Reading the
+            # wrong key made cash zero in every valuation: it understated the
+            # equity bridge, turned net debt into GROSS debt (so net-cash
+            # companies were scored as levered and lost 25 confidence points),
+            # and made the excess-cash adjustment in the EV/EBITDA leg dead code.
+            cash = stock_info.get("totalCash") or stock_info.get("cash") or 0
+            # `capitalExpenditures` is likewise absent from .info; OCF − FCF is
+            # the same quantity and both fields are present.
             capex = stock_info.get("capitalExpenditures")
+            if capex is None:
+                ocf, fcf = stock_info.get("operatingCashflow"), stock_info.get("freeCashflow")
+                if ocf is not None and fcf is not None:
+                    capex = ocf - fcf
             revenue_growth = stock_info.get("revenueGrowth")
             beta = stock_info.get("beta")
 
@@ -141,8 +157,14 @@ class BlendedValuationCalculator:
         if revenue_growth is None and dcf_inputs:
             revenue_growth = (dcf_inputs.revenue_growth_rate or 10.0) / 100.0
 
-        # Debt/cash validity
-        debt_cash_valid = (total_debt is not None) and (cash is not None)
+        # Debt/cash validity — check the SOURCE fields, not the locals above,
+        # which are coerced to 0 and so were unconditionally "valid" (a free
+        # +5 confidence bonus for data that was in fact never read).
+        debt_cash_valid = bool(
+            stock_info
+            and stock_info.get("totalDebt") is not None
+            and (stock_info.get("totalCash") is not None or stock_info.get("cash") is not None)
+        )
 
         # Debt ratio for archetype detection
         debt_ratio = (total_debt / market_cap) if market_cap > 0 and total_debt else 0.0

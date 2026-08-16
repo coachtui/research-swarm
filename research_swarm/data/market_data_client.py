@@ -698,6 +698,30 @@ class MarketDataClient:
         "Communication Services": 12.0,
     }
 
+    # yfinance reports its own sector taxonomy; the multiple tables above are
+    # keyed on GICS names. Four sectors differ, and they cover roughly 30% of
+    # the S&P 500 (every bank/insurer/asset manager, all of consumer
+    # discretionary and staples, and all of materials). Without this mapping
+    # the lookup returns None, which propagates into the valuation engine and
+    # aborts it — so those names silently got no fair value at all.
+    _YF_SECTOR_TO_GICS = {
+        "Financial Services": "Financials",
+        "Consumer Cyclical": "Consumer Discretionary",
+        "Consumer Defensive": "Consumer Staples",
+        "Basic Materials": "Materials",
+    }
+
+    @classmethod
+    def normalize_sector(cls, sector: Optional[str]) -> Optional[str]:
+        """Map a yfinance sector name onto the GICS name used by the multiple
+        tables. Returns None when the sector is missing or unrecognized, so
+        callers can flag the estimate as lacking a sector anchor."""
+        if not sector or sector == "Unknown":
+            return None
+        sector = sector.strip()
+        mapped = cls._YF_SECTOR_TO_GICS.get(sector, sector)
+        return mapped if mapped in cls.SECTOR_MEDIAN_PE else None
+
     def get_valuation_metrics(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
         Get valuation metrics from yfinance .info dict.
@@ -730,8 +754,15 @@ class MarketDataClient:
                 return None
 
             sector = info.get("sector", "Unknown")
-            sector_avg_pe = self.SECTOR_MEDIAN_PE.get(sector)
-            sector_avg_ev_ebitda = self.SECTOR_MEDIAN_EV_EBITDA.get(sector)
+            gics_sector = self.normalize_sector(sector)
+            if gics_sector is None and sector and sector != "Unknown":
+                logger.warning(
+                    f"Unrecognized sector '{sector}' for {ticker} — no sector multiple anchor"
+                )
+            sector_avg_pe = self.SECTOR_MEDIAN_PE.get(gics_sector) if gics_sector else None
+            sector_avg_ev_ebitda = (
+                self.SECTOR_MEDIAN_EV_EBITDA.get(gics_sector) if gics_sector else None
+            )
 
             pe_ratio = info.get("trailingPE")
             pe_premium_discount = None
