@@ -374,8 +374,31 @@ def _extract_metrics(
         if value is not None and float(value) >= threshold:
             confirmation_score += 1
 
-    # EV ratio
-    prob_ev = price_targets_raw.get("probability_weighted_ev")
+    # EV ratio. Prefer the manager's DVRG targets: their bull/base/bear come
+    # from genuinely different anchors (analyst high/consensus/intrinsic band),
+    # so the probability-weighted expectation carries information. The
+    # fundamentalist's scenarios are symmetric around their own midpoint, which
+    # makes their weighted EV algebraically identical to fair_value_mid — this
+    # ratio was previously just the inverse price premium wearing a different
+    # name.
+    manager_targets = full_output.get("price_targets") or {}
+    prob_ev = None
+    bull, base, bear = (
+        manager_targets.get("bull_target"),
+        manager_targets.get("base_target"),
+        manager_targets.get("bear_target"),
+    )
+    if bull and base and bear:
+        p_bull = float(manager_targets.get("bull_probability") or 0.25)
+        p_base = float(manager_targets.get("base_probability") or 0.50)
+        p_bear = float(manager_targets.get("bear_probability") or 0.25)
+        total_p = p_bull + p_base + p_bear
+        if total_p > 0:
+            prob_ev = (
+                float(bull) * p_bull + float(base) * p_base + float(bear) * p_bear
+            ) / total_p
+    if prob_ev is None:
+        prob_ev = price_targets_raw.get("probability_weighted_ev")
     current_price = valuation_metrics.get("current_price") or di.get("current_price")
     ev_ratio: Optional[float] = None
     if prob_ev and current_price and float(current_price) > 0:

@@ -34,6 +34,11 @@ class BlendedValuationCalculator:
     - DCF Sanity Check: 20%
     """
 
+    # Confidence base. Set so base + max method bonus (+30) + max input-quality
+    # bonus (+25) == 100 exactly, leaving no headroom above the ceiling for
+    # penalties to be silently absorbed by. See _calculate_confidence_score.
+    BASE_CONFIDENCE = 45
+
     def calculate_fair_value(
         self,
         ticker: str,
@@ -590,14 +595,24 @@ class BlendedValuationCalculator:
         """
         Score valuation reliability on a 0–100 scale.
 
-        Starts at 100, adds bonuses for high-quality inputs and available methods,
-        then subtracts penalties for missing data, fallbacks, divergence, and
-        extreme price deviation.
+        Starts at a base, adds bonuses for available methods and high-quality
+        inputs, then subtracts penalties for missing data, fallbacks, method
+        dispersion, and extreme price deviation.
+
+        The base is BASE_CONFIDENCE (45), chosen so that base + every bonus
+        lands exactly on the 100 ceiling. It used to start at 100 with up to
+        +55 of bonuses on top and a `min(100, ...)` applied only at the very
+        end — which meant a well-supported valuation carried 55 points of dead
+        headroom that penalties had to chew through before the score moved at
+        all. A run could report 100/100 "High" while its three methods
+        disagreed by 70% and the model sat 70% away from the market price.
+        Observed live on NVDA: 100/100 held while cross-method deviation went
+        from 5% to 33%. With no headroom, every penalty now registers.
 
         Returns:
             (confidence_score: int, confidence_label: str, uncertainty_drivers: List[str])
         """
-        score = 100
+        score = self.BASE_CONFIDENCE
         drivers: List[str] = []
 
         # ── Method availability bonuses (+10 per valid method, max +30) ──────────
@@ -1376,6 +1391,24 @@ class BlendedValuationCalculator:
         prob_weighted_ev = round(
             bear_target * final_bear_p + base_target_final * final_base_p + bull_target * final_bull_p, 2
         )
+
+        # Degeneracy guard. These scenarios are built symmetrically around the
+        # midpoint (bull = mid*(1+s), bear = mid*(1-s)) and, absent signal
+        # probabilities, weighted 25/50/25 — so the expectation reduces
+        # algebraically to the midpoint itself for EVERY stock:
+        #   0.25(1-s) + 0.50 + 0.25(1+s) == 1.0
+        # Publishing that as a separate "probability-weighted expected value"
+        # implies information the number does not carry, and a downstream
+        # consumer was ranking on it. Report it only when the probabilities
+        # actually skew the distribution; otherwise leave it unset so callers
+        # fall back to the manager's DVRG targets, whose bull/base/bear come
+        # from genuinely different anchors.
+        if abs(prob_weighted_ev - round(fair_value_mid, 2)) < 0.01:
+            logger.debug(
+                "Probability-weighted EV is degenerate (symmetric scenarios, static "
+                "probabilities) — equals fair_value_mid, so it is not reported separately"
+            )
+            prob_weighted_ev = None
 
         return PriceTargetScenarios(
             # Intrinsic value range

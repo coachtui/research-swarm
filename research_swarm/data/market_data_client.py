@@ -559,6 +559,50 @@ class MarketDataClient:
             logger.error(f"Error fetching short interest for {ticker}: {e}")
             return None
 
+    def get_eps_revisions(self, ticker: str) -> Optional[pd.DataFrame]:
+        """
+        Get analyst EPS estimate revision counts.
+
+        yfinance's `eps_revisions` frame is indexed by period (0q, +1q, 0y, +1y)
+        with `upLast7days`, `upLast30days`, `downLast30days`, `downLast7Days`.
+        This is the actual estimate-revision series — the documented
+        post-earnings-drift anomaly — as opposed to rating upgrades, which are
+        a different signal already captured in the divergence layer.
+
+        Returns:
+            DataFrame indexed by period, or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_eps_revisions"
+
+        cached = cache.get("market_estimates", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (eps_revisions) for {cache_key}")
+            return None
+        if cached:
+            return pd.DataFrame(cached).set_index("period") if cached else None
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+            df = yf.Ticker(ticker).eps_revisions
+
+            if df is None or df.empty:
+                logger.warning(f"No EPS revisions for {ticker}")
+                cache.set("market_estimates", cache_key, _NO_DATA, ttl_days=1)
+                return None
+
+            cache.set(
+                "market_estimates",
+                cache_key,
+                df.reset_index().to_dict(orient="list"),
+                ttl_days=1,
+            )
+            return df
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch EPS revisions for {ticker}: {e}")
+            return None
+
     def get_earnings_estimates(self, ticker: str) -> Optional[pd.DataFrame]:
         """
         Get forward earnings estimates.
