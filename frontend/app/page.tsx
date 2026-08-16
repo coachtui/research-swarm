@@ -92,9 +92,6 @@ export default function Home() {
             >
               See the track record →
             </Link>
-            <span className="text-xs text-text-tertiary">
-              Every report public to its buyer. Nothing back-edited.
-            </span>
           </div>
         </div>
       </div>
