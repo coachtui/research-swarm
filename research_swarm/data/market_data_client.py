@@ -12,6 +12,12 @@ from research_swarm.data.cache import cache
 from research_swarm.data.rate_limiter import rate_limiter
 
 
+# Negative-cache sentinel: "provider had no data" must be cached as a real
+# value. Storing None made every no-data lookup a cache miss (json "null" is
+# falsy), so tickers without e.g. recommendations were refetched on every call.
+_NO_DATA = {"__no_data__": True}
+
+
 class MarketDataClient:
     """Client for market data via yfinance."""
 
@@ -54,6 +60,9 @@ class MarketDataClient:
 
         # Cache for 1 day (markets update daily)
         cached = cache.get("market_hist", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_hist) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached historical data for {ticker}")
             return pd.DataFrame(cached)
@@ -88,6 +97,9 @@ class MarketDataClient:
 
         # Short cache for intraday (~1 hour = 0.04 days)
         cached = cache.get("market_price", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_price) for {cache_key}")
+            return None
         if cached:
             return cached.get("price")
 
@@ -115,6 +127,9 @@ class MarketDataClient:
 
         # Cache company info for 7 days
         cached = cache.get("market_info", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_info) for {cache_key}")
+            return None
         if cached:
             return cached
 
@@ -207,6 +222,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_recommendations", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_recommendations) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached recommendations for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -219,7 +237,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No analyst recommendations for {ticker}")
-                cache.set("market_recommendations", cache_key, None, ttl_days=1)
+                cache.set("market_recommendations", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -253,6 +271,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_earnings", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_earnings) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached earnings history for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -265,7 +286,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No earnings history for {ticker}")
-                cache.set("market_earnings", cache_key, None, ttl_days=1)
+                cache.set("market_earnings", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -299,6 +320,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_price_target", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_price_target) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached price target for {ticker}")
             return cached
@@ -348,6 +372,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_earnings_dates", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_earnings_dates) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached earnings dates for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -360,7 +387,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No earnings dates for {ticker}")
-                cache.set("market_earnings_dates", cache_key, None, ttl_days=1)
+                cache.set("market_earnings_dates", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -393,6 +420,9 @@ class MarketDataClient:
 
         # Cache for 7 days (13F data is quarterly)
         cached = cache.get("market_institutional", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_institutional) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached institutional holders for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -405,7 +435,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No institutional holders data for {ticker}")
-                cache.set("market_institutional", cache_key, None, ttl_days=7)
+                cache.set("market_institutional", cache_key, _NO_DATA, ttl_days=7)
                 return None
 
             # Cache as dict for JSON serialization
@@ -439,6 +469,9 @@ class MarketDataClient:
 
         # Cache for 1 day (insider data updates frequently)
         cached = cache.get("market_insider", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_insider) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached insider transactions for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -451,7 +484,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No insider transactions for {ticker}")
-                cache.set("market_insider", cache_key, None, ttl_days=1)
+                cache.set("market_insider", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -485,6 +518,9 @@ class MarketDataClient:
 
         # Cache for 7 days (short interest reported bi-monthly)
         cached = cache.get("market_short", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_short) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached short interest for {ticker}")
             return cached
@@ -533,6 +569,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_estimates", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_estimates) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached earnings estimates for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -545,7 +584,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No earnings estimates for {ticker}")
-                cache.set("market_estimates", cache_key, None, ttl_days=1)
+                cache.set("market_estimates", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -580,6 +619,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_upgrades", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_upgrades) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached upgrades/downgrades for {ticker}")
             df = pd.DataFrame(cached)
@@ -597,7 +639,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No upgrades/downgrades for {ticker}")
-                cache.set("market_upgrades", cache_key, None, ttl_days=1)
+                cache.set("market_upgrades", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Reset index to make GradeDate a column
@@ -670,6 +712,9 @@ class MarketDataClient:
         cache_key = f"{ticker}_valuation"
 
         cached = cache.get("market_valuation", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_valuation) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached valuation metrics for {ticker}")
             return cached
@@ -754,6 +799,9 @@ class MarketDataClient:
         cache_key = f"{ticker}_key_stats"
 
         cached = cache.get("market_key_stats", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_key_stats) for {cache_key}")
+            return None
         if cached:
             return cached
 
@@ -1024,6 +1072,9 @@ class MarketDataClient:
         cache_key = f"{ticker}_quarterly_financials"
 
         cached = cache.get("market_quarterly_fin", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_quarterly_fin) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached quarterly financials for {ticker}")
             return cached
@@ -1137,6 +1188,9 @@ class MarketDataClient:
         cache_key = f"{ticker}_etf_info"
 
         cached = cache.get("etf_profile", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (etf_profile) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached ETF info for {ticker}")
             return cached

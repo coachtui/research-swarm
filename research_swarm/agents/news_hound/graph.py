@@ -373,19 +373,12 @@ def analyze_analyst_consensus_node(state: NewsHoundState) -> NewsHoundState:
             logger.debug("Fetching price targets directly (no shared data)")
             price_targets = market_data_client.get_analyst_price_target(state["ticker"])
 
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_analyst_consensus(
-            recommendations_data,
-            price_targets,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
+        # Pure calculation — no LLM (the old Haiku call just copied these
+        # numbers into JSON)
+        from research_swarm.agents.news_hound.signal_calculators import calculate_analyst_consensus
+        state["analyst_consensus"] = calculate_analyst_consensus(recommendations_data, price_targets)
 
-        # Store in state
-        state["analyst_consensus"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Analyst consensus analyzed")
+        logger.success(f"✓ Analyst consensus analyzed (deterministic)")
 
     except Exception as e:
         logger.error(f"Error in analyst consensus node: {e}")
@@ -420,18 +413,11 @@ def analyze_institutional_activity_node(state: NewsHoundState) -> NewsHoundState
             logger.debug("Fetching institutional holders directly (no shared data)")
             institutional_data = market_data_client.get_institutional_holders(state["ticker"])
 
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_institutional_activity(
-            institutional_data,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
+        # Pure calculation — no LLM
+        from research_swarm.agents.news_hound.signal_calculators import calculate_institutional_activity
+        state["institutional_activity"] = calculate_institutional_activity(institutional_data)
 
-        # Store in state
-        state["institutional_activity"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Institutional activity analyzed")
+        logger.success(f"✓ Institutional activity analyzed (deterministic)")
 
     except Exception as e:
         logger.error(f"Error in institutional activity node: {e}")
@@ -466,29 +452,12 @@ def analyze_dark_pool_activity_node(state: NewsHoundState) -> NewsHoundState:
             logger.debug("Fetching dark pool data directly from FINRA (no shared data)")
             dark_pool_data = finra_client.get_dark_pool_activity(state["ticker"], weeks_back=13)
 
-        # Get institutional context for cross-reference
-        institutional_context = None
-        if state.get("institutional_activity"):
-            inst_data = state["institutional_activity"]
-            institutional_context = (
-                f"Institutional ownership: {inst_data.get('institutional_ownership_pct', 'N/A')}%, "
-                f"Trend: {inst_data.get('trend', 'unknown')}, "
-                f"Sentiment: {inst_data.get('institutional_sentiment', 'neutral')}"
-            )
+        # Pure calculation — no LLM (baseline z-score math was already
+        # deterministic; the model call only narrated it)
+        from research_swarm.agents.news_hound.signal_calculators import calculate_dark_pool_activity
+        state["dark_pool_activity"] = calculate_dark_pool_activity(dark_pool_data)
 
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_dark_pool_activity(
-            dark_pool_data,
-            institutional_context,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
-
-        # Store in state
-        state["dark_pool_activity"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Dark pool activity analyzed")
+        logger.success(f"✓ Dark pool activity analyzed (deterministic)")
 
     except Exception as e:
         logger.error(f"Error in dark pool activity node: {e}")
@@ -637,18 +606,12 @@ def analyze_short_interest_node(state: NewsHoundState) -> NewsHoundState:
             logger.debug("Fetching short interest directly (no shared data)")
             short_data = market_data_client.get_short_interest(state["ticker"])
 
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_short_interest(
-            short_data,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
+        # Pure calculation — no LLM (the old prompt asked Haiku to copy six
+        # numbers into JSON and apply a hardcoded threshold table)
+        from research_swarm.agents.news_hound.signal_calculators import calculate_short_interest
+        state["short_interest"] = calculate_short_interest(short_data)
 
-        # Store in state
-        state["short_interest"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Short interest analyzed")
+        logger.success(f"✓ Short interest analyzed (deterministic)")
 
     except Exception as e:
         logger.error(f"Error in short interest node: {e}")

@@ -27,7 +27,9 @@ export function PortfolioContext({
   rating,
   moatScore,
   financialHealthScore = 5.0,
-  sector = 'Technology',
+  // Default to 'Unknown' (market-like beta), never a specific sector — every
+  // ticker previously rendered as "Technology" with a growth-tech tilt.
+  sector = 'Unknown',
   currentPrice,
   convictionPosition,
   signalBreakdown,

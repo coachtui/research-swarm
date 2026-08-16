@@ -420,43 +420,21 @@ def enrich_with_decision_intelligence(
                     "bear_probability": 0.25,
                 }
 
-        # --- Rating (with fallback) ---
-        rating = full_output.get("rating")
-        if not rating and moat_score is not None:
-            ms = moat_score
-            if ms >= 8.5:
-                rating = "STRONG BUY"
-            elif ms >= 7.0:
-                rating = "BUY"
-            elif ms >= 5.0:
-                rating = "HOLD"
-            elif ms >= 3.5:
-                rating = "SELL"
-            else:
-                rating = "STRONG SELL"
+        # --- Rating ---
+        # New records persist an already-reconciled rating (manager graph applies
+        # ManagerScorer.reconcile_rating at write time). For older records this
+        # derives + reconciles via the same canonical code path, so the web and
+        # PDF surfaces can never disagree on thresholds again.
+        from research_swarm.agents.manager.scorer import ManagerScorer
 
-        # --- Recommendation-Rating Alignment ---
-        # The moat scorer and the LLM thesis generator are separate systems that can
-        # independently arrive at different conclusions. When they disagree, we take the
-        # more conservative rating so the badge always matches the written verdict.
-        # This prevents the "BUY badge / HOLD narrative" contradiction.
-        _TIER_ORDER = ["STRONG SELL", "SELL", "HOLD", "BUY", "STRONG BUY"]
-        _REC_NORMALIZE = {"AVOID": "SELL", "BUY NOW": "BUY", "SCALE IN": "HOLD", "WAIT": "HOLD"}
+        rating = full_output.get("rating")
         llm_recommendation = full_output.get("recommendation")
-        if llm_recommendation and rating:
-            rec_upper = llm_recommendation.upper()
-            rec_normalized = _REC_NORMALIZE.get(rec_upper, rec_upper)
-            if rec_normalized in _TIER_ORDER and rating in _TIER_ORDER:
-                rec_idx = _TIER_ORDER.index(rec_normalized)
-                rating_idx = _TIER_ORDER.index(rating)
-                alignment_gap = rating_idx - rec_idx  # positive = scorer more bullish than LLM
-                if alignment_gap > 0:
-                    # Scorer is more bullish — trust the LLM which has full narrative context
-                    print(
-                        f"[DI Alignment] Badge reconciled: scorer={rating} vs LLM={llm_recommendation} "
-                        f"(gap={alignment_gap} tiers) → badge set to {rec_normalized}"
-                    )
-                    rating = rec_normalized
+        if not rating and moat_score is not None:
+            rating, _ = ManagerScorer.derive_rating(
+                moat_score, llm_recommendation=llm_recommendation
+            )
+        elif rating:
+            rating = ManagerScorer.reconcile_rating(rating, llm_recommendation)
 
         # --- Risk level (with fallback) ---
         risk_level = full_output.get("risk_level")

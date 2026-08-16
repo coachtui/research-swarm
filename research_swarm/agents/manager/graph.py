@@ -728,28 +728,22 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
         state["status"] = "completed"
 
-        # ── Recommendation-Rating Alignment Check ──────────────────────────────
-        # Compute alignment between the moat scorer's rating and the LLM recommendation.
-        # A gap of ≥1 tier means these two systems disagreed. Log for model improvement.
-        # The decision_intelligence layer will auto-reconcile the badge to the more
-        # conservative value, so the user-facing report will always be consistent.
-        _TIER_ORDER = ["STRONG SELL", "SELL", "HOLD", "BUY", "STRONG BUY"]
-        _REC_NORMALIZE = {"AVOID": "SELL", "BUY NOW": "BUY", "SCALE IN": "HOLD", "WAIT": "HOLD"}
+        # ── Recommendation-Rating Reconciliation (at write time) ──────────────
+        # Reconcile the scorer's rating with the LLM recommendation HERE, so the
+        # persisted rating is already consistent with the written verdict. Every
+        # read path (web, PDF, portfolio engine, weekly signals) then sees the
+        # same value instead of re-reconciling (or forgetting to).
         scorer_rating = state.get("rating", "HOLD")
         llm_rec = state.get("recommendation", "HOLD")
-        llm_rec_normalized = _REC_NORMALIZE.get(llm_rec.upper(), llm_rec.upper())
-        if scorer_rating in _TIER_ORDER and llm_rec_normalized in _TIER_ORDER:
-            scorer_idx = _TIER_ORDER.index(scorer_rating)
-            llm_idx = _TIER_ORDER.index(llm_rec_normalized)
-            alignment_gap = abs(scorer_idx - llm_idx)
-            if alignment_gap == 0:
-                logger.info(f"✓ Rating alignment: scorer={scorer_rating} == LLM={llm_rec} (aligned)")
-            else:
-                logger.warning(
-                    f"⚠ Rating alignment gap detected: scorer={scorer_rating} vs LLM={llm_rec} "
-                    f"(normalized: {llm_rec_normalized}, gap={alignment_gap} tiers) "
-                    f"— badge will auto-reconcile to more conservative ({llm_rec_normalized if llm_idx < scorer_idx else scorer_rating})"
-                )
+        reconciled = manager_scorer.reconcile_rating(scorer_rating, llm_rec)
+        if reconciled != scorer_rating:
+            logger.warning(
+                f"⚠ Rating reconciled: scorer={scorer_rating} vs LLM={llm_rec} "
+                f"→ persisted rating set to more conservative {reconciled}"
+            )
+            state["rating"] = reconciled
+        else:
+            logger.info(f"✓ Rating alignment: scorer={scorer_rating}, LLM={llm_rec} (no downgrade)")
 
         logger.success(f"✓ Investment thesis generated ({tokens} tokens)")
 

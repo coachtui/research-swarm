@@ -865,13 +865,14 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
             state["earnings_momentum_breakdown"] = None
             logger.warning("No earnings data - using neutral momentum (5.0)")
 
-        # Fetch valuation metrics from yfinance (primary), SEC filing data (fallback)
+        # Valuation metrics: prefer the shared-bundle copy fetched once by the
+        # Manager (already in state) — refetching here could value the stock at
+        # a different price than the one Quant/News Hound saw. Fall back to a
+        # direct fetch only when the bundle had nothing.
         from research_swarm.data.market_data_client import market_data_client
 
-        # Always fetch current price independently — more reliable than full valuation
-        current_price = market_data_client.get_current_price(state["ticker"])
-
-        valuation_raw = market_data_client.get_valuation_metrics(state["ticker"])
+        valuation_raw = state.get("valuation_metrics") or market_data_client.get_valuation_metrics(state["ticker"])
+        current_price = (valuation_raw or {}).get("current_price") or market_data_client.get_current_price(state["ticker"])
         if valuation_raw:
             state["valuation_metrics"] = valuation_raw
             valuation_score = market_data_client.calculate_valuation_score(valuation_raw)
