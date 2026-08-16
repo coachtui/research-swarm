@@ -9,7 +9,6 @@ from langchain_anthropic import ChatAnthropic
 from research_swarm.logger import logger
 from research_swarm.config import settings
 from research_swarm.utils import extract_token_usage
-from research_swarm.agents.news_hound.prompts import SENTIMENT_SCORING_PROMPT
 from research_swarm.agents.news_hound.models import (
     NewsArticle,
     CatalystEvent,
@@ -29,86 +28,6 @@ class SentimentScorer:
             temperature=0.3,
         )
         logger.info("SentimentScorer initialized with Haiku")
-
-    def score_sentiment(
-        self,
-        ticker: str,
-        days_back: int,
-        article_count: int,
-        sentiment_analysis: str,
-        catalyst_events: List[CatalystEvent]
-    ) -> Tuple[float, SentimentBreakdown, float, int]:
-        """
-        Score news sentiment across 4 dimensions.
-
-        Args:
-            ticker: Stock ticker
-            days_back: Number of days analyzed
-            article_count: Total articles analyzed
-            sentiment_analysis: Sentiment analysis narrative
-            catalyst_events: Detected catalyst events
-
-        Returns:
-            Tuple of (sentiment_score, breakdown, confidence, tokens_used)
-        """
-        logger.info(f"Scoring sentiment for {ticker} ({article_count} articles, {len(catalyst_events)} catalysts)")
-
-        # Format catalysts for prompt
-        catalysts_text = self._format_catalysts(catalyst_events)
-
-        # Truncate sentiment analysis if too long
-        if len(sentiment_analysis) > 3000:
-            sentiment_analysis = sentiment_analysis[:3000] + "..."
-
-        prompt = SENTIMENT_SCORING_PROMPT.format(
-            ticker=ticker,
-            days_back=days_back,
-            article_count=article_count,
-            sentiment_analysis=sentiment_analysis,
-            catalyst_events=catalysts_text
-        )
-
-        try:
-            response = self.haiku.invoke(prompt)
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            # Extract JSON from response
-            json_text = self._extract_json(response_text)
-            score_data = json.loads(json_text)
-
-            # Extract component scores
-            breakdown = SentimentBreakdown(
-                overall_tone=score_data["overall_tone"],
-                catalyst_impact=score_data["catalyst_impact"],
-                market_perception=score_data["market_perception"],
-                forward_looking=score_data["forward_looking"]
-            )
-
-            # Calculate weighted average
-            sentiment_score = breakdown.weighted_average()
-
-            # Extract confidence
-            confidence = score_data.get("confidence", 0.7)
-
-            logger.success(
-                f"✓ Scored {ticker} sentiment: {sentiment_score:.2f}/10 "
-                f"(Tone:{breakdown.overall_tone:.1f} Cat:{breakdown.catalyst_impact:.1f} "
-                f"Mkt:{breakdown.market_perception:.1f} Fwd:{breakdown.forward_looking:.1f}) "
-                f"Conf:{confidence:.2f} ({tokens_used} tokens)"
-            )
-
-            return sentiment_score, breakdown, confidence, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse scoring JSON: {e}")
-            logger.debug(f"Response: {response_text[:500]}")
-            # Return default scores on error
-            return self._default_scores()
-
-        except Exception as e:
-            logger.error(f"Error scoring sentiment: {e}")
-            return self._default_scores()
 
     def calculate_confidence(
         self,

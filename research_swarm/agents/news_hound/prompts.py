@@ -53,259 +53,20 @@ NEWS_FILTERING_PROMPT = """You are filtering news articles for relevance to a sp
 # Purpose: Extract catalyst events from news articles (9 categories)
 # ============================================================================
 
-CATALYST_EXTRACTION_PROMPT = """You are extracting business catalyst events from news articles.
-
-**Company Ticker**: {ticker}
-**Analysis Period**: Last {days_back} days
-
-**News Articles**:
-{articles_text}
-
----
-
-**Task**: Identify and extract catalyst events in these 9 categories:
-
-1. **M&A** - Mergers, acquisitions, divestitures
-2. **contract** - Major contracts, deals, purchase orders
-3. **expansion** - Facility expansions, market expansion, new locations
-4. **regulatory** - Regulatory approvals, compliance issues, legal matters
-5. **partnership** - Strategic partnerships, joint ventures, collaborations
-6. **product_launch** - New product launches, product announcements
-7. **earnings_surprise** - Earnings beats/misses, guidance changes
-8. **executive_change** - CEO, CFO, or other C-suite changes
-9. **supply_chain** - Supply chain disruptions, supplier issues, logistics problems
-
-**Output Format**: Return a JSON array of catalyst events:
-
-{{
-  "catalysts": [
-    {{
-      "event_type": "<one of the 9 types>",
-      "impact": "<positive/negative/neutral>",
-      "description": "<concise description of the event>",
-      "date": "<YYYY-MM-DD if mentioned, else null>",
-      "confidence": <0.0-1.0>,
-      "source_urls": ["<url1>", "<url2>"]
-    }}
-  ],
-  "total_detected": <count>
-}}
-
-**Instructions**:
-- Extract all significant catalyst events (target: 3-10 events)
-- Avoid extracting minor or speculative events
-- Combine related articles covering the same event
-- Confidence reflects how clear and well-sourced the event is
-- Be specific in descriptions (e.g., "$2B contract" not just "new contract")
-- Return ONLY valid JSON, no other text
-"""
-
 # ============================================================================
 # REGULATORY EXTRACTION PROMPT (Haiku)
 # Purpose: Detailed extraction of regulatory events
 # ============================================================================
-
-REGULATORY_EXTRACTION_PROMPT = """You are extracting regulatory and legal events from news articles.
-
-**Company Ticker**: {ticker}
-
-**News Articles**:
-{articles_text}
-
----
-
-**Task**: Extract regulatory and legal events with high detail.
-
-**Types of Regulatory Events**:
-- FDA/regulatory approvals or rejections
-- Export control or trade restrictions
-- Antitrust investigations or actions
-- Environmental regulations or violations
-- Data privacy or cybersecurity regulations
-- Industry-specific compliance matters
-- Government contracts or relations
-
-**Output Format**: Return a JSON array:
-
-{{
-  "regulatory_events": [
-    {{
-      "event_type": "regulatory",
-      "impact": "<positive/negative/neutral>",
-      "description": "<detailed description>",
-      "date": "<YYYY-MM-DD if mentioned>",
-      "confidence": <0.0-1.0>,
-      "source_urls": ["<url>"],
-      "regulatory_body": "<name of regulatory agency if mentioned>"
-    }}
-  ],
-  "total_detected": <count>
-}}
-
-**Instructions**:
-- Focus on material regulatory events that could impact business
-- Include details about regulatory bodies involved
-- Assess impact on business operations and revenue
-- High confidence (>0.8) for official announcements
-- Lower confidence (<0.6) for speculation or rumors
-- Return ONLY valid JSON, no other text
-"""
 
 # ============================================================================
 # SENTIMENT ANALYSIS PROMPT (Sonnet)
 # Purpose: Deep, nuanced sentiment analysis
 # ============================================================================
 
-SENTIMENT_ANALYSIS_PROMPT = """You are a financial analyst performing nuanced sentiment analysis on news coverage.
-
-**Company Ticker**: {ticker}
-**Analysis Period**: Last {days_back} days
-**Articles Analyzed**: {article_count}
-
-**News Articles**:
-{articles_text}
-
-**Detected Catalyst Events**:
-{catalyst_events}
-
----
-
-**Task**: Provide a comprehensive sentiment analysis of the news coverage.
-
-Your analysis should cover:
-
-1. **Overall Narrative Tone**
-   - What is the dominant narrative around the company?
-   - Is coverage primarily positive, negative, or mixed?
-   - Are there shifts in sentiment over the period?
-
-2. **Catalyst Impact Assessment**
-   - How significant are the detected catalyst events?
-   - What is the net positive/negative impact of these events?
-   - Which events are most material to the business?
-
-3. **Market and Analyst Perception**
-   - How are markets and analysts responding to news?
-   - Are there concerns or enthusiasm in coverage?
-   - Any notable analyst ratings or price target changes?
-
-4. **Forward-Looking Indicators**
-   - What does news suggest about future prospects?
-   - Are there growth drivers or headwinds mentioned?
-   - Is innovation and competitive position strengthening or weakening?
-
-5. **Risk Factors**
-   - What risks or challenges are highlighted in coverage?
-   - Supply chain issues, regulatory concerns, competition?
-   - How material are these risks?
-
-6. **Source Diversity and Quality**
-   - Quality of sources (tier-1 vs tier-3 publications)
-   - Diversity of perspectives
-   - Any bias or lack of substantiation?
-
-**SOURCE EXCLUSION RULES (strict)**:
-- Do NOT cite financial media personalities (Jim Cramer, Jim Lebenthal, Josh Brown, or any named TV/podcast commentators) as supporting evidence for any signal.
-- Do NOT treat television commentary, podcast opinions, social media posts, or blog commentary as evidence.
-- Acceptable citation sources: SEC filings (10-K, 10-Q, 8-K, Form 4), earnings call transcripts, institutional analyst research notes (with model citation), regulatory announcements, Bloomberg/Reuters/WSJ/FT factual reporting (not opinion columns).
-- If only opinion-based sources exist for a claim, explicitly flag: "Source quality: opinion-based — confidence LOW."
-
-**Output**: Write a comprehensive sentiment analysis (400-600 words) that:
-- Goes beyond surface-level positive/negative classification
-- Provides context and nuance about the sentiment drivers
-- Identifies conflicting signals or areas of uncertainty
-- Makes evidence-based assessments tied to specific events
-- Balances short-term news against longer-term implications
-- Cites structural events (earnings beats, SEC filings, regulatory approvals) not media reactions
-
-**Tone**: Professional, analytical, balanced. Avoid hyperbole or speculation.
-"""
-
 # ============================================================================
 # SENTIMENT SCORING PROMPT (Sonnet)
 # Purpose: Score sentiment across 4 dimensions (0-10 scale)
 # ============================================================================
-
-SENTIMENT_SCORING_PROMPT = """You are scoring news sentiment across 4 key dimensions.
-
-**Company Ticker**: {ticker}
-**Analysis Period**: Last {days_back} days
-**Articles Analyzed**: {article_count}
-
-**Sentiment Analysis**:
-{sentiment_analysis}
-
-**Detected Catalysts**:
-{catalyst_events}
-
----
-
-**Task**: Score news sentiment across 4 dimensions on a 0-10 scale.
-
-**Scoring Dimensions**:
-
-1. **Overall Tone (0-10)**
-   - The general tone and framing of news coverage
-   - Language used: alarmist vs celebratory
-   - Balance of positive vs negative coverage
-   - 10 = Overwhelmingly positive, enthusiastic coverage
-   - 5 = Neutral, balanced, or mixed coverage
-   - 0 = Overwhelmingly negative, crisis narrative
-
-2. **Catalyst Impact (0-10)**
-   - Net impact of detected catalyst events on business
-   - Magnitude and materiality of events
-   - Short-term and long-term implications
-   - 10 = Multiple strong positive catalysts, transformative events
-   - 5 = Mix of positive and negative, or minor events
-   - 0 = Multiple strong negative catalysts, major setbacks
-
-3. **Market Perception (0-10)**
-   - How markets, analysts, and investors are responding
-   - Analyst sentiment and rating changes
-   - Stock performance narrative in coverage
-   - 10 = Strong bullish sentiment, upgrades, enthusiasm
-   - 5 = Neutral analyst sentiment, hold ratings
-   - 0 = Strong bearish sentiment, downgrades, concerns
-
-4. **Forward Looking (0-10)**
-   - Sentiment about future prospects and trajectory
-   - Growth drivers vs headwinds mentioned
-   - Innovation, market position, competitive dynamics
-   - 10 = Highly optimistic about future, strong growth narrative
-   - 5 = Uncertain outlook, mixed signals
-   - 0 = Highly pessimistic, declining prospects
-
-**Confidence Calculation**:
-- Based on article quantity (more articles = higher confidence)
-- Based on catalyst detection (clear events = higher confidence)
-- Based on source diversity (diverse sources = higher confidence)
-- Typical range: 0.6 - 0.95
-
-**Output Format**: Return a JSON object:
-
-{{
-  "overall_tone": <float 0-10>,
-  "catalyst_impact": <float 0-10>,
-  "market_perception": <float 0-10>,
-  "forward_looking": <float 0-10>,
-  "confidence": <float 0-1>,
-  "rationale": {{
-    "overall_tone": "<1-2 sentence justification>",
-    "catalyst_impact": "<1-2 sentence justification>",
-    "market_perception": "<1-2 sentence justification>",
-    "forward_looking": "<1-2 sentence justification>"
-  }}
-}}
-
-**Instructions**:
-- Use the full 0-10 range (avoid clustering around 5)
-- Be evidence-based - tie scores to specific events and coverage
-- Balance recent events with overall trajectory
-- Consider both quantity and quality of coverage
-- Confidence reflects data completeness, not sentiment strength
-- Return ONLY valid JSON, no other text
-"""
 
 # ============================================================================
 # DEDUPLICATION PROMPT (Haiku)
@@ -439,487 +200,30 @@ Return ONLY valid JSON, no other text.
 # Purpose: Extract analyst ratings and price target consensus
 # ============================================================================
 
-ANALYST_CONSENSUS_PROMPT = """You are extracting analyst consensus data for {ticker}.
-
-**Company**: {ticker}
-**Analysis Date**: {analysis_date}
-
-**Analyst Data** (if available):
-{analyst_data}
-
-**Recent Analyst Actions** (from news):
-{analyst_news}
-
----
-
-**Task**: Extract current analyst ratings distribution and price target consensus.
-
-**What to Extract**:
-
-1. **Rating Distribution**:
-   - Strong Buy: [count]
-   - Buy: [count]
-   - Hold: [count]
-   - Sell: [count]
-   - Strong Sell: [count]
-   - Overall Consensus: Weighted average rating
-
-2. **Price Targets**:
-   - Average price target
-   - High price target (and which firm)
-   - Low price target (and which firm)
-   - Upside % to average target
-
-3. **Recent Changes (90 days)**:
-   - Number of upgrades
-   - Number of downgrades
-   - New coverage initiations
-   - Rating momentum: Improving/Stable/Deteriorating
-   - Target trend: Rising/Stable/Falling
-
-4. **Consensus Quality**:
-   - Confidence: High (tight range) / Medium / Low (wide dispersion)
-
-**Output Format**: Return a JSON object:
-
-{{
-  "strong_buy": <int>,
-  "buy": <int>,
-  "hold": <int>,
-  "sell": <int>,
-  "strong_sell": <int>,
-  "consensus_rating": "<Strong Buy/Buy/Hold/Sell/Strong Sell>",
-
-  "avg_price_target": <float or null>,
-  "high_price_target": <float or null>,
-  "low_price_target": <float or null>,
-  "target_upside_pct": <float or null>,
-
-  "upgrades": <int>,
-  "downgrades": <int>,
-  "new_coverage": <int>,
-  "rating_momentum": "<Improving/Stable/Deteriorating>",
-  "target_trend": "<Rising/Stable/Falling>",
-
-  "consensus_confidence": "<High/Medium/Low>"
-}}
-
-Return ONLY valid JSON, no other text.
-"""
-
 # ============================================================================
 # INSTITUTIONAL ACTIVITY PROMPT (Haiku)
 # Purpose: Track smart money / 13F activity
 # ============================================================================
-
-INSTITUTIONAL_ACTIVITY_PROMPT = """You are tracking institutional ownership and smart money activity for {ticker}.
-
-**Company**: {ticker}
-**Analysis Date**: {analysis_date}
-
-**13F Filing Data** (if available):
-{filing_data}
-
-**Institutional News**:
-{institutional_news}
-
----
-
-**Task**: Analyze institutional (smart money) ownership and recent activity.
-
-**What to Extract**:
-
-1. **Current Ownership**:
-   - Institutional ownership % of shares outstanding
-   - Quarter-over-quarter change %
-   - Number of institutional holders
-   - Trend: Accumulation (buying) / Distribution (selling) / Stable
-
-2. **Top 5 Holders**:
-   - Fund name, % ownership, recent change
-
-3. **Notable 13F Activity**:
-   - Major funds adding/reducing positions
-   - New positions by notable investors
-   - Complete exits
-
-4. **Sentiment**:
-   - Strongly Bullish: Heavy accumulation by smart money
-   - Bullish: Net buying
-   - Neutral: Mixed/stable
-   - Bearish: Net selling
-
-**Output Format**: Return a JSON object:
-
-{{
-  "institutional_ownership_pct": <float or null>,
-  "qoq_change_pct": <float or null>,
-  "num_holders": <int>,
-  "trend": "<Accumulation/Distribution/Stable>",
-
-  "top_holders": [
-    {{"name": "<fund>", "ownership_pct": <float>, "change": "<Added/Reduced/Held> [X] shares"}},
-    ...
-  ],
-
-  "notable_activity": [
-    "<Description of notable move>",
-    ...
-  ],
-
-  "institutional_sentiment": "<Strongly Bullish/Bullish/Neutral/Bearish>"
-}}
-
-Return ONLY valid JSON, no other text.
-"""
 
 # ============================================================================
 # DARK POOL ACTIVITY PROMPT (Haiku)
 # Purpose: Analyze FINRA dark pool (ATS) activity to track real-time institutional positioning
 # ============================================================================
 
-DARK_POOL_ACTIVITY_PROMPT = """You are analyzing dark pool (Alternative Trading System) activity for {ticker}.
-
-**Company**: {ticker}
-**Analysis Date**: {analysis_date}
-
-**Dark Pool Data** (Last 13 weeks from FINRA):
-{dark_pool_data}
-
-**Stock-Specific Baseline**:
-{baseline_context}
-
-**13F Context** (for cross-reference):
-{institutional_context}
-
----
-
-**Background**:
-- Dark pools are private exchanges where institutions trade large blocks quietly
-- FINRA reports "off-exchange" volume weekly (ATS % = dark pool + wholesaler activity)
-- IMPORTANT: ATS % norms vary by stock — use the baseline above, not generic thresholds
-- General reference only: most liquid large-caps fall in the 20-35% range, but this varies widely
-
-**Task**: Interpret dark pool activity patterns using this stock's OWN historical baseline.
-
-**What to Analyze**:
-
-1. **Volume Metrics (baseline-relative)**:
-   - Average ATS % over the most recent 4 weeks vs the historical baseline
-   - Is the current level elevated, normal, or depressed FOR THIS STOCK?
-   - Use the z-score from the baseline context — z > +1 = elevated, z < -1 = depressed
-   - Trend: Increasing / Stable / Decreasing (recent 2 weeks vs prior 2 weeks)
-
-2. **Venue Analysis**:
-   - Top 3 venues by volume
-   - Venue concentration (high if 1-2 dominant venues, medium if balanced, low if fragmented)
-   - Interpretation: High concentration may indicate coordinated institutional activity
-
-3. **Pattern Detection**:
-   - Sudden spikes or sustained elevation relative to this stock's own baseline
-   - Divergence from 13F trend (dark pool increasing while 13F stable = recent accumulation not yet in filings)
-
-4. **Sentiment Determination (RELATIVE to this stock's baseline)**:
-   - **Bullish**: Current ATS is meaningfully ABOVE this stock's own baseline (z > +0.75) AND/OR trend is increasing
-   - **Neutral**: Current ATS is near this stock's baseline (z between -0.75 and +0.75), stable trend
-   - **Bearish**: Current ATS is meaningfully BELOW this stock's own baseline (z < -0.75) AND/OR trend is decreasing
-
-**Scoring Rubric (relative)**:
-- z > +1.5 with increasing trend = Strong accumulation above normal levels
-- z between +0.75 and +1.5 = Moderate accumulation
-- z between -0.75 and +0.75, stable = Normal activity for this stock
-- z between -1.5 and -0.75 = Mild distribution below normal
-- z < -1.5 OR trend decreasing sharply = Institutions backing away from normal levels
-
-**Output Format**: Return a JSON object:
-
-{{
-  "avg_ats_pct": <float or null>,
-  "trend": "<increasing/stable/decreasing>",
-  "trend_pct_change": <float or null>,
-  "peak_week": "<YYYY-MM-DD or null>",
-  "peak_ats_pct": <float or null>,
-
-  "major_venues": [
-    "<venue1>",
-    "<venue2>",
-    "<venue3>"
-  ],
-
-  "venue_concentration": "<high/medium/low>",
-
-  "notable_patterns": [
-    "<Description of unusual pattern relative to this stock's normal activity>",
-    ...
-  ],
-
-  "dark_pool_sentiment": "<bullish/neutral/bearish>",
-  "confidence": "<high/medium/low>"
-}}
-
-Return ONLY valid JSON, no other text.
-"""
-
 # ============================================================================
 # INSIDER ACTIVITY PROMPT (Haiku)
 # Purpose: Track insider buying/selling (6 months)
 # ============================================================================
-
-INSIDER_ACTIVITY_PROMPT = """You are tracking insider trading activity for {ticker}.
-
-**Company**: {ticker}
-**Analysis Period**: Last 6 months
-
-**Insider Transaction Data** (if available):
-{transaction_data}
-
-**Insider News**:
-{insider_news}
-
----
-
-**Task**: Analyze insider trading patterns and sentiment.
-
-**What to Extract**:
-
-1. **Transaction Summary (6 months)**:
-   - Buy transactions: count, total shares, total value
-   - Sell transactions: count, total shares, total value
-   - Net: shares and value (positive = net buying)
-
-2. **Notable Transactions**:
-   - CEO/CFO transactions (especially buys)
-   - Clustered buying (multiple insiders buying)
-   - Large or unusual transactions
-
-3. **Insider Ownership**:
-   - Total insider ownership %
-   - CEO ownership %
-   - Trend: Increasing/Stable/Decreasing
-
-4. **Sentiment**:
-   - Bullish: Net buying, especially clustered buys or CEO purchases
-   - Neutral: Routine option exercises/sales, balanced activity
-   - Bearish: Heavy selling, especially by CEO/CFO
-   
-   Confidence: High/Medium/Low based on:
-   - High: Clear pattern, significant transactions
-   - Medium: Some activity but mixed signals
-   - Low: Little activity or routine transactions
-
-**IMPORTANT CONTEXT**:
-- Insider BUYING is a strong bullish signal (they have inside info)
-- Insider SELLING is often neutral (diversification, taxes, options)
-- Only flag selling as bearish if it's unusual/clustered/by CEO
-
-**Output Format**: Return a JSON object:
-
-{{
-  "buy_transactions": <int>,
-  "buy_shares": <int>,
-  "buy_value_usd": <float>,
-
-  "sell_transactions": <int>,
-  "sell_shares": <int>,
-  "sell_value_usd": <float>,
-
-  "net_shares": <int (can be negative)>,
-  "net_value_usd": <float (can be negative)>,
-
-  "notable_transactions": [
-    "<Title bought/sold [X] shares at $[Y] on [date] (context)>",
-    ...
-  ],
-
-  "insider_ownership_pct": <float or null>,
-  "ceo_ownership_pct": <float or null>,
-  "ownership_trend": "<Increasing/Stable/Decreasing>",
-
-  "insider_sentiment": "<Bullish/Neutral/Bearish>",
-  "confidence": "<High/Medium/Low>"
-}}
-
-Return ONLY valid JSON, no other text.
-"""
 
 # ============================================================================
 # MANAGEMENT COMMENTARY PROMPT (Sonnet)
 # Purpose: Analyze management tone and guidance quality from earnings calls
 # ============================================================================
 
-MANAGEMENT_COMMENTARY_PROMPT = """You are analyzing management commentary and tone for {ticker}.
-
-**Company**: {ticker}
-**Analysis Date**: {analysis_date}
-
-**Earnings Call Transcripts** (if available):
-{earnings_call_data}
-
-**Management Commentary from News**:
-{management_news}
-
-**Guidance History**:
-{guidance_history}
-
----
-
-**Task**: Assess management quality and commentary tone from earnings calls and guidance.
-
-**What to Analyze**:
-
-1. **Guidance Track Record**:
-   - How accurate is management guidance historically?
-   - Last quarter: Beat/Met/Missed their own guidance?
-   - Reliability: High (consistently accurate) / Medium / Low (frequently wrong)
-   - Current guidance: What did they guide for?
-   - Change: Raised/Maintained/Lowered/Withdrawn?
-
-2. **Tone Assessment** (from earnings call Q&A):
-   - Confident: Assertive, detailed, specific about growth drivers
-   - Cautious: Hedging, mentioning risks, conservative outlook
-   - Defensive: Explaining away problems, blame external factors
-   - Evasive: Dodging questions, vague answers, deflecting
-
-   Extract specific quotes or behaviors that indicate tone.
-
-3. **Red Flag Language**:
-   - Watch for: "challenging environment", "macro headwinds", "one-time charges"
-   - "Investments in growth" (code for declining margins)
-   - "Normalizing" (code for deteriorating)
-   - "Strategic review" (prelude to bad news)
-   - "Optimizing operations" (euphemism for layoffs/restructuring)
-
-4. **Capital Allocation Quality**:
-   - High: Disciplined capex, shareholder returns (buybacks/dividends), avoiding bad M&A
-   - Medium: Balanced approach
-   - Low: Empire building, value-destructive M&A, hoarding cash
-
-   CapEx discipline: Disciplined/Moderate/Aggressive
-   Shareholder returns: What are they doing with FCF?
-
-5. **Innovation & Competitive Position**:
-   - Count mentions of innovation, R&D, new products
-   - Are they strengthening or weakening competitively?
-
-6. **Overall Management Quality Score (0-10)**:
-   - 9-10: Excellent guidance, confident tone, strong capital allocation
-   - 7-8: Good track record, transparent communication
-   - 5-6: Mixed signals, average execution
-   - 3-4: Poor guidance, defensive tone, red flags
-   - 0-2: Major credibility issues, evasive, value-destructive decisions
-
-**Output Format**: Return a JSON object:
-
-{{
-  "guidance_last_quarter": "<Beat/Met/Missed or null>",
-  "guidance_reliability": "<High/Medium/Low>",
-  "current_guidance": "<description or null>",
-  "guidance_change": "<Raised/Maintained/Lowered/Withdrawn or null>",
-
-  "tone_assessment": "<Confident/Cautious/Defensive/Evasive>",
-  "tone_evidence": [
-    "<quote or behavior 1>",
-    "<quote or behavior 2>"
-  ],
-
-  "red_flag_language": [
-    "<concerning phrase 1>",
-    "<concerning phrase 2>"
-  ],
-  "has_red_flags": <true/false>,
-
-  "capital_allocation_quality": "<High/Medium/Low>",
-  "capex_discipline": "<Disciplined/Moderate/Aggressive or null>",
-  "shareholder_returns": "<description or null>",
-
-  "innovation_mentions": <int>,
-  "competitive_position": "<Strengthening/Stable/Weakening>",
-
-  "management_quality_score": <float 0-10>,
-  "confidence": "<High/Medium/Low>"
-}}
-
-Return ONLY valid JSON, no other text.
-"""
-
 # ============================================================================
 # SHORT INTEREST PROMPT (Haiku)
 # Purpose: Track short interest and squeeze risk
 # ============================================================================
-
-SHORT_INTEREST_PROMPT = """You are tracking short interest and squeeze risk for {ticker}.
-
-**Company**: {ticker}
-**Analysis Date**: {analysis_date}
-
-**Short Interest Data** (if available):
-{short_data}
-
-**Short Seller News**:
-{short_news}
-
----
-
-**Task**: Analyze short interest metrics and assess squeeze risk.
-
-**What to Extract**:
-
-1. **Current Short Metrics**:
-   - Short interest as % of float
-   - Total shares sold short
-   - Days to cover (short interest / avg daily volume)
-
-2. **Trend**:
-   - Increasing/Stable/Decreasing
-   - Month-over-month change %
-
-3. **Squeeze Risk Assessment**:
-   - High: >20% short interest AND >5 days to cover
-   - Medium: 10-20% short interest OR 3-5 days to cover
-   - Low: <10% short interest AND <3 days to cover
-
-   Potential triggers:
-   - Upcoming earnings (shorts may need to cover)
-   - High short % + low float = squeeze potential
-   - Positive catalyst + high short interest
-   - Short seller report controversy
-
-4. **Notable Short Activity**:
-   - Short seller reports (Citron, Muddy Waters, etc.)
-   - Activism campaigns
-   - Major short position changes
-
-5. **Sentiment**:
-   - Bullish: Decreasing short interest (shorts covering)
-   - Neutral: Stable short interest
-   - Bearish: Increasing short interest (more shorts piling in)
-
-**Output Format**: Return a JSON object:
-
-{{
-  "short_interest_pct": <float or null>,
-  "short_interest_shares": <int or null>,
-  "days_to_cover": <float or null>,
-
-  "short_interest_trend": "<Increasing/Stable/Decreasing>",
-  "mom_change_pct": <float or null>,
-
-  "squeeze_risk": "<High/Medium/Low>",
-  "squeeze_triggers": [
-    "<trigger 1>",
-    "<trigger 2>"
-  ],
-
-  "notable_short_activity": [
-    "<description of activity>",
-    ...
-  ],
-
-  "short_sentiment": "<Bullish/Neutral/Bearish>"
-}}
-
-Return ONLY valid JSON, no other text.
-"""
 
 # ============================================================================
 # UPCOMING CATALYSTS PROMPT (Haiku)
@@ -1066,4 +370,71 @@ SEC_8K_EXTRACTION_PROMPT = """You are analyzing SEC 8-K material event filings f
 - Item 2.02 results disclosures may overlap with quarterly earnings — flag as earnings_surprise only if they reveal unexpected results
 - Map each event to the closest catalyst event_type from the list above
 - Return ONLY valid JSON, no other text
+"""
+
+
+NEWS_INTERPRETATION_PROMPT = """You are a financial analyst interpreting news coverage for {ticker}.
+This single pass replaces separate catalyst-extraction, regulatory-extraction,
+sentiment, and management-commentary analyses - produce all of them from the
+articles below.
+
+**Company Ticker**: {ticker}
+**Analysis Date**: {analysis_date}
+**Analysis Period**: Last {days_back} days ({article_count} articles total)
+
+**News Articles**:
+{articles_text}
+
+---
+
+Return ONLY a valid JSON object with this exact shape:
+
+{{
+  "catalysts": [
+    {{
+      "event_type": "<M&A|contract|expansion|regulatory|partnership|product_launch|earnings_surprise|executive_change|supply_chain>",
+      "impact": "<positive|negative|neutral>",
+      "description": "<specific, concrete description - e.g. '$2B contract with X' not 'new contract'>",
+      "date": "<YYYY-MM-DD if mentioned, else null>",
+      "confidence": <0.0-1.0>,
+      "source_articles": ["<url>", ...]
+    }}
+  ],
+  "sentiment_narrative": "<3-5 paragraph nuanced sentiment analysis: overall tone of coverage, how detected catalysts shape the picture, market/analyst perception, and forward-looking read. Neutral, factual language - 'declined' for 5-10% drops, reserve 'plummeted'/'crashed' for >20% moves.>",
+  "sentiment_breakdown": {{
+    "overall_tone": <0-10, 0=very bearish, 10=very bullish>,
+    "catalyst_impact": <0-10, net impact of detected catalysts>,
+    "market_perception": <0-10, market and analyst perception>,
+    "forward_looking": <0-10, forward-looking sentiment>
+  }},
+  "sentiment_confidence": <0.0-1.0, based on article volume, source quality, and signal clarity>,
+  "management_commentary": {{
+    "guidance_last_quarter": "<Beat|Met|Missed|null>",
+    "guidance_reliability": "<high|medium|low>",
+    "current_guidance": "<current guidance summary or null>",
+    "guidance_change": "<Raised|Maintained|Lowered|Withdrawn|null>",
+    "tone_assessment": "<confident|cautious|defensive|evasive|neutral>",
+    "tone_evidence": ["<quote or paraphrase>", ...],
+    "red_flag_language": ["<concerning phrasing if any>", ...],
+    "has_red_flags": <true|false>,
+    "capital_allocation_quality": "<high|medium|low>",
+    "capex_discipline": "<Disciplined|Moderate|Aggressive|null>",
+    "shareholder_returns": "<buybacks/dividends summary or null>",
+    "innovation_mentions": <int>,
+    "competitive_position": "<strengthening|stable|weakening>",
+    "management_quality_score": <0-10>,
+    "confidence": "<high|medium|low>"
+  }}
+}}
+
+**Rules**:
+- Catalysts: extract all significant events (target 3-10); combine articles covering
+  the same event; skip minor or speculative items; treat regulatory and legal matters
+  (approvals, investigations, lawsuits, fines) as event_type "regulatory" with specifics.
+- Dates: today is {analysis_date}. Event dates must come from the articles - never
+  invent dates, and never emit dates from the wrong year.
+- management_commentary: base it ONLY on earnings/guidance/outlook coverage in these
+  articles. If there is none, use the null/neutral defaults and confidence "low" -
+  never invent guidance.
+- Return ONLY the JSON object, no other text.
 """

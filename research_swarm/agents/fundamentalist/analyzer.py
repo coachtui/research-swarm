@@ -13,7 +13,6 @@ from research_swarm.utils import extract_token_usage
 from research_swarm.agents.fundamentalist.prompts import (
     FINANCIAL_METRICS_PROMPT,
     QUALITATIVE_ANALYSIS_PROMPT,
-    FINANCIAL_METRICS_PROMPT_TTM,
     QUALITATIVE_ANALYSIS_PROMPT_TTM,
     BUSINESS_MODEL_PROMPT_TTM
 )
@@ -241,91 +240,6 @@ class FinancialAnalyzer:
     # ============================================================================
     # TTM-SPECIFIC METHODS
     # ============================================================================
-
-    def extract_metrics_quarterly(
-        self,
-        ticker: str,
-        analysis_period: str,
-        quarters: List[str],
-        parsed_sections_by_quarter: Dict[str, Dict[str, str]]
-    ) -> Tuple[List[QuarterlyMetrics], TTMMetrics, QuarterlyTrends, int]:
-        """
-        Extract metrics from multiple quarters and calculate TTM.
-
-        Args:
-            ticker: Stock ticker
-            analysis_period: Period string (e.g., "TTM Q4 2024 - Q3 2025")
-            quarters: List of quarter labels in chronological order
-            parsed_sections_by_quarter: Parsed sections keyed by quarter
-
-        Returns:
-            Tuple of (quarterly_metrics_list, ttm_metrics, trends, tokens_used)
-        """
-        logger.info(f"Extracting quarterly metrics for {ticker} {analysis_period}")
-
-        # Format quarterly sections for prompt
-        quarterly_sections = self._format_quarterly_sections(parsed_sections_by_quarter)
-
-        prompt = FINANCIAL_METRICS_PROMPT_TTM.format(
-            ticker=ticker,
-            analysis_period=analysis_period,
-            quarters=", ".join(quarters),
-            quarterly_sections=quarterly_sections
-        )
-
-        try:
-            # This is the largest prompt in the pipeline (filing sections for
-            # 4 quarters). Mark it cacheable so retries and duplicate runs of
-            # the same ticker within the cache TTL are served from cache.
-            response = self.haiku.invoke([HumanMessage(content=[{
-                "type": "text",
-                "text": prompt,
-                "cache_control": {"type": "ephemeral"},
-            }])])
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            json_text = self._extract_json(response_text)
-
-            # Check if JSON extraction succeeded
-            if not json_text or json_text.strip() == "":
-                logger.warning(f"Empty JSON extracted from response for {ticker}")
-                logger.debug(f"Response text: {response_text[:500]}")
-                return [], TTMMetrics(quarters_included=quarters), QuarterlyTrends(), tokens_used
-
-            data = json.loads(json_text)
-
-            # Parse quarterly metrics
-            quarterly_metrics = []
-            for q_data in data.get("quarterly", []):
-                quarterly_metrics.append(QuarterlyMetrics(**q_data))
-
-            # Parse TTM metrics with safe defaults
-            ttm_data = data.get("ttm", {})
-            ttm_metrics = TTMMetrics(
-                quarters_included=quarters,
-                **ttm_data
-            )
-
-            # Parse trends with safe defaults - ensure trend_direction is never None
-            trends_data = data.get("trends", {})
-            # Remove None values to allow Pydantic defaults to apply
-            trends_data = {k: v for k, v in trends_data.items() if v is not None}
-            quarterly_trends = QuarterlyTrends(**trends_data)
-
-            logger.success(f"✓ Extracted quarterly metrics for {ticker} ({tokens_used} tokens)")
-            return quarterly_metrics, ttm_metrics, quarterly_trends, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse quarterly metrics JSON: {e}")
-            logger.debug(f"Response: {response_text[:500] if 'response_text' in locals() else 'N/A'}")
-            # Return empty defaults but track tokens used (API was called)
-            return [], TTMMetrics(quarters_included=quarters), QuarterlyTrends(), tokens_used if 'tokens_used' in locals() else 0
-
-        except Exception as e:
-            logger.error(f"Error extracting quarterly metrics: {e}")
-            # Return empty defaults
-            return [], TTMMetrics(quarters_included=quarters), QuarterlyTrends(), 0
 
     def analyze_qualitative_ttm(
         self,
