@@ -251,6 +251,9 @@ def _build_macro(full_output: Dict[str, Any]) -> Optional[MacroContext]:
                 relevance=str(t.get("relevance") or "moderate"),
                 confidence=str(t.get("confidence") or "low"),
                 evidence=t.get("evidence"),
+                company_impact=t.get("company_impact"),
+                materiality=t.get("materiality"),
+                already_visible=t.get("already_visible"),
             ))
         except Exception:
             continue

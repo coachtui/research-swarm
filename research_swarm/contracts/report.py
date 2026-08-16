@@ -241,11 +241,24 @@ class MacroTheme(BaseModel):
     summary: Optional[str] = None
     status: str = Field(..., description="escalating | stable | de-escalating")
     direction: str = Field(..., description="headwind | tailwind | mixed")
-    transmission: str = Field(..., description="Mechanism by which it reaches company results")
-    why_relevant: str = Field(..., description="The concrete link to this company")
-    relevance: str = Field(..., description="high | moderate")
+    transmission: str = Field(..., description="Generic mechanism by which it reaches company results")
+    why_relevant: str = Field(..., description="The concrete link to this company (mechanical screen)")
+    relevance: str = Field(..., description="high | moderate — mechanical screen strength")
     confidence: str = Field(..., description="high | medium | low")
     evidence: Optional[str] = None
+
+    # Per-company analysis, written by the synthesis against this company's
+    # segment mix, cost structure, and geography. This is what makes the theme
+    # an assessment rather than a shared description.
+    company_impact: Optional[str] = Field(
+        None, description="How this theme specifically reaches THIS company"
+    )
+    materiality: Optional[str] = Field(
+        None, description="high | moderate | low — analyst judgment of earnings impact"
+    )
+    already_visible: Optional[str] = Field(
+        None, description="Whether the effect is in reported results or still prospective"
+    )
 
 
 class MacroContext(BaseModel):

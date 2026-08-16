@@ -73,15 +73,21 @@ export interface MacroTheme {
   status: string
   /** headwind | tailwind | mixed */
   direction: string
-  /** Mechanism by which it reaches company results */
+  /** Generic mechanism by which it reaches company results */
   transmission: string
-  /** The concrete link to this company */
+  /** The concrete link to this company (mechanical screen) */
   why_relevant: string
-  /** high | moderate */
+  /** high | moderate — mechanical screen strength */
   relevance: string
   /** high | medium | low */
   confidence: string
   evidence?: string | null
+  /** How this theme specifically reaches THIS company */
+  company_impact?: string | null
+  /** high | moderate | low — analyst judgment of earnings impact */
+  materiality?: string | null
+  /** Whether the effect is in reported results or still prospective */
+  already_visible?: string | null
 }
 
 /** What changed since this user's last analysis of the same ticker. */

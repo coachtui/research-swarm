@@ -242,6 +242,25 @@ Synthesize these three comprehensive perspectives into a unified investment anal
    - Specific metrics or events that would trigger a rating downgrade
    - Be precise with thresholds (e.g., "EPS growth > 20% for 2 quarters → Upgrade to STRONG BUY")
 
+6. **Macro Assessment** (one entry per theme listed in the MACRO & GEOPOLITICAL
+   CONTEXT block — no more, no fewer; omit the field entirely if that block
+   lists no themes):
+   - The block gives you a GENERIC transmission mechanism. Your job is to make
+     it SPECIFIC to this company: which input, which end market, which line
+     item, which geography, which contract or segment. "Higher oil prices are a
+     headwind for industrials" is a restatement, not an assessment. "Fuel is
+     roughly X% of operating cost, so a sustained $10/bbl move compresses
+     operating margin by roughly Ypp" is an assessment.
+   - Ground it in the company data above — segment mix, cost structure, margins,
+     geography, customer concentration. If the data does not let you size the
+     impact, say so plainly rather than inventing a number.
+   - `materiality` is your judgment of how much this actually matters to THIS
+     company's earnings power over the next 1-2 quarters — it may legitimately
+     differ from the relevance grade shown in the block, which is a mechanical
+     screen, not an analytical one.
+   - `already_visible` states whether the effect is already showing in reported
+     results/guidance, or is prospective.
+
 Return your response as a JSON object:
 
 {{
@@ -281,6 +300,14 @@ Return your response as a JSON object:
       "metric": "<specific metric or event>",
       "threshold": "<precise threshold value>",
       "action": "Downgrade to HOLD|SELL|STRONG SELL"
+    }}
+  ],
+  "macro_assessment": [
+    {{
+      "theme": "<the theme name EXACTLY as written in the macro context block>",
+      "company_impact": "<1-2 sentences naming the specific input, market, segment or line item this reaches, sized where the data allows>",
+      "materiality": "high|moderate|low",
+      "already_visible": "<'already in reported results/guidance' or 'prospective — not yet visible in results'>"
     }}
   ]
 }}
