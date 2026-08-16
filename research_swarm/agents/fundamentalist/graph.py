@@ -62,12 +62,16 @@ def _compute_roic_wacc_spread_score(
     cost_of_equity = risk_free + beta * erp
     cost_of_debt = risk_free + 0.02
 
-    debt = dcf_inputs.total_debt or 0
+    # Capital structure in MILLIONS on both sides. Previously equity was scaled
+    # to dollars (or taken raw from yfinance's marketCap, also dollars) while
+    # debt stayed in millions, so the debt weight was ~1e-6 of its true value
+    # and WACC degenerated to the cost of equity.
+    debt = dcf_inputs.total_debt or 0  # millions
     if dcf_inputs.market_cap_millions and dcf_inputs.market_cap_millions > 0:
-        equity = dcf_inputs.market_cap_millions * 1_000_000
+        equity = dcf_inputs.market_cap_millions
     else:
-        market_cap = stock_info.get("marketCap")
-        equity = market_cap if market_cap else max(debt * 3, 1_000_000_000)
+        market_cap = stock_info.get("marketCap")  # dollars
+        equity = (market_cap / 1_000_000) if market_cap else max(debt * 3, 1_000.0)
 
     total_capital = equity + debt
     equity_weight = equity / total_capital

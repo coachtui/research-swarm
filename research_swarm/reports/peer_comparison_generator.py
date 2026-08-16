@@ -185,7 +185,12 @@ class PeerComparisonGenerator:
             "Communication Services": ["META", "GOOGL", "DIS", "NFLX"],
         }
 
-        peers = sector_peers.get(sector, [])
+        # Same GICS-vs-yfinance taxonomy mismatch as the sector multiple tables:
+        # without normalization, financials/discretionary/staples/materials fall
+        # through to an empty peer list.
+        from research_swarm.data.market_data_client import market_data_client
+
+        peers = sector_peers.get(market_data_client.normalize_sector(sector) or sector, [])
         # Remove self from peers
         peers = [p for p in peers if p != ticker]
         return peers[:4]
