@@ -50,34 +50,84 @@ from research_swarm.logger import logger
 # center: the value a typical company scores
 # spread: roughly one standard deviation of the raw component
 COMPONENT_CALIBRATION: Dict[str, Tuple[float, float]] = {
-    # ── MEASURED — from 373 completed analyses in production (Neon), via
-    #    scripts/calibrate_score_components.py --stored. These components'
-    #    calculations are unchanged, so stored history is a valid sample.
+    # ALL MEASURED — no seed estimates remain.
     #
-    #    Note how far the seed estimates were off: financial_health was seeded
-    #    at 6.5 when the real median is 7.73, so every company was being
-    #    normalized ~1.6 points too high on a component carrying 35% of the
-    #    quality score.
-    "financial_health": (7.73, 1.56),      # n=373, p10 4.9 / p90 9.2
-    "sentiment_catalysts": (6.76, 1.82),   # n=373, p10 4.7 / p90 8.8
-    "technical": (5.99, 1.30),             # n=373, p10 4.0 / p90 7.4
+    # Sources (scripts/calibrate_score_components.py):
+    #   stored — 373 completed analyses in Neon, for components whose
+    #            calculation is unchanged and whose history is therefore valid
+    #   fresh  — 188 S&P names rescored live, for components recalculated in
+    #            recent work whose stored history the current code would never
+    #            reproduce
+    #
+    # Every seeded center was too LOW, and consistently so on the three quality
+    # components. Together they inflated the quality score by roughly 1.8
+    # points, which pushed most of the market into the top tier and is exactly
+    # the compression the weight review set out to fix. Guessing centers is not
+    # a small error: it is a systematic bias in the headline number.
+    #
+    #   component            seeded        measured       center miss
+    #   roic_wacc_spread     (6.0, 2.5)  → (8.00, 3.27)   -2.00
+    #   financial_health     (6.5, 1.4)  → (7.73, 1.56)   -1.23
+    #   earnings_momentum    (5.5, 1.5)  → (7.07, 2.00)   -1.57
+    #   valuation            (5.0, 2.0)  → (5.00, 1.78)    0.00
+    #   sentiment_catalysts  (5.5, 1.2)  → (6.76, 1.82)   -1.26
+    #   technical            (6.5, 1.2)  → (5.99, 1.30)   +0.51
 
-    # ── SEED ESTIMATES — still unmeasured.
-    #    These three were recalculated in recent work (ROIC replaced ROE;
-    #    earnings momentum was unpinned from a constant), so stored history
-    #    holds values the current code would never produce and cannot be used
-    #    as a sample. Run `calibrate_score_components.py --fresh` to replace
-    #    them; it is deterministic and needs no LLM calls.
-    #
-    # Wide and close to bimodal: value destroyers band at 1.5-3.0, compounders
-    # at 8.5-10, with comparatively few names in between.
-    "roic_wacc_spread": (6.0, 2.5),
-    # Revision breadth spans 2-9 and surprise spans 0-10, but the 57/43 blend
-    # of two mid-centred legs pulls the composite in.
-    "earnings_momentum": (5.5, 1.5),
-    # Inverse of price richness; the one component with a real low tail, since
-    # premium-multiple names score genuinely low.
-    "valuation": (5.0, 2.0),
+    # Very wide and saturating at both ends: p10 1.5 (value destroyers), p90
+    # 10.0 (the bands top out, so compounders pile at the ceiling).
+    "roic_wacc_spread": (8.00, 3.27),      # fresh,  n=178, p10 1.5 / p90 10.0
+    "financial_health": (7.73, 1.56),      # stored, n=373, p10 4.9 / p90  9.2
+    "earnings_momentum": (7.07, 2.00),     # fresh,  n=188, p10 4.1 / p90  9.4
+    # The one component already centred where it was guessed — and the only one
+    # with a genuinely symmetric spread, since price richness cuts both ways.
+    "valuation": (5.00, 1.78),             # fresh,  n=188, p10 2.6 / p90  7.8
+    "sentiment_catalysts": (6.76, 1.82),   # stored, n=373, p10 4.7 / p90  8.8
+    "technical": (5.99, 1.30),             # stored, n=373, p10 4.0 / p90  7.4
+}
+
+# Composite rescaling, measured over 188 scored names.
+#
+# Normalizing the COMPONENTS is necessary but not sufficient. The quality
+# components turn out to be almost uncorrelated in practice —
+# corr(roic, momentum) = +0.13, corr(roic, valuation) = -0.03 — and averaging
+# uncorrelated variables shrinks variance. Three normalized components with
+# spread ~2.0 at weights .35/.35/.30 produce a composite with spread ~1.1:
+#
+#     sigma_composite = 2.0 * sqrt(.35^2 + .35^2 + .30^2) = 1.16   (measured 1.10)
+#
+# So tier bounds meant to sit at +/-0.75 sigma were really at +/-1.36 sigma, and
+# the market split 4.3% high / 55.9% mid / 39.9% low. Only eight of 188 large
+# caps clearing "high quality" is not a credible read; it is the same
+# compression the weight review set out to remove, one level up.
+#
+# Rescaling the composite back to a 2-points-per-sigma scale keeps the tier
+# thresholds interpretable — 6.5 really is about the top quartile, 4.5 about
+# the bottom — instead of being numbers that happen to land somewhere.
+#
+# Re-measure alongside COMPONENT_CALIBRATION: the composite's centre and spread
+# depend on the component correlations, so they move whenever a component's
+# calculation changes.
+# The spread below is correlation-ADJUSTED, not the raw simulated figure.
+#
+# Measuring the composite directly needs a per-ticker financial_health, which
+# only the (expensive) LLM scorer produces — so the sample drew it from its
+# measured distribution INDEPENDENTLY. That understates the spread, because
+# these components are not independent. Production data gives
+# corr(health, sentiment) +0.27, corr(sentiment, technical) +0.30,
+# corr(health, technical) -0.05; the fresh sample gives
+# corr(roic, momentum) +0.13.
+#
+# Applying the mean of those measured correlations (+0.163) to the two
+# unmeasured pairs, via  s^2 = sum wi^2 si^2 + 2 sum wi wj si sj rho :
+#
+#     independent           sigma = 1.158   (matches the 1.10 simulated)
+#     correlation-adjusted  sigma = 1.320   <- used
+#
+# Using 1.10 would over-widen the composite by ~15% and push too many names
+# into the outer tiers. Replace both figures with a direct measurement once
+# per-ticker financial_health is available.
+COMPOSITE_CALIBRATION: Dict[str, Tuple[float, float]] = {
+    "quality": (4.81, 1.32),   # centre n=188; spread correlation-adjusted
 }
 
 # Normalized output bounds. Kept at the raw scale's bounds so every downstream
@@ -115,3 +165,22 @@ def normalize_component(name: str, raw: Optional[float]) -> Optional[float]:
 def normalize_components(components: Dict[str, Optional[float]]) -> Dict[str, Optional[float]]:
     """Normalize a whole component dict, preserving None entries."""
     return {name: normalize_component(name, raw) for name, raw in components.items()}
+
+
+def rescale_composite(name: str, value: float) -> float:
+    """Put a weighted composite back on the 2-points-per-sigma scale.
+
+    Averaging shrinks spread, so a composite of normalized components is NOT
+    itself on the normalized scale. Without this the tier thresholds read as
+    far more extreme than intended — see COMPOSITE_CALIBRATION.
+    """
+    calibration = COMPOSITE_CALIBRATION.get(name)
+    if calibration is None:
+        return value
+
+    center, spread = calibration
+    if spread <= 0:
+        return value
+
+    rescaled = 5.0 + _POINTS_PER_SIGMA * (value - center) / spread
+    return round(max(_MIN_SCORE, min(_MAX_SCORE, rescaled)), 3)
