@@ -149,6 +149,10 @@ class ConvictionGenerator:
             "Blend": "Diversified investors seeking balanced exposure",
         }
         investor_type = investor_type_map.get(style, investor_type_map["Blend"])
+        # A cheap price on a weak business is a turnaround bet — calling that
+        # "undervalued quality" contradicts the quality score on the same page
+        if style == "Value" and moat_score < 4.5:
+            investor_type = "Deep-value investors comfortable with turnaround risk"
 
         # Risk tolerance from risk_level + moat
         if risk_level == "Low" and moat_score >= 7.0:

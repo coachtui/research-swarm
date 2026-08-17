@@ -337,8 +337,13 @@
 </div>
 {% elif stock.signal_breakdown %}
 <div class="all-clear">
+    {% if 'neutral' in (stock.signal_breakdown.direction_consensus or '')|lower %}
+    <p class="alert-title">&#10003; Signals Consistent &mdash; No Directional Edge</p>
+    <p>Sources agree with each other but none is strong enough to carry the trade &mdash; consistent with the staged, patient entries recommended below.</p>
+    {% else %}
     <p class="alert-title">&#10003; {{ stock.signal_breakdown.alignment_status|replace('✅', '')|replace('⚠️', '')|trim }}</p>
     <p>{{ stock.signal_breakdown.direction_consensus|capitalize }}</p>
+    {% endif %}
 </div>
 {% else %}
 <div class="all-clear">
@@ -446,19 +451,19 @@
             <td class="strong text-success">Re-rating Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.bull_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.bull_probability * 100) }}%</td>
-            <td style="font-size: 7.2pt;">{{ stock.price_targets.bull_assumptions|clip(70) }}</td>
+            <td style="font-size: 7.2pt;">{{ stock.price_targets.bull_assumptions|clip(150) }}</td>
         </tr>
         <tr>
             <td class="strong">Continuation Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.base_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.base_probability * 100) }}%</td>
-            <td style="font-size: 7.2pt;">{{ stock.price_targets.base_assumptions|clip(70) }}</td>
+            <td style="font-size: 7.2pt;">{{ stock.price_targets.base_assumptions|clip(150) }}</td>
         </tr>
         <tr>
             <td class="strong text-error">Risk Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.bear_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.bear_probability * 100) }}%</td>
-            <td style="font-size: 7.2pt;">{{ stock.price_targets.bear_assumptions|clip(70) }}</td>
+            <td style="font-size: 7.2pt;">{{ stock.price_targets.bear_assumptions|clip(150) }}</td>
         </tr>
     </tbody>
 </table>
@@ -491,10 +496,17 @@
     </tbody>
 </table>
 <p style="font-size: 8pt; margin-top: 6pt;">
-    <strong>Most Likely:</strong> ${{ "%.2f"|format(stock.valuation_sensitivity.most_likely_outcome.price) }}
+    <strong>Anchor (current EPS &times; current multiple):</strong> ${{ "%.2f"|format(stock.valuation_sensitivity.most_likely_outcome.price) }}
     ({{ "%+.1f"|format(stock.valuation_sensitivity.most_likely_outcome.upside_pct) }}%)
     &middot; <strong>Confidence:</strong> {{ stock.valuation_sensitivity.confidence_level }}
 </p>
+{% if stock.price_targets and stock.price_targets.base_target %}
+<p style="font-size: 7pt; color: #718096; margin-top: 2pt;">
+    This table holds the multiple fixed and moves EPS only. The DVRG base target of
+    ${{ "%.2f"|format(stock.price_targets.base_target) }} differs because it blends the
+    scenario probabilities and persistence weighting shown above.
+</p>
+{% endif %}
 {% endif %}
 {% endif %}
 
@@ -678,7 +690,7 @@
         {% endif %}
     </tbody>
 </table>
-<p style="font-size: 7pt; color: #718096;">Raw component scores are normalized against their measured S&amp;P 500 distributions before weighting, so each weight carries its stated influence. Quality and valuation are kept as separate axes — the rating is read from the pair, and price alone never produces a Sell.</p>
+<p style="font-size: 7pt; color: #718096;">Raw component scores are normalized against their measured S&amp;P 500 distributions before weighting, so each weight carries its stated influence. Where narrative sections quote a raw analyst score (e.g. the value factor), the axis shown here is that reading after normalization — the two can differ slightly by design. Quality and valuation are kept as separate axes — the rating is read from the pair, and price alone never produces a Sell.</p>
 {% else %}
 <table class="data-table">
     <thead>
@@ -822,9 +834,11 @@
 <p style="font-size: 8pt;">
     <strong>Sector:</strong> {{ stock.peer_comparison.sector }}
     &middot; <strong>Industry:</strong> {{ stock.peer_comparison.industry }}
+    {%- if stock.peer_comparison.competitive_position and not stock.peer_comparison.is_sector_reference %}
+    &middot; <strong>Competitive position:</strong> {{ stock.peer_comparison.competitive_position }}
+    {%- endif %}
 </p>
-<p style="font-size: 8pt;">{{ stock.peer_comparison.competitive_position }}</p>
-{% if stock.peer_comparison.peers %}
+{% if stock.peer_comparison.peers and not stock.peer_comparison.is_sector_reference %}
 <p style="font-size: 7.5pt; color: #718096;"><strong>Peers:</strong> {{ stock.peer_comparison.peers|join(', ') }}</p>
 {% endif %}
 {% if stock.peer_comparison.revenue_growth_rank or stock.peer_comparison.profit_margin_rank or stock.peer_comparison.roic_rank or stock.peer_comparison.valuation_rank %}
@@ -1007,8 +1021,9 @@
 <p style="font-size: 8pt;">
     <strong>Insider Sentiment:</strong> {{ stock.insider_activity.insider_sentiment }}
     &middot; <strong>Net Position:</strong>
-    {{ stock.insider_activity.net_shares|int }} shares
-    (${{ "%.1f"|format(stock.insider_activity.net_value_usd / 1000) }}K)
+    {% if stock.insider_activity.net_shares|int == 0 %}flat &mdash; buys and sells offset
+    {%- else %}{{ "{:+,}".format(stock.insider_activity.net_shares|int) }} shares
+    (${{ "%.1f"|format(stock.insider_activity.net_value_usd / 1000) }}K){% endif %}
 </p>
 {% endif %}
 
@@ -1087,7 +1102,7 @@
             <td>{{ risk.risk }}</td>
             <td>{{ risk.severity }}</td>
             <td>{{ risk.likelihood }}</td>
-            <td style="font-size: 7.2pt;">{{ risk.mitigation|clip(65) }}</td>
+            <td style="font-size: 7.2pt;">{{ risk.mitigation|clip(160) }}</td>
         </tr>
     {% endfor %}
     </tbody>
