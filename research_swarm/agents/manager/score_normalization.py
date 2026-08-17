@@ -50,21 +50,34 @@ from research_swarm.logger import logger
 # center: the value a typical company scores
 # spread: roughly one standard deviation of the raw component
 COMPONENT_CALIBRATION: Dict[str, Tuple[float, float]] = {
+    # ── MEASURED — from 373 completed analyses in production (Neon), via
+    #    scripts/calibrate_score_components.py --stored. These components'
+    #    calculations are unchanged, so stored history is a valid sample.
+    #
+    #    Note how far the seed estimates were off: financial_health was seeded
+    #    at 6.5 when the real median is 7.73, so every company was being
+    #    normalized ~1.6 points too high on a component carrying 35% of the
+    #    quality score.
+    "financial_health": (7.73, 1.56),      # n=373, p10 4.9 / p90 9.2
+    "sentiment_catalysts": (6.76, 1.82),   # n=373, p10 4.7 / p90 8.8
+    "technical": (5.99, 1.30),             # n=373, p10 4.0 / p90 7.4
+
+    # ── SEED ESTIMATES — still unmeasured.
+    #    These three were recalculated in recent work (ROIC replaced ROE;
+    #    earnings momentum was unpinned from a constant), so stored history
+    #    holds values the current code would never produce and cannot be used
+    #    as a sample. Run `calibrate_score_components.py --fresh` to replace
+    #    them; it is deterministic and needs no LLM calls.
+    #
     # Wide and close to bimodal: value destroyers band at 1.5-3.0, compounders
     # at 8.5-10, with comparatively few names in between.
     "roic_wacc_spread": (6.0, 2.5),
-    # LLM-scored against rubric bands; clusters in the upper-middle.
-    "financial_health": (6.5, 1.4),
-    # Post-fix range is genuinely wide (revision breadth spans 2-9, surprise
-    # spans 0-10), but the 57/43 blend of two mid-centred legs pulls it in.
+    # Revision breadth spans 2-9 and surprise spans 0-10, but the 57/43 blend
+    # of two mid-centred legs pulls the composite in.
     "earnings_momentum": (5.5, 1.5),
     # Inverse of price richness; the one component with a real low tail, since
     # premium-multiple names score genuinely low.
     "valuation": (5.0, 2.0),
-    # Narrow: a no-signal stock scores well above the midpoint, so raw values
-    # rarely fall below 4.
-    "sentiment_catalysts": (5.5, 1.2),
-    "technical": (6.5, 1.2),
 }
 
 # Normalized output bounds. Kept at the raw scale's bounds so every downstream
