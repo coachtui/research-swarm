@@ -31,7 +31,17 @@ export function useAnalysis(runId: string | null) {
       if (status === 'queued' || status === 'running') {
         return 5000 // 5 seconds
       }
-      // Stop polling when completed or failed
+      // Defensive: a run can briefly report "completed" with no results while
+      // the result row is still being written. Latching onto that snapshot
+      // strands the user on "No Results Available" forever, because polling
+      // has already stopped. The write ordering in save_analysis_result now
+      // closes that window, but keep polling here too — an empty completed
+      // run is never a valid terminal state, and this costs one extra request
+      // in the rare case it happens.
+      if (status === 'completed' && !(query.state.data?.results?.length)) {
+        return 2000
+      }
+      // Stop polling when completed with results, or failed
       return false
     },
     staleTime: 0, // Always refetch on mount

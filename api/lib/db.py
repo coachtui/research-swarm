@@ -207,38 +207,41 @@ async def save_analysis_result(
                 print(f"⚠️  Retry {attempt}/{max_retries}: Re-attempting save...")
                 # Connection is already fresh, just retry the operation
 
-            # Create or update run
+            # Create the run if it does not exist yet, but DO NOT mark it
+            # completed here.
+            #
+            # The run's status is the frontend's polling signal: it stops
+            # polling the moment it sees "completed". Marking the run complete
+            # before writing the StockResult opened a window — everything
+            # between here and the create() below, including DI enrichment,
+            # AnalysisReport construction and a prior-analysis lookup query —
+            # in which the API honestly reported a completed run with zero
+            # results. A poll landing in that window latched onto an empty
+            # result set and rendered "No Results Available" permanently,
+            # because it never polled again. Observed on LYFT
+            # (run 286b16bc): status read at 04:56:47.347, result row written
+            # at 04:56:47.448 — a 101ms window the poller hit exactly.
+            #
+            # The completion update now happens AFTER the result row exists.
             final_status = "completed" if result['status'] == 'completed' else "failed"
             if run_id is None:
                 run = await db.run.create(
                     data={
                         "userId": user_id,
                         "tickers": [ticker],
-                        "status": final_status,
+                        # Intermediate state — flipped to final_status once the
+                        # StockResult is durable.
+                        "status": "running",
                         "totalStocks": 1,
-                        "completedCount": 1 if result['status'] == 'completed' else 0,
-                        "failedCount": 0 if result['status'] == 'completed' else 1,
-                        "progressPercent": 100.0,
+                        "completedCount": 0,
+                        "failedCount": 0,
+                        "progressPercent": 99.0,
                         "totalCostUsd": result.get('cost_usd', 0.0),
                         "quarters": [],
                         "newsDaysBack": 30
                     }
                 )
                 run_id = run.id
-            else:
-                # Update the pre-existing "running" run to completed/failed
-                from datetime import datetime
-                await db.run.update(
-                    where={"id": run_id},
-                    data={
-                        "status": final_status,
-                        "completedAt": datetime.utcnow(),
-                        "progressPercent": 100.0,
-                        "completedCount": 1 if result['status'] == 'completed' else 0,
-                        "failedCount": 0 if result['status'] == 'completed' else 1,
-                        "totalCostUsd": result.get('cost_usd', 0.0),
-                    }
-                )
 
             # Persist decision intelligence at write time. The delta below and
             # any consumer of stored results need full_output.decision_intelligence,
@@ -626,6 +629,21 @@ async def save_analysis_result(
                     "processingTimeSeconds": result.get('processing_time_seconds'),
                     "errorMessage": result.get('error_message')
                 }
+            )
+
+            # The result row is durable — only NOW is the run complete. Any
+            # poll before this point correctly saw a run still in progress.
+            from datetime import datetime as _dt
+            await db.run.update(
+                where={"id": run_id},
+                data={
+                    "status": final_status,
+                    "completedAt": _dt.utcnow(),
+                    "progressPercent": 100.0,
+                    "completedCount": 1 if result['status'] == 'completed' else 0,
+                    "failedCount": 0 if result['status'] == 'completed' else 1,
+                    "totalCostUsd": result.get('cost_usd', 0.0),
+                },
             )
 
             # Fetch sector/industry metadata and persist onto the StockResult.
