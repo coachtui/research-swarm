@@ -9,10 +9,15 @@ interface DeploymentDriversPanelProps {
 }
 
 /**
- * DeploymentDriversPanel — waterfall breakdown of allocation drivers.
+ * DeploymentDriversPanel — waterfall breakdown of the STARTER tranche.
  *
  * Shows how Quality Base → EV Opportunity → Divergence Overlay → Risk Adjustment
- * combine to produce Final Allocation.
+ * combine to produce the first tranche to deploy.
+ *
+ * This is deliberately NOT the position target. The target is the Final Weight
+ * Resolver's output; this is the opening deployment toward it, sized at 40% of
+ * the position ceiling. Labelling it "Final Allocation" made the smallest
+ * number on the page read like the conclusion.
  */
 export function DeploymentDriversPanel({
   drivers,
@@ -48,13 +53,19 @@ export function DeploymentDriversPanel({
           {/* Divider */}
           <div className="h-px bg-border/40 my-2" />
 
-          {/* Final allocation total */}
+          {/* Starter tranche total */}
           {finalAllocation !== null && finalAllocation !== undefined && (
-            <div className="flex items-center justify-between py-2 px-2.5 rounded-lg bg-primary/10 border border-primary/20">
-              <span className="font-semibold text-text-primary">Final Allocation</span>
-              <span className="font-mono font-bold text-primary text-base tabular-nums">
-                {finalAllocation.toFixed(1)}%
-              </span>
+            <div className="py-2 px-2.5 rounded-lg bg-primary/10 border border-primary/20">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-text-primary">Starter Tranche</span>
+                <span className="font-mono font-bold text-primary text-base tabular-nums">
+                  {finalAllocation.toFixed(1)}%
+                </span>
+              </div>
+              <p className="text-[10px] text-text-tertiary mt-1 leading-relaxed">
+                Opening deployment, not the position target — see Final Position Weight
+                for the size this builds toward.
+              </p>
             </div>
           )}
 

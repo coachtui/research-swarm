@@ -552,6 +552,7 @@ export function ResultsContent({
                 ticker={result.ticker}
                 rating={decision_intelligence.rating || 'HOLD'}
                 riskLevel={decision_intelligence.risk_level}
+                starterTranchePct={divergenceOverlay?.final_allocation ?? null}
                 moatScore={moat_score || 5.0}
                 financialHealthScore={moat_breakdown.financial_health}
                 sector={sector || 'Unknown'}
