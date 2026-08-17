@@ -259,6 +259,30 @@ class ApiClient {
     }
   }
 
+  /**
+   * Download the PDF export of a completed run as a Blob.
+   *
+   * Returns binary, so it bypasses the JSON `request()` helper: same auth
+   * header, same proxy/direct URL logic, but the body is read as a blob. The
+   * endpoint enforces ownership and tier-based redaction server-side.
+   */
+  async downloadPdfReport(runId: string): Promise<Blob> {
+    const token = await this._resolveToken()
+    const endpoint = `/api/runs/${runId}/report/pdf`
+    const cleanEndpoint = this.useProxy ? endpoint.replace(/^\/api\//, '/') : endpoint
+    const url = `${this.baseUrl}${cleanEndpoint}`
+
+    const response = await fetch(url, {
+      headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+    })
+    if (!response.ok) {
+      const err = new Error(`PDF export failed (${response.status})`) as Error & { status?: number }
+      err.status = response.status
+      throw err
+    }
+    return response.blob()
+  }
+
   /** Public — no auth required. Returns the latest completed NVDA run for the example report. */
   async getPreviewNvda(): Promise<RunResponse> {
     const cleanEndpoint = this.useProxy ? '/preview/nvda' : '/api/preview/nvda'
