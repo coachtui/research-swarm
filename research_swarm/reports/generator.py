@@ -196,6 +196,14 @@ class ReportGenerator:
                     logger.info("To enable PDF generation, install system dependencies: https://doc.courtbouillon.org/weasyprint/stable/first_steps.html#installation")
                 else:
                     logger.debug("Generating DVRG-branded PDF...")
+                    if config.include_charts:
+                        try:
+                            from .note_charts import build_note_charts
+
+                            for stock in report_data.stocks:
+                                stock.charts = build_note_charts(stock, stock.ticker) or None
+                        except Exception as e:
+                            logger.warning(f"Chart generation failed (continuing without): {e}")
                     pdf_gen = PDFGenerator()
                     pdf_path = config.output_dir / f"report_{config.run_id[:8]}.pdf"
 

@@ -738,6 +738,7 @@ class DataExtractor:
             valuation_axis=output.get("normalized_valuation_score"),
             quality_tier=quality_tier,
             valuation_tier=valuation_tier,
+            quarterly_metrics=output.get("fundamentalist_output", {}).get("quarterly_metrics"),
             # Decision Intelligence (Phase 1)
             decision_framework=decision_framework,
             enhanced_trade_setup=enhanced_trade_setup,

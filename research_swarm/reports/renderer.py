@@ -8,6 +8,24 @@ from jinja2 import Environment, FileSystemLoader, Template
 from .models import ReportData, ReportSection
 
 
+_LOGO_CACHE: str | None = None
+
+
+def _logo_data_uri() -> str:
+    """The site logotype (DV|RG), embedded as a data URI so the PDF needs no
+    external asset resolution. Cached per process; empty string if missing so
+    the template can fall back to the text masthead."""
+    global _LOGO_CACHE
+    if _LOGO_CACHE is None:
+        import base64
+        logo = Path(__file__).parent / "assets" / "dvrg-logo.png"
+        _LOGO_CACHE = (
+            "data:image/png;base64," + base64.b64encode(logo.read_bytes()).decode()
+            if logo.exists() else ""
+        )
+    return _LOGO_CACHE
+
+
 def _clip(text, limit: int = 100) -> str:
     """Truncate at a sentence or word boundary — never mid-word.
 
@@ -24,10 +42,12 @@ def _clip(text, limit: int = 100) -> str:
 
     window = text[:limit]
     # Sentence boundary that preserves at least 60% of the budget
-    for mark in (". ", "; "):
-        pos = window.rfind(mark)
-        if pos >= int(limit * 0.6):
-            return window[: pos + 1].strip()
+    pos = window.rfind(". ")
+    if pos >= int(limit * 0.6):
+        return window[: pos + 1].strip()
+    pos = window.rfind("; ")
+    if pos >= int(limit * 0.6):
+        return window[:pos].strip() + "…"
     # Word boundary fallback
     pos = window.rfind(" ")
     if pos <= 0:
@@ -164,6 +184,7 @@ class TemplateRenderer:
         return template.render(
             report=report_data,
             stocks=report_data.stocks,
+            logo_data_uri=_logo_data_uri(),
             include_charts=include_charts,
             include_trader_content=include_trader_content,
             include_signal_metrics=include_signal_metrics,

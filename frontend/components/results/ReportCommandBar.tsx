@@ -6,7 +6,7 @@
 // Everything else (EV, allocation, conviction) lives in the scrollable content.
 
 import { useState } from 'react'
-import { FileDown, Loader2 } from 'lucide-react'
+import { FileText, Loader2 } from 'lucide-react'
 import { AddToWatchlistButton } from '@/components/dashboard/AddToWatchlistButton'
 import { StockLogo } from '@/components/ui/stock-logo'
 import { formatDateTime } from '@/lib/utils/formatting'
@@ -51,7 +51,7 @@ export function ReportCommandBar({
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `DVRG_${ticker}_${timestamp.slice(0, 10)}.pdf`
+      a.download = `DVRG_Research_Note_${ticker}_${timestamp.slice(0, 10)}.pdf`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -108,22 +108,25 @@ export function ReportCommandBar({
 
           {/* Right — PDF export · reading mode toggle · watchlist */}
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* The PDF is the product's flagship deliverable, not a utility
+                export — style it as the primary action of the page. */}
             <button
               onClick={handleExportPdf}
               disabled={exporting}
-              className={`flex items-center gap-1.5 text-xs font-medium border rounded-md px-2.5 py-1.5 transition-colors ${
+              className={`flex items-center gap-1.5 text-xs font-semibold rounded-md px-3 py-1.5 transition-colors ${
                 exportError
-                  ? 'text-error border-error/40'
-                  : 'text-text-secondary border-border hover:text-text-primary hover:border-border/80'
-              } ${exporting ? 'opacity-60 cursor-wait' : ''}`}
-              title="Export this report as a PDF"
+                  ? 'text-error border border-error/40'
+                  : 'bg-primary text-white hover:bg-primary/90'
+              } ${exporting ? 'opacity-70 cursor-wait' : ''}`}
+              title="Download the full research note (PDF)"
             >
               {exporting
                 ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <FileDown className="h-3.5 w-3.5" />}
+                : <FileText className="h-3.5 w-3.5" />}
               <span className="hidden sm:inline">
-                {exportError ? 'Export failed' : exporting ? 'Preparing…' : 'PDF'}
+                {exportError ? 'Download failed' : exporting ? 'Preparing note…' : 'Research Note'}
               </span>
+              <span className="sm:hidden">PDF</span>
             </button>
             {onToggleReadingMode && (
               <button

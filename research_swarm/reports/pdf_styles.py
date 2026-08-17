@@ -702,4 +702,153 @@ body {
     margin: 3pt 0;
     line-height: 1.35;
 }
+
+/* ===== PAGE ONE — the research-note front page ===== */
+/* Palette shared with note_charts.py: ink #1A2233, accent #0E6E5C,
+   muted #5D6570, faint #8A93A0, hairline #D9DDE3. */
+
+.masthead {
+    border-top: 3pt solid #1A2233;
+    padding-top: 8pt;
+    margin-bottom: 2pt;
+}
+.masthead td { vertical-align: top; }
+.masthead .brand-cell { string-set: ticker-name attr(data-ticker); }
+.masthead .brand-logo { height: 16pt; width: auto; display: block; }
+.masthead .brand-word {
+    font-size: 15pt; font-weight: 800; letter-spacing: -0.3pt;
+    color: #0E6E5C; margin: 0;
+}
+.masthead .brand-sub {
+    font-size: 6.5pt; letter-spacing: 2pt; color: #8A93A0;
+    text-transform: uppercase; margin: 2pt 0 0;
+}
+.masthead .gen {
+    text-align: right; font-size: 6.5pt; color: #8A93A0; margin: 0; line-height: 1.5;
+}
+.masthead .gen b { display: block; font-size: 8pt; color: #1A2233; }
+
+.companyrow {
+    width: 100%; border-collapse: collapse;
+    border-bottom: 0.75pt solid #D9DDE3; margin-bottom: 6pt;
+}
+.companyrow td { vertical-align: bottom; padding: 4pt 0 6pt; }
+.companyrow h2 { font-size: 17pt; margin: 0; letter-spacing: -0.3pt; color: #1A2233; }
+.companyrow .tick { text-align: right; font-size: 7.5pt; color: #5D6570; padding-right: 8pt; }
+.companyrow .tick b { font-size: 10pt; color: #1A2233; display: block; }
+.companyrow .chip-cell { width: 72pt; text-align: right; }
+.chip {
+    display: inline-block; background: #1A2233; color: #fff;
+    font-weight: 800; font-size: 11pt; padding: 4pt 8pt; letter-spacing: 0.5pt;
+    text-align: center;
+}
+.chip small {
+    display: block; font-weight: 400; font-size: 5.5pt;
+    letter-spacing: 1pt; opacity: 0.75;
+}
+
+/* two-column shell: table layout for deterministic WeasyPrint rendering */
+table.cols { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.cols > tr > td, table.cols > tbody > tr > td { vertical-align: top; }
+td.main-col { padding-right: 12pt; }
+td.rail-col {
+    width: 170pt; border-left: 0.75pt solid #D9DDE3;
+    padding-left: 10pt; font-size: 7pt;
+}
+
+/* section bar with accent tick */
+.bar {
+    border-bottom: 0.75pt solid #1A2233;
+    padding-bottom: 1.5pt; margin: 8pt 0 4pt;
+}
+.bar b {
+    font-size: 7.5pt; letter-spacing: 1pt; text-transform: uppercase; color: #1A2233;
+}
+.bar b::before {
+    content: ""; display: inline-block; width: 6pt; height: 6pt;
+    background: #0E6E5C; margin-right: 5pt;
+}
+.bar span { float: right; font-size: 6pt; color: #8A93A0; padding-top: 1.5pt; }
+
+/* rating matrix */
+table.matrix { border-collapse: collapse; font-size: 6.5pt; }
+table.matrix th {
+    font-weight: 600; color: #8A93A0; padding: 2pt 4pt;
+    text-transform: uppercase; letter-spacing: 0.4pt; font-size: 5.7pt;
+}
+table.matrix td {
+    border: 0.5pt solid #D9DDE3; padding: 4pt 6pt; text-align: center;
+    color: #8A93A0; min-width: 46pt;
+}
+table.matrix td.on {
+    background: #E3EFEB; border: 1.2pt solid #0E6E5C;
+    color: #1A2233; font-weight: 700;
+}
+table.matrixwrap { width: 100%; border-collapse: collapse; }
+table.matrixwrap td { vertical-align: top; }
+.axisnote { font-size: 7.5pt; padding-left: 10pt; color: #1A2233; line-height: 1.45; }
+.axisnote .big { font-size: 9.5pt; font-weight: 700; margin: 0 0 2pt; }
+.axisnote .delta { color: #8A93A0; font-size: 6.7pt; margin-top: 3pt; }
+
+/* page-one verdict (tighter than the inner-page verdict-box) */
+.verdict {
+    border: 0.5pt solid #D9DDE3; border-left: 2.5pt solid #0E6E5C;
+    padding: 6pt 8pt; margin-top: 6pt; font-size: 7.7pt; line-height: 1.45;
+}
+.verdict b { font-size: 8.2pt; }
+
+/* charts */
+.chartsec { page-break-inside: avoid; }
+.chart { margin: 1pt 0 0; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart-caption { font-size: 6.6pt; color: #5D6570; margin: 2pt 0 0; line-height: 1.4; }
+table.duo { width: 100%; border-collapse: collapse; }
+table.duo td { vertical-align: top; width: 50%; }
+table.duo td + td { padding-left: 10pt; }
+.duo-cap {
+    font-size: 6.4pt; color: #5D6570; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5pt; margin: 0 0 1pt;
+}
+
+/* falsifier strip */
+table.falsifier { width: 100%; border-collapse: collapse; font-size: 7pt; }
+table.falsifier td { vertical-align: top; width: 50%; padding-right: 8pt; line-height: 1.4; }
+table.falsifier td + td {
+    border-left: 0.5pt solid #D9DDE3; padding-left: 8pt; padding-right: 0;
+}
+table.falsifier .trig-up { color: #0E6E5C; font-size: 6.2pt; letter-spacing: 0.6pt; font-weight: 700; }
+table.falsifier .trig-down { color: #9C3325; font-size: 6.2pt; letter-spacing: 0.6pt; font-weight: 700; }
+
+/* rail */
+.rail-col .bar { margin: 9pt 0 4pt; }
+.rail-col .bar:first-child { margin-top: 0; }
+.rail-col p { margin: 0 0 3pt; line-height: 1.45; color: #1A2233; }
+table.kv { width: 100%; border-collapse: collapse; font-size: 7pt; }
+table.kv td { padding: 2pt 0; border-bottom: 0.5pt solid #D9DDE3; color: #5D6570; }
+table.kv td:last-child {
+    text-align: right; font-weight: 600; color: #1A2233;
+    font-variant-numeric: tabular-nums;
+}
+table.cmp { width: 100%; border-collapse: collapse; font-size: 6.8pt; }
+table.cmp th {
+    text-align: right; font-size: 5.8pt; color: #8A93A0; text-transform: uppercase;
+    letter-spacing: 0.4pt; padding: 2pt 0; border-bottom: 0.75pt solid #1A2233;
+}
+table.cmp th:first-child { text-align: left; }
+table.cmp td {
+    padding: 2pt 0; border-bottom: 0.5pt solid #D9DDE3;
+    text-align: right; font-variant-numeric: tabular-nums;
+}
+table.cmp td:first-child { text-align: left; color: #5D6570; }
+table.cmp td.us { font-weight: 700; color: #1A2233; }
+tr.grp td {
+    padding-top: 5pt; font-weight: 700; color: #1A2233;
+    font-size: 6pt; text-transform: uppercase; letter-spacing: 0.5pt;
+    border-bottom: none; text-align: left;
+}
+
+.pfoot {
+    border-top: 0.5pt solid #D9DDE3; margin-top: 10pt; padding-top: 4pt;
+    font-size: 5.8pt; color: #8A93A0;
+}
 """

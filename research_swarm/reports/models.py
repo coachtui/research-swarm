@@ -271,6 +271,13 @@ class StockReportData(BaseModel):
     valuation_tier: Optional[str] = Field(
         None, description="attractive | fair | expensive (v4 runs only)"
     )
+    quarterly_metrics: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Filing-extracted quarterly metrics (for the revenue chart)"
+    )
+    charts: Optional[Dict[str, str]] = Field(
+        None, description="Rendered SVG fragments keyed by chart name "
+        "(divergence_map, price_volume, quarterly_revenue)"
+    )
     expected_value_price_target: Optional[float] = Field(
         None, description="Probability-weighted expected value from scenarios"
     )
