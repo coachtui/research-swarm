@@ -242,6 +242,9 @@ class DataExtractor:
         vgm_scores_raw = fundamentalist.get("vgm_scores", {})
 
         moat_breakdown = {
+            # None (not 0.0) when absent — the template renders the no-ROIC
+            # weighting only when the component is genuinely missing
+            "roic_wacc_spread": moat_breakdown_dict.get("roic_wacc_spread"),
             "earnings_momentum": moat_breakdown_dict.get("earnings_momentum", 0.0),
             "financial_health": moat_breakdown_dict.get("financial_health", 0.0),
             # Use VGM value_score for valuation (more reliable)

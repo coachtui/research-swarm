@@ -76,6 +76,15 @@ class TemplateRenderer:
         )
         self.env.filters["clip"] = _clip
 
+        # Score Construction shows raw vs S&P-average vs normalized using the
+        # exact production math — never a template reimplementation of it
+        from research_swarm.agents.manager.score_normalization import (
+            COMPONENT_CALIBRATION,
+            normalize_component,
+        )
+        self.env.globals["norm_component"] = normalize_component
+        self.env.globals["component_calibration"] = COMPONENT_CALIBRATION
+
     def render_section(
         self,
         section: ReportSection,

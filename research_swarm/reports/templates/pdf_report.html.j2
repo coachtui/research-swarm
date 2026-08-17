@@ -160,6 +160,15 @@
             The business ranks in the market's {{ stock.quality_tier }} quality tier; the price screens
             as {{ stock.valuation_tier }}. The rating is the intersection of both axes &mdash; a rich price
             alone never produces a Sell, and a cheap price never lifts a weak business past Hold.
+            {% if stock.moat_breakdown and stock.moat_breakdown.roic_wacc_spread is not none %}
+            {% set q_comps = [
+                ("capital efficiency", norm_component("roic_wacc_spread", stock.moat_breakdown.roic_wacc_spread)),
+                ("financial health", norm_component("financial_health", stock.moat_breakdown.financial_health or 0.0)),
+                ("earnings momentum", norm_component("earnings_momentum", stock.moat_breakdown.earnings_momentum or 0.0)),
+            ] %}
+            {% set weakest = (q_comps|sort(attribute="1"))[0] %}
+            <div class="delta">Weakest quality input: {{ weakest[0] }} ({{ "%.1f"|format(weakest[1]) }}/10 vs the index) &mdash; construction on the Score page</div>
+            {% endif %}
             {% if stock.moat_breakdown and stock.moat_breakdown.technical_strength %}
             <div class="delta">Technical {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 &mdash; gate only, does not enter the axes</div>
             {% endif %}
@@ -244,7 +253,7 @@
         <tr><td>Sector</td><td>{{ stock.peer_comparison.sector }}</td></tr>
         {% endif %}
         {% if stock.peer_comparison and stock.peer_comparison.industry %}
-        <tr><td>Industry</td><td>{{ stock.peer_comparison.industry|clip(28) }}</td></tr>
+        <tr><td>Industry</td><td>{{ stock.peer_comparison.industry|clip(36) }}</td></tr>
         {% endif %}
     </table>
 
@@ -670,19 +679,29 @@
 {% if stock.valuation_axis is not none %}
 <table class="data-table">
     <thead>
-        <tr><th>Quality Axis Component</th><th style="text-align: right;">Weight</th><th style="text-align: right;">Raw Score</th></tr>
+        <tr><th>Quality Axis Component</th><th style="text-align: right;">Weight</th><th style="text-align: right;">Raw</th><th style="text-align: right;">S&amp;P Avg</th><th style="text-align: right;">Normalized</th></tr>
     </thead>
     <tbody>
         {% set has_roic = stock.moat_breakdown.roic_wacc_spread is defined and stock.moat_breakdown.roic_wacc_spread is not none %}
-        {% if has_roic %}
-        <tr><td class="strong">Capital Efficiency (ROIC vs WACC)</td><td class="num">35%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.roic_wacc_spread) }}/10</td></tr>
-        <tr><td>Financial Health</td><td class="num">35%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.financial_health or 0.0) }}/10</td></tr>
-        <tr><td>Earnings Momentum</td><td class="num">30%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.earnings_momentum or 0.0) }}/10</td></tr>
-        {% else %}
-        <tr><td>Financial Health</td><td class="num">55%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.financial_health or 0.0) }}/10</td></tr>
-        <tr><td>Earnings Momentum</td><td class="num">45%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.earnings_momentum or 0.0) }}/10</td></tr>
-        {% endif %}
-        <tr><td class="strong">Business Quality (normalized)</td><td class="num"></td><td class="num strong">{{ "%.1f"|format(stock.moat_score) }}/10</td></tr>
+        {% set q_rows = [
+            ("Capital Efficiency (ROIC vs WACC)", "roic_wacc_spread", "35%"),
+            ("Financial Health", "financial_health", "35%"),
+            ("Earnings Momentum", "earnings_momentum", "30%"),
+        ] if has_roic else [
+            ("Financial Health", "financial_health", "55%"),
+            ("Earnings Momentum", "earnings_momentum", "45%"),
+        ] %}
+        {% for label, key, weight in q_rows %}
+        {% set raw = stock.moat_breakdown[key] or 0.0 %}
+        <tr>
+            <td>{{ label }}</td>
+            <td class="num">{{ weight }}</td>
+            <td class="num">{{ "%.1f"|format(raw) }}</td>
+            <td class="num">{{ "%.1f"|format(component_calibration[key][0]) }}</td>
+            <td class="num">{{ "%.1f"|format(norm_component(key, raw)) }}</td>
+        </tr>
+        {% endfor %}
+        <tr><td class="strong">Business Quality (weighted, rescaled)</td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num strong">{{ "%.1f"|format(stock.moat_score) }}/10</td></tr>
     </tbody>
 </table>
 <table class="data-table" style="margin-top: 8pt;">
@@ -693,7 +712,7 @@
         {% endif %}
     </tbody>
 </table>
-<p style="font-size: 7pt; color: #718096;">Raw component scores are normalized against their measured S&amp;P 500 distributions before weighting, so each weight carries its stated influence. Where narrative sections quote a raw analyst score (e.g. the value factor), the axis shown here is that reading after normalization — the two can differ slightly by design. Quality and valuation are kept as separate axes — the rating is read from the pair, and price alone never produces a Sell.</p>
+<p style="font-size: 7pt; color: #718096;">Raw is the absolute reading; Normalized is its distance from the measured S&amp;P 500 average (5.0 = typical, roughly two points per standard deviation). A raw score can read mid-range in isolation and still normalize low — a 6.5 financial-health reading against an index average of 7.7 scores below 5, because the axis states where the business stands <em>within the index</em>, not an absolute grade. The weighted composite is rescaled the same way. Where narrative sections quote a raw analyst score (e.g. the value factor), the axis is that reading after normalization — the two differ by design.</p>
 {% else %}
 <table class="data-table">
     <thead>

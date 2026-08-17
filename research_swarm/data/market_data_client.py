@@ -120,6 +120,15 @@ class MarketDataClient:
             logger.error(f"Error fetching price for {ticker}: {e}")
             return None
 
+    # yfinance's taxonomy misfiles some names badly — LYFT and UBER print as
+    # "Technology / Software - Application" while GICS (what S&P, Schwab and
+    # every sector-average table here assume) files them under Industrials.
+    # Override only where the misfiling is documented; extend as found.
+    SECTOR_OVERRIDES = {
+        "LYFT": ("Industrials", "Passenger Ground Transportation"),
+        "UBER": ("Industrials", "Passenger Ground Transportation"),
+    }
+
     def get_company_info(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get company info including sector."""
         ticker = ticker.upper()
@@ -127,7 +136,7 @@ class MarketDataClient:
         # `country` was added would otherwise keep serving a dict without it
         # for the full TTL, silently disabling macro region matching. Bump the
         # suffix whenever a field is added here.
-        cache_key = f"{ticker}_info_v2"
+        cache_key = f"{ticker}_info_v3"  # v3: SECTOR_OVERRIDES applied
 
         # Cache company info for 7 days
         cached = cache.get("market_info", cache_key)
@@ -157,6 +166,10 @@ class MarketDataClient:
                 "financial_currency": info.get("financialCurrency"),  # reporting currency of statements
                 "quote_type": info.get("quoteType"),               # EQUITY, ETF, etc.
             }
+
+            override = self.SECTOR_OVERRIDES.get(ticker)
+            if override:
+                result["sector"], result["industry"] = override
 
             cache.set("market_info", cache_key, result, ttl_days=7)
             return result
