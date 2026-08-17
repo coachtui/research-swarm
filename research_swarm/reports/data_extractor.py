@@ -701,6 +701,7 @@ class DataExtractor:
             track_record=track_record,
             valuation_sensitivity=valuation_sensitivity,
             conviction_statement=conviction_statement,
+            macro_exposure=output.get("macro_exposure"),
             # Decision Intelligence (Phase 1)
             decision_framework=decision_framework,
             enhanced_trade_setup=enhanced_trade_setup,
