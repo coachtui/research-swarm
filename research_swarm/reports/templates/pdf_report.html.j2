@@ -156,24 +156,28 @@
             </table>
         </td>
         <td class="axisnote">
-            <div class="big">Quality {{ "%.1f"|format(stock.moat_score) }}/10 &middot; Valuation {{ "%.1f"|format(stock.valuation_axis) }}/10</div>
-            The business ranks in the market's {{ stock.quality_tier }} quality tier; the price screens
-            as {{ stock.valuation_tier }}. The rating is the intersection of both axes &mdash; a rich price
-            alone never produces a Sell, and a cheap price never lifts a weak business past Hold.
-            {% if stock.moat_breakdown and stock.moat_breakdown.roic_wacc_spread is not none %}
-            {% set q_comps = [
-                ("capital efficiency", norm_component("roic_wacc_spread", stock.moat_breakdown.roic_wacc_spread)),
-                ("financial health", norm_component("financial_health", stock.moat_breakdown.financial_health or 0.0)),
-                ("earnings momentum", norm_component("earnings_momentum", stock.moat_breakdown.earnings_momentum or 0.0)),
-            ] %}
-            {% set weakest = (q_comps|sort(attribute="1"))[0] %}
-            <div class="delta">Weakest quality input: {{ weakest[0] }} ({{ "%.1f"|format(weakest[1]) }}/10 vs the index) &mdash; construction on the Score page</div>
-            {% endif %}
-            {% if stock.moat_breakdown and stock.moat_breakdown.technical_strength %}
-            <div class="delta">Technical {{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10 &mdash; gate only, does not enter the axes</div>
-            {% endif %}
+            <div class="big">Quality {{ "%.1f"|format(stock.moat_score) }}/10</div>
+            <div class="tierline">{{ stock.quality_tier }} tier</div>
+            <div class="big" style="margin-top: 5pt;">Valuation {{ "%.1f"|format(stock.valuation_axis) }}/10</div>
+            <div class="tierline">{{ stock.valuation_tier }}</div>
         </td>
     </tr></table>
+    {# Each cell of the matrix has its own story — when the axes pull apart,
+       that divergence IS the thesis, so page one says so at full width #}
+    {% set cell_prose = {
+                "high|attractive": "Quality and price agree: a strong business at a discount. That alignment is rare, and it is what the top of the matrix is reserved for.",
+        "high|fair": "A business worth owning at a price that neither helps nor hurts. The quality axis carries the call.",
+        "high|expensive": "The axes diverge: the business earns the top tier while the price gives none of it back. Watch, do not chase &mdash; a rich price alone never produces a Sell.",
+        "mid|attractive": "A sound business at an attractive price &mdash; the price axis does the arguing here.",
+        "mid|fair": "Both axes read close to the index middle; neither argues strongly in either direction.",
+        "mid|expensive": "Sound business, unattractive price: no reason to add, no reason to exit.",
+        "low|attractive": "The axes diverge sharply: the market prices this among the cheapest names in the index while the business scores in its bottom quality tier. Cheap-but-weak is a value trap more often than a bargain, so the model holds rather than sells &mdash; the divergence resolves either through operational repair (re-rating) or proof that the discount was deserved.",
+        "low|fair": "A weak business with no compensating discount &mdash; the quality axis does the work, and the price declines to rescue it.",
+        "low|expensive": "Both axes point the same way: a weak business at a price that assumes otherwise.",
+    } %}
+    <p class="axisprose">{{ cell_prose.get(stock.quality_tier ~ "|" ~ stock.valuation_tier,
+        "The rating is read from the intersection of both axes.") }}
+        <span class="axisref">Score construction &mdash; raw, index average, normalized &mdash; on the Score page.</span></p>
     {% else %}
     <p style="font-size: 7pt; margin: 2pt 0;">Composite quality score
         <strong>{{ "%.1f"|format(stock.moat_score) }}/10</strong>
@@ -192,12 +196,12 @@
     {% set verdict_detail = verdict_detail[0]|upper + verdict_detail[1:] if verdict_detail else "" %}
     {% endif %}
     <div class="verdict"><b>{{ stock.decision_framework.one_liner|clip(110) }}</b>
-        {{ verdict_detail|clip(250) }}
+        {{ verdict_detail|clip(430) }}
     </div>
     {% elif stock.investment_thesis %}
     <div class="verdict">
-        {% if stock.investment_thesis is string %}<b>{{ stock.investment_thesis|clip(260) }}</b>
-        {% else %}<b>{{ stock.investment_thesis.recommendation_summary|clip(260) }}</b>{% endif %}
+        {% if stock.investment_thesis is string %}<b>{{ stock.investment_thesis|clip(430) }}</b>
+        {% else %}<b>{{ stock.investment_thesis.recommendation_summary|clip(430) }}</b>{% endif %}
     </div>
     {% endif %}
 

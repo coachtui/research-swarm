@@ -863,9 +863,13 @@ table.matrix td.on {
 }
 table.matrixwrap { width: 100%; border-collapse: collapse; }
 table.matrixwrap td { vertical-align: top; }
-.axisnote { font-size: 7.5pt; padding-left: 10pt; color: #1A2233; line-height: 1.45; }
-.axisnote .big { font-size: 9.5pt; font-weight: 700; margin: 0 0 2pt; }
-.axisnote .delta { color: #8A93A0; font-size: 6.7pt; margin-top: 3pt; }
+.axisnote { font-size: 7.5pt; padding-left: 14pt; color: #1A2233; line-height: 1.45; }
+.axisnote .big { font-size: 9.5pt; font-weight: 700; margin: 0 0 1pt; white-space: nowrap; }
+.axisnote .tierline {
+    font-size: 6.3pt; color: #8A93A0; text-transform: uppercase; letter-spacing: 0.6pt;
+}
+.axisprose { font-size: 7.7pt; line-height: 1.5; margin: 5pt 0 0; color: #1A2233; }
+.axisprose .axisref { color: #8A93A0; font-size: 6.7pt; }
 
 /* page-one verdict (tighter than the inner-page verdict-box) */
 .verdict {
