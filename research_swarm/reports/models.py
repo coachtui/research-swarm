@@ -253,6 +253,11 @@ class StockReportData(BaseModel):
         None,
         description="Conviction level, bottom line summary, best suited for",
     )
+    macro_exposure: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Market regime + macro/geopolitical themes with a concrete "
+        "channel to this company (resolved at write time by the manager)",
+    )
     expected_value_price_target: Optional[float] = Field(
         None, description="Probability-weighted expected value from scenarios"
     )
