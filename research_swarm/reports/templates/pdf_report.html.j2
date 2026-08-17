@@ -1098,7 +1098,6 @@
 <div class="report-footer">
     <p>
         <span class="brand-footer">DVRG</span> — AI-Powered Institutional-Grade Stock Analysis
-        &middot; Report {{ report.run_id[:8] }}
     </p>
     <p class="disclaimer">
         Probabilistic estimates — not investment advice. Past performance is not indicative
@@ -1118,7 +1117,7 @@
 {% if include_engine_diagnostics %}
 <div class="page-break"></div>
 <h1 class="doc-title">Engine Diagnostics <span class="doc-tag">Trader</span></h1>
-<p style="font-size: 7.5pt; color: #718096; margin-bottom: 16pt;">
+<p style="font-size: 7.5pt; color: #718096; margin-bottom: 6pt;">
     Full probabilistic engine output including scenario weight rotation, confidence integrity decomposition,
     and EV driver attribution. This section is exclusive to the Trader plan.
 </p>
@@ -1138,9 +1137,9 @@
         <tr><th>Scenario</th><th style="text-align: right;">Model</th><th style="text-align: right;">Effective</th><th style="text-align: right;">Shift</th></tr>
     </thead>
     <tbody>
-        <tr><td>Bear</td><td class="num">{{ "%.0f"|format(swd.model_bear_prob) }}%</td><td class="num">{{ "%.0f"|format(swd.effective_bear_prob) }}%</td><td class="num">{{ "%+.0f"|format(swd.effective_bear_prob - swd.model_bear_prob) }}%</td></tr>
-        <tr><td class="strong">Base</td><td class="num">{{ "%.0f"|format(swd.model_base_prob) }}%</td><td class="num">{{ "%.0f"|format(swd.effective_base_prob) }}%</td><td class="num">{{ "%+.0f"|format(swd.effective_base_prob - swd.model_base_prob) }}%</td></tr>
-        <tr><td>Bull</td><td class="num">{{ "%.0f"|format(swd.model_bull_prob) }}%</td><td class="num">{{ "%.0f"|format(swd.effective_bull_prob) }}%</td><td class="num">{{ "%+.0f"|format(swd.effective_bull_prob - swd.model_bull_prob) }}%</td></tr>
+        <tr><td>Bear</td><td class="num">{{ "%.0f"|format(swd.model_bear_prob * 100) }}%</td><td class="num">{{ "%.0f"|format(swd.effective_bear_prob * 100) }}%</td><td class="num">{{ "%+.0f"|format((swd.effective_bear_prob - swd.model_bear_prob) * 100) }}%</td></tr>
+        <tr><td class="strong">Base</td><td class="num">{{ "%.0f"|format(swd.model_base_prob * 100) }}%</td><td class="num">{{ "%.0f"|format(swd.effective_base_prob * 100) }}%</td><td class="num">{{ "%+.0f"|format((swd.effective_base_prob - swd.model_base_prob) * 100) }}%</td></tr>
+        <tr><td>Bull</td><td class="num">{{ "%.0f"|format(swd.model_bull_prob * 100) }}%</td><td class="num">{{ "%.0f"|format(swd.effective_bull_prob * 100) }}%</td><td class="num">{{ "%+.0f"|format((swd.effective_bull_prob - swd.model_bull_prob) * 100) }}%</td></tr>
     </tbody>
 </table>
 <p style="font-size: 7.5pt; color: #4a5568; margin-top: 4pt;">
@@ -1174,7 +1173,7 @@
 <p style="font-size: 7.5pt; color: #718096; margin-top: 4pt;">Degradation drivers: {{ ci.confidence_degradation_drivers | join(' · ') }}</p>
 {% endif %}
 {% if ci.separation_note %}
-<p style="font-size: 7.5pt; color: #4a5568; margin-top: 4pt;">{{ ci.separation_note }}</p>
+<p style="font-size: 7.5pt; color: #4a5568; margin-top: 4pt;">{{ ci.separation_note|clip(170) }}</p>
 {% endif %}
 {% endif %}
 
@@ -1197,6 +1196,91 @@
 {% if evs.driver_note %}
 <p style="font-size: 7.5pt; color: #718096; margin-top: 2pt;">{{ evs.driver_note }}</p>
 {% endif %}
+{% endif %}
+
+{# ── Probability Construction — how the scenario weights are built ── #}
+{% if stock.signal_breakdown.probability_construction_framework and stock.signal_breakdown.probability_construction_framework.factors %}
+<h3 class="section-subheader">Probability Construction</h3>
+<table class="data-table">
+    <thead><tr><th>Factor</th><th>Reading</th><th>Impact</th></tr></thead>
+    <tbody>
+    {% for f in stock.signal_breakdown.probability_construction_framework.factors[:6] %}
+        <tr><td>{{ f.name }}</td><td>{{ f.current_value }}</td><td>{{ f.impact_level }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+{# ── Noise Filter ── #}
+{% if stock.signal_breakdown.noise_filter %}
+{% set nf = stock.signal_breakdown.noise_filter %}
+<h3 class="section-subheader">Noise Filter</h3>
+<p style="font-size: 7.5pt;">
+    <strong>Regime:</strong> {{ nf.noise_regime }} &middot; <strong>Noise score:</strong> {{ nf.noise_score }}/10
+    {% if nf.defer_sizing %} &middot; <strong>Sizing deferred</strong>{% endif %}
+    {% if nf.action_guidance %}<br>{{ nf.action_guidance }}{% endif %}
+</p>
+{% if nf.regime_warning %}<p style="font-size: 7.5pt; color: #9C3325;">{{ nf.regime_warning }}</p>{% endif %}
+{% endif %}
+
+{# ── Volatility Regime ── #}
+{% if stock.signal_breakdown.volatility_regime_dynamics %}
+{% set vrd = stock.signal_breakdown.volatility_regime_dynamics %}
+<h3 class="section-subheader">Volatility Regime</h3>
+<p style="font-size: 7.5pt;">
+    <strong>{{ vrd.regime_label }}</strong>{% if vrd.vol_trend %} &middot; trend: {{ vrd.vol_trend|lower }}{% endif %}
+    {% if vrd.vol_trend_note %}<br>{{ vrd.vol_trend_note }}{% endif %}
+</p>
+{% if vrd.compression_note %}<p style="font-size: 7.5pt; color: #718096;">{{ vrd.compression_note }}</p>{% endif %}
+{% endif %}
+
+{# ── Liquidity Microstructure ── #}
+{% if stock.signal_breakdown.liquidity_microstructure %}
+{% set lm = stock.signal_breakdown.liquidity_microstructure %}
+<h3 class="section-subheader">Liquidity Microstructure</h3>
+<p style="font-size: 7.5pt;">
+    <strong>Volume state:</strong> {{ lm.volume_state }}{% if lm.block_flow_proxy %} &middot; <strong>Block flow:</strong> {{ lm.block_flow_proxy }}{% endif %}
+    {% if lm.thin_volume_note %}<br>{{ lm.thin_volume_note }}{% endif %}
+</p>
+{% if lm.bias_note %}<p style="font-size: 7.5pt; color: #718096;">{{ lm.bias_note }}</p>{% endif %}
+{% endif %}
+
+{# ── Factor Exposure ── #}
+{% if stock.signal_breakdown.factor_diagnostics or stock.signal_breakdown.factor_exposure %}
+{% set fd = stock.signal_breakdown.factor_diagnostics or {} %}
+{% set fe = stock.signal_breakdown.factor_exposure or {} %}
+<h3 class="section-subheader">Factor Exposure</h3>
+<p style="font-size: 7.5pt;">
+    {% if fd.beta_estimate %}<strong>Beta:</strong> {{ "%.2f"|format(fd.beta_estimate) }} ({{ fd.beta_label }}){% endif %}
+    {% if fe.factor_tilt %} &middot; <strong>Tilt:</strong> {{ fe.factor_tilt }}{% endif %}
+    {% if fd.crowding_proxy or fe.crowding_risk %} &middot; <strong>Crowding:</strong> {{ fd.crowding_proxy or fe.crowding_risk }}{% endif %}
+</p>
+{% if fd.estimation_note %}<p style="font-size: 7pt; color: #718096;">{{ fd.estimation_note|clip(220) }}</p>{% endif %}
+{% endif %}
+
+{# ── Model Sensitivity ── #}
+{% if stock.signal_breakdown.model_sensitivity_attribution %}
+{% set msa = stock.signal_breakdown.model_sensitivity_attribution %}
+<h3 class="section-subheader">Model Sensitivity</h3>
+<p style="font-size: 7.5pt;">
+    <strong>Overall:</strong> {{ msa.overall_sensitivity }}{% if msa.dominant_driver %} &middot; <strong>Dominant driver:</strong> {{ msa.dominant_driver }}{% endif %}
+    {% if msa.model_failure_risk %}<br>{{ msa.model_failure_risk }}{% endif %}
+</p>
+{% if msa.sensitivity_drivers %}
+<p style="font-size: 7pt; color: #718096;">
+    Ranked drivers: {% for d in msa.sensitivity_drivers[:4] %}{{ d.factor }} ({{ d.sensitivity|lower }}){% if not loop.last %} &middot; {% endif %}{% endfor %}
+</p>
+{% endif %}
+{% endif %}
+
+{# ── Portfolio Action ── #}
+{% if stock.signal_breakdown.portfolio_action %}
+{% set pa = stock.signal_breakdown.portfolio_action %}
+<h3 class="section-subheader">Portfolio Action</h3>
+<p style="font-size: 7.5pt;">
+    <strong>Mandate fit:</strong> {{ pa.mandate_fit }} &middot; <strong>Allocation bias:</strong> {{ pa.allocation_bias }}
+    {% if pa.sizing_guidance %}<br>{{ pa.sizing_guidance }}{% endif %}
+</p>
 {% endif %}
 
 {% endif %}{# end if stock.signal_breakdown #}

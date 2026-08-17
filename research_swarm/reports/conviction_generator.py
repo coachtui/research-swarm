@@ -227,6 +227,15 @@ class ConvictionGenerator:
         insights_text = "\n".join(f"- {i}" for i in key_insights[:3])
         risks_text = "\n".join(f"- {r}" for r in risk_factors[:3])
 
+        # v2 runs store the thesis as a structured dict, not a paragraph
+        if isinstance(investment_thesis, dict):
+            investment_thesis = " ".join(
+                str(investment_thesis.get(k, ""))
+                for k in ("company_overview", "recommendation_summary",
+                          "valuation_signal_analysis")
+            ).strip()
+        investment_thesis = investment_thesis or ""
+
         prompt = f"""Write a 2-3 sentence bottom-line investment conviction for {ticker}.
 
 Analysis Summary:
