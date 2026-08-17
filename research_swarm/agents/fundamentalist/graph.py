@@ -1174,6 +1174,17 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                     )
                     currency_info = detect_currency_info(state["ticker"], stock_info)
                     stock_info = normalize_stock_info_to_usd(stock_info, currency_info)
+
+                    # Raw yfinance taxonomy — apply the same sector overrides
+                    # get_company_info uses, or WACC's financial-sector check
+                    # and the blended valuation see the wrong sector
+                    from research_swarm.data.market_data_client import MarketDataClient
+                    _sec, _ind = MarketDataClient.effective_sector(
+                        state["ticker"], stock_info.get("sector"), stock_info.get("industry")
+                    )
+                    if _sec is not None:
+                        stock_info = {**stock_info, "sector": _sec,
+                                      "industry": _ind or stock_info.get("industry")}
                     # Store report-transparency metadata
                     state["currency_normalization"] = currency_info.as_report_meta()
                     if currency_info.is_converted:

@@ -258,6 +258,26 @@ class StockReportData(BaseModel):
         description="Market regime + macro/geopolitical themes with a concrete "
         "channel to this company (resolved at write time by the manager)",
     )
+    company_name: Optional[str] = Field(
+        None, description="Company display name for the report masthead"
+    )
+    valuation_axis: Optional[float] = Field(
+        None, ge=0, le=10,
+        description="Normalized valuation score — the second rating axis (v4)",
+    )
+    quality_tier: Optional[str] = Field(
+        None, description="high | mid | low — quality axis tier (v4 runs only)"
+    )
+    valuation_tier: Optional[str] = Field(
+        None, description="attractive | fair | expensive (v4 runs only)"
+    )
+    quarterly_metrics: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Filing-extracted quarterly metrics (for the revenue chart)"
+    )
+    charts: Optional[Dict[str, str]] = Field(
+        None, description="Rendered SVG fragments keyed by chart name "
+        "(divergence_map, price_volume, quarterly_revenue)"
+    )
     expected_value_price_target: Optional[float] = Field(
         None, description="Probability-weighted expected value from scenarios"
     )

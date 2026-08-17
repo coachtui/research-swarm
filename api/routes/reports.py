@@ -74,6 +74,14 @@ def _build_report_data(run_row, stock_result_rows):
             logger.warning(f"Failed to extract {sr.ticker} for PDF: {e}")
             continue
 
+        # Charts are additive: a matplotlib or data failure never blocks the note
+        try:
+            from research_swarm.reports.note_charts import build_note_charts
+
+            stock_data.charts = build_note_charts(stock_data, sr.ticker) or None
+        except Exception as e:
+            logger.warning(f"Chart generation failed for {sr.ticker}: {e}")
+
     if not stocks:
         raise ValueError("No completed stocks with data to generate report")
 

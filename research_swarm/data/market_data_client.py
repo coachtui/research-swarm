@@ -120,6 +120,23 @@ class MarketDataClient:
             logger.error(f"Error fetching price for {ticker}: {e}")
             return None
 
+    # yfinance's taxonomy misfiles some names badly — LYFT and UBER print as
+    # "Technology / Software - Application" while GICS (what S&P, Schwab and
+    # every sector-average table here assume) files them under Industrials.
+    # Override only where the misfiling is documented; extend as found.
+    SECTOR_OVERRIDES = {
+        "LYFT": ("Industrials", "Passenger Ground Transportation"),
+        "UBER": ("Industrials", "Passenger Ground Transportation"),
+    }
+
+    @classmethod
+    def effective_sector(cls, ticker, sector, industry=None):
+        """Resolve (sector, industry) with overrides applied. EVERY sector
+        read must come through here or get_company_info — a raw
+        info.get("sector") silently benchmarks against the wrong sector."""
+        override = cls.SECTOR_OVERRIDES.get((ticker or "").upper())
+        return override if override else (sector, industry)
+
     def get_company_info(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get company info including sector."""
         ticker = ticker.upper()
@@ -127,7 +144,7 @@ class MarketDataClient:
         # `country` was added would otherwise keep serving a dict without it
         # for the full TTL, silently disabling macro region matching. Bump the
         # suffix whenever a field is added here.
-        cache_key = f"{ticker}_info_v2"
+        cache_key = f"{ticker}_info_v3"  # v3: SECTOR_OVERRIDES applied
 
         # Cache company info for 7 days
         cached = cache.get("market_info", cache_key)
@@ -157,6 +174,10 @@ class MarketDataClient:
                 "financial_currency": info.get("financialCurrency"),  # reporting currency of statements
                 "quote_type": info.get("quoteType"),               # EQUITY, ETF, etc.
             }
+
+            override = self.SECTOR_OVERRIDES.get(ticker)
+            if override:
+                result["sector"], result["industry"] = override
 
             cache.set("market_info", cache_key, result, ttl_days=7)
             return result
@@ -719,32 +740,40 @@ class MarketDataClient:
 
     # Sector median P/E ratios (approximate, updated periodically)
     # Source: historical averages as of early 2026
+    # When the medians below were last measured (scripts/calibrate_sector_medians.py).
+    # Update together with the tables, quarterly.
+    SECTOR_MEDIANS_AS_OF = "Q3 2026"
+
+    # MEASURED 2026-08-17 from the 503 S&P constituents (canonical GICS
+    # sectors, positive trailing multiples only, capped at 500x) — see
+    # scripts/calibrate_sector_medians.py. Refresh quarterly, ~6 weeks into
+    # the quarter, and update SECTOR_MEDIANS_AS_OF with the tables.
     SECTOR_MEDIAN_PE = {
-        "Technology": 28.0,
-        "Healthcare": 22.0,
-        "Financials": 14.0,
-        "Consumer Discretionary": 22.0,
-        "Consumer Staples": 20.0,
-        "Energy": 12.0,
-        "Industrials": 20.0,
-        "Materials": 16.0,
-        "Utilities": 18.0,
-        "Real Estate": 35.0,
-        "Communication Services": 18.0,
+        "Communication Services": 18.8,   # n=19
+        "Consumer Discretionary": 21.2,   # n=45
+        "Consumer Staples": 24.8,   # n=29
+        "Energy": 17.4,   # n=21
+        "Financials": 16.2,   # n=74
+        "Healthcare": 29.8,   # n=53
+        "Industrials": 30.2,   # n=82
+        "Materials": 30.6,   # n=19
+        "Real Estate": 35.8,   # n=30
+        "Technology": 38.2,   # n=69
+        "Utilities": 21.5,   # n=31
     }
 
     SECTOR_MEDIAN_EV_EBITDA = {
-        "Technology": 20.0,
-        "Healthcare": 15.0,
-        "Financials": 10.0,
-        "Consumer Discretionary": 14.0,
-        "Consumer Staples": 14.0,
-        "Energy": 7.0,
-        "Industrials": 13.0,
-        "Materials": 10.0,
-        "Utilities": 12.0,
-        "Real Estate": 18.0,
-        "Communication Services": 12.0,
+        "Communication Services": 12.8,   # n=23
+        "Consumer Discretionary": 15.2,   # n=47
+        "Consumer Staples": 13.0,   # n=34
+        "Energy": 8.4,   # n=21
+        "Financials": 12.4,   # n=44
+        "Healthcare": 15.2,   # n=58
+        "Industrials": 18.3,   # n=82
+        "Materials": 11.7,   # n=25
+        "Real Estate": 18.9,   # n=31
+        "Technology": 23.2,   # n=71
+        "Utilities": 13.4,   # n=31
     }
 
     # yfinance reports its own sector taxonomy; the multiple tables above are
@@ -782,7 +811,7 @@ class MarketDataClient:
             Dict with valuation metrics or None
         """
         ticker = ticker.upper()
-        cache_key = f"{ticker}_valuation"
+        cache_key = f"{ticker}_valuation_v2"  # v2: sector overrides
 
         cached = cache.get("market_valuation", cache_key)
         if isinstance(cached, dict) and cached.get("__no_data__"):
@@ -802,7 +831,7 @@ class MarketDataClient:
                 logger.warning(f"No valuation data for {ticker}")
                 return None
 
-            sector = info.get("sector", "Unknown")
+            sector, _ = self.effective_sector(ticker, info.get("sector", "Unknown"))
             gics_sector = self.normalize_sector(sector)
             if gics_sector is None and sector and sector != "Unknown":
                 logger.warning(
@@ -876,7 +905,7 @@ class MarketDataClient:
             Dict with key stats or None
         """
         ticker = ticker.upper()
-        cache_key = f"{ticker}_key_stats"
+        cache_key = f"{ticker}_key_stats_v2"  # v2: sector overrides
 
         cached = cache.get("market_key_stats", cache_key)
         if isinstance(cached, dict) and cached.get("__no_data__"):
@@ -923,9 +952,12 @@ class MarketDataClient:
                 # Shares
                 "shares_outstanding_millions": to_millions(info.get("sharesOutstanding")),
                 "shares_short_pct_float": to_pct(info.get("shortPercentOfFloat")),
-                # Classification
-                "sector": info.get("sector", "Unknown"),
-                "industry": info.get("industry", "Unknown"),
+                # Classification (override-aware)
+                "sector": self.effective_sector(ticker, info.get("sector", "Unknown"),
+                                                info.get("industry", "Unknown"))[0],
+                "industry": self.effective_sector(ticker, info.get("sector", "Unknown"),
+                                                  info.get("industry", "Unknown"))[1]
+                            or info.get("industry", "Unknown"),
             }
 
             cache.set("market_key_stats", cache_key, result, ttl_days=1)

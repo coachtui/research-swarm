@@ -8,6 +8,53 @@ from jinja2 import Environment, FileSystemLoader, Template
 from .models import ReportData, ReportSection
 
 
+_LOGO_CACHE: str | None = None
+
+
+def _logo_data_uri() -> str:
+    """The site logotype (DV|RG), embedded as a data URI so the PDF needs no
+    external asset resolution. Cached per process; empty string if missing so
+    the template can fall back to the text masthead."""
+    global _LOGO_CACHE
+    if _LOGO_CACHE is None:
+        import base64
+        logo = Path(__file__).parent / "assets" / "dvrg-logo.png"
+        _LOGO_CACHE = (
+            "data:image/png;base64," + base64.b64encode(logo.read_bytes()).decode()
+            if logo.exists() else ""
+        )
+    return _LOGO_CACHE
+
+
+def _clip(text, limit: int = 100) -> str:
+    """Truncate at a sentence or word boundary — never mid-word.
+
+    The template previously used raw character slices ([:100] + "..."), which
+    shipped fragments like "Initiate cautiou..." on page one of a paid report.
+    Prefer the last sentence end inside the limit when it keeps most of the
+    text; otherwise cut at the last word boundary with an ellipsis.
+    """
+    if text is None:
+        return ""
+    text = str(text).strip()
+    if len(text) <= limit:
+        return text
+
+    window = text[:limit]
+    # Sentence boundary that preserves at least 60% of the budget
+    pos = window.rfind(". ")
+    if pos >= int(limit * 0.6):
+        return window[: pos + 1].strip()
+    pos = window.rfind("; ")
+    if pos >= int(limit * 0.6):
+        return window[:pos].strip() + "…"
+    # Word boundary fallback
+    pos = window.rfind(" ")
+    if pos <= 0:
+        pos = limit
+    return window[:pos].rstrip(",;:.") + "…"
+
+
 class TemplateRenderer:
     """Renders Jinja2 templates for report generation."""
 
@@ -27,6 +74,19 @@ class TemplateRenderer:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        self.env.filters["clip"] = _clip
+
+        # Score Construction shows raw vs S&P-average vs normalized using the
+        # exact production math — never a template reimplementation of it
+        from research_swarm.agents.manager.score_normalization import (
+            COMPONENT_CALIBRATION,
+            normalize_component,
+        )
+        self.env.globals["norm_component"] = normalize_component
+        self.env.globals["component_calibration"] = COMPONENT_CALIBRATION
+
+        from research_swarm.data.market_data_client import MarketDataClient
+        self.env.globals["sector_medians_as_of"] = MarketDataClient.SECTOR_MEDIANS_AS_OF
 
     def render_section(
         self,
@@ -136,6 +196,7 @@ class TemplateRenderer:
         return template.render(
             report=report_data,
             stocks=report_data.stocks,
+            logo_data_uri=_logo_data_uri(),
             include_charts=include_charts,
             include_trader_content=include_trader_content,
             include_signal_metrics=include_signal_metrics,
