@@ -279,7 +279,7 @@
     </table>
 
     {% if stock.valuation_metrics %}
-    <div class="bar"><b>Metrics</b><span>vs sector avg</span></div>
+    <div class="bar"><b>Metrics</b><span>vs sector median &middot; {{ sector_medians_as_of }}</span></div>
     <table class="cmp">
         <tr><th>Multiple</th><th>{{ stock.ticker }}</th><th>Sector</th></tr>
         {% if stock.valuation_metrics.pe_ratio %}
@@ -434,7 +434,7 @@
 
 <table class="data-table">
     <thead>
-        <tr><th>Multiple</th><th style="text-align: right;">Value</th><th style="text-align: right;">Sector Avg</th></tr>
+        <tr><th>Multiple</th><th style="text-align: right;">Value</th><th style="text-align: right;">Sector Median ({{ sector_medians_as_of }})</th></tr>
     </thead>
     <tbody>
         {% if stock.valuation_metrics.pe_ratio %}<tr><td>P/E (TTM)</td><td class="num">{{ "%.1f"|format(stock.valuation_metrics.pe_ratio) }}x</td><td class="num">{% if stock.valuation_metrics.sector_avg_pe %}{{ "%.1f"|format(stock.valuation_metrics.sector_avg_pe) }}x{% else %}—{% endif %}</td></tr>{% endif %}

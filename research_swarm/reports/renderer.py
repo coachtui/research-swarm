@@ -85,6 +85,9 @@ class TemplateRenderer:
         self.env.globals["norm_component"] = normalize_component
         self.env.globals["component_calibration"] = COMPONENT_CALIBRATION
 
+        from research_swarm.data.market_data_client import MarketDataClient
+        self.env.globals["sector_medians_as_of"] = MarketDataClient.SECTOR_MEDIANS_AS_OF
+
     def render_section(
         self,
         section: ReportSection,

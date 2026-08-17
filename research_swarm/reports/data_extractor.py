@@ -289,6 +289,35 @@ class DataExtractor:
 
         valuation_metrics = fundamentalist.get("valuation_metrics")
 
+        # The report stamps sector comparators "as of <quarter>", so they must
+        # come from the CURRENT measured tables, not whatever table was
+        # shipped when this run was analyzed. Scores stay as stored — only the
+        # displayed benchmark refreshes.
+        if isinstance(valuation_metrics, dict):
+            from research_swarm.data.market_data_client import MarketDataClient
+
+            _sector, _ = MarketDataClient.effective_sector(
+                result.ticker, (valuation_metrics.get("sector")
+                                or fundamentalist.get("sector")
+                                or output.get("sector")))
+            _gics = MarketDataClient.normalize_sector(_sector)
+            if _gics is None:
+                _info = None
+                try:
+                    from research_swarm.data.market_data_client import market_data_client
+                    _info = market_data_client.get_company_info(result.ticker)
+                except Exception:
+                    pass
+                _gics = MarketDataClient.normalize_sector((_info or {}).get("sector"))
+            if _gics:
+                valuation_metrics = {
+                    **valuation_metrics,
+                    "sector_avg_pe": MarketDataClient.SECTOR_MEDIAN_PE.get(
+                        _gics, valuation_metrics.get("sector_avg_pe")),
+                    "sector_avg_ev_ebitda": MarketDataClient.SECTOR_MEDIAN_EV_EBITDA.get(
+                        _gics, valuation_metrics.get("sector_avg_ev_ebitda")),
+                }
+
         # Price targets: prefer the manager's DVRG divergence-weighted targets —
         # the numbers the web report shows. The fundamentalist's scenarios are
         # the intrinsic band spread around its own midpoint; printing those
