@@ -5,11 +5,11 @@
  *
  * Aggregates two upstream allocation outputs and enforces the binding constraint:
  *
- *   Final Weight = MIN(Execution Weight, Policy Cap)
+ *   Final Weight = MIN(Execution Weight, Risk-Adjusted Cap)
  *
  * Input sources:
  *   – Noise-Adjusted Exposure Engine  → Execution Weight (adjusted_weight_pct)
- *   – Portfolio Construction Engine   → Policy Cap       (ConvictionPosition.max_pct)
+ *   – Portfolio Construction Engine   → Risk-Adjusted Cap       (ConvictionPosition.max_pct)
  *
  * Resolver logic is deterministic and symmetric: whichever source produces the
  * lower allocation becomes the binding constraint. No override, no blending.
@@ -234,10 +234,10 @@ export function FinalWeightResolver({
     }
   }, [ticker, signalBreakdown, convictionPosition])
 
-  // ── Policy Cap from Portfolio Construction Engine ───────────────────────────
+  // ── Risk-Adjusted Cap from Portfolio Construction Engine ───────────────────────────
   const policyCap = convictionPosition?.max_pct ?? null
 
-  // ── Resolver: Final Weight = MIN(Execution Weight, Policy Cap) ──────────────
+  // ── Resolver: Final Weight = MIN(Execution Weight, Risk-Adjusted Cap) ──────────────
   const resolver = useMemo(() => {
     if (executionWeightPct == null || policyCap == null) return null
 
@@ -270,7 +270,7 @@ export function FinalWeightResolver({
 
   const [rationaleOpen, setRationaleOpen] = useState(true)
 
-  // ── Why the Policy Cap is the number it is ─────────────────────────────────
+  // ── Why the Risk-Adjusted Cap is the number it is ─────────────────────────────────
   // The resolver already explained WHICH constraint binds; without this it never
   // explained where the cap itself came from, so an enforced cap read as an
   // arbitrary ceiling. The cap is derived upstream from risk level (base
@@ -336,17 +336,17 @@ export function FinalWeightResolver({
   // ── Resolver state copy ─────────────────────────────────────────────────────
   const resolverStateLabel =
     bindingSource === 'EXECUTION'
-      ? 'Execution Weight is binding — Policy Cap not reached'
+      ? 'Execution Weight is binding — Risk-Adjusted Cap not reached'
       : bindingSource === 'POLICY'
-        ? 'Policy Cap enforced — Execution Weight truncated'
-        : 'Execution Weight equals Policy Cap — resolver at equilibrium'
+        ? 'Risk-Adjusted Cap enforced — Execution Weight truncated'
+        : 'Execution Weight equals Risk-Adjusted Cap — resolver at equilibrium'
 
   const resolverStateCopy =
     bindingSource === 'EXECUTION'
-      ? `The Noise-Adjusted Exposure Engine produced an allocation (${fmt(executionWeightPct)}) below the Policy Cap (${fmt(policyCap)}). No cap enforcement is required. The execution weight stands as the final allocation.`
+      ? `The Noise-Adjusted Exposure Engine produced an allocation (${fmt(executionWeightPct)}) below the Risk-Adjusted Cap (${fmt(policyCap)}). No cap enforcement is required. The execution weight stands as the final allocation.`
       : bindingSource === 'POLICY'
-        ? `The Portfolio Construction Engine's Policy Cap (${fmt(policyCap)}) is more restrictive than the Noise-Adjusted Exposure output (${fmt(executionWeightPct)}). Allocation discipline requires enforcement of the lower bound. Final weight is capped at ${fmt(finalWeight)}.`
-        : `Execution Weight and Policy Cap are equal at ${fmt(finalWeight)}. Resolver is at equilibrium.`
+        ? `The Portfolio Construction Engine's Risk-Adjusted Cap (${fmt(policyCap)}) is more restrictive than the Noise-Adjusted Exposure output (${fmt(executionWeightPct)}). Allocation discipline requires enforcement of the lower bound. Final weight is capped at ${fmt(finalWeight)}.`
+        : `Execution Weight and Risk-Adjusted Cap are equal at ${fmt(finalWeight)}. Resolver is at equilibrium.`
 
   return (
     <div className="rounded-lg border border-border bg-surface overflow-hidden">
@@ -394,7 +394,7 @@ export function FinalWeightResolver({
             />
             <InputSourceCard
               label="Portfolio Construction"
-              sublabel="Policy Cap"
+              sublabel="Risk-Adjusted Cap"
               value={policyCap}
               isBinding={bindingSource === 'POLICY'}
               note="Risk-adjusted ceiling enforced by the conviction-based allocation framework"
@@ -403,7 +403,7 @@ export function FinalWeightResolver({
           </div>
         </div>
 
-        {/* ── How the Policy Cap was derived ─────────────────────────────────
+        {/* ── How the Risk-Adjusted Cap was derived ─────────────────────────────────
             The resolver above says WHICH constraint binds. Without this block
             it never said where the cap itself came from, so an enforced cap
             read as an arbitrary ceiling. */}
@@ -417,7 +417,7 @@ export function FinalWeightResolver({
             <div className="flex items-center gap-1.5 mb-2">
               <Shield className="h-3 w-3 text-text-tertiary" />
               <p className="text-[9px] uppercase tracking-wider text-text-tertiary/60 font-semibold">
-                How the {fmt(policyCap)} Policy Cap Was Set
+                How the {fmt(policyCap)} Risk-Adjusted Cap Was Set
               </p>
             </div>
 
@@ -472,7 +472,7 @@ export function FinalWeightResolver({
             <div>
               <span className="text-text-tertiary">Final Weight</span>
               <span className="mx-2 text-text-tertiary/50">=</span>
-              <span>MIN(Execution Weight, Policy Cap)</span>
+              <span>MIN(Execution Weight, Risk-Adjusted Cap)</span>
             </div>
             <div className="pl-24 text-text-tertiary">
               <span className="mx-0 text-text-tertiary/50">=</span>
@@ -492,7 +492,7 @@ export function FinalWeightResolver({
               <ChevronRight className="h-3.5 w-3.5 text-text-tertiary/40" />
               <span className="text-[10px] text-text-tertiary">
                 {bindingSource === 'EXECUTION' ? 'Execution binding'
-                : bindingSource === 'POLICY' ? 'Policy Cap binding'
+                : bindingSource === 'POLICY' ? 'Risk-Adjusted Cap binding'
                 : 'Equilibrium'}
               </span>
             </div>
@@ -665,7 +665,7 @@ export function FinalWeightResolver({
             />
 
             <ArbitrationRow
-              dimension="Policy Cap"
+              dimension="Risk-Adjusted Cap"
               value={fmt(policyCap)}
               status={bindingSource === 'POLICY' ? 'BINDING' : 'ALLOWED'}
               statusClass={
