@@ -28,6 +28,7 @@ import { CompressedRiskPanel } from '@/components/results/CompressedRiskPanel'
 import { WatchForSummary } from '@/components/results/WatchForSummary'
 import { ProbabilisticEngineDashboard } from '@/components/results/ProbabilisticEngineDashboard'
 import { ExecutionLayer } from '@/components/results/ExecutionLayer'
+import { AllocationSummary } from '@/components/results/AllocationSummary'
 import { ReportCommandBar } from '@/components/results/ReportCommandBar'
 import { TierGate } from '@/components/common/TierGate'
 import { Card, CardContent } from '@/components/ui/card'
@@ -316,15 +317,34 @@ export function ResultsContent({
           />
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION I — CONSERVATIVE VALUATION LENS  (moved up — Risk/Reward first)
-              Intrinsic anchor · Scenario risk/reward · EV
-              Valuation informs trim sensitivity and risk assessment.
-              It does NOT block adds.
+              THE CALL — ALLOCATION SUMMARY (one line)
+              The sizing funnel stated once: target · ceiling · starter.
+              Reads from tier-shaped data, so it renders nothing (no gate, no
+              upsell) for tiers whose DI payload is stripped server-side.
+              ══════════════════════════════════════════════════════════════════ */}
+          {decision_intelligence && (
+            <AllocationSummary
+              ticker={result.ticker}
+              signalBreakdown={signal_breakdown}
+              convictionPosition={decision_intelligence.conviction_position}
+              starterTranchePct={divergenceOverlay?.final_allocation ?? null}
+            />
+          )}
+
+          <div className="pt-5 pb-0.5 flex items-baseline gap-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-text-tertiary">Why</p>
+            <p className="text-[10px] text-text-tertiary/60 italic">“What’s the case?”</p>
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════════════
+              WHY — VALUATION & RISK / REWARD
+              Intrinsic anchor · Scenarios · EV — informs trims, never blocks adds
               ══════════════════════════════════════════════════════════════════ */}
           {(full_output?.fair_value_calibration || full_output?.price_targets) && (
             <CollapsibleSection
               title="Valuation & Risk / Reward"
               sublabel="Downside · Upside · Intrinsic anchor · Scenarios · EV — does NOT block adds"
+              defaultOpen
             >
               <div className="space-y-4">
                 {/* Disclaimer — valuation is risk framing, never an entry gate */}
@@ -368,15 +388,21 @@ export function ResultsContent({
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION II — DIVERGENCE INTELLIGENCE  (Divergence & Allocation)
-              Timing score · Phase · Sub-metrics · Allocation adjustment
+              WHY — INVESTMENT THESIS  (open by default)
+              Company overview · Highlights · Key risks · Entry context
               ══════════════════════════════════════════════════════════════════ */}
-          {divergenceOverlay && (
-            <DivergenceIntelligencePanel overlay={divergenceOverlay} />
+          {full_output?.investment_thesis && (
+            <CollapsibleSection
+              title="Investment Thesis"
+              sublabel="Company overview · Highlights · Key risks · Entry context"
+              defaultOpen
+            >
+              <InvestmentThesisPanel thesis={full_output.investment_thesis} />
+            </CollapsibleSection>
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION III — COMPANY CLASSIFICATION
+              WHY — COMPANY CLASSIFICATION
               Durable Growth / Durable Quality / Emerging Compounder
               ══════════════════════════════════════════════════════════════════ */}
           {(moat_breakdown || fundamentalistOutput) && (
@@ -388,21 +414,41 @@ export function ResultsContent({
             />
           )}
 
+          <div className="pt-5 pb-0.5 flex items-baseline gap-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-text-tertiary">What could change it</p>
+            <p className="text-[10px] text-text-tertiary/60 italic">“Which forces act on the thesis?”</p>
+          </div>
+
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION IV — INVESTMENT THESIS  (collapsed by default)
-              Company overview · Highlights · Key risks · Entry context
+              FORCES — DIVERGENCE & DISLOCATION  (collapsed; badge carries phase)
+              One section, one signal: the timing overlay and the drawdown state
+              it produces. These rendered five sections apart as §II and §VII —
+              the same underlying divergence signal met twice.
               ══════════════════════════════════════════════════════════════════ */}
-          {full_output?.investment_thesis && (
+          {(divergenceOverlay || high52Week || currentPrice) && (
             <CollapsibleSection
-              title="Investment Thesis"
-              sublabel="Company overview · Highlights · Key risks · Entry context"
+              title="Divergence & Dislocation"
+              sublabel="Timing score · Phase · Allocation adjustment · Drawdown vs 252d high · Tier bands"
+              badge={divergenceOverlay?.phase_label ?? undefined}
             >
-              <InvestmentThesisPanel thesis={full_output.investment_thesis} />
+              <div className="space-y-4">
+                {divergenceOverlay && (
+                  <DivergenceIntelligencePanel overlay={divergenceOverlay} />
+                )}
+                {(high52Week || currentPrice) && (
+                  <DislocationStatePanel
+                    currentPrice={currentPrice}
+                    high52Week={high52Week}
+                    ma200d={ma200d}
+                    position={portfolioPosition}
+                  />
+                )}
+              </div>
             </CollapsibleSection>
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION IV.b — CATALYSTS & GROWTH VECTORS  (collapsed by default)
+              FORCES — CATALYSTS & GROWTH VECTORS  (collapsed)
               Upcoming dated events · Forward-looking strategic catalysts
               ══════════════════════════════════════════════════════════════════ */}
           {((full_output?.strategic_catalysts?.length ?? 0) > 0 ||
@@ -424,7 +470,7 @@ export function ResultsContent({
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION IV.c — MACRO & GEOPOLITICAL CONTEXT  (collapsed by default)
+              FORCES — MACRO & GEOPOLITICAL CONTEXT  (collapsed)
               Market backdrop · Themes with a concrete channel to this company
               ══════════════════════════════════════════════════════════════════ */}
           {analysisReport?.macro && (
@@ -441,8 +487,37 @@ export function ResultsContent({
             </CollapsibleSection>
           )}
 
+          <div className="pt-5 pb-0.5 flex items-baseline gap-2.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-text-tertiary">Detail & monitoring</p>
+            <p className="text-[10px] text-text-tertiary/60 italic">“Show me the workings; what do I watch?”</p>
+          </div>
+
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION V — STRUCTURAL DURABILITY  (collapsed)
+              DETAIL — TRADE SETUP & POSITION SIZING  (tier-gated)
+              Full sizing engines and tactical setup — the derivation of the headline number
+              ══════════════════════════════════════════════════════════════════ */}
+          <TierGate feature="execution_layer" userTier={userTier} isAdmin={isAdmin}>
+            {decision_intelligence && moat_breakdown && (
+              <ExecutionLayer
+                ticker={result.ticker}
+                rating={decision_intelligence.rating || 'HOLD'}
+                riskLevel={decision_intelligence.risk_level}
+                starterTranchePct={divergenceOverlay?.final_allocation ?? null}
+                moatScore={moat_score || 5.0}
+                financialHealthScore={moat_breakdown.financial_health}
+                sector={sector || 'Unknown'}
+                currentPrice={decision_intelligence.current_price || 0}
+                convictionPosition={decision_intelligence.conviction_position}
+                enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
+                strategy={decision_intelligence.recommended_strategy}
+                signalBreakdown={signal_breakdown}
+                calibration={full_output.fair_value_calibration}
+              />
+            )}
+          </TierGate>
+
+          {/* ══════════════════════════════════════════════════════════════════
+              DETAIL — STRUCTURAL DURABILITY  (collapsed)
               Moat · Earnings durability · Financial health · Quality score
               ══════════════════════════════════════════════════════════════════ */}
           {moat_breakdown && moat_score !== null && (
@@ -457,7 +532,7 @@ export function ResultsContent({
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION VI — STRUCTURAL THESIS  (collapsed)
+              DETAIL — STRUCTURAL THESIS  (collapsed)
               Structural drivers · Break conditions (threshold-based)
               ══════════════════════════════════════════════════════════════════ */}
           {(upgrade_triggers || downgrade_triggers || thesisBreakConditions) && (
@@ -474,25 +549,7 @@ export function ResultsContent({
           )}
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION VII — DISLOCATION STATE
-              52-week high · Drawdown % · Tier bands · Capacity remaining
-              ══════════════════════════════════════════════════════════════════ */}
-          {(high52Week || currentPrice) && (
-            <CollapsibleSection
-              title="Dislocation State"
-              sublabel="252d rolling high · Drawdown % · Tier bands (+2/+4/+6/+8)"
-            >
-              <DislocationStatePanel
-                currentPrice={currentPrice}
-                high52Week={high52Week}
-                ma200d={ma200d}
-                position={portfolioPosition}
-              />
-            </CollapsibleSection>
-          )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              SECTION V — PORTFOLIO ROLE
+              DETAIL — PORTFOLIO ROLE
               Weight · Top 3 exposure · Sector · Role tag
               ══════════════════════════════════════════════════════════════════ */}
           <CollapsibleSection
@@ -503,7 +560,7 @@ export function ResultsContent({
           </CollapsibleSection>
 
           {/* ══════════════════════════════════════════════════════════════════
-              SECTION VI — MONITORING DASHBOARD
+              DETAIL — MONITORING DASHBOARD
               Key risks · Thesis flags · Probabilistic diagnostics
               ══════════════════════════════════════════════════════════════════ */}
           {((risk_factors?.length ?? 0) > 0 ||
@@ -542,29 +599,6 @@ export function ResultsContent({
               </div>
             </CollapsibleSection>
           )}
-
-          {/* ══════════════════════════════════════════════════════════════════
-              EXECUTION LAYER (Trader — always at bottom when entitled)
-              ══════════════════════════════════════════════════════════════════ */}
-          <TierGate feature="execution_layer" userTier={userTier} isAdmin={isAdmin}>
-            {decision_intelligence && moat_breakdown && (
-              <ExecutionLayer
-                ticker={result.ticker}
-                rating={decision_intelligence.rating || 'HOLD'}
-                riskLevel={decision_intelligence.risk_level}
-                starterTranchePct={divergenceOverlay?.final_allocation ?? null}
-                moatScore={moat_score || 5.0}
-                financialHealthScore={moat_breakdown.financial_health}
-                sector={sector || 'Unknown'}
-                currentPrice={decision_intelligence.current_price || 0}
-                convictionPosition={decision_intelligence.conviction_position}
-                enhancedTradeSetup={decision_intelligence.enhanced_trade_setup}
-                strategy={decision_intelligence.recommended_strategy}
-                signalBreakdown={signal_breakdown}
-                calibration={full_output.fair_value_calibration}
-              />
-            )}
-          </TierGate>
 
           {/* ── Footer ──────────────────────────────────────────────────────── */}
           <div className="flex justify-center pt-2">
