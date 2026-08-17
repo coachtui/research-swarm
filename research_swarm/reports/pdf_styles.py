@@ -22,12 +22,9 @@ PDF_CSS = """
     size: letter;
     margin: 0.75in 0.75in 0.9in 0.75in;
     @top-left {
-        content: "DVRG";
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-        font-size: 9pt;
-        font-weight: 700;
-        color: #0E6E5C;
+        content: element(pagelogo);
         padding-top: 0.15in;
+        vertical-align: bottom;
     }
     @top-right {
         content: string(ticker-name);
@@ -113,11 +110,11 @@ body {
 
 /* ===== THE CALL BOX ===== */
 .the-call-box {
-    background: #f0fdf9;
-    border: 2px solid #0E6E5C;
-    border-radius: 0;
-    padding: 14pt 16pt;
-    margin: 0.15in 0;
+    background: #FFFFFF;
+    border: 0.5pt solid #D9DDE3;
+    border-left: 2.5pt solid #0E6E5C;
+    padding: 7pt 10pt;
+    margin: 6pt 0;
     page-break-inside: avoid;
 }
 
@@ -129,7 +126,7 @@ body {
 }
 
 .the-call-box .call-label {
-    font-size: 9pt;
+    font-size: 6.5pt;
     font-weight: 700;
     color: #0E6E5C;
     text-transform: uppercase;
@@ -137,7 +134,7 @@ body {
 }
 
 .the-call-box .one-liner {
-    font-size: 13pt;
+    font-size: 9.5pt;
     font-weight: 600;
     color: var(--text-primary);
     line-height: 1.4;
@@ -223,7 +220,7 @@ body {
 }
 
 .divergence-alert .alert-title {
-    font-size: 10pt;
+    font-size: 7.8pt;
     font-weight: 700;
     color: #991b1b;
     margin: 0 0 4pt 0;
@@ -234,7 +231,7 @@ body {
 }
 
 .divergence-alert p {
-    font-size: 9.5pt;
+    font-size: 7.5pt;
     color: var(--text-secondary);
     margin: 3pt 0;
 }
@@ -249,14 +246,14 @@ body {
 }
 
 .all-clear .alert-title {
-    font-size: 10pt;
+    font-size: 7.8pt;
     font-weight: 700;
     color: #065f46;
     margin: 0 0 2pt 0;
 }
 
 .all-clear p {
-    font-size: 9.5pt;
+    font-size: 7.5pt;
     color: var(--text-secondary);
     margin: 2pt 0;
 }
@@ -274,11 +271,13 @@ body {
 }
 
 .two-col .col-header {
-    font-size: 10pt;
+    font-size: 6.8pt;
     font-weight: 700;
-    margin: 0 0 6pt 0;
-    padding-bottom: 4pt;
-    border-bottom: 2px solid #e2e8f0;
+    text-transform: uppercase;
+    letter-spacing: 0.8pt;
+    margin: 0 0 4pt 0;
+    padding-bottom: 2pt;
+    border-bottom: 0.5pt solid #D9DDE3;
 }
 
 .two-col .col-working .col-header { color: #059669; border-bottom-color: #10B981; }
@@ -290,7 +289,7 @@ body {
 }
 
 .two-col li {
-    font-size: 9.5pt;
+    font-size: 7.3pt;
     color: var(--text-secondary);
     margin: 4pt 0;
     line-height: 1.4;
@@ -329,22 +328,63 @@ body {
 
 /* ===== SECTION HEADERS ===== */
 .section-header {
-    font-size: 14pt;
+    font-size: 8.5pt;
     font-weight: 700;
-    color: var(--text-primary);
-    border-bottom: 2px solid #0E6E5C;
-    padding-bottom: 4pt;
-    margin: 0.2in 0 0.1in 0;
+    letter-spacing: 1.1pt;
+    text-transform: uppercase;
+    color: #1A2233;
+    border-bottom: 0.75pt solid #1A2233;
+    padding-bottom: 2pt;
+    margin: 11pt 0 5pt 0;
     page-break-after: avoid;
 }
 
+.section-header::before {
+    content: "";
+    display: inline-block;
+    width: 6pt;
+    height: 6pt;
+    background: #0E6E5C;
+    margin-right: 5pt;
+}
+
+.section-header .hdr-note {
+    font-size: 6.3pt;
+    font-weight: 400;
+    letter-spacing: 0.3pt;
+    text-transform: none;
+    color: #8A93A0;
+}
+
 .section-subheader {
+    font-size: 7pt;
+    font-weight: 700;
+    letter-spacing: 0.8pt;
+    text-transform: uppercase;
+    color: #5D6570;
+    margin: 8pt 0 3pt 0;
     page-break-after: avoid;
-    font-size: 10pt;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0.12in 0 0.06in 0;
-    page-break-after: avoid;
+}
+
+.doc-title {
+    font-size: 13pt;
+    font-weight: 800;
+    letter-spacing: -0.2pt;
+    color: #1A2233;
+    border-top: 3pt solid #1A2233;
+    padding-top: 8pt;
+    margin: 0 0 6pt 0;
+}
+
+.doc-tag {
+    font-size: 7pt;
+    font-weight: 700;
+    letter-spacing: 1pt;
+    text-transform: uppercase;
+    color: #8A6410;
+    border: 0.75pt solid #8A6410;
+    padding: 1pt 4pt;
+    vertical-align: 3pt;
 }
 
 /* ===== DATA TABLES ===== */
@@ -352,36 +392,34 @@ body {
     page-break-inside: avoid;
     width: 100%;
     border-collapse: collapse;
-    margin: 0.08in 0;
-    font-size: 9.5pt;
-    page-break-inside: avoid;
+    margin: 4pt 0 6pt;
+    font-size: 7pt;
 }
 
 .data-table th {
     background: #FFFFFF;
-    color: #1A2233;
-    border-bottom: 1.5px solid #1A2233;
+    color: #8A93A0;
+    border-bottom: 0.75pt solid #1A2233;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.4pt;
     font-weight: 600;
-    padding: 6pt 10pt;
+    padding: 2.5pt 5pt 2.5pt 0;
     text-align: left;
-    font-size: 8.5pt;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    font-size: 6pt;
 }
 
 .data-table td {
-    padding: 5pt 10pt;
-    border-bottom: 1px solid #e2e8f0;
-    color: var(--text-secondary);
+    padding: 2.5pt 5pt 2.5pt 0;
+    border-bottom: 0.5pt solid #E5E8EC;
+    color: #384250;
+    vertical-align: top;
 }
 
-.data-table tr:nth-child(even) td {
-    background: #f7fafc;
+.data-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: #1A2233;
 }
-
-.data-table .num { text-align: right; font-family: "Courier New", monospace; }
 .data-table .strong { font-weight: 600; color: var(--text-primary); }
 
 /* ===== SIGNAL BARS ===== */
@@ -394,14 +432,14 @@ body {
 }
 
 .signal-label {
-    width: 120pt;
-    font-size: 9pt;
+    width: 70pt;
+    font-size: 7pt;
     color: var(--text-secondary);
 }
 
 .signal-bar-bg {
     flex: 1;
-    height: 10pt;
+    height: 6pt;
     background: #e2e8f0;
     border-radius: 0;
     overflow: hidden;
@@ -414,9 +452,9 @@ body {
 }
 
 .signal-score {
-    width: 35pt;
+    width: 28pt;
     text-align: right;
-    font-size: 9pt;
+    font-size: 7pt;
     font-weight: 600;
 }
 
@@ -428,26 +466,26 @@ body {
 .trade-table {
     width: 100%;
     border-collapse: collapse;
-    margin: 0.08in 0;
-    font-size: 9.5pt;
+    margin: 4pt 0 6pt;
+    font-size: 7pt;
     page-break-inside: avoid;
 }
 
 .trade-table th {
-    padding: 6pt 10pt;
-    font-weight: 600;
-    font-size: 9pt;
+    padding: 2.5pt 5pt;
+    font-weight: 700;
+    font-size: 6.2pt;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.5pt;
 }
 
-.trade-table th.conservative { background: #d1fae5; color: #065f46; }
-.trade-table th.aggressive { background: #fef3c7; color: #92400e; }
-.trade-table th.label-col { background: #f1f5f9; color: var(--text-secondary); }
+.trade-table th.conservative { color: #0E6E5C; border-bottom: 0.75pt solid #0E6E5C; }
+.trade-table th.aggressive { color: #8A6410; border-bottom: 0.75pt solid #8A6410; }
+.trade-table th.label-col { color: #8A93A0; }
 
 .trade-table td {
-    padding: 5pt 10pt;
-    border-bottom: 1px solid #e2e8f0;
+    padding: 2.5pt 5pt;
+    border-bottom: 0.5pt solid #E5E8EC;
     text-align: center;
 }
 
@@ -459,10 +497,11 @@ body {
 
 /* ===== CONVICTION BOX ===== */
 .conviction-box {
-    background: #f0fdf9;
-    border: 1px solid #99f6e4;
-    border-radius: 0;
-    padding: 8pt 14pt;
+    background: #FFFFFF;
+    border: 0.5pt solid #D9DDE3;
+    border-left: 2.5pt solid #0E6E5C;
+    padding: 6pt 9pt;
+    font-size: 7.5pt;
     margin: 0.08in 0;
     page-break-inside: avoid;
 }
@@ -474,9 +513,10 @@ body {
 
 /* ===== BEST SUITED FOR ===== */
 .suited-box {
-    background: #f7fafc;
-    border-radius: 0;
-    padding: 10pt 14pt;
+    background: #FFFFFF;
+    border-top: 0.75pt solid #1A2233;
+    border-bottom: 0.5pt solid #E5E8EC;
+    padding: 6pt 0;
     margin: 0.08in 0;
     page-break-inside: avoid;
 }
@@ -488,13 +528,13 @@ body {
 }
 
 .suited-item .suited-label {
-    font-size: 8pt;
+    font-size: 6.3pt;
     color: var(--text-muted);
     text-transform: uppercase;
 }
 
 .suited-item .suited-value {
-    font-size: 10pt;
+    font-size: 7.8pt;
     font-weight: 600;
     color: var(--text-primary);
 }
@@ -503,7 +543,7 @@ body {
 .trigger-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 9pt;
+    font-size: 7pt;
     margin: 0.06in 0;
     page-break-inside: avoid;
 }
@@ -515,8 +555,8 @@ body {
     font-size: 8.5pt;
 }
 
-.trigger-table th.upgrade { background: #d1fae5; color: #065f46; }
-.trigger-table th.downgrade { background: #fee2e2; color: #991b1b; }
+.trigger-table th.upgrade { color: #0E6E5C; border-bottom: 0.75pt solid #0E6E5C; }
+.trigger-table th.downgrade { color: #9C3325; border-bottom: 0.75pt solid #9C3325; }
 
 .trigger-table td {
     padding: 3pt 8pt;
@@ -543,34 +583,40 @@ body {
 .catalyst-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 9pt;
-    margin: 0.06in 0;
+    margin: 4pt 0 6pt;
+    font-size: 7pt;
     page-break-inside: avoid;
 }
 
 .catalyst-table th {
-    background: #1a1a2e;
-    color: white;
-    padding: 4pt 8pt;
-    font-size: 8pt;
+    background: #FFFFFF;
+    color: #8A93A0;
+    border-bottom: 0.75pt solid #1A2233;
     text-transform: uppercase;
+    letter-spacing: 0.4pt;
+    font-weight: 600;
+    padding: 2.5pt 5pt 2.5pt 0;
+    text-align: left;
+    font-size: 6pt;
 }
 
 .catalyst-table td {
-    padding: 4pt 8pt;
-    border-bottom: 1px solid #e2e8f0;
-    color: var(--text-secondary);
+    padding: 2.5pt 5pt 2.5pt 0;
+    border-bottom: 0.5pt solid #E5E8EC;
+    color: #384250;
+    vertical-align: top;
 }
 
 /* ===== THESIS BLOCK ===== */
 .thesis-block {
-    background: #f7fafc;
-    border-left: 3px solid #0E6E5C;
-    padding: 10pt 14pt;
-    margin: 0.1in 0;
-    font-size: 10pt;
-    line-height: 1.6;
-    color: var(--text-secondary);
+    background: #FFFFFF;
+    border: 0.5pt solid #D9DDE3;
+    border-left: 2.5pt solid #0E6E5C;
+    padding: 6pt 9pt;
+    margin: 4pt 0 6pt;
+    font-size: 7.6pt;
+    line-height: 1.5;
+    color: #384250;
     page-break-inside: avoid;
 }
 
@@ -614,7 +660,7 @@ body {
 .text-error { color: #EF4444; }
 .text-muted { color: #718096; }
 .font-bold { font-weight: 700; }
-.font-mono { font-family: "Courier New", monospace; }
+.font-mono { font-variant-numeric: tabular-nums; }
 .text-right { text-align: right; }
 .text-center { text-align: center; }
 .mt-sm { margin-top: 0.06in; }
@@ -661,10 +707,10 @@ body {
 .action-summary {
     display: flex;
     gap: 14pt;
-    background: #f7fafc;
-    border-radius: 0;
-    padding: 12pt 14pt;
-    margin: 0.12in 0;
+    border-top: 0.75pt solid #1A2233;
+    border-bottom: 0.5pt solid #E5E8EC;
+    padding: 6pt 0;
+    margin: 6pt 0;
     page-break-inside: avoid;
 }
 
@@ -673,18 +719,16 @@ body {
 }
 
 .action-header {
-    font-size: 9pt;
+    font-size: 6.5pt;
     font-weight: 700;
     color: #0E6E5C;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: 0 0 4pt 0;
-    padding-bottom: 3pt;
-    border-bottom: 2px solid #0E6E5C;
+    letter-spacing: 0.8pt;
+    margin: 0 0 3pt 0;
 }
 
 .action-text {
-    font-size: 9pt;
+    font-size: 7.5pt;
     color: var(--text-secondary);
     line-height: 1.4;
     margin: 4pt 0 0 0;
@@ -697,11 +741,42 @@ body {
 }
 
 .compact-list li {
-    font-size: 8.5pt;
+    font-size: 7.3pt;
     color: var(--text-secondary);
-    margin: 3pt 0;
-    line-height: 1.35;
+    margin: 2.5pt 0;
+    line-height: 1.4;
 }
+
+/* ===== NOTE FLOW — two-column inner pages ===== */
+.running-logo {
+    position: running(pagelogo);
+    font-weight: 700;
+    font-size: 9pt;
+    color: #0E6E5C;
+}
+.running-logo img { height: 11pt; width: auto; }
+
+.note-flow {
+    column-count: 2;
+    column-gap: 20pt;
+    column-fill: auto;
+    font-size: 7.6pt;
+    line-height: 1.5;
+    margin-top: 4pt;
+}
+.note-flow > :first-child { margin-top: 0; }
+.note-flow .section-header:first-child { margin-top: 0; }
+/* stacked, not nested-halved, inside a column */
+.note-flow .two-col { display: block; }
+.note-flow .two-col .col { margin-bottom: 6pt; }
+.note-flow .action-summary { display: block; }
+.note-flow .action-col { margin-bottom: 5pt; }
+.note-flow .suited-row { display: block; }
+.note-flow .suited-item { margin: 3pt 0; }
+.note-flow ul, .note-flow ol { padding-left: 10pt; }
+.note-flow .report-footer { page-break-inside: avoid; }
+.note-flow .divergence-alert,
+.note-flow .all-clear { padding: 5pt 8pt; }
 
 /* ===== PAGE ONE — the research-note front page ===== */
 /* Palette shared with note_charts.py: ink #1A2233, accent #0E6E5C,
