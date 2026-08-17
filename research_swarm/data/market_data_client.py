@@ -129,6 +129,14 @@ class MarketDataClient:
         "UBER": ("Industrials", "Passenger Ground Transportation"),
     }
 
+    @classmethod
+    def effective_sector(cls, ticker, sector, industry=None):
+        """Resolve (sector, industry) with overrides applied. EVERY sector
+        read must come through here or get_company_info — a raw
+        info.get("sector") silently benchmarks against the wrong sector."""
+        override = cls.SECTOR_OVERRIDES.get((ticker or "").upper())
+        return override if override else (sector, industry)
+
     def get_company_info(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get company info including sector."""
         ticker = ticker.upper()
@@ -795,7 +803,7 @@ class MarketDataClient:
             Dict with valuation metrics or None
         """
         ticker = ticker.upper()
-        cache_key = f"{ticker}_valuation"
+        cache_key = f"{ticker}_valuation_v2"  # v2: sector overrides
 
         cached = cache.get("market_valuation", cache_key)
         if isinstance(cached, dict) and cached.get("__no_data__"):
@@ -815,7 +823,7 @@ class MarketDataClient:
                 logger.warning(f"No valuation data for {ticker}")
                 return None
 
-            sector = info.get("sector", "Unknown")
+            sector, _ = self.effective_sector(ticker, info.get("sector", "Unknown"))
             gics_sector = self.normalize_sector(sector)
             if gics_sector is None and sector and sector != "Unknown":
                 logger.warning(
@@ -889,7 +897,7 @@ class MarketDataClient:
             Dict with key stats or None
         """
         ticker = ticker.upper()
-        cache_key = f"{ticker}_key_stats"
+        cache_key = f"{ticker}_key_stats_v2"  # v2: sector overrides
 
         cached = cache.get("market_key_stats", cache_key)
         if isinstance(cached, dict) and cached.get("__no_data__"):
@@ -936,9 +944,12 @@ class MarketDataClient:
                 # Shares
                 "shares_outstanding_millions": to_millions(info.get("sharesOutstanding")),
                 "shares_short_pct_float": to_pct(info.get("shortPercentOfFloat")),
-                # Classification
-                "sector": info.get("sector", "Unknown"),
-                "industry": info.get("industry", "Unknown"),
+                # Classification (override-aware)
+                "sector": self.effective_sector(ticker, info.get("sector", "Unknown"),
+                                                info.get("industry", "Unknown"))[0],
+                "industry": self.effective_sector(ticker, info.get("sector", "Unknown"),
+                                                  info.get("industry", "Unknown"))[1]
+                            or info.get("industry", "Unknown"),
             }
 
             cache.set("market_key_stats", cache_key, result, ttl_days=1)
