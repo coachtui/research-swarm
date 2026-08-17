@@ -95,17 +95,26 @@ class QualityScoreBreakdown(BaseModel):
                 f"Got earnings_momentum={self.earnings_momentum}"
             )
 
-        from research_swarm.agents.manager.score_normalization import normalize_component
+        from research_swarm.agents.manager.score_normalization import (
+            normalize_component,
+            rescale_composite,
+        )
 
         roic = normalize_component("roic_wacc_spread", self.roic_wacc_spread)
         health = normalize_component("financial_health", self.financial_health)
         momentum = normalize_component("earnings_momentum", self.earnings_momentum)
 
         if roic is not None:
-            return roic * 0.35 + health * 0.35 + momentum * 0.30
-        # No capital-efficiency read (missing inputs, or a sector where it is
-        # not meaningful): redistribute its weight proportionally.
-        return health * 0.55 + momentum * 0.45
+            composite = roic * 0.35 + health * 0.35 + momentum * 0.30
+        else:
+            # No capital-efficiency read (missing inputs, or a sector where it
+            # is not meaningful): redistribute its weight proportionally.
+            composite = health * 0.55 + momentum * 0.45
+
+        # Averaging shrinks spread — the components are near-uncorrelated in
+        # practice — so put the composite back on the same 2-points-per-sigma
+        # scale the tier thresholds are expressed in.
+        return rescale_composite("quality", composite)
 
     def normalized_valuation(self) -> float:
         """Valuation on the same normalized scale as the quality components."""

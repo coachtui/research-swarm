@@ -269,6 +269,21 @@ class ManagerScorer:
     # actions. The diagonal is where the two axes disagree, and that is where
     # the judgment lives: high quality at a rich price is a watchlist, not a
     # buy; low quality at a cheap price is a value trap, not a bargain.
+    #
+    # THE AXES ARE NOT SYMMETRIC, and the matrix reflects that deliberately.
+    # Quality is a durable property computed from financials — a business
+    # earning 20% on capital will very likely still be earning it next
+    # quarter. Valuation is a market state that mean-reverts on a timescale
+    # nobody can predict; expensive stocks stay expensive for years, and
+    # multiple compression is a poor timing signal. So price alone never
+    # produces a sell: every SELL cell requires LOW quality. A rich multiple
+    # can withhold a buy, and it can deepen a sell on an already-weak
+    # business, but it cannot condemn a healthy one.
+    #
+    # That distinction also resolves a conflation. To someone who does not own
+    # the stock, "expensive" means don't buy — which is HOLD. To an owner,
+    # SELL means exit. Sending "exit" when the message is "don't add" is how
+    # a framework talks people out of compounders three years early.
     _RATING_MATRIX = {
         "high": {
             "attractive": "STRONG BUY",
@@ -278,10 +293,13 @@ class ManagerScorer:
         "mid": {
             "attractive": "BUY",
             "fair": "HOLD",
-            "expensive": "SELL",
+            # Sound business, unattractive price: do not add, do not exit.
+            "expensive": "HOLD",
         },
         "low": {
             "attractive": "HOLD",
+            # Weak business with no compensating discount — here the quality
+            # axis is doing the work and valuation merely declines to rescue it.
             "fair": "SELL",
             "expensive": "STRONG SELL",
         },
