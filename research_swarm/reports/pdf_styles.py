@@ -389,7 +389,8 @@ body {
 
 /* ===== DATA TABLES ===== */
 .data-table {
-    page-break-inside: avoid;
+    /* Tables may split across columns — WeasyPrint repeats the header row.
+       An unbreakable table strands a third of a page when it just misses. */
     width: 100%;
     border-collapse: collapse;
     margin: 4pt 0 6pt;
@@ -766,8 +767,9 @@ body {
 }
 .note-flow > :first-child { margin-top: 0; }
 .note-flow .section-header:first-child { margin-top: 0; }
-/* stacked, not nested-halved, inside a column */
-.note-flow .two-col { display: block; }
+/* stacked, not nested-halved, inside a column — and breakable between
+   the stacked halves, so the block doesn't strand a third of a column */
+.note-flow .two-col { display: block; page-break-inside: auto; }
 .note-flow .two-col .col { margin-bottom: 6pt; }
 .note-flow .action-summary { display: block; }
 .note-flow .action-col { margin-bottom: 5pt; }

@@ -194,10 +194,10 @@ def build_price_volume(history) -> Optional[str]:
         with plt.rc_context(_RC):
             if volume is not None:
                 fig, (ax, axv) = plt.subplots(
-                    2, 1, figsize=(4.9, 1.6), dpi=100, sharex=True,
+                    2, 1, figsize=(7.0, 1.75), dpi=100, sharex=True,
                     gridspec_kw={"height_ratios": [4, 1], "hspace": 0.08})
             else:
-                fig, ax = plt.subplots(figsize=(4.9, 1.35), dpi=100)
+                fig, ax = plt.subplots(figsize=(7.0, 1.5), dpi=100)
                 axv = None
 
             ax.fill_between(close.index, close.values, float(close.min()) * 0.97,
@@ -253,9 +253,9 @@ def build_quarterly_bars(labels, values, estimate_last: bool = False,
         values = [float(p[1]) for p in pairs]
 
         with plt.rc_context(_RC):
-            fig, ax = plt.subplots(figsize=(2.35, 1.1), dpi=100)
+            fig, ax = plt.subplots(figsize=(3.4, 1.15), dpi=100)
             colors = [INK] * len(values)
-            bars = ax.bar(labels, values, width=0.62, color=colors, linewidth=0)
+            bars = ax.bar(labels, values, width=0.5, color=colors, linewidth=0)
             if estimate_last:
                 bars[-1].set_color(FAINT)
                 bars[-1].set_hatch("////")

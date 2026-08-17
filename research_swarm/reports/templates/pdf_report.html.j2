@@ -220,26 +220,6 @@
     </div>
     {% endif %}
 
-    {% if stock.charts and stock.charts.price_volume %}
-    <div class="chartsec">
-    <div class="bar"><b>Price &amp; Volume</b><span>Yahoo Finance &middot; 12 months daily</span></div>
-    <div class="chart">{{ stock.charts.price_volume|safe }}</div>
-    </div>
-    {% endif %}
-
-    {% if stock.charts and (stock.charts.quarterly_revenue or stock.charts.quarterly_net_income) %}
-    <div class="chartsec">
-    <div class="bar"><b>Quarterly Performance</b><span>Company filings, as reported</span></div>
-    <table class="duo"><tr>
-        {% if stock.charts.quarterly_revenue %}
-        <td><p class="duo-cap">Revenue, $B</p><div class="chart">{{ stock.charts.quarterly_revenue|safe }}</div></td>
-        {% endif %}
-        {% if stock.charts.quarterly_net_income %}
-        <td><p class="duo-cap">Net income, $M</p><div class="chart">{{ stock.charts.quarterly_net_income|safe }}</div></td>
-        {% endif %}
-    </tr></table>
-    </div>
-    {% endif %}
 
 </td>
 <td class="rail-col">
@@ -321,6 +301,29 @@
 </tr></table>
 
 <div class="pfoot">&copy; {{ report.analysis_date[:4] }} DVRG &mdash; AI-generated probabilistic research. Not investment advice. Full disclosures on final page.</div>
+
+{# ── MARKET CONTEXT BAND — full width, opens page two ── #}
+{% if stock.charts and stock.charts.price_volume %}
+<div class="chartsec">
+<div class="bar"><b>Price &amp; Volume</b><span>Yahoo Finance &middot; 12 months daily</span></div>
+<div class="chart">{{ stock.charts.price_volume|safe }}</div>
+</div>
+{% endif %}
+
+{% if stock.charts and (stock.charts.quarterly_revenue or stock.charts.quarterly_net_income) %}
+<div class="chartsec">
+<div class="bar"><b>Quarterly Performance</b><span>Company filings, as reported</span></div>
+<table class="duo"><tr>
+    {% if stock.charts.quarterly_revenue %}
+    <td><p class="duo-cap">Revenue, $B</p><div class="chart">{{ stock.charts.quarterly_revenue|safe }}</div></td>
+    {% endif %}
+    {% if stock.charts.quarterly_net_income %}
+    <td><p class="duo-cap">Net income, $M</p><div class="chart">{{ stock.charts.quarterly_net_income|safe }}</div></td>
+    {% endif %}
+</tr></table>
+</div>
+{% endif %}
+
 
 {# ── Signal state and the reader's decision — flows directly after the
      front matter so an overflowing chart column never strands a half page ── #}
@@ -658,7 +661,7 @@
 
 <div style="margin-top: 8pt;">
     <p style="font-size: 8pt;"><strong>Overall Sentiment:</strong> {{ "%.1f"|format(stock.signal_breakdown.overall_score) }}/10</p>
-    <p style="font-size: 8pt;"><strong>Signal Alignment:</strong> {{ stock.signal_breakdown.alignment_status|replace('✅', '')|replace('⚠️', '')|replace('❌', '')|trim }}</p>
+    <p style="font-size: 8pt;"><strong>Signal Alignment:</strong> {% if 'neutral' in (stock.signal_breakdown.direction_consensus or '')|lower and not stock.signal_breakdown.has_divergence %}Consistent &mdash; no directional edge{% else %}{{ stock.signal_breakdown.alignment_status|replace('✅', '')|replace('⚠️', '')|replace('❌', '')|trim }}{% endif %}</p>
     <p style="font-size: 8pt;"><strong>Direction Consensus:</strong> {{ stock.signal_breakdown.direction_consensus|capitalize }}</p>
 </div>
 
