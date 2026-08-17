@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>DVRG — AI Stock Analysis Report — {{ report.run_name or report.run_id }}</title>
+    <title>DVRG — Equity Research — {% if stocks|length == 1 %}{{ stocks[0].ticker }}{% else %}{{ report.run_name or report.run_id }}{% endif %}</title>
 </head>
 <body>
 
 {# ═══════════════════════════════════════════════════════════════════════════
    TITLE PAGE
    ═══════════════════════════════════════════════════════════════════════════ #}
+{% if stocks|length > 1 %}
 <div class="cover-header" style="padding-top: 0.5in; margin-bottom: 0.3in;">
     <p class="brand">DVRG</p>
     <p class="subtitle">AI Stock Analysis Report</p>
@@ -73,7 +74,7 @@
     <tbody>
         {% set top_tickers = report.top_picks | map(attribute='ticker') | list %}
         {% set watchlist_tickers = report.watchlist_candidates | map(attribute='ticker') | list %}
-        {% for stock in stocks %}
+{% for stock in stocks %}
         <tr>
             <td class="strong">{{ stock.ticker }}</td>
             <td>
@@ -101,6 +102,8 @@
     any information in this report. © DVRG — AI-Powered Institutional-Grade Stock Analysis.
 </div>
 
+{% endif %}
+
 {# ═══════════════════════════════════════════════════════════════════════════
    PER-STOCK PAGES
    ═══════════════════════════════════════════════════════════════════════════ #}
@@ -111,18 +114,28 @@
 
 <div class="cover-header">
     <p class="brand" data-ticker="{{ stock.ticker }}">DVRG</p>
-    <p class="subtitle">AI-Powered Stock Intelligence</p>
+    <p class="subtitle">Equity Research</p>
 </div>
 
 <div class="cover-meta">
-    <span class="ticker">{{ stock.ticker }}</span>
-    <span class="date">{{ report.analysis_date }} &middot; {{ report.analysis_period }}</span>
+    <span class="ticker">{{ stock.company_name or stock.ticker }}</span>
+    <span class="date">{{ report.analysis_date }}</span>
 </div>
+<p style="font-size: 10pt; color: #4a5568; margin: 2pt 0 10pt;">
+    {{ stock.ticker }}
+    {%- if stock.peer_comparison and stock.peer_comparison.sector %} &middot; {{ stock.peer_comparison.sector }}{% endif -%}
+    {%- if stock.peer_comparison and stock.peer_comparison.industry %} &middot; {{ stock.peer_comparison.industry }}{% endif -%}
+    {%- if stock.valuation_metrics and stock.valuation_metrics.current_price %} &middot; ${{ "%.2f"|format(stock.valuation_metrics.current_price) }}{% endif %}
+    &middot; {{ report.analysis_period }}
+</p>
 
 {# VERDICT BOX #}
 {% if stock.decision_framework %}
 <div class="verdict-box">
-    <h2 class="verdict-header">The Verdict</h2>
+    <h2 class="verdict-header">The Verdict
+        {% if stock.rating %}<span class="badge badge-{{ stock.rating|lower|replace(' ', '-') }}" style="margin-left: 8pt; vertical-align: 2pt;">{{ stock.rating }}</span>{% endif %}
+        {% if stock.risk_level %}<span class="badge badge-{{ stock.risk_level|lower }}" style="margin-left: 4pt; vertical-align: 2pt;">{{ stock.risk_level }} Risk</span>{% endif %}
+    </h2>
     <p class="verdict-summary">{{ stock.decision_framework.one_liner }}</p>
     {% if stock.conviction_statement %}
     <p class="verdict-detail">
@@ -167,46 +180,38 @@
 </div>
 {% endif %}
 
-{# THE CALL BOX #}
-<div class="the-call-box">
-    <div class="call-header">
-        <span class="call-label">The Call</span>
-        {% if stock.rating %}
-        <span class="badge badge-{{ stock.rating|lower|replace(' ', '-') }}">{{ stock.rating }}</span>
-        {% endif %}
-        {% if stock.risk_level %}
-        <span class="badge badge-{{ stock.risk_level|lower }}">{{ stock.risk_level }} Risk</span>
-        {% endif %}
-    </div>
-    {% if stock.decision_framework %}
-    <p class="one-liner">{{ stock.decision_framework.one_liner }}</p>
-    {% elif stock.investment_thesis %}
-    <p class="one-liner">
-        {% if stock.investment_thesis is string %}
-        {{ stock.investment_thesis[:160] }}{% if stock.investment_thesis|length > 160 %}...{% endif %}
-        {% else %}
-        {{ stock.investment_thesis.recommendation_summary }}
-        {% endif %}
-    </p>
-    {% endif %}
-</div>
-
-{# SCORE DISPLAY #}
+{# SCORE DISPLAY — v4 two-axis rating basis #}
+{% if stock.valuation_axis is not none %}
 <div class="score-display">
-    <div>
-        <span class="score-big {% if stock.moat_score >= 8.5 %}score-strong-buy{% elif stock.moat_score >= 7.0 %}score-buy{% elif stock.moat_score >= 5.0 %}score-hold{% elif stock.moat_score >= 3.0 %}score-sell{% else %}score-strong-sell{% endif %}">{{ "%.1f"|format(stock.moat_score) }}</span>
+    <div style="white-space: nowrap;">
+        <span class="score-big {% if stock.quality_tier == 'high' %}score-buy{% elif stock.quality_tier == 'mid' %}score-hold{% else %}score-sell{% endif %}">{{ "%.1f"|format(stock.moat_score) }}</span>
         <span class="score-label">/10</span>
     </div>
     <div>
         <div class="score-band">
-            {% if stock.moat_score >= 8.5 %}<span class="active">8.5+ Strong Buy</span>{% else %}8.5+ Strong Buy{% endif %} &middot;
-            {% if stock.moat_score >= 7.0 and stock.moat_score < 8.5 %}<span class="active">7.0–8.4 Buy</span>{% else %}7.0–8.4 Buy{% endif %} &middot;
-            {% if stock.moat_score >= 5.0 and stock.moat_score < 7.0 %}<span class="active">5.0–6.9 Hold</span>{% else %}5.0–6.9 Hold{% endif %} &middot;
-            {% if stock.moat_score >= 3.0 and stock.moat_score < 5.0 %}<span class="active">3.0–4.9 Sell</span>{% else %}3.0–4.9 Sell{% endif %} &middot;
-            {% if stock.moat_score < 3.0 %}<span class="active">&lt;3.0 Strong Sell</span>{% else %}&lt;3.0 Strong Sell{% endif %}
+            <strong>Business Quality</strong> — {{ stock.quality_tier }} tier
+            &nbsp;&times;&nbsp;
+            <strong>Valuation</strong> {{ "%.1f"|format(stock.valuation_axis) }}/10 — {{ stock.valuation_tier }}
+            {% if stock.rating %}&nbsp;&rarr;&nbsp; <span class="active">{{ stock.rating }}</span>{% endif %}
         </div>
+        <p style="font-size: 8pt; color: #718096; margin: 3pt 0 0;">
+            Quality measures the business (capital efficiency, financial health, earnings momentum) independent
+            of price; valuation measures the price independent of the business. The rating reads the pair — a
+            rich price alone never produces a Sell.
+        </p>
     </div>
 </div>
+{% else %}
+<div class="score-display">
+    <div>
+        <span class="score-big {% if stock.moat_score >= 7.0 %}score-buy{% elif stock.moat_score >= 5.0 %}score-hold{% else %}score-sell{% endif %}">{{ "%.1f"|format(stock.moat_score) }}</span>
+        <span class="score-label">/10</span>
+    </div>
+    <div>
+        <div class="score-band">Composite quality score{% if stock.rating %} &nbsp;&rarr;&nbsp; <span class="active">{{ stock.rating }}</span>{% endif %}</div>
+    </div>
+</div>
+{% endif %}
 
 {# QUICK ACTION SUMMARY — Current Holders vs New Buyers #}
 {% if stock.decision_framework %}
@@ -543,21 +548,50 @@
 </div>
 
 {# SCORE BREAKDOWN TABLE #}
-<h3 class="section-subheader" style="margin-top: 16pt;">Score Breakdown</h3>
+<h3 class="section-subheader" style="margin-top: 16pt;">Score Construction</h3>
+{% if stock.valuation_axis is not none %}
 <table class="data-table">
     <thead>
-        <tr><th>Component</th><th style="text-align: right;">Weight</th><th style="text-align: right;">Score</th></tr>
+        <tr><th>Quality Axis Component</th><th style="text-align: right;">Weight</th><th style="text-align: right;">Raw Score</th></tr>
     </thead>
     <tbody>
-        <tr><td class="strong">Earnings Momentum &#11088;</td><td class="num">25%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.earnings_momentum if stock.moat_breakdown.earnings_momentum is not none else 0.0) }}/10</td></tr>
-        <tr><td>Financial Health</td><td class="num">25%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.financial_health if stock.moat_breakdown.financial_health is not none else 0.0) }}/10</td></tr>
-        <tr><td>Valuation</td><td class="num">20%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.valuation if stock.moat_breakdown.valuation is not none else 0.0) }}/10</td></tr>
-        <tr><td>Technical/Momentum</td><td class="num">15%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.technical_strength if stock.moat_breakdown.technical_strength is not none else 0.0) }}/10</td></tr>
-        <tr><td>Sentiment/Catalysts</td><td class="num">15%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts if stock.moat_breakdown.sentiment_catalysts is not none else 0.0) }}/10</td></tr>
-        <tr><td class="strong">Overall Score</td><td class="num"></td><td class="num strong">{{ "%.1f"|format(stock.moat_score) }}/10</td></tr>
+        {% set has_roic = stock.moat_breakdown.roic_wacc_spread is defined and stock.moat_breakdown.roic_wacc_spread is not none %}
+        {% if has_roic %}
+        <tr><td class="strong">Capital Efficiency (ROIC vs WACC)</td><td class="num">35%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.roic_wacc_spread) }}/10</td></tr>
+        <tr><td>Financial Health</td><td class="num">35%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.financial_health or 0.0) }}/10</td></tr>
+        <tr><td>Earnings Momentum</td><td class="num">30%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.earnings_momentum or 0.0) }}/10</td></tr>
+        {% else %}
+        <tr><td>Financial Health</td><td class="num">55%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.financial_health or 0.0) }}/10</td></tr>
+        <tr><td>Earnings Momentum</td><td class="num">45%</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.earnings_momentum or 0.0) }}/10</td></tr>
+        {% endif %}
+        <tr><td class="strong">Business Quality (normalized)</td><td class="num"></td><td class="num strong">{{ "%.1f"|format(stock.moat_score) }}/10</td></tr>
     </tbody>
 </table>
-<p style="font-size: 8pt; color: #718096;">&#11088; Earnings Momentum is the PRIMARY signal (consensus estimate revisions).</p>
+<table class="data-table" style="margin-top: 8pt;">
+    <tbody>
+        <tr><td class="strong">Valuation Axis</td><td class="num strong">{{ "%.1f"|format(stock.valuation_axis) }}/10</td><td style="font-size: 8.5pt;">higher = more attractively priced &middot; {{ stock.valuation_tier }}</td></tr>
+        {% if stock.moat_breakdown.technical_strength is defined and stock.moat_breakdown.technical_strength is not none %}
+        <tr><td>Technical (rating gate only)</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10</td><td style="font-size: 8.5pt;">below 4.0 steps a bullish rating down one tier</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+<p style="font-size: 8pt; color: #718096;">Raw component scores are normalized against their measured S&amp;P 500 distributions before weighting, so each weight carries its stated influence. Quality and valuation are kept as separate axes — the rating is read from the pair, and price alone never produces a Sell.</p>
+{% else %}
+<table class="data-table">
+    <thead>
+        <tr><th>Component</th><th style="text-align: right;">Score</th></tr>
+    </thead>
+    <tbody>
+        {% if stock.moat_breakdown.financial_health is not none %}<tr><td>Financial Health</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.financial_health) }}/10</td></tr>{% endif %}
+        {% if stock.moat_breakdown.earnings_momentum is not none %}<tr><td>Earnings Momentum</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.earnings_momentum) }}/10</td></tr>{% endif %}
+        {% if stock.moat_breakdown.valuation is not none %}<tr><td>Valuation</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.valuation) }}/10</td></tr>{% endif %}
+        {% if stock.moat_breakdown.technical_strength is not none %}<tr><td>Technical/Momentum</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.technical_strength) }}/10</td></tr>{% endif %}
+        {% if stock.moat_breakdown.sentiment_catalysts is not none %}<tr><td>Sentiment/Catalysts</td><td class="num">{{ "%.1f"|format(stock.moat_breakdown.sentiment_catalysts) }}/10</td></tr>{% endif %}
+        <tr><td class="strong">Overall Score</td><td class="num strong">{{ "%.1f"|format(stock.moat_score) }}/10</td></tr>
+    </tbody>
+</table>
+<p style="font-size: 8pt; color: #718096;">Report generated before the two-axis scoring model; component weighting reflects the methodology in effect at analysis time.</p>
+{% endif %}
 {% endif %}
 
 {# ── SIGNAL METRICS — Investor+ ────────────────────────────────────────────
@@ -566,7 +600,7 @@
    Hidden for Starter tier. ──────────────────────────────────────────────── #}
 {% if include_signal_metrics and stock.signal_breakdown %}
 <div class="page-break"></div>
-<h2 class="section-header">Signal Metrics <span style="font-size: 9pt; font-weight: 400; color: #718096;">— Probabilistic Engine</span></h2>
+<h2 class="section-header">Signal Metrics <span style="font-size: 9pt; font-weight: 400; color: #718096;">— Model Reliability</span></h2>
 <p style="font-size: 9pt; color: #718096; margin-bottom: 10pt;">EV stability, noise environment, and stop probability headline derived from the probabilistic engine.</p>
 
 <div class="metrics-row" style="margin-bottom: 12pt;">
@@ -693,6 +727,7 @@
 {% if stock.peer_comparison.peers %}
 <p style="font-size: 9pt; color: #718096;"><strong>Peers:</strong> {{ stock.peer_comparison.peers|join(', ') }}</p>
 {% endif %}
+{% if stock.peer_comparison.revenue_growth_rank or stock.peer_comparison.profit_margin_rank or stock.peer_comparison.roic_rank or stock.peer_comparison.valuation_rank %}
 <table class="data-table">
     <thead><tr><th>Metric</th><th style="text-align: center;">Rank</th><th>Note</th></tr></thead>
     <tbody>
@@ -702,6 +737,7 @@
         {% if stock.peer_comparison.valuation_rank %}<tr><td>Valuation</td><td class="text-center"><span class="rank-badge">#{{ stock.peer_comparison.valuation_rank }}</span></td><td style="font-size: 8.5pt;">1 = cheapest</td></tr>{% endif %}
     </tbody>
 </table>
+{% endif %}
 {% endif %}
 
 {# ── TRADE SETUP PLAYBOOK ─────────────────────────────────────────────────── #}
@@ -964,7 +1000,7 @@
 <div class="report-footer">
     <p>
         <span class="brand-footer">DVRG</span> — AI-Powered Institutional-Grade Stock Analysis
-        &middot; Run: {{ report.run_id[:12] }}
+        &middot; Report {{ report.run_id[:8] }}
     </p>
     <p class="disclaimer">
         Probabilistic estimates — not investment advice. Past performance is not indicative
@@ -1076,16 +1112,28 @@
 </h1>
 
 <h2 class="section-header">Scoring Methodology</h2>
+<p style="font-size: 9.5pt; color: #4a5568; margin-bottom: 8pt;">
+    Every company is scored on two independent axes. <strong>Business Quality</strong> asks whether this is a
+    business worth owning; <strong>Valuation</strong> asks whether this is the price to own it at. Component
+    scores are normalized against their measured S&amp;P&nbsp;500 distributions before weighting, and the
+    rating is read from the pair of axes — a rich price alone can withhold a Buy but never produces a Sell.
+</p>
 <table class="data-table">
-    <thead><tr><th>Factor</th><th style="text-align: right;">Weight</th><th>Data Source</th></tr></thead>
+    <thead><tr><th>Axis</th><th>Component</th><th style="text-align: right;">Weight</th><th>Data Source</th></tr></thead>
     <tbody>
-        <tr><td class="strong">Earnings Momentum</td><td class="num">25%</td><td>Analyst estimate revisions, beat/miss patterns</td></tr>
-        <tr><td class="strong">Financial Health</td><td class="num">25%</td><td>Balance sheet, cash flows, profitability ratios</td></tr>
-        <tr><td class="strong">Valuation</td><td class="num">20%</td><td>P/E, EV/EBITDA, PEG vs sector medians</td></tr>
-        <tr><td class="strong">Technical/Momentum</td><td class="num">15%</td><td>Price trend, RSI, MACD, 52-week range</td></tr>
-        <tr><td class="strong">Sentiment/Catalysts</td><td class="num">15%</td><td>News sentiment, analyst consensus, smart money</td></tr>
+        <tr><td class="strong" rowspan="3">Business Quality</td><td>Capital Efficiency (ROIC vs WACC)</td><td class="num">35%</td><td style="font-size: 8.5pt;">NOPAT / invested capital vs CAPM cost of capital</td></tr>
+        <tr><td>Financial Health</td><td class="num">35%</td><td style="font-size: 8.5pt;">Balance sheet, cash flows, profitability ratios</td></tr>
+        <tr><td>Earnings Momentum</td><td class="num">30%</td><td style="font-size: 8.5pt;">Analyst EPS estimate revisions, beat/miss patterns</td></tr>
+        <tr><td class="strong">Valuation</td><td>Price attractiveness</td><td class="num">&mdash;</td><td style="font-size: 8.5pt;">P/E, EV/EBITDA, PEG vs sector; blended intrinsic value</td></tr>
+        <tr><td class="strong">Rating gate</td><td>Technical structure</td><td class="num">&mdash;</td><td style="font-size: 8.5pt;">A confirmed bearish structure steps a bullish rating down one tier</td></tr>
     </tbody>
 </table>
+<p style="font-size: 8.5pt; color: #718096; margin-top: 4pt;">
+    Rating matrix: high quality at an attractive price is a Strong Buy; high quality at a rich price is a Hold
+    (watch, do not chase); weak quality is a Sell regardless of momentum, deepening to Strong Sell when the
+    price offers no compensation. Sizing guidance is derived separately from risk level, conviction and the
+    prevailing signal environment.
+</p>
 
 <h2 class="section-header" style="margin-top: 16pt;">Data Sources</h2>
 <ul class="compact-list" style="font-size: 10pt;">

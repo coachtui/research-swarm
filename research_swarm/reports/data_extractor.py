@@ -285,7 +285,26 @@ class DataExtractor:
             )
 
         valuation_metrics = fundamentalist.get("valuation_metrics")
-        price_targets = fundamentalist.get("price_targets")
+
+        # Price targets: prefer the manager's DVRG divergence-weighted targets —
+        # the numbers the web report shows. The fundamentalist's scenarios are
+        # the intrinsic band spread around its own midpoint; printing those
+        # while the site shows DVRG targets meant PDF and web disagreed on the
+        # headline numbers. Fair-value band fields ride along from the
+        # fundamentalist dict, which remains the fallback for pre-DVRG runs.
+        fund_targets = fundamentalist.get("price_targets")
+        manager_targets = output.get("price_targets")
+        if isinstance(manager_targets, dict) and manager_targets.get("base_target"):
+            price_targets = dict(manager_targets)
+            for band_key in (
+                "fair_value_low", "fair_value_mid", "fair_value_high",
+                "confidence_score", "confidence",
+            ):
+                if price_targets.get(band_key) is None and fund_targets:
+                    price_targets[band_key] = fund_targets.get(band_key)
+        else:
+            price_targets = fund_targets
+
         peer_comparison = fundamentalist.get("peer_comparison")
 
         # Generate peer comparison if not already provided by fundamentalist
@@ -656,6 +675,19 @@ class DataExtractor:
                     f"Decision intelligence calculation failed for {result.ticker}: {e}"
                 )
 
+        # v4 rating axes — only meaningful for runs scored after the
+        # quality/valuation split (the axis value is absent on older rows).
+        quality_tier = None
+        valuation_tier = None
+        _val_axis = output.get("normalized_valuation_score")
+        if _val_axis is not None and result.moat_score is not None:
+            try:
+                from research_swarm.agents.manager.scorer import ManagerScorer
+                quality_tier = ManagerScorer._quality_tier(float(result.moat_score))
+                valuation_tier = ManagerScorer._valuation_tier(float(_val_axis))
+            except Exception:
+                pass
+
         return StockReportData(
             ticker=result.ticker,
             moat_score=result.moat_score or 0.0,
@@ -702,6 +734,10 @@ class DataExtractor:
             valuation_sensitivity=valuation_sensitivity,
             conviction_statement=conviction_statement,
             macro_exposure=output.get("macro_exposure"),
+            company_name=fundamentalist.get("company_name"),
+            valuation_axis=output.get("normalized_valuation_score"),
+            quality_tier=quality_tier,
+            valuation_tier=valuation_tier,
             # Decision Intelligence (Phase 1)
             decision_framework=decision_framework,
             enhanced_trade_setup=enhanced_trade_setup,
