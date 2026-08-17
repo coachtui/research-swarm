@@ -4,7 +4,7 @@ PDF_CSS = """
 /* ===== DVRG PDF Report Styles ===== */
 
 :root {
-    --dvrg-teal: #00D9B5;
+    --dvrg-teal: #0E6E5C;
     --dvrg-teal-dark: #00B396;
     --dvrg-dark: #0A0E1A;
     --dvrg-surface: #1A1F2E;
@@ -26,7 +26,7 @@ PDF_CSS = """
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
         font-size: 9pt;
         font-weight: 700;
-        color: #00D9B5;
+        color: #0E6E5C;
         padding-top: 0.15in;
     }
     @top-right {
@@ -56,8 +56,8 @@ PDF_CSS = """
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    font-size: 10.5pt;
-    line-height: 1.55;
+    font-size: 9.5pt;
+    line-height: 1.45;
     color: var(--text-primary);
     margin: 0;
     padding: 0;
@@ -69,15 +69,15 @@ body {
 
 /* ===== COVER / PAGE 1 ===== */
 .cover-header {
-    border-top: 4px solid #00D9B5;
+    border-top: 2px solid #1A2233;
     padding-top: 0.3in;
     margin-bottom: 0.25in;
 }
 
 .cover-header .brand {
-    font-size: 28pt;
+    font-size: 20pt;
     font-weight: 800;
-    color: #00D9B5;
+    color: #0E6E5C;
     letter-spacing: -0.5px;
     margin: 0;
     string-set: ticker-name attr(data-ticker);
@@ -101,7 +101,7 @@ body {
 }
 
 .cover-meta .ticker {
-    font-size: 22pt;
+    font-size: 17pt;
     font-weight: 700;
     color: var(--text-primary);
 }
@@ -114,8 +114,8 @@ body {
 /* ===== THE CALL BOX ===== */
 .the-call-box {
     background: #f0fdf9;
-    border: 2px solid #00D9B5;
-    border-radius: 8px;
+    border: 2px solid #0E6E5C;
+    border-radius: 0;
     padding: 14pt 16pt;
     margin: 0.15in 0;
     page-break-inside: avoid;
@@ -131,7 +131,7 @@ body {
 .the-call-box .call-label {
     font-size: 9pt;
     font-weight: 700;
-    color: #00D9B5;
+    color: #0E6E5C;
     text-transform: uppercase;
     letter-spacing: 1.5px;
 }
@@ -147,22 +147,25 @@ body {
 /* ===== RATING BADGES ===== */
 .badge {
     display: inline-block;
-    padding: 3pt 10pt;
-    border-radius: 12pt;
-    font-size: 9pt;
+    font-size: 7.5pt;
     font-weight: 700;
+    letter-spacing: 0.8px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    padding: 1.5pt 5pt;
+    border: 1px solid currentColor;
+    border-radius: 0;
+    background: transparent;
 }
 
-.badge-strong-buy { background: #d1fae5; color: #065f46; }
-.badge-buy { background: #d1fae5; color: #065f46; }
-.badge-hold { background: #fef3c7; color: #92400e; }
-.badge-sell { background: #fee2e2; color: #991b1b; }
-.badge-strong-sell { background: #fee2e2; color: #991b1b; }
-.badge-high { background: #fee2e2; color: #991b1b; }
-.badge-moderate { background: #fef3c7; color: #92400e; }
-.badge-low { background: #d1fae5; color: #065f46; }
+.badge-strong-buy { color: #0E6E45; }
+.badge-buy { color: #0E6E45; }
+.badge-hold { color: #8A6410; }
+.badge-sell { color: #9C3325; }
+.badge-strong-sell { color: #9C3325; }
+.badge-high { color: #9C3325; }
+.badge-moderate { color: #8A6410; }
+.badge-low { color: #0E6E45; }
+.badge-medium { color: #8A6410; }
 
 /* ===== SCORE DISPLAY ===== */
 .score-display {
@@ -174,8 +177,8 @@ body {
 }
 
 .score-big {
-    font-size: 36pt;
-    font-weight: 800;
+    font-size: 20pt;
+    font-weight: 750;
     line-height: 1;
 }
 
@@ -196,23 +199,22 @@ body {
     color: var(--text-primary);
     background: #f0fdf9;
     padding: 1pt 4pt;
-    border-radius: 3pt;
+    border-radius: 0;
 }
 
-.score-strong-buy { color: #059669; }
-.score-buy { color: #10B981; }
-.score-hold { color: #F59E0B; }
-.score-sell { color: #EF4444; }
-.score-strong-sell { color: #DC2626; }
+.score-strong-buy { color: #0E6E45; }
+.score-buy { color: #0E6E45; }
+.score-hold { color: #1A2233; }
+.score-sell { color: #9C3325; }
+.score-strong-sell { color: #9C3325; }
 
 /* ===== DIVERGENCE ALERT ===== */
 .divergence-alert {
-    background: #fef2f2;
-    border-left: 4px solid #EF4444;
-    border-radius: 0 6px 6px 0;
-    padding: 10pt 14pt;
-    margin: 0.12in 0;
-    page-break-inside: avoid;
+    background: #FFFFFF;
+    border: 1px solid #D9DDE3;
+    border-left: 3px solid #9C3325;
+    padding: 8pt 12pt;
+    margin: 0.1in 0;
 }
 
 .divergence-alert.moderate {
@@ -239,12 +241,11 @@ body {
 
 /* ===== ALL CLEAR BANNER ===== */
 .all-clear {
-    background: #f0fdf4;
-    border-left: 4px solid #10B981;
-    border-radius: 0 6px 6px 0;
-    padding: 8pt 14pt;
-    margin: 0.12in 0;
-    page-break-inside: avoid;
+    background: #FFFFFF;
+    border: 1px solid #D9DDE3;
+    border-left: 3px solid #0E6E45;
+    padding: 8pt 12pt;
+    margin: 0.1in 0;
 }
 
 .all-clear .alert-title {
@@ -297,11 +298,12 @@ body {
 
 /* ===== METRICS ROW ===== */
 .metrics-row {
+    border-top: 1px solid #1A2233;
+    border-bottom: 1px solid #D9DDE3;
     display: flex;
     justify-content: space-between;
-    background: #f7fafc;
-    border-radius: 6px;
-    padding: 8pt 14pt;
+    background: #FFFFFF;
+    padding: 7pt 2pt;
     margin: 0.1in 0;
     page-break-inside: avoid;
 }
@@ -319,7 +321,7 @@ body {
 }
 
 .metric-item .metric-value {
-    font-size: 14pt;
+    font-size: 11.5pt;
     font-weight: 700;
     color: var(--text-primary);
     margin: 2pt 0 0 0;
@@ -330,14 +332,15 @@ body {
     font-size: 14pt;
     font-weight: 700;
     color: var(--text-primary);
-    border-bottom: 2px solid #00D9B5;
+    border-bottom: 2px solid #0E6E5C;
     padding-bottom: 4pt;
     margin: 0.2in 0 0.1in 0;
     page-break-after: avoid;
 }
 
 .section-subheader {
-    font-size: 11pt;
+    page-break-after: avoid;
+    font-size: 10pt;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0.12in 0 0.06in 0;
@@ -346,6 +349,7 @@ body {
 
 /* ===== DATA TABLES ===== */
 .data-table {
+    page-break-inside: avoid;
     width: 100%;
     border-collapse: collapse;
     margin: 0.08in 0;
@@ -354,8 +358,11 @@ body {
 }
 
 .data-table th {
-    background: #1a1a2e;
-    color: white;
+    background: #FFFFFF;
+    color: #1A2233;
+    border-bottom: 1.5px solid #1A2233;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
     font-weight: 600;
     padding: 6pt 10pt;
     text-align: left;
@@ -396,13 +403,13 @@ body {
     flex: 1;
     height: 10pt;
     background: #e2e8f0;
-    border-radius: 5pt;
+    border-radius: 0;
     overflow: hidden;
 }
 
 .signal-bar-fill {
     height: 100%;
-    border-radius: 5pt;
+    border-radius: 0;
     min-width: 2pt;
 }
 
@@ -454,7 +461,7 @@ body {
 .conviction-box {
     background: #f0fdf9;
     border: 1px solid #99f6e4;
-    border-radius: 6px;
+    border-radius: 0;
     padding: 8pt 14pt;
     margin: 0.08in 0;
     page-break-inside: avoid;
@@ -462,13 +469,13 @@ body {
 
 .conviction-box .conv-level {
     font-weight: 700;
-    color: #00D9B5;
+    color: #0E6E5C;
 }
 
 /* ===== BEST SUITED FOR ===== */
 .suited-box {
     background: #f7fafc;
-    border-radius: 6px;
+    border-radius: 0;
     padding: 10pt 14pt;
     margin: 0.08in 0;
     page-break-inside: avoid;
@@ -521,7 +528,7 @@ body {
 .report-footer {
     margin-top: 0.3in;
     padding-top: 0.1in;
-    border-top: 2px solid #00D9B5;
+    border-top: 2px solid #0E6E5C;
     text-align: center;
     font-size: 8pt;
     color: var(--text-muted);
@@ -529,7 +536,7 @@ body {
 
 .report-footer .brand-footer {
     font-weight: 700;
-    color: #00D9B5;
+    color: #0E6E5C;
 }
 
 /* ===== CATALYST TABLE ===== */
@@ -558,7 +565,7 @@ body {
 /* ===== THESIS BLOCK ===== */
 .thesis-block {
     background: #f7fafc;
-    border-left: 3px solid #00D9B5;
+    border-left: 3px solid #0E6E5C;
     padding: 10pt 14pt;
     margin: 0.1in 0;
     font-size: 10pt;
@@ -588,7 +595,7 @@ body {
     font-weight: 700;
     font-size: 9pt;
     padding: 1pt 6pt;
-    border-radius: 8pt;
+    border-radius: 0;
 }
 
 /* ===== DISCLAIMER ===== */
@@ -615,28 +622,28 @@ body {
 
 /* ===== THE VERDICT BOX ===== */
 .verdict-box {
-    background: linear-gradient(135deg, #f0fdf9 0%, #ecfdf5 100%);
-    border: 3px solid #00D9B5;
-    border-radius: 10px;
+    background: #FFFFFF;
+    border: 3px solid #0E6E5C;
+    border-radius: 0;
     padding: 16pt 20pt;
     margin: 0.2in 0;
     page-break-inside: avoid;
-    box-shadow: 0 2px 8px rgba(0, 217, 181, 0.15);
+    
 }
 
 .verdict-header {
-    font-size: 13pt;
+    font-size: 10pt;
     font-weight: 700;
-    color: #00D9B5;
+    color: #1A2233;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
-    margin: 0 0 8pt 0;
-    border-bottom: 2px solid #00D9B5;
+    letter-spacing: 1.2px;
+    margin: 0 0 6pt 0;
+    border-bottom: 1px solid #D9DDE3;
     padding-bottom: 4pt;
 }
 
 .verdict-summary {
-    font-size: 12pt;
+    font-size: 10.5pt;
     font-weight: 600;
     color: var(--text-primary);
     line-height: 1.5;
@@ -655,7 +662,7 @@ body {
     display: flex;
     gap: 14pt;
     background: #f7fafc;
-    border-radius: 8px;
+    border-radius: 0;
     padding: 12pt 14pt;
     margin: 0.12in 0;
     page-break-inside: avoid;
@@ -668,12 +675,12 @@ body {
 .action-header {
     font-size: 9pt;
     font-weight: 700;
-    color: #00D9B5;
+    color: #0E6E5C;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin: 0 0 4pt 0;
     padding-bottom: 3pt;
-    border-bottom: 2px solid #00D9B5;
+    border-bottom: 2px solid #0E6E5C;
 }
 
 .action-text {

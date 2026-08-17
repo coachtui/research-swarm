@@ -129,6 +129,26 @@
     &middot; {{ report.analysis_period }}
 </p>
 
+{# KEY STATISTICS — the page-one data band every research note carries #}
+<div class="metrics-row" style="margin: 0.08in 0 0.14in;">
+    {% if stock.valuation_metrics and stock.valuation_metrics.current_price %}
+    <div class="metric-item"><p class="metric-label">Price</p><p class="metric-value">${{ "%.2f"|format(stock.valuation_metrics.current_price) }}</p></div>
+    {% endif %}
+    {% if stock.price_targets and stock.price_targets.base_target %}
+    <div class="metric-item"><p class="metric-label">Base Target</p><p class="metric-value">${{ "%.2f"|format(stock.price_targets.base_target) }}</p></div>
+    {% endif %}
+    <div class="metric-item"><p class="metric-label">Quality</p><p class="metric-value">{{ "%.1f"|format(stock.moat_score) }}/10</p></div>
+    {% if stock.valuation_axis is not none %}
+    <div class="metric-item"><p class="metric-label">Valuation</p><p class="metric-value">{{ "%.1f"|format(stock.valuation_axis) }}/10</p></div>
+    {% endif %}
+    {% if stock.valuation_metrics and stock.valuation_metrics.market_cap_millions %}
+    <div class="metric-item"><p class="metric-label">Mkt Cap</p><p class="metric-value">{% if stock.valuation_metrics.market_cap_millions >= 1000 %}${{ "%.1f"|format(stock.valuation_metrics.market_cap_millions / 1000) }}B{% else %}${{ "%.0f"|format(stock.valuation_metrics.market_cap_millions) }}M{% endif %}</p></div>
+    {% endif %}
+    {% if stock.risk_level %}
+    <div class="metric-item"><p class="metric-label">Risk</p><p class="metric-value" style="font-size: 10pt; padding-top: 2pt;">{{ stock.risk_level }}</p></div>
+    {% endif %}
+</div>
+
 {# VERDICT BOX #}
 {% if stock.decision_framework %}
 <div class="verdict-box">
@@ -139,7 +159,7 @@
     <p class="verdict-summary">{{ stock.decision_framework.one_liner }}</p>
     {% if stock.conviction_statement %}
     <p class="verdict-detail">
-        {{ stock.conviction_statement.bottom_line[:220] }}{% if stock.conviction_statement.bottom_line|length > 220 %}...{% endif %}
+        {{ stock.conviction_statement.bottom_line|clip(220) }}
     </p>
     {% elif stock.investment_thesis and stock.investment_thesis is not string %}
     <p class="verdict-detail">{{ stock.investment_thesis.recommendation_summary }}</p>
@@ -150,7 +170,7 @@
     <h2 class="verdict-header">The Verdict</h2>
     {% if stock.investment_thesis is string %}
     <p class="verdict-summary">
-        {{ stock.investment_thesis[:200] }}{% if stock.investment_thesis|length > 200 %}...{% endif %}
+        {{ stock.investment_thesis|clip(200) }}
     </p>
     {% else %}
     <p class="verdict-summary">{{ stock.investment_thesis.recommendation_summary }}</p>
@@ -220,14 +240,14 @@
         <p class="action-header">Current Holders</p>
         <p class="action-text">
             <strong>{{ stock.decision_framework.current_holders.action }}</strong> —
-            {{ stock.decision_framework.current_holders.detail[:100] }}{% if stock.decision_framework.current_holders.detail|length > 100 %}...{% endif %}
+            {{ stock.decision_framework.current_holders.detail|clip(100) }}
         </p>
     </div>
     <div class="action-col">
         <p class="action-header">New Buyers</p>
         <p class="action-text">
             <strong>{{ stock.decision_framework.new_buyers.action }}</strong> —
-            {{ stock.decision_framework.new_buyers.detail[:100] }}{% if stock.decision_framework.new_buyers.detail|length > 100 %}...{% endif %}
+            {{ stock.decision_framework.new_buyers.detail|clip(100) }}
         </p>
     </div>
 </div>
@@ -253,7 +273,7 @@
         {% if stock.structured_risks %}
         <ul class="compact-list">
         {% for risk in stock.structured_risks[:3] %}
-            <li><strong>{{ risk.severity }}:</strong> {{ risk.risk[:80] }}{% if risk.risk|length > 80 %}...{% endif %}</li>
+            <li><strong>{{ risk.severity }}:</strong> {{ risk.risk|clip(80) }}</li>
         {% endfor %}
         </ul>
         {% elif stock.risk_factors %}
@@ -299,7 +319,6 @@
 
 {# ── WHY — VALUATION & PRICE TARGETS ─── #}
 {% if stock.valuation_metrics or stock.price_targets %}
-<div class="page-break"></div>
 <h2 class="section-header">Valuation &amp; Price Targets <span style="font-size: 9pt; font-weight: 400; color: #718096;">— Why</span></h2>
 
 {% if stock.valuation_metrics %}
@@ -341,19 +360,19 @@
             <td class="strong text-success">Re-rating Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.bull_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.bull_probability * 100) }}%</td>
-            <td style="font-size: 8.5pt;">{{ stock.price_targets.bull_assumptions[:70] }}{% if stock.price_targets.bull_assumptions|length > 70 %}...{% endif %}</td>
+            <td style="font-size: 8.5pt;">{{ stock.price_targets.bull_assumptions|clip(70) }}</td>
         </tr>
         <tr>
             <td class="strong">Continuation Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.base_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.base_probability * 100) }}%</td>
-            <td style="font-size: 8.5pt;">{{ stock.price_targets.base_assumptions[:70] }}{% if stock.price_targets.base_assumptions|length > 70 %}...{% endif %}</td>
+            <td style="font-size: 8.5pt;">{{ stock.price_targets.base_assumptions|clip(70) }}</td>
         </tr>
         <tr>
             <td class="strong text-error">Risk Scenario</td>
             <td class="num">${{ "%.2f"|format(stock.price_targets.bear_target) }}</td>
             <td class="num">{{ "%.0f"|format(stock.price_targets.bear_probability * 100) }}%</td>
-            <td style="font-size: 8.5pt;">{{ stock.price_targets.bear_assumptions[:70] }}{% if stock.price_targets.bear_assumptions|length > 70 %}...{% endif %}</td>
+            <td style="font-size: 8.5pt;">{{ stock.price_targets.bear_assumptions|clip(70) }}</td>
         </tr>
     </tbody>
 </table>
@@ -394,7 +413,6 @@
 {% endif %}
 
 {# ── WHY — INVESTMENT THESIS & COMPETITIVE ADVANTAGE ─── #}
-<div class="page-break"></div>
 <h2 class="section-header">Investment Thesis <span style="font-size: 9pt; font-weight: 400; color: #718096;">— Why</span></h2>
 
 {% if stock.investment_thesis and stock.investment_thesis is not string %}
@@ -518,7 +536,6 @@
 
 {# ── FORCES — SIGNAL DEEP DIVE & DIVERGENCE ─── #}
 {% if stock.signal_breakdown %}
-<div class="page-break"></div>
 <h2 class="section-header">Signal Deep Dive <span style="font-size: 9pt; font-weight: 400; color: #718096;">— What Could Change It</span></h2>
 <p style="font-size: 10pt; color: #4a5568;">Multi-source signal analysis with divergence detection. Each signal scored 0–10.</p>
 
@@ -599,7 +616,6 @@
    headline, and stop probability decomposition table.
    Hidden for Starter tier. ──────────────────────────────────────────────── #}
 {% if include_signal_metrics and stock.signal_breakdown %}
-<div class="page-break"></div>
 <h2 class="section-header">Signal Metrics <span style="font-size: 9pt; font-weight: 400; color: #718096;">— Model Reliability</span></h2>
 <p style="font-size: 9pt; color: #718096; margin-bottom: 10pt;">EV stability, noise environment, and stop probability headline derived from the probabilistic engine.</p>
 
@@ -655,7 +671,6 @@
 
 {# ── FORCES — MACRO & GEOPOLITICAL CONTEXT ─── #}
 {% if stock.macro_exposure and (stock.macro_exposure.themes or stock.macro_exposure.market) %}
-<div class="page-break"></div>
 <h2 class="section-header">Macro &amp; Geopolitical Context <span style="font-size: 9pt; font-weight: 400; color: #718096;">— What Could Change It</span></h2>
 
 {% set mkt = stock.macro_exposure.market or {} %}
@@ -698,7 +713,6 @@
 {% endif %}
 {# ── DETAIL — TECHNICAL & STYLE ANALYSIS ─── #}
 {% if stock.vgm_scores %}
-<div class="page-break"></div>
 <h2 class="section-header">Technical &amp; Style Analysis</h2>
 
 <h3 class="section-subheader">VGM Investment Style</h3>
@@ -710,15 +724,15 @@
 <table class="data-table">
     <thead><tr><th>Factor</th><th style="text-align: right;">Score</th><th>Grade</th><th>Rationale</th></tr></thead>
     <tbody>
-        <tr><td class="strong">Value</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.value_score) }}/10</td><td>{{ stock.vgm_scores.value_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.value_rationale[:70] }}{% if stock.vgm_scores.value_rationale|length > 70 %}...{% endif %}</td></tr>
-        <tr><td class="strong">Growth</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.growth_score) }}/10</td><td>{{ stock.vgm_scores.growth_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.growth_rationale[:70] }}{% if stock.vgm_scores.growth_rationale|length > 70 %}...{% endif %}</td></tr>
-        <tr><td class="strong">Momentum</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.momentum_score) }}/10</td><td>{{ stock.vgm_scores.momentum_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.momentum_rationale[:70] }}{% if stock.vgm_scores.momentum_rationale|length > 70 %}...{% endif %}</td></tr>
+        <tr><td class="strong">Value</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.value_score) }}/10</td><td>{{ stock.vgm_scores.value_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.value_rationale|clip(70) }}</td></tr>
+        <tr><td class="strong">Growth</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.growth_score) }}/10</td><td>{{ stock.vgm_scores.growth_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.growth_rationale|clip(70) }}</td></tr>
+        <tr><td class="strong">Momentum</td><td class="num">{{ "%.1f"|format(stock.vgm_scores.momentum_score) }}/10</td><td>{{ stock.vgm_scores.momentum_grade }}</td><td style="font-size: 8.5pt;">{{ stock.vgm_scores.momentum_rationale|clip(70) }}</td></tr>
     </tbody>
 </table>
 {% endif %}
 
 {% if stock.peer_comparison %}
-{% if not stock.vgm_scores %}<div class="page-break"></div><h2 class="section-header">Peer Context</h2>{% else %}<h3 class="section-subheader">Peer Comparison</h3>{% endif %}
+{% if not stock.vgm_scores %}<h2 class="section-header">Peer Context</h2>{% else %}<h3 class="section-subheader">Peer Comparison</h3>{% endif %}
 <p style="font-size: 10pt;">
     <strong>Sector:</strong> {{ stock.peer_comparison.sector }}
     &middot; <strong>Industry:</strong> {{ stock.peer_comparison.industry }}
@@ -841,7 +855,6 @@
 
 {# ── DETAIL — PERFORMANCE DRIVERS ─── #}
 {% if stock.management_commentary or stock.upcoming_catalysts or stock.institutional_activity or stock.insider_activity or stock.short_interest or stock.earnings_estimates %}
-<div class="page-break"></div>
 <h2 class="section-header">Performance Drivers</h2>
 
 {% if stock.earnings_estimates %}
@@ -884,7 +897,7 @@
     {% for cat in stock.upcoming_catalysts.catalysts[:6] %}
         <tr>
             <td>{% if cat.event_date %}{{ cat.event_date }}{% else %}TBD{% endif %}</td>
-            <td>{{ cat.description[:55] }}{% if cat.description|length > 55 %}...{% endif %}</td>
+            <td>{{ cat.description|clip(55) }}</td>
             <td>{{ cat.potential_impact }}</td>
             <td>{{ cat.impact_direction }}</td>
         </tr>
@@ -928,7 +941,6 @@
 {% endif %}
 
 {# ── BOTTOM LINE ─── #}
-<div class="page-break"></div>
 <h2 class="section-header">Bottom Line</h2>
 
 {% if stock.conviction_statement %}
@@ -989,7 +1001,7 @@
             <td>{{ risk.risk }}</td>
             <td>{{ risk.severity }}</td>
             <td>{{ risk.likelihood }}</td>
-            <td style="font-size: 8.5pt;">{{ risk.mitigation[:65] }}{% if risk.mitigation|length > 65 %}...{% endif %}</td>
+            <td style="font-size: 8.5pt;">{{ risk.mitigation|clip(65) }}</td>
         </tr>
     {% endfor %}
     </tbody>

@@ -8,6 +8,33 @@ from jinja2 import Environment, FileSystemLoader, Template
 from .models import ReportData, ReportSection
 
 
+def _clip(text, limit: int = 100) -> str:
+    """Truncate at a sentence or word boundary — never mid-word.
+
+    The template previously used raw character slices ([:100] + "..."), which
+    shipped fragments like "Initiate cautiou..." on page one of a paid report.
+    Prefer the last sentence end inside the limit when it keeps most of the
+    text; otherwise cut at the last word boundary with an ellipsis.
+    """
+    if text is None:
+        return ""
+    text = str(text).strip()
+    if len(text) <= limit:
+        return text
+
+    window = text[:limit]
+    # Sentence boundary that preserves at least 60% of the budget
+    for mark in (". ", "; "):
+        pos = window.rfind(mark)
+        if pos >= int(limit * 0.6):
+            return window[: pos + 1].strip()
+    # Word boundary fallback
+    pos = window.rfind(" ")
+    if pos <= 0:
+        pos = limit
+    return window[:pos].rstrip(",;:.") + "…"
+
+
 class TemplateRenderer:
     """Renders Jinja2 templates for report generation."""
 
@@ -27,6 +54,7 @@ class TemplateRenderer:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        self.env.filters["clip"] = _clip
 
     def render_section(
         self,
