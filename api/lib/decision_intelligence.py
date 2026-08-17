@@ -548,6 +548,9 @@ def enrich_with_decision_intelligence(
             initiation_decision=initiation_decision,
             price_targets=full_output.get("price_targets"),
             fundamentalist_output=full_output.get("fundamentalist_output"),
+            # The real position ceiling, so the starter tranche is sized against
+            # the same limit the Final Weight Resolver enforces.
+            conviction_position=conviction_position_dict,
         )
 
         # Merge into full_output
