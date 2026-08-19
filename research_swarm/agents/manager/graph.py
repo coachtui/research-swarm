@@ -1108,18 +1108,28 @@ def analyze_swarm(
     report_qa_flags = []
     if final_state.get("fundamentalist_output"):
         fair_value_calibration = final_state["fundamentalist_output"].get("fair_value_calibration")
-        if fair_value_calibration:
+        # Flag only when the calibrator actually raised something — a flag on
+        # every run is noise, and these dicts feed AnalysisReport.qa_flags.
+        if fair_value_calibration and (
+            fair_value_calibration.get("model_stability_warning")
+            or fair_value_calibration.get("qa_flags")
+        ):
+            reasons = fair_value_calibration.get("stability_warning_reasons") or []
+            calibrator_flags = fair_value_calibration.get("qa_flags") or []
+            message = "; ".join(dict.fromkeys([*reasons, *calibrator_flags]))
             report_qa_flags.append({
                 "type": "fair_value_calibration",
                 "ticker": final_state["ticker"],
+                "message": message or "Model stability review warranted",
                 "regime": fair_value_calibration.get("regime"),
                 "divergence_state": fair_value_calibration.get("divergence_state"),
                 "divergence_pct": fair_value_calibration.get("divergence_pct"),
-                "gates_triggered": fair_value_calibration.get("gates_triggered", []),
                 "internal_fair_value": fair_value_calibration.get("internal_fair_value"),
-                "consensus_proxy": fair_value_calibration.get("consensus_proxy"),
-                "blended_fair_value": fair_value_calibration.get("blended_fair_value"),
-                "intervention_applied": fair_value_calibration.get("intervention_applied"),
+                "consensus_target": fair_value_calibration.get("consensus_target"),
+                "model_stability_warning": bool(fair_value_calibration.get("model_stability_warning")),
+                "stability_warning_reasons": reasons,
+                "qa_flags": calibrator_flags,
+                "display_label": fair_value_calibration.get("display_label"),
             })
 
     # Build output
