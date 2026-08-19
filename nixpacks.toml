@@ -1,19 +1,25 @@
 # Railway Nixpacks configuration
-# WeasyPrint uses cffi — no compilation needed, just runtime shared libraries.
-# aptPkgs is additive and does not override Nixpacks' auto-detected Python env.
+# WeasyPrint needs glib/pango/harfbuzz/fontconfig at runtime. The Python here
+# is Nix-built, so its dynamic loader ignores /etc/ld.so.cache and system lib
+# dirs — apt-installed .so files and ldconfig can never make dlopen work.
+# nixLibs provides Nix-built libraries (same glibc as the Python) and puts
+# their store paths on LD_LIBRARY_PATH; those dirs contain only these libs,
+# so they cannot shadow libc (the vDSO crash noted in start.sh).
+# zlib and stdenv.cc.cc.lib are the defaults nixpacks would otherwise add —
+# nixLibs replaces the list, so they must be repeated here.
 [phases.setup]
-aptPkgs = [
-  "libglib2.0-0",
-  "libpango-1.0-0",
-  "libpangoft2-1.0-0",
-  "libpangocairo-1.0-0",
-  "libcairo2",
-  "libharfbuzz0b",
-  "libfontconfig1",
-  "libfreetype6",
+nixLibs = [
+  "zlib",
+  "stdenv.cc.cc.lib",
+  "glib",
+  "pango",
+  "harfbuzz",
+  "fontconfig",
+  "freetype",
 ]
-# Rebuild ldconfig cache so /etc/ld.so.cache includes the apt-installed libs.
-cmds = ["ldconfig"]
+# Fonts for text rendering in the PDF, plus /etc/fonts config so the nix
+# fontconfig finds them (it reads /etc/fonts/fonts.conf → /usr/share/fonts).
+aptPkgs = ["fontconfig", "fonts-dejavu-core"]
 
 # Use uv instead of pip — 10-100x faster installs (Rust-based, parallel downloads).
 # `--system` installs into the system Python that nixpacks exposes to the runtime.
