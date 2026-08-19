@@ -125,11 +125,19 @@ def _build_signals(full_output: Dict[str, Any]) -> List[Signal]:
     consensus = news.get("analyst_consensus") or {}
     if consensus.get("consensus_rating"):
         raw = str(consensus["consensus_rating"]).lower()
+        evidence = (
+            f"consensus {consensus['consensus_rating']}; "
+            f"{consensus.get('upgrades', 0)} up / {consensus.get('downgrades', 0)} down"
+            f" / {consensus.get('new_coverage', 0)} init (90d)"
+        )
+        target_trend = str(consensus.get("target_trend") or "").lower()
+        if target_trend and target_trend != "stable":
+            evidence += f"; targets {target_trend}"
         signals.append(Signal(
             name="analyst_consensus",
             direction=Direction.BULLISH if "buy" in raw
             else (Direction.BEARISH if "sell" in raw else Direction.NEUTRAL),
-            evidence=f"consensus {consensus['consensus_rating']}",
+            evidence=evidence,
         ))
 
     institutional = news.get("institutional_activity") or {}
