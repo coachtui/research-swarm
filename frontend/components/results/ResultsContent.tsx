@@ -25,7 +25,6 @@ import { FairValueRegimeCheck } from '@/components/results/FairValueRegimeCheck'
 import { PriceTargetsCard } from '@/components/results/PriceTargetsCard'
 import { PortfolioRolePanel } from '@/components/results/PortfolioRolePanel'
 import { CompressedRiskPanel } from '@/components/results/CompressedRiskPanel'
-import { WatchForSummary } from '@/components/results/WatchForSummary'
 import { ProbabilisticEngineDashboard } from '@/components/results/ProbabilisticEngineDashboard'
 import { ExecutionLayer } from '@/components/results/ExecutionLayer'
 import { AllocationSummary } from '@/components/results/AllocationSummary'
@@ -502,7 +501,6 @@ export function ResultsContent({
                 ticker={result.ticker}
                 rating={decision_intelligence.rating || 'HOLD'}
                 riskLevel={decision_intelligence.risk_level}
-                starterTranchePct={divergenceOverlay?.final_allocation ?? null}
                 moatScore={moat_score || 5.0}
                 financialHealthScore={moat_breakdown.financial_health}
                 sector={sector || 'Unknown'}
@@ -575,14 +573,6 @@ export function ResultsContent({
                 {((risk_factors?.length ?? 0) > 0 || (downgrade_triggers?.length ?? 0) > 0) && (
                   <CompressedRiskPanel
                     riskFactors={risk_factors || []}
-                    downgradeTriggers={downgrade_triggers}
-                  />
-                )}
-
-                {/* Full trigger watchlist */}
-                {(upgrade_triggers || downgrade_triggers) && (
-                  <WatchForSummary
-                    upgradeTriggers={upgrade_triggers}
                     downgradeTriggers={downgrade_triggers}
                   />
                 )}

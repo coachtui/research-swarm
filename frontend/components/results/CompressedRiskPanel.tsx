@@ -59,14 +59,15 @@ export function CompressedRiskPanel({
   // Key Risk Drivers: top 5 from risk_factors
   const keyRiskDrivers = (riskFactors ?? []).slice(0, 5)
 
-  // Sensitivity Triggers: from downgradeTriggers, 3 max
-  const sensitivityTriggers = (downgradeTriggers ?? [])
-    .slice(0, 3)
-    .map(extractText)
-
   // Kill Thesis: first 2 downgrade triggers (most critical thesis-invalidators)
   const killThesis = (downgradeTriggers ?? [])
     .slice(0, 2)
+    .map(extractText)
+
+  // Sensitivity Triggers: the next 3 downgrade triggers — disjoint from the
+  // kill-thesis group so no trigger is listed twice in the same panel
+  const sensitivityTriggers = (downgradeTriggers ?? [])
+    .slice(2, 5)
     .map(extractText)
 
   if (!keyRiskDrivers.length && !sensitivityTriggers.length && !killThesis.length) {
