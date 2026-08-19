@@ -82,8 +82,14 @@ class StockReportData(BaseModel):
 
     ticker: str = Field(..., description="Stock ticker symbol")
     moat_score: float = Field(..., ge=0, le=10, description="Moat score (0-10)")
-    moat_breakdown: Dict[str, float] = Field(
-        ..., description="Breakdown of moat score components"
+    moat_breakdown: Dict[str, Optional[float]] = Field(
+        ...,
+        description=(
+            "Breakdown of moat score components. roic_wacc_spread is None when "
+            "the component could not be computed (e.g. ADRs with data gaps) — "
+            "the extractor passes None deliberately so templates can render "
+            "the no-ROIC weighting."
+        ),
     )
     is_watchlist_candidate: bool = Field(
         ..., description="Whether stock is a watchlist candidate"

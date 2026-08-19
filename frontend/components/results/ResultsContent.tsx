@@ -98,7 +98,6 @@ export function ResultsContent({
   const run = previewData ?? fetchedRun
   const { data: currentUser } = useCurrentUser()
   const { data: entitlements } = useEntitlements()
-  const [isReadingMode, setReadingMode] = useState(false)
 
   const userTier = isPreview ? 'investor' : (currentUser?.tier ?? null)
   const isAdmin  = isPreview ? false : (currentUser?.is_admin ?? false)
@@ -118,15 +117,6 @@ export function ResultsContent({
     previewData ? null : (runId ?? null),
     run?.status === 'completed',
   )
-
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-      if (e.key === 'r' || e.key === 'R') setReadingMode(prev => !prev)
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [])
 
   // ── Error / loading states ──────────────────────────────────────────────────
 
@@ -267,8 +257,6 @@ export function ResultsContent({
         timestamp={run.completed_at || run.created_at}
         runId={run.id}
         companyName={full_output?.fundamentalist_output?.company_name}
-        isReadingMode={isReadingMode}
-        onToggleReadingMode={() => setReadingMode(r => !r)}
         dvrgMode={dvrgMode}
       />
 
@@ -609,14 +597,6 @@ export function ResultsContent({
 
         </div>
       </div>
-
-      {isReadingMode && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 px-4 py-2 bg-gray-900 border border-border rounded-full text-xs shadow-xl select-none">
-          <span className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
-          <span className="font-medium text-text-primary">Reading Mode</span>
-          <span className="text-text-tertiary">· Press R or click EXIT to return</span>
-        </div>
-      )}
 
     </OnboardingPanel>
   )
