@@ -538,6 +538,13 @@ class FundamentalistOutput(BaseModel):
         description="ROIC minus WACC spread scored 0-10 (None until data pipeline wired)"
     )
 
+    # The assumptions the valuation actually ran on. Surfaced so the report can
+    # show the same operating_margin_trend that drove the archetype weighting
+    # and scenario spread, rather than leaving the reader to guess.
+    dcf_inputs: Optional[DCFInputs] = Field(
+        None, description="DCF assumptions used by the valuation (margin trend, growth, debt, beta)"
+    )
+
     # NEW v2.0: Earnings momentum scoring
     earnings_momentum_score: float = Field(
         0.0,

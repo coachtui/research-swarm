@@ -21,6 +21,7 @@ from .analyzer import ManagerAnalyzer
 from .scorer import ManagerScorer
 from .models import ManagerOutput, QualityScoreBreakdown, ETFManagerOutput
 from .signal_divergence import calculate_signal_divergence
+from .dvrg_target import compute_dvrg_target
 
 
 # Initialize singletons
@@ -53,15 +54,30 @@ def fetch_swarm_data_node(state: ManagerState) -> ManagerState:
             }
             logger.success(f"✓ ETF data fetched: {state['ticker']} AUM=${etf_data.get('aum_billions')}B")
         else:
-            # Equity path: existing hybrid provider fetch
-            from research_swarm.data.data_provider_hybrid import hybrid_provider
-            period = "1y"
-            shared_data = hybrid_provider.get_complete_swarm_data(state["ticker"], period=period)
-            state["shared_swarm_data"] = shared_data
-            logger.success(
-                f"✓ Swarm data fetched: {state['ticker']} "
-                f"(Foreign: {shared_data.get('is_foreign', False)})"
+            # Equity path: single assembly point (Phase A). The snapshot carries
+            # per-section provenance; agents consume the legacy bundle shape.
+            from research_swarm.data.snapshot_assembler import (
+                assemble_snapshot,
+                snapshot_to_swarm_bundle,
             )
+            snapshot = assemble_snapshot(state["ticker"], period="1y")
+            state["shared_swarm_data"] = snapshot_to_swarm_bundle(snapshot)
+            logger.success(
+                f"✓ Swarm data assembled: {state['ticker']} "
+                f"({snapshot.completeness_pct():.0f}% complete, "
+                f"Foreign: {snapshot.is_foreign_filer})"
+            )
+
+        # Macro context describes the world, not this company, so it is scanned
+        # once per TTL window and shared by every analysis. Never fatal — a
+        # report without macro is worse, not broken.
+        try:
+            from research_swarm.data.macro_brief import get_macro_context
+
+            state["macro_context"] = get_macro_context()
+        except Exception as macro_err:
+            logger.warning(f"Macro context unavailable (non-fatal): {macro_err}")
+            state["macro_context"] = None
 
     except Exception as e:
         logger.error(f"Failed to fetch swarm data for {state['ticker']}: {e}")
@@ -422,37 +438,14 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
 
         logger.info(f"Deduplicated: {len(all_insights)} insights → {len(deduplicated_insights)}, {len(all_risks)} risks → {len(deduplicated_risks)}")
 
-        # Synthesize findings
-        synthesis, tokens = manager_analyzer.synthesize_findings(
-            ticker=state["ticker"],
-            analysis_date=state["analysis_date"],
-            analysis_period=state["analysis_period"],
-            fundamentalist_output=state["fundamentalist_output"],
-            news_hound_output=state["news_hound_output"],
-            quant_output=state["quant_output"],
-        )
+        # Phase B3: no LLM call here. This node is now deterministic prep —
+        # the single merged synthesis+thesis Sonnet call runs in Node 7, after
+        # the deterministic scores and rating exist to anchor it.
+        state["key_insights"] = deduplicated_insights
+        state["risk_factors"] = deduplicated_risks
 
-        # Update state with deduplicated insights (override LLM-generated if present)
-        state["synthesis_narrative"] = synthesis.get("synthesis_narrative", "")
-        state["key_insights"] = deduplicated_insights if deduplicated_insights else synthesis.get("key_insights", [])
-        state["risk_factors"] = deduplicated_risks if deduplicated_risks else synthesis.get("risk_factors", [])
-
-        # NEW v2.0: Extract structured risks and triggers
-        state["structured_risks"] = synthesis.get("structured_risks", [])
-        state["upgrade_triggers"] = synthesis.get("upgrade_triggers", [])
-        state["downgrade_triggers"] = synthesis.get("downgrade_triggers", [])
-
-        # NEW: Extract LLM-generated price targets
-        price_targets = synthesis.get("price_targets")
-        if price_targets and price_targets.get("base_target"):
-            state["price_targets"] = price_targets
-            logger.info(f"✓ Price targets: Bull ${price_targets.get('bull_target', 0):.2f} / Base ${price_targets.get('base_target', 0):.2f} / Bear ${price_targets.get('bear_target', 0):.2f}")
-        else:
-            state["price_targets"] = None
-
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        # NEW v2.0: Calculate signal divergence analysis
+        # NEW v2.0: Calculate signal divergence analysis (deterministic; the
+        # moat-score node consumes its data-integrity factor)
         signal_breakdown = calculate_signal_divergence(
             fundamentalist_output=state["fundamentalist_output"],
             news_hound_output=state["news_hound_output"],
@@ -463,7 +456,7 @@ def synthesize_findings_node(state: ManagerState) -> ManagerState:
             state["signal_breakdown"] = signal_breakdown
             logger.info(f"✓ Signal divergence: {signal_breakdown['alignment_status']}")
 
-        logger.success(f"✓ Synthesis complete ({tokens} tokens, {len(state.get('structured_risks', []))} structured risks)")
+        logger.success("✓ Synthesis prep complete (LLM synthesis deferred to thesis node)")
 
     except Exception as e:
         logger.error(f"Synthesis failed: {e}")
@@ -556,8 +549,12 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
             sentiment_catalysts=sentiment_score,
         )
 
-        # Calculate quality score
-        moat_score = breakdown.weighted_average()
+        # Two axes, computed separately (v4.0). `moat_score` now carries pure
+        # business quality — valuation is no longer folded into it, so the two
+        # can disagree and the rating matrix can say which is driving the call.
+        moat_score = breakdown.quality_score()
+        normalized_valuation = breakdown.normalized_valuation()
+        state["normalized_valuation_score"] = normalized_valuation
 
         # Calculate confidence using all v2.0 components
         component_scores = [
@@ -601,12 +598,14 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
                 f"{original_confidence:.3f} → {confidence:.3f}"
             )
 
-        # Determine watchlist eligibility
-        is_watchlist = manager_scorer.determine_watchlist(moat_score)
+        # Watchlist = quality business, price not yet attractive
+        is_watchlist = manager_scorer.determine_watchlist(moat_score, normalized_valuation)
 
-        # NEW v2.0: Determine 5-tier rating (with manager technical override)
+        # v4.0: rating reads the quality x valuation matrix, then the technical override
         rating, rating_score = manager_scorer.determine_rating(
-            moat_score, technical_score=technical_score
+            moat_score,
+            technical_score=technical_score,
+            valuation_score=normalized_valuation,
         )
 
         # Determine risk level using quality formula inputs only (drop technical, add roic_wacc)
@@ -630,6 +629,38 @@ def calculate_moat_score_node(state: ManagerState) -> ManagerState:
         state["rating"] = rating
         state["rating_score"] = rating_score
         state["risk_level"] = risk_level
+
+        # Resolve which shared macro themes actually have a channel to this
+        # company. Deterministic join on sector / region / industry sensitivity.
+        try:
+            from research_swarm.data.macro_exposure import resolve_exposure
+
+            company_info = (state.get("shared_swarm_data") or {}).get("company_info") or {}
+            state["macro_exposure"] = resolve_exposure(
+                state.get("macro_context") or {},
+                sector=company_info.get("sector"),
+                industry=company_info.get("industry"),
+                country=company_info.get("country"),
+            )
+        except Exception as exposure_err:
+            logger.warning(f"Macro exposure resolution failed (non-fatal): {exposure_err}")
+            state["macro_exposure"] = None
+
+        # DVRG divergence-weighted price targets — deterministic. The synthesis
+        # LLM writes scenario assumptions around these numbers; it never authors them.
+        state["price_targets"] = compute_dvrg_target(
+            state.get("fundamentalist_output") or {},
+            state.get("news_hound_output") or {},
+            state.get("quant_output") or {},
+            moat_score,
+        )
+        if state["price_targets"]:
+            pt = state["price_targets"]
+            logger.info(
+                f"✓ DVRG target: Bull ${pt['bull_target']:.2f} / Base ${pt['base_target']:.2f} / "
+                f"Bear ${pt['bear_target']:.2f} (p_persist={pt.get('persistence_probability')}, "
+                f"FV ${pt.get('reversion_anchor')} vs consensus ${pt.get('persistence_anchor')})"
+            )
 
         logger.success(
             f"✓ Quality score calculated: {state['ticker']} "
@@ -686,70 +717,130 @@ def generate_thesis_node(state: ManagerState) -> ManagerState:
             logger.success(f"✓ ETF thesis assembled from synthesis")
             return state
 
-        # Equity path: existing code below, unchanged
-        # Get v2.0 component scores from fundamentalist
-        fundamentalist_output = state.get("fundamentalist_output", {})
-        earnings_momentum_score = fundamentalist_output.get("earnings_momentum_score", 5.0)
-        valuation_score = fundamentalist_output.get("valuation_score", 5.0)
-
-        # Generate investment thesis
-        thesis, tokens = manager_analyzer.generate_investment_thesis(
+        # Equity path (Phase B3): ONE Sonnet call produces the synthesis AND
+        # the thesis, anchored to the deterministic scores/rating computed in
+        # Node 6. Previously two sequential calls with overlapping context.
+        synthesis, tokens = manager_analyzer.synthesize_findings(
             ticker=state["ticker"],
             analysis_date=state["analysis_date"],
+            analysis_period=state["analysis_period"],
+            fundamentalist_output=state["fundamentalist_output"],
+            news_hound_output=state["news_hound_output"],
+            quant_output=state["quant_output"],
             moat_score=state["moat_score"],
-            confidence=state["confidence"],
-            earnings_momentum_score=earnings_momentum_score,
-            financial_health_score=state["financial_health_score"],
-            valuation_score=valuation_score,
-            sentiment_score=state["sentiment_score"],
-            technical_score=state["technical_score"],
+            model_rating=state.get("rating", "HOLD"),
             is_watchlist=state["is_watchlist_candidate"],
-            synthesis_narrative=state["synthesis_narrative"] or "",
-            key_insights=state["key_insights"] or [],
-            risk_factors=state["risk_factors"] or [],
-            rating=state.get("rating", "HOLD"),
-            # Enhanced context
-            fundamentalist_output=state.get("fundamentalist_output"),
-            news_hound_output=state.get("news_hound_output"),
-            quant_output=state.get("quant_output"),
+            confidence=state["confidence"],
+            dvrg_targets=state.get("price_targets"),
+            macro_exposure=state.get("macro_exposure"),
         )
 
-        # Update state
-        state["investment_thesis"] = thesis.get("investment_thesis", {
+        # Synthesis fields (deduplicated agent insights win when present —
+        # currently always empty, kept for when agents emit them)
+        state["synthesis_narrative"] = synthesis.get("synthesis_narrative", "")
+        if not state.get("key_insights"):
+            state["key_insights"] = (synthesis.get("key_insights") or [])[:10]
+        if not state.get("risk_factors"):
+            state["risk_factors"] = (synthesis.get("risk_factors") or [])[:10]
+        # Fold the per-company macro assessment back onto the shared themes.
+        # The brief describes the world identically for every ticker; this is
+        # where it becomes an assessment OF THIS COMPANY. Matched by theme name
+        # so a hallucinated or renamed theme is simply dropped.
+        assessments = synthesis.get("macro_assessment") or []
+        exposure = state.get("macro_exposure") or {}
+        if assessments and exposure.get("themes"):
+            by_name = {
+                str(a.get("theme", "")).strip().lower(): a
+                for a in assessments
+                if isinstance(a, dict)
+            }
+            matched = 0
+            for theme in exposure["themes"]:
+                a = by_name.get(str(theme.get("name", "")).strip().lower())
+                if not a or not a.get("company_impact"):
+                    continue
+                theme["company_impact"] = str(a["company_impact"]).strip()
+                if a.get("materiality") in ("high", "moderate", "low"):
+                    theme["materiality"] = a["materiality"]
+                if a.get("already_visible"):
+                    theme["already_visible"] = str(a["already_visible"]).strip()
+                matched += 1
+            logger.info(
+                f"✓ Macro assessment: {matched}/{len(exposure['themes'])} themes given a "
+                f"company-specific impact read"
+            )
+
+        state["structured_risks"] = synthesis.get("structured_risks", [])
+        state["upgrade_triggers"] = synthesis.get("upgrade_triggers", [])
+        state["downgrade_triggers"] = synthesis.get("downgrade_triggers", [])
+
+        # Node 6 computed the DVRG targets deterministically. Graft the LLM's
+        # qualitative scenario content (assumptions, probability calibration,
+        # per-case context) onto them — the numbers themselves are never
+        # LLM-authored.
+        dvrg = state.get("price_targets")
+        llm_pt = synthesis.get("price_targets") or {}
+        if dvrg and llm_pt:
+            for case in ("bull", "base", "bear"):
+                for suffix in ("assumptions", "growth_assumption", "valuation_multiple", "technical_level"):
+                    val = llm_pt.get(f"{case}_{suffix}")
+                    if val:
+                        dvrg[f"{case}_{suffix}"] = val
+                prob = llm_pt.get(f"{case}_probability")
+                if isinstance(prob, (int, float)) and 0 < prob < 1:
+                    dvrg[f"{case}_probability"] = float(prob)
+            if llm_pt.get("probability_rationale"):
+                dvrg["probability_rationale"] = llm_pt["probability_rationale"]
+        if dvrg:
+            logger.info(
+                f"✓ Price targets (DVRG): Bull ${dvrg.get('bull_target', 0):.2f} / "
+                f"Base ${dvrg.get('base_target', 0):.2f} / Bear ${dvrg.get('bear_target', 0):.2f}"
+            )
+
+        # Thesis fields
+        thesis = synthesis
+        investment_thesis = thesis.get("investment_thesis") or {}
+        if investment_thesis:
+            # ManagerOutput caps these lists. A model returning one extra
+            # highlight or risk is a formatting overshoot, not a failed
+            # analysis — trim rather than fail the whole run on validation.
+            for field, cap in (("investment_highlights", 4), ("key_risks", 3)):
+                values = investment_thesis.get(field)
+                if isinstance(values, list) and len(values) > cap:
+                    logger.debug(f"Trimming {field} from {len(values)} to {cap}")
+                    investment_thesis[field] = values[:cap]
+        state["investment_thesis"] = investment_thesis or {
             "company_overview": "Error",
             "recommendation_summary": "HOLD",
             "investment_highlights": ["Error generating thesis"],
             "valuation_signal_analysis": "Error",
             "key_risks": ["Error generating thesis"],
             "entry_strategy": "Error"
-        })
-        state["recommendation"] = thesis.get("recommendation", "HOLD")
+        }
+        # A missing LLM recommendation must NOT default to "HOLD" — the
+        # reconciler below would read that as a real analyst downgrade of the
+        # scorer's rating. No opinion → defer to the scorer.
+        state["recommendation"] = thesis.get("recommendation") or state.get("rating", "HOLD")
         state["strategic_catalysts"] = thesis.get("strategic_catalysts", None)
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
         state["status"] = "completed"
 
-        # ── Recommendation-Rating Alignment Check ──────────────────────────────
-        # Compute alignment between the moat scorer's rating and the LLM recommendation.
-        # A gap of ≥1 tier means these two systems disagreed. Log for model improvement.
-        # The decision_intelligence layer will auto-reconcile the badge to the more
-        # conservative value, so the user-facing report will always be consistent.
-        _TIER_ORDER = ["STRONG SELL", "SELL", "HOLD", "BUY", "STRONG BUY"]
-        _REC_NORMALIZE = {"AVOID": "SELL", "BUY NOW": "BUY", "SCALE IN": "HOLD", "WAIT": "HOLD"}
+        # ── Recommendation-Rating Reconciliation (at write time) ──────────────
+        # Reconcile the scorer's rating with the LLM recommendation HERE, so the
+        # persisted rating is already consistent with the written verdict. Every
+        # read path (web, PDF, portfolio engine, weekly signals) then sees the
+        # same value instead of re-reconciling (or forgetting to).
         scorer_rating = state.get("rating", "HOLD")
         llm_rec = state.get("recommendation", "HOLD")
-        llm_rec_normalized = _REC_NORMALIZE.get(llm_rec.upper(), llm_rec.upper())
-        if scorer_rating in _TIER_ORDER and llm_rec_normalized in _TIER_ORDER:
-            scorer_idx = _TIER_ORDER.index(scorer_rating)
-            llm_idx = _TIER_ORDER.index(llm_rec_normalized)
-            alignment_gap = abs(scorer_idx - llm_idx)
-            if alignment_gap == 0:
-                logger.info(f"✓ Rating alignment: scorer={scorer_rating} == LLM={llm_rec} (aligned)")
-            else:
-                logger.warning(
-                    f"⚠ Rating alignment gap detected: scorer={scorer_rating} vs LLM={llm_rec} "
-                    f"(normalized: {llm_rec_normalized}, gap={alignment_gap} tiers) "
-                    f"— badge will auto-reconcile to more conservative ({llm_rec_normalized if llm_idx < scorer_idx else scorer_rating})"
-                )
+        reconciled = manager_scorer.reconcile_rating(scorer_rating, llm_rec)
+        if reconciled != scorer_rating:
+            logger.warning(
+                f"⚠ Rating reconciled: scorer={scorer_rating} vs LLM={llm_rec} "
+                f"→ persisted rating set to more conservative {reconciled}"
+            )
+            state["rating"] = reconciled
+        else:
+            logger.info(f"✓ Rating alignment: scorer={scorer_rating}, LLM={llm_rec} (no downgrade)")
 
         logger.success(f"✓ Investment thesis generated ({tokens} tokens)")
 
@@ -924,33 +1015,39 @@ def analyze_swarm(
         "manager": 0.0,
     }
 
-    # Fundamentalist cost (using haiku for scorer + sonnet for analyzer, approximate 50/50 split)
+    # Agents only track a single summed token count, so the input/output split
+    # is an estimate. This workload is dominated by large prompts (filing text)
+    # with small structured outputs, so ~85/15 in/out is realistic; the previous
+    # 30/70 assumption was inverted and inflated the estimate.
+    INPUT_SHARE, OUTPUT_SHARE = 0.85, 0.15
+
+    # Fundamentalist cost (mix of haiku extraction + sonnet analysis, approximate 50/50 split)
     if final_state.get("fundamentalist_output"):
         fund_tokens = final_state["fundamentalist_output"].get("tokens_used", 0)
-        tokens_in = int(fund_tokens * 0.3)
-        tokens_out = int(fund_tokens * 0.7)
+        tokens_in = int(fund_tokens * INPUT_SHARE)
+        tokens_out = int(fund_tokens * OUTPUT_SHARE)
         # Mix of haiku (scorer) and sonnet (analyzer), use average
         cost_by_agent["fundamentalist"] = (
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "haiku") +
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "sonnet")
         )
 
-    # News Hound cost (using haiku for scorer + sonnet for analyzer, approximate 50/50 split)
+    # News Hound cost (mix of haiku extraction + sonnet analysis, approximate 50/50 split)
     if final_state.get("news_hound_output"):
         news_tokens = final_state["news_hound_output"].get("tokens_used", 0)
-        tokens_in = int(news_tokens * 0.3)
-        tokens_out = int(news_tokens * 0.7)
+        tokens_in = int(news_tokens * INPUT_SHARE)
+        tokens_out = int(news_tokens * OUTPUT_SHARE)
         # Mix of haiku (scorer) and sonnet (analyzer), use average
         cost_by_agent["news_hound"] = (
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "haiku") +
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "sonnet")
         )
 
-    # Quant cost (using haiku for scorer + sonnet for analyzer, approximate 50/50 split)
+    # Quant cost (mix of haiku extraction + sonnet analysis, approximate 50/50 split)
     if final_state.get("quant_output"):
         quant_tokens = final_state["quant_output"].get("tokens_used", 0)
-        tokens_in = int(quant_tokens * 0.3)
-        tokens_out = int(quant_tokens * 0.7)
+        tokens_in = int(quant_tokens * INPUT_SHARE)
+        tokens_out = int(quant_tokens * OUTPUT_SHARE)
         # Mix of haiku (scorer) and sonnet (analyzer), use average
         cost_by_agent["quant"] = (
             cost_tracker.calculate_cost(tokens_in // 2, tokens_out // 2, "haiku") +
@@ -965,8 +1062,8 @@ def analyze_swarm(
     )
     manager_only_tokens = manager_tokens - agent_tokens
     if manager_only_tokens > 0:
-        tokens_in = int(manager_only_tokens * 0.3)
-        tokens_out = int(manager_only_tokens * 0.7)
+        tokens_in = int(manager_only_tokens * INPUT_SHARE)
+        tokens_out = int(manager_only_tokens * OUTPUT_SHARE)
         cost_by_agent["manager"] = cost_tracker.calculate_cost(tokens_in, tokens_out, "sonnet")
 
     # ETF path: assemble ETFManagerOutput from synthesis
@@ -1049,6 +1146,8 @@ def analyze_swarm(
         vgm_scores=vgm_scores,  # Extract from fundamentalist output
         # Investment recommendations (v2.0)
         price_targets=final_state.get("price_targets"),
+        normalized_valuation_score=final_state.get("normalized_valuation_score"),
+        macro_exposure=final_state.get("macro_exposure"),
         structured_risks=final_state.get("structured_risks"),
         upgrade_triggers=final_state.get("upgrade_triggers"),
         downgrade_triggers=final_state.get("downgrade_triggers"),

@@ -36,8 +36,15 @@ def fetch_news_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "fetching"
 
-    # Fetch from NewsAPI (via aggregator)
-    articles = aggregator.fetch_news(state["ticker"], state["days_back"])
+    # Fetch from NewsAPI (via aggregator). The company name comes from the
+    # pre-fetched bundle so the query is a real phrase search, not a bare
+    # ticker — critical for short word-like symbols (BE, ALL, IT, ON).
+    company_info = (state.get("shared_swarm_data") or {}).get("company_info") or {}
+    company_name = company_info.get("name") or company_info.get("longName")
+
+    articles = aggregator.fetch_news(
+        state["ticker"], state["days_back"], company_name=company_name
+    )
 
     if not articles:
         logger.warning(f"No articles found for {state['ticker']}")
@@ -92,82 +99,54 @@ def filter_articles_node(state: NewsHoundState) -> NewsHoundState:
     return state
 
 
-def extract_catalysts_node(state: NewsHoundState) -> NewsHoundState:
+def interpret_news_node(state: NewsHoundState) -> NewsHoundState:
     """
-    Node 3: Extract catalyst events (9 categories).
+    Node 3 (Phase B): Single-pass news interpretation.
 
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with catalyst_events
+    One Sonnet structured call over the filtered articles produces catalysts
+    (regulatory events included), the sentiment narrative + breakdown, and
+    management commentary — replacing five separate LLM calls that each
+    re-read the same article set.
     """
-    logger.info(f"[Node 3] Extracting catalysts for {state['ticker']}")
+    logger.info(f"[Node 3] Interpreting news for {state['ticker']} (single pass)")
 
-    state["status"] = "extracting"
+    state["status"] = "interpreting"
 
     articles_filtered = state.get("articles_filtered", [])
 
     if not articles_filtered:
         state["catalyst_events"] = []
         state["catalyst_count"] = 0
-        logger.warning("No articles to extract catalysts from")
-        return state
-
-    # Reconstruct NewsArticle objects
-    from research_swarm.agents.news_hound.models import NewsArticle
-    articles = [NewsArticle(**art) for art in articles_filtered]
-
-    # Extract catalysts
-    catalysts, tokens = analyzer.extract_catalysts(articles, state["ticker"], state["days_back"])
-
-    # Store catalysts
-    state["catalyst_events"] = [catalyst.dict() for catalyst in catalysts]
-    state["catalyst_count"] = len(catalysts)
-    state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-    logger.success(f"✓ Extracted {len(catalysts)} catalysts")
-
-    return state
-
-
-def extract_regulatory_node(state: NewsHoundState) -> NewsHoundState:
-    """
-    Node 4: Extract regulatory events (optional enhancement).
-
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with regulatory_events
-    """
-    logger.info(f"[Node 4] Extracting regulatory events for {state['ticker']}")
-
-    articles_filtered = state.get("articles_filtered", [])
-
-    if not articles_filtered:
         state["regulatory_events"] = []
-        logger.info("No articles to extract regulatory events from")
+        state["management_commentary"] = None
+        logger.warning("No articles to interpret")
         return state
 
     # Reconstruct NewsArticle objects
     from research_swarm.agents.news_hound.models import NewsArticle
     articles = [NewsArticle(**art) for art in articles_filtered]
 
-    # Extract regulatory events
-    reg_events, tokens = analyzer.extract_regulatory_events(articles, state["ticker"])
+    interpretation, tokens = analyzer.interpret_news(
+        articles,
+        state["ticker"],
+        state["days_back"],
+        analysis_date=state.get("analysis_date", ""),
+        system_addendum=state.get("etf_system_addendum", ""),
+    )
 
-    # Store regulatory events (these will be merged with catalyst_events in final output)
-    state["regulatory_events"] = [event.dict() for event in reg_events]
+    state["catalyst_events"] = [c.dict() for c in interpretation["catalysts"]]
+    state["catalyst_count"] = len(interpretation["catalysts"])
+    state["regulatory_events"] = []  # folded into catalyst_events (event_type=regulatory)
+    state["sentiment_analysis"] = interpretation["sentiment_narrative"]
+    state["sentiment_breakdown_raw"] = interpretation["sentiment_breakdown"]
+    state["sentiment_confidence_raw"] = interpretation["sentiment_confidence"]
+    state["management_commentary"] = interpretation["management_commentary"]
     state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
-    # Merge regulatory events into catalyst_events
-    catalyst_events = state.get("catalyst_events", [])
-    catalyst_events.extend(state["regulatory_events"])
-    state["catalyst_events"] = catalyst_events
-    state["catalyst_count"] = len(catalyst_events)
-
-    logger.info(f"Added {len(reg_events)} regulatory events (total catalysts: {state['catalyst_count']})")
+    logger.success(
+        f"✓ News interpreted: {state['catalyst_count']} catalysts, "
+        f"narrative {len(state['sentiment_analysis'] or '')} chars"
+    )
 
     return state
 
@@ -287,44 +266,29 @@ def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_earnings"
 
-    from research_swarm.data.market_data_client import market_data_client
     from research_swarm.data.analyst_revision_calculator import calculate_revision_metrics
 
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: all data comes from the pre-assembled bundle. Missing means
+        # the provider had nothing (visible in snapshot provenance) — no
+        # mid-run direct fetches, which tripled upstream load exactly when a
+        # provider was already failing.
         shared_data = state.get("shared_swarm_data", {})
         estimates_data = shared_data.get("analyst_estimates")
         recommendations_data = shared_data.get("earnings_data", {}).get("recommendations")
-
-        # Fallback if not in shared data
-        if estimates_data is None:
-            logger.debug("Fetching earnings estimates directly (no shared data)")
-            estimates_data = market_data_client.get_earnings_estimates(state["ticker"])
-        if recommendations_data is None:
-            logger.debug("Fetching analyst recommendations directly (no shared data)")
-            recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
-
-        # Upgrades/downgrades: use shared bundle first, fallback to direct fetch
         upgrades_downgrades = shared_data.get("upgrades_downgrades")
-        if upgrades_downgrades is None:
-            logger.debug("Fetching upgrades/downgrades data for revision metrics")
-            upgrades_downgrades = market_data_client.get_upgrades_downgrades(
-                state["ticker"],
-                days_back=90  # Last 3 months
-            )
 
         # Calculate revision metrics from upgrades/downgrades
         revision_metrics = calculate_revision_metrics(upgrades_downgrades)
 
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_earnings_estimates(
-            estimates_data,
-            recommendations_data,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
+        # Phase B3: pure calculation — the old Sonnet call was handed these
+        # DataFrames as text and asked to copy numbers into JSON (and reported
+        # surprise history it was never given; surprises now come from the
+        # actual earnings_history data).
+        from research_swarm.agents.news_hound.signal_calculators import calculate_earnings_estimates
+        earnings_history = shared_data.get("earnings_data", {}).get("earnings_history")
+        result = calculate_earnings_estimates(estimates_data, earnings_history)
 
-        # CRITICAL: Override LLM-generated revision metrics with calculated metrics
         result["upward_revisions"] = revision_metrics["upward_revisions"]
         result["downward_revisions"] = revision_metrics["downward_revisions"]
         result["net_revision_direction"] = revision_metrics["net_revision_direction"]
@@ -332,7 +296,6 @@ def analyze_earnings_estimates_node(state: NewsHoundState) -> NewsHoundState:
 
         # Store in state
         state["earnings_estimates"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
         logger.success(f"✓ Earnings estimates analyzed (revisions: {revision_metrics['upward_revisions']} up, {revision_metrics['downward_revisions']} down)")
 
@@ -357,59 +320,25 @@ def analyze_analyst_consensus_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_consensus"
 
-    from research_swarm.data.market_data_client import market_data_client
-    from research_swarm.data.analyst_revision_calculator import calculate_revision_metrics
-
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         recommendations_data = shared_data.get("earnings_data", {}).get("recommendations")
         price_targets = shared_data.get("earnings_data", {}).get("price_target")
-
-        # Fallback if not in shared data
-        if recommendations_data is None:
-            logger.debug("Fetching analyst recommendations directly (no shared data)")
-            recommendations_data = market_data_client.get_analyst_recommendations(state["ticker"])
-        if price_targets is None:
-            logger.debug("Fetching price targets directly (no shared data)")
-            price_targets = market_data_client.get_analyst_price_target(state["ticker"])
-
-        # Upgrades/downgrades: use shared bundle first, fallback to direct fetch
         upgrades_downgrades = shared_data.get("upgrades_downgrades")
-        if upgrades_downgrades is None:
-            logger.debug("Fetching upgrades/downgrades data for consensus activity")
-            upgrades_downgrades = market_data_client.get_upgrades_downgrades(
-                state["ticker"],
-                days_back=90
-            )
 
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_analyst_consensus(
-            recommendations_data,
-            price_targets,
-            state["ticker"],
-            state.get("analysis_date", ""),
-            upgrades_downgrades=upgrades_downgrades
+        # Pure calculation — no LLM (the old Haiku call just copied these
+        # numbers into JSON)
+        from research_swarm.agents.news_hound.signal_calculators import calculate_analyst_consensus
+        result = calculate_analyst_consensus(
+            recommendations_data, price_targets, upgrades_downgrades
         )
-
-        # CRITICAL: Override LLM-generated activity counts with calculated metrics
-        action_metrics = calculate_revision_metrics(upgrades_downgrades)
-        net_actions = action_metrics["upward_revisions"] - action_metrics["downward_revisions"]
-        net_targets = action_metrics["price_target_increases"] - action_metrics["price_target_decreases"]
-        result["upgrades"] = action_metrics["upward_revisions"]
-        result["downgrades"] = action_metrics["downward_revisions"]
-        result["new_coverage"] = action_metrics["new_coverage"]
-        result["rating_momentum"] = "Improving" if net_actions > 0 else ("Deteriorating" if net_actions < 0 else "Stable")
-        result["target_trend"] = "Rising" if net_targets > 0 else ("Falling" if net_targets < 0 else "Stable")
-
-        # Store in state
         state["analyst_consensus"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
         logger.success(
-            f"✓ Analyst consensus analyzed "
-            f"({action_metrics['upward_revisions']} upgrades, {action_metrics['downward_revisions']} downgrades, "
-            f"{action_metrics['new_coverage']} initiations in 90d)"
+            f"✓ Analyst consensus analyzed (deterministic; "
+            f"{result['upgrades']} upgrades, {result['downgrades']} downgrades, "
+            f"{result['new_coverage']} initiations in 90d)"
         )
 
     except Exception as e:
@@ -433,30 +362,17 @@ def analyze_institutional_activity_node(state: NewsHoundState) -> NewsHoundState
 
     state["status"] = "analyzing_institutional"
 
-    from research_swarm.data.market_data_client import market_data_client
 
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         institutional_data = shared_data.get("institutional_holders")
 
-        # Fallback if not in shared data
-        if institutional_data is None:
-            logger.debug("Fetching institutional holders directly (no shared data)")
-            institutional_data = market_data_client.get_institutional_holders(state["ticker"])
+        # Pure calculation — no LLM
+        from research_swarm.agents.news_hound.signal_calculators import calculate_institutional_activity
+        state["institutional_activity"] = calculate_institutional_activity(institutional_data)
 
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_institutional_activity(
-            institutional_data,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
-
-        # Store in state
-        state["institutional_activity"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Institutional activity analyzed")
+        logger.success(f"✓ Institutional activity analyzed (deterministic)")
 
     except Exception as e:
         logger.error(f"Error in institutional activity node: {e}")
@@ -479,41 +395,18 @@ def analyze_dark_pool_activity_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_dark_pool"
 
-    from research_swarm.data.finra_client import finra_client
 
     try:
         # Check for pre-fetched data from Manager's fetch_swarm_data_node
         shared_data = state.get("shared_swarm_data", {})
         dark_pool_data = shared_data.get("dark_pool_data")
 
-        # Fallback: Fetch directly if not in shared data
-        if dark_pool_data is None:
-            logger.debug("Fetching dark pool data directly from FINRA (no shared data)")
-            dark_pool_data = finra_client.get_dark_pool_activity(state["ticker"], weeks_back=13)
+        # Pure calculation — no LLM (baseline z-score math was already
+        # deterministic; the model call only narrated it)
+        from research_swarm.agents.news_hound.signal_calculators import calculate_dark_pool_activity
+        state["dark_pool_activity"] = calculate_dark_pool_activity(dark_pool_data)
 
-        # Get institutional context for cross-reference
-        institutional_context = None
-        if state.get("institutional_activity"):
-            inst_data = state["institutional_activity"]
-            institutional_context = (
-                f"Institutional ownership: {inst_data.get('institutional_ownership_pct', 'N/A')}%, "
-                f"Trend: {inst_data.get('trend', 'unknown')}, "
-                f"Sentiment: {inst_data.get('institutional_sentiment', 'neutral')}"
-            )
-
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_dark_pool_activity(
-            dark_pool_data,
-            institutional_context,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
-
-        # Store in state
-        state["dark_pool_activity"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Dark pool activity analyzed")
+        logger.success(f"✓ Dark pool activity analyzed (deterministic)")
 
     except Exception as e:
         logger.error(f"Error in dark pool activity node: {e}")
@@ -537,7 +430,6 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
     state["status"] = "analyzing_insider"
 
     from research_swarm.data.openinsider_client import openinsider_client
-    from research_swarm.data.data_cache_service import data_cache
 
     try:
         # Pull market cap and float from pre-fetched shared data (best-effort)
@@ -547,18 +439,9 @@ def analyze_insider_activity_node(state: NewsHoundState) -> NewsHoundState:
         market_cap = company_info.get("market_cap")        # dollars from yfinance
         float_shares = short_data.get("float_shares")     # share count
 
-        # Check Neon cache before hitting OpenInsider (HTML scrape — 3-5s each)
-        cached_oi = data_cache.get_openinsider(state["ticker"])
-        if cached_oi is not None:
-            logger.debug(f"Using cached OpenInsider transactions for {state['ticker']}")
-            transactions = cached_oi
-        else:
-            transactions = openinsider_client.get_insider_transactions(
-                state["ticker"],
-                days_back=365  # 1 year lookback
-            )
-            if transactions is not None:
-                data_cache.set_openinsider(state["ticker"], transactions)
+        # Phase A: OpenInsider transactions are fetched by the snapshot
+        # assembler (concurrently with the main bundle), never mid-run here.
+        transactions = shared_data.get("openinsider_transactions")
 
         # Calculate insider score using 5-component institutional framework
         insider_result = openinsider_client.calculate_insider_score(
@@ -648,30 +531,18 @@ def analyze_short_interest_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_short"
 
-    from research_swarm.data.market_data_client import market_data_client
 
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         short_data = shared_data.get("short_interest")
 
-        # Fallback if not in shared data
-        if short_data is None:
-            logger.debug("Fetching short interest directly (no shared data)")
-            short_data = market_data_client.get_short_interest(state["ticker"])
+        # Pure calculation — no LLM (the old prompt asked Haiku to copy six
+        # numbers into JSON and apply a hardcoded threshold table)
+        from research_swarm.agents.news_hound.signal_calculators import calculate_short_interest
+        state["short_interest"] = calculate_short_interest(short_data)
 
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_short_interest(
-            short_data,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
-
-        # Store in state
-        state["short_interest"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Short interest analyzed")
+        logger.success(f"✓ Short interest analyzed (deterministic)")
 
     except Exception as e:
         logger.error(f"Error in short interest node: {e}")
@@ -694,140 +565,26 @@ def analyze_upcoming_catalysts_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_catalysts"
 
-    from research_swarm.data.market_data_client import market_data_client
-    from research_swarm.agents.news_hound.models import CatalystEvent
-
     try:
-        # NEW: Get from shared data first, fallback to direct fetch
+        # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         earnings_dates = shared_data.get("earnings_data", {}).get("earnings_dates")
 
-        # Fallback if not in shared data
-        if earnings_dates is None:
-            logger.debug("Fetching earnings dates directly (no shared data)")
-            earnings_dates = market_data_client.get_earnings_dates(state["ticker"])
-
-        # Get detected catalyst events
-        catalyst_events = []
-        if state.get("catalyst_events"):
-            catalyst_events = [CatalystEvent(**cat) for cat in state["catalyst_events"]]
-
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_upcoming_catalysts(
+        # Phase B3: pure calculation — forward calendar from the earnings
+        # dates plus future-dated news catalysts (date filtering + counting
+        # that a Haiku call previously performed).
+        from research_swarm.agents.news_hound.signal_calculators import calculate_upcoming_catalysts
+        state["upcoming_catalysts"] = calculate_upcoming_catalysts(
             earnings_dates,
-            catalyst_events,
-            state["ticker"],
-            state.get("analysis_date", "")
+            state.get("catalyst_events") or [],
+            state.get("analysis_date", ""),
         )
 
-        # Store in state
-        state["upcoming_catalysts"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Upcoming catalysts analyzed")
+        logger.success(f"✓ Upcoming catalysts analyzed (deterministic)")
 
     except Exception as e:
         logger.error(f"Error in upcoming catalysts node: {e}")
         state["upcoming_catalysts"] = None
-
-    return state
-
-
-def analyze_management_commentary_node(state: NewsHoundState) -> NewsHoundState:
-    """
-    Node 11: Analyze management commentary and guidance.
-
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with management_commentary
-    """
-    logger.info(f"[Node 11] Analyzing management commentary for {state['ticker']}")
-
-    state["status"] = "analyzing_management"
-
-    from research_swarm.agents.news_hound.models import NewsArticle
-
-    try:
-        # Get earnings-related articles from filtered articles
-        articles_filtered = state.get("articles_filtered", [])
-        if articles_filtered:
-            articles = [NewsArticle(**art) for art in articles_filtered]
-            # Filter for earnings-related articles
-            earnings_articles = [art for art in articles if any(
-                keyword in art.title.lower() or (art.description and keyword in art.description.lower())
-                for keyword in ["earnings", "guidance", "outlook", "forecast", "quarter"]
-            )]
-        else:
-            earnings_articles = []
-
-        # Analyze with LLM
-        result, tokens = analyzer.analyze_management_commentary(
-            earnings_articles,
-            state["ticker"],
-            state.get("analysis_date", "")
-        )
-
-        # Store in state
-        state["management_commentary"] = result
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-        logger.success(f"✓ Management commentary analyzed")
-
-    except Exception as e:
-        logger.error(f"Error in management commentary node: {e}")
-        state["management_commentary"] = None
-
-    return state
-
-
-def analyze_sentiment_node(state: NewsHoundState) -> NewsHoundState:
-    """
-    Node 5: Perform nuanced sentiment analysis (Sonnet).
-
-    Args:
-        state: Current workflow state
-
-    Returns:
-        Updated state with sentiment_analysis
-    """
-    logger.info(f"[Node 5] Analyzing sentiment for {state['ticker']}")
-
-    state["status"] = "analyzing"
-
-    articles_filtered = state.get("articles_filtered", [])
-    catalyst_events = state.get("catalyst_events", [])
-
-    # Handle case of no articles
-    if not articles_filtered:
-        state["sentiment_analysis"] = (
-            f"No news articles were found for {state['ticker']} in the last {state['days_back']} days. "
-            "This suggests limited media coverage during this period, which could indicate a lack of "
-            "significant news events or a quieter period for the company. A neutral sentiment score of "
-            "5.0 is assigned due to insufficient data."
-        )
-        logger.warning("No articles for sentiment analysis")
-        return state
-
-    # Reconstruct objects
-    from research_swarm.agents.news_hound.models import NewsArticle, CatalystEvent
-    articles = [NewsArticle(**art) for art in articles_filtered]
-    catalysts = [CatalystEvent(**cat) for cat in catalyst_events]
-
-    # Perform sentiment analysis (inject ETF addendum if present)
-    sentiment_text, tokens = analyzer.analyze_sentiment(
-        articles,
-        catalysts,
-        state["ticker"],
-        state["days_back"],
-        system_addendum=state.get("etf_system_addendum", "")
-    )
-
-    state["sentiment_analysis"] = sentiment_text
-    state["tokens_used"] = state.get("tokens_used", 0) + tokens
-
-    logger.success(f"✓ Generated sentiment analysis ({len(sentiment_text)} chars)")
 
     return state
 
@@ -851,11 +608,27 @@ def score_sentiment_node(state: NewsHoundState) -> NewsHoundState:
     catalyst_events = state.get("catalyst_events", [])
     sentiment_analysis = state.get("sentiment_analysis", "")
 
-    # Handle case of no articles - return neutral sentiment
-    if article_count == 0 or not articles_filtered:
-        logger.warning("No articles - assigning neutral sentiment (5.0)")
+    breakdown_raw = state.get("sentiment_breakdown_raw")
 
-        # Neutral breakdown
+    # Handle case of no articles (or a failed interpretation) — neutral sentiment
+    if article_count == 0 or not articles_filtered or not breakdown_raw:
+        logger.warning("No articles/breakdown - assigning neutral sentiment (5.0)")
+
+        if not sentiment_analysis:
+            # State the coverage gap as a data limitation. Do NOT infer that the
+            # company had a quiet news period — an empty result set is far more
+            # often a search/coverage failure than genuine media silence, and
+            # asserting the latter puts a false claim about the company in the
+            # report.
+            state["sentiment_analysis"] = (
+                f"No qualifying news articles were retrieved for {state['ticker']} over the last "
+                f"{state['days_back']} days, so no news-based sentiment reading was produced. "
+                "This reflects the limits of this report's news coverage for this ticker — it is "
+                "not evidence that the company was free of news. Treat the sentiment component as "
+                "unavailable rather than neutral, and weigh the fundamental, valuation, and "
+                "technical components accordingly."
+            )
+
         breakdown = SentimentBreakdown(
             overall_tone=5.0,
             catalyst_impact=5.0,
@@ -870,26 +643,26 @@ def score_sentiment_node(state: NewsHoundState) -> NewsHoundState:
 
         return state
 
-    # Reconstruct objects
-    from research_swarm.agents.news_hound.models import CatalystEvent
-    catalysts = [CatalystEvent(**cat) for cat in catalyst_events]
-
-    # Score sentiment
-    sentiment_score, breakdown, confidence, tokens = scorer.score_sentiment(
-        state["ticker"],
-        state["days_back"],
-        article_count,
-        sentiment_analysis,
-        catalysts
+    # Phase B: the 4-dimension breakdown comes from the single interpretation
+    # call; the weighted average and confidence are computed here in Python
+    # (this node was previously another Haiku call re-reading the narrative).
+    breakdown = SentimentBreakdown(
+        overall_tone=breakdown_raw.get("overall_tone", 5.0),
+        catalyst_impact=breakdown_raw.get("catalyst_impact", 5.0),
+        market_perception=breakdown_raw.get("market_perception", 5.0),
+        forward_looking=breakdown_raw.get("forward_looking", 5.0),
     )
+    sentiment_score = breakdown.weighted_average()
+    confidence = state.get("sentiment_confidence_raw")
+    if confidence is None:
+        confidence = 0.7
 
     state["sentiment_score"] = sentiment_score
     state["sentiment_breakdown"] = breakdown.dict()
-    state["confidence"] = confidence
-    state["tokens_used"] = state.get("tokens_used", 0) + tokens
+    state["confidence"] = max(0.0, min(1.0, float(confidence)))
     state["status"] = "completed"
 
-    logger.success(f"✓ Sentiment scored: {sentiment_score:.2f}/10 (confidence: {confidence:.2f}, total tokens: {state['tokens_used']})")
+    logger.success(f"✓ Sentiment scored: {sentiment_score:.2f}/10 (confidence: {state['confidence']:.2f}, total tokens: {state['tokens_used']})")
 
     return state
 
@@ -925,8 +698,7 @@ def build_news_hound_graph() -> StateGraph:
     # Add nodes
     workflow.add_node("fetch_news", fetch_news_node)
     workflow.add_node("filter_articles", filter_articles_node)
-    workflow.add_node("extract_catalysts", extract_catalysts_node)
-    workflow.add_node("extract_regulatory", extract_regulatory_node)
+    workflow.add_node("interpret_news", interpret_news_node)
     workflow.add_node("extract_8k_events", extract_8k_events_node)
     # New analyst data nodes
     workflow.add_node("analyze_earnings", analyze_earnings_estimates_node)
@@ -936,9 +708,7 @@ def build_news_hound_graph() -> StateGraph:
     workflow.add_node("analyze_insider", analyze_insider_activity_node)
     workflow.add_node("analyze_short", analyze_short_interest_node)
     workflow.add_node("analyze_catalysts", analyze_upcoming_catalysts_node)
-    workflow.add_node("analyze_management", analyze_management_commentary_node)
     # Sentiment nodes
-    workflow.add_node("analyze_sentiment", analyze_sentiment_node)
     workflow.add_node("score_sentiment", score_sentiment_node)
 
     # Set entry point
@@ -946,10 +716,9 @@ def build_news_hound_graph() -> StateGraph:
 
     # Add edges - sequential flow
     workflow.add_edge("fetch_news", "filter_articles")
-    workflow.add_edge("filter_articles", "extract_catalysts")
-    workflow.add_edge("extract_catalysts", "extract_regulatory")
+    workflow.add_edge("filter_articles", "interpret_news")
+    workflow.add_edge("interpret_news", "extract_8k_events")
     # Wire 8-K extraction and analyst data nodes
-    workflow.add_edge("extract_regulatory", "extract_8k_events")
     workflow.add_edge("extract_8k_events", "analyze_earnings")
     workflow.add_edge("analyze_earnings", "analyze_consensus")
     workflow.add_edge("analyze_consensus", "analyze_institutional")
@@ -957,10 +726,8 @@ def build_news_hound_graph() -> StateGraph:
     workflow.add_edge("analyze_dark_pool", "analyze_insider")  # NEW: Connect dark pool to insider
     workflow.add_edge("analyze_insider", "analyze_short")
     workflow.add_edge("analyze_short", "analyze_catalysts")
-    workflow.add_edge("analyze_catalysts", "analyze_management")
-    workflow.add_edge("analyze_management", "analyze_sentiment")
     # Final sentiment nodes
-    workflow.add_edge("analyze_sentiment", "score_sentiment")
+    workflow.add_edge("analyze_catalysts", "score_sentiment")
 
     # Score sentiment is the final node
     workflow.set_finish_point("score_sentiment")
@@ -997,6 +764,14 @@ def analyze_company_news(
 
     start_time = time.time()
 
+    # Phase A: the graph nodes never fetch mid-run. When the caller didn't
+    # supply an equity bundle (standalone run, or the ETF path whose bundle
+    # only carries etf_data), assemble the market sections once, up front.
+    if not shared_swarm_data or "short_interest" not in shared_swarm_data:
+        from research_swarm.data.snapshot_assembler import assemble_market_bundle
+        market_bundle = assemble_market_bundle(ticker)
+        shared_swarm_data = {**market_bundle, **(shared_swarm_data or {})}
+
     # ETF mode: build sector context to enrich news analysis
     etf_system_addendum = ""
     if etf_context:
@@ -1017,9 +792,11 @@ Do NOT focus on individual company earnings unless it represents a major sector 
         logger.info(f"[ETF News Hound] Enriched with sector context: {sector_names}")
 
     # Initialize state
+    from datetime import datetime as _datetime
     initial_state: NewsHoundState = {
         "ticker": ticker,
         "days_back": days_back,
+        "analysis_date": _datetime.now().strftime("%Y-%m-%d"),
         "status": "initialized",
         "error": None,
         "articles_raw": None,

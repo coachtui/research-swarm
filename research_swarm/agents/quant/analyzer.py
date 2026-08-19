@@ -11,8 +11,6 @@ from research_swarm.utils import extract_token_usage
 
 from .models import TechnicalIndicators, SupplyChainGraph, NodeType
 from .prompts import (
-    HIDDEN_DEPENDENCY_PROMPT,
-    TECHNICAL_ANALYSIS_PROMPT,
     SUPPLY_CHAIN_ANALYSIS_PROMPT,
 )
 
@@ -24,182 +22,63 @@ except ImportError:
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 
+def build_technical_digest(indicators: TechnicalIndicators) -> str:
+    """Deterministic technical summary assembled from the indicator models'
+    own interpretation strings (Phase B3). Replaces the Sonnet narrative call —
+    every sentence here is grounded in a computed value, and the Manager's
+    synthesis writes the actual interpretation with full cross-signal context.
+    """
+    ma = indicators.moving_averages
+    signals = indicators.entry_exit_signals
+
+    def fmt(value, decimals=2):
+        return f"{value:.{decimals}f}" if value is not None else "N/A"
+
+    lines = [
+        f"Overall technical signal: {signals.overall_signal.value.upper()} "
+        f"(confidence {signals.confidence:.0%}; {len(signals.bullish_factors)} bullish vs "
+        f"{len(signals.bearish_factors)} bearish factors).",
+        signals.interpretation,
+        "",
+        f"Price ${fmt(ma.current_price)} vs SMA50 ${fmt(ma.sma_50)} / SMA200 ${fmt(ma.sma_200)} "
+        f"({ma.crossover_signal.value}).",
+        f"RSI: {indicators.rsi.interpretation}",
+        f"MACD: {indicators.macd.interpretation}",
+        f"Bollinger Bands: {indicators.bollinger_bands.interpretation}",
+        f"Stochastic: {indicators.stochastic.interpretation}",
+        f"Volume profile: {indicators.volume_profile.interpretation}",
+    ]
+    if signals.bullish_factors:
+        lines.append("Bullish factors: " + "; ".join(signals.bullish_factors))
+    if signals.bearish_factors:
+        lines.append("Bearish factors: " + "; ".join(signals.bearish_factors))
+
+    rs = indicators.relative_strength
+    if rs.vs_market_3m is not None or rs.vs_sector_3m is not None:
+        lines.append(
+            f"Relative strength (3m): {fmt(rs.vs_sector_3m, 1)}% vs sector, "
+            f"{fmt(rs.vs_market_3m, 1)}% vs market."
+        )
+
+    return "\n".join(line for line in lines if line is not None)
+
+
 class QuantAnalyzer:
     """Generates qualitative analysis narratives using LLMs."""
 
     def __init__(self):
         """Initialize analyzer with LLM models."""
-        # Haiku for cost-effective hidden dependency analysis
-        self.haiku = ChatAnthropic(
-            model="claude-haiku-4-5-20251001",
-            api_key=ANTHROPIC_API_KEY,
-            temperature=0.0,
-        )
-
         # Sonnet for deeper qualitative analysis
+        # max_tokens must be set explicitly — LangChain defaults to 1024 and
+        # silently truncates the narrative output.
         self.sonnet = ChatAnthropic(
             model="claude-sonnet-4-6",
             api_key=ANTHROPIC_API_KEY,
             temperature=0.3,
+            max_tokens=8192,
         )
 
         logger.info("QuantAnalyzer initialized")
-
-    def analyze_hidden_dependencies(
-        self,
-        ticker: str,
-        analysis_date: str,
-        supply_chain_graph: SupplyChainGraph
-    ) -> tuple[Dict[str, Any], int]:
-        """
-        Analyze hidden dependencies using LLM.
-
-        Args:
-            ticker: Stock ticker
-            analysis_date: Analysis date
-            supply_chain_graph: Supply chain graph
-
-        Returns:
-            Tuple of (hidden_dependencies_dict, tokens_used)
-        """
-        logger.info(f"Analyzing hidden dependencies for {ticker}")
-
-        # Format supply chain graph for prompt
-        graph_summary = self._format_supply_chain_summary(supply_chain_graph)
-
-        prompt = HIDDEN_DEPENDENCY_PROMPT.format(
-            ticker=ticker,
-            analysis_date=analysis_date,
-            supply_chain_summary=graph_summary,
-        )
-
-        try:
-            response = self.haiku.invoke(prompt)
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            # Extract JSON from response
-            json_text = self._extract_json(response_text)
-            hidden_deps = json.loads(json_text)
-
-            logger.success(f"✓ Analyzed hidden dependencies for {ticker}")
-            return hidden_deps, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse hidden dependencies JSON: {e}")
-            logger.debug(f"Response: {response_text[:500]}")
-            # Return default data but track tokens used (API was called)
-            return {"hidden_dependencies": [], "overall_risk_level": "medium", "summary": "Error parsing analysis"}, tokens_used
-
-        except Exception as e:
-            logger.error(f"Error analyzing hidden dependencies: {e}")
-            # Return 0 tokens for general errors (API call may not have completed)
-            return {"hidden_dependencies": [], "overall_risk_level": "medium", "summary": "Error in analysis"}, 0
-
-    def generate_technical_analysis(
-        self,
-        ticker: str,
-        analysis_date: str,
-        indicators: TechnicalIndicators
-    ) -> tuple[str, int]:
-        """
-        Generate technical analysis narrative.
-
-        Args:
-            ticker: Stock ticker
-            analysis_date: Analysis date
-            indicators: TechnicalIndicators model
-
-        Returns:
-            Tuple of (analysis_text, tokens_used)
-        """
-        logger.info(f"Generating technical analysis for {ticker}")
-
-        # Extract indicator values for prompt
-        ma = indicators.moving_averages
-        rsi = indicators.rsi
-        macd = indicators.macd
-        bb = indicators.bollinger_bands
-        stoch = indicators.stochastic
-        vol = indicators.volume
-        vp = indicators.volume_profile
-        rs = indicators.relative_strength
-        signals = indicators.entry_exit_signals
-
-        # Format values, handling None
-        def fmt_float(val, decimals=2):
-            return f"{val:.{decimals}f}" if val is not None else "N/A"
-
-        def fmt_pct(val):
-            return f"{val:+.1f}" if val is not None else "N/A"
-
-        prompt = TECHNICAL_ANALYSIS_PROMPT.format(
-            ticker=ticker,
-            analysis_date=analysis_date,
-            # Moving Averages
-            sma_50=ma.sma_50 or 0,
-            sma_200=ma.sma_200 or 0,
-            current_price=ma.current_price or 0,
-            crossover_signal=ma.crossover_signal.value,
-            days_since_crossover=ma.days_since_crossover or "N/A",
-            # RSI
-            rsi_value=rsi.rsi_14 or 50,
-            rsi_signal=rsi.rsi_signal.value,
-            rsi_interpretation=rsi.interpretation,
-            # MACD
-            macd_line=macd.macd_line or 0,
-            signal_line=macd.signal_line or 0,
-            histogram=macd.histogram or 0,
-            macd_signal=macd.macd_signal.value,
-            macd_interpretation=macd.interpretation,
-            # Bollinger Bands
-            upper_band=bb.upper_band or 0,
-            middle_band=bb.middle_band or 0,
-            lower_band=bb.lower_band or 0,
-            bb_current_price=bb.current_price or 0,
-            bb_position=bb.position.value,
-            bandwidth=bb.bandwidth or 0,
-            bb_interpretation=bb.interpretation,
-            # Stochastic
-            k_value=stoch.k_value or 50,
-            d_value=stoch.d_value or 50,
-            stoch_signal=stoch.stochastic_signal.value,
-            stoch_interpretation=stoch.interpretation,
-            # Volume
-            avg_volume=vol.avg_volume_20d or 0,
-            current_volume=vol.current_volume or 0,
-            volume_ratio=vol.volume_ratio or 1.0,
-            volume_trend=vol.volume_trend.value,
-            # Volume Profile
-            poc=vp.poc or 0,
-            value_area_high=vp.value_area_high or 0,
-            value_area_low=vp.value_area_low or 0,
-            volume_profile_interpretation=vp.interpretation,
-            # Relative Strength
-            ticker_return_1m=fmt_pct(rs.ticker_return_1m),
-            vs_sector_1m=fmt_pct(rs.vs_sector_1m),
-            vs_market_1m=fmt_pct(rs.vs_market_1m),
-            ticker_return_3m=fmt_pct(rs.ticker_return_3m),
-            vs_sector_3m=fmt_pct(rs.vs_sector_3m),
-            vs_market_3m=fmt_pct(rs.vs_market_3m),
-            # Entry/Exit Signals
-            overall_signal=signals.overall_signal.value,
-            signal_confidence=signals.confidence,
-            bullish_count=len(signals.bullish_factors),
-            bearish_count=len(signals.bearish_factors),
-        )
-
-        try:
-            response = self.sonnet.invoke(prompt)
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            logger.success(f"✓ Generated technical analysis for {ticker}")
-            return response_text, tokens_used
-
-        except Exception as e:
-            logger.error(f"Error generating technical analysis: {e}")
-            return f"Error generating technical analysis: {str(e)}", 0
 
     def generate_supply_chain_analysis(
         self,

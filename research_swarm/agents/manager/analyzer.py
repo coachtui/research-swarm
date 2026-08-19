@@ -5,14 +5,18 @@ Generates synthesis narratives and investment theses by combining
 findings from all three research agents.
 """
 import json
-from typing import Dict, Any, List, Tuple
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, Any, List, Optional, Tuple
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import HumanMessage
 from loguru import logger
 from research_swarm.utils import extract_token_usage
 
 from .prompts import (
-    SYNTHESIS_PROMPT,
-    INVESTMENT_THESIS_PROMPT,
+    SYNTHESIS_CONTEXT,
+    SHARED_WRITING_RULES,
+    SYNTHESIS_TASK_ANALYSIS,
+    SYNTHESIS_TASK_VERDICT,
     MOAT_SCORING_PROMPT,
 )
 from .signal_divergence import (
@@ -58,7 +62,10 @@ class ManagerAnalyzer:
         self.sonnet = ChatAnthropic(
             model="claude-sonnet-5",
             api_key=ANTHROPIC_API_KEY,
-            max_tokens=8192,
+            # 12288: the single-pass synthesis+thesis JSON can exceed 8192
+            # output tokens; truncation silently drops the tail keys
+            # (recommendation, investment_thesis) after json_repair.
+            max_tokens=12288,
             extra_headers=_cache_header,
             thinking={"type": "disabled"},
         )
@@ -165,23 +172,38 @@ class ManagerAnalyzer:
         fundamentalist_output: Dict[str, Any],
         news_hound_output: Dict[str, Any],
         quant_output: Dict[str, Any],
+        # Score/rating context so the verdict half is anchored to the scorer
+        moat_score: float = 5.0,
+        model_rating: str = "HOLD",
+        is_watchlist: bool = False,
+        confidence: float = 0.7,
+        dvrg_targets: Optional[Dict[str, Any]] = None,
+        macro_exposure: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], int]:
         """
-        Synthesize findings from all three agents into unified analysis.
+        Synthesize findings from all three agents and write the investment
+        thesis in TWO CONCURRENT Sonnet calls that share one context prefix.
 
-        Args:
-            ticker: Stock ticker
-            analysis_date: Analysis date
-            analysis_period: Analysis period (e.g., "TTM Q4 2024 - Q3 2025")
-            fundamentalist_output: Output from Fundamentalist agent
-            news_hound_output: Output from News Hound agent
-            quant_output: Output from Quant agent
+        Phase B3 merged what were two sequential calls into one to stop paying
+        for the context twice. That fixed cost but not latency: the merged call
+        emitted the whole report body serially (~79s for a 6k-token JSON).
+        The two halves have no data dependency on each other — both read the
+        same agent outputs and the same deterministic scores — so they now run
+        in parallel, roughly halving this stage. The context is sent twice
+        (marked cacheable to recover part of it), which costs a few cents of
+        input tokens and buys back ~35 seconds of wall clock.
+
+        Requires the deterministic scores/rating to be computed first — the
+        graph runs calculate_moat_score before this call.
 
         Returns:
             Tuple of (synthesis_dict, tokens_used)
-            synthesis_dict contains: synthesis_narrative, key_insights, risk_factors
+            synthesis_dict contains: synthesis_narrative, key_insights,
+            risk_factors, structured_risks, upgrade/downgrade_triggers,
+            price_targets, recommendation, investment_thesis,
+            strategic_catalysts
         """
-        logger.info(f"Synthesizing findings for {ticker}")
+        logger.info(f"Synthesizing findings + thesis for {ticker} (single pass)")
 
         # Extract key scores — use `or 0` to handle keys present with None values
         financial_health_score = fundamentalist_output.get("financial_health_score") or 0
@@ -195,10 +217,17 @@ class ManagerAnalyzer:
         vgm_summary = self._format_vgm_summary(fundamentalist_output)
         moat_breakdown = self._format_moat_breakdown(fundamentalist_output)
         valuation_summary = self._format_valuation_summary(fundamentalist_output)
-        price_targets = self._format_price_targets(fundamentalist_output)
+        price_targets = self._format_price_targets(fundamentalist_output, dvrg_targets)
+
+        from research_swarm.data.macro_exposure import format_macro_block
+        macro_context_block = (
+            format_macro_block(macro_exposure)
+            if macro_exposure
+            else "Macro context unavailable for this run — do not cite macro or geopolitical causes."
+        )
         fundamentalist_summary = self._format_fundamentalist_summary(fundamentalist_output)
         peer_comparison = self._format_peer_comparison(fundamentalist_output)
-        fundamentalist_narrative = fundamentalist_output.get("analysis_summary", "N/A")
+        fundamentalist_narrative = fundamentalist_output.get("financial_analysis", "N/A")
 
         # Format News Hound data
         signal_breakdown = self._format_signal_breakdown(news_hound_output)
@@ -223,10 +252,25 @@ class ManagerAnalyzer:
 
         public_sentiment_score = self._compute_public_sentiment_score(news_hound_output)
 
-        prompt = SYNTHESIS_PROMPT.format(
+        # Thesis context (Phase B3)
+        earnings_momentum_score = fundamentalist_output.get("earnings_momentum_score") or 5.0
+        valuation_score = fundamentalist_output.get("valuation_score") or 5.0
+        company_overview = self._build_company_overview(ticker, fundamentalist_output)
+        valuation_context = self._build_valuation_context(valuation_score, fundamentalist_output)
+
+        context = SYNTHESIS_CONTEXT.format(
             ticker=ticker,
             analysis_date=analysis_date,
             analysis_period=analysis_period,
+            # Thesis context (Phase B3)
+            company_overview=company_overview,
+            moat_score=moat_score,
+            model_rating=model_rating,
+            is_watchlist="YES" if is_watchlist else "NO",
+            confidence=confidence,
+            earnings_momentum_score=earnings_momentum_score,
+            valuation_score=valuation_score,
+            valuation_context=valuation_context,
             # Fundamentalist
             financial_health_score=financial_health_score,
             vgm_summary=vgm_summary,
@@ -261,241 +305,101 @@ class ManagerAnalyzer:
             smart_money_score=smart_money_score,
             public_sentiment_score=public_sentiment_score,
             divergence_pattern=divergence_pattern,
+            macro_context=macro_context_block,
         )
 
-        try:
-            response = self.sonnet.invoke(prompt, config={"max_tokens": 8192})
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
+        # Shared, byte-identical prefix for both halves. Marked cacheable so
+        # retries (and the second half, when it lands after the first writes
+        # the cache) read it instead of re-billing the full context.
+        prefix = context + SHARED_WRITING_RULES
 
-            synthesis = self._parse_json_with_repair(response_text)
+        halves = (
+            ("analysis", SYNTHESIS_TASK_ANALYSIS,
+             ("synthesis_narrative", "key_insights")),
+            ("verdict", SYNTHESIS_TASK_VERDICT,
+             ("investment_thesis", "recommendation")),
+        )
 
-            logger.success(f"✓ Synthesized findings for {ticker}")
-            return synthesis, tokens_used
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {
+                label: pool.submit(self._run_synthesis_half, ticker, prefix, task, label, required)
+                for label, task, required in halves
+            }
+            results = {label: f.result() for label, f in futures.items()}
 
-        except json.JSONDecodeError as e:
-            logger.warning(f"Synthesis JSON parse failed (including repair attempt), retrying with LLM: {e}")
-            logger.debug(f"Bad response (first 500 chars): {response_text[:500]}")
-            try:
-                retry_prompt = (
-                    "You are a JSON generator. Output ONLY a valid JSON object with NO other text.\n\n"
-                    "The following synthesis data needs to be formatted as JSON:\n\n"
-                    + prompt
-                    + "\n\nCRITICAL: Return ONLY the JSON object. Start with { and end with }. "
-                    "All string values must use \\n for line breaks — never use actual newlines inside strings."
-                )
-                retry_response = self.sonnet.invoke(retry_prompt, config={"max_tokens": 8192})
-                retry_text = retry_response.content.strip()
-                retry_tokens = extract_token_usage(retry_response.response_metadata)
-                synthesis = self._parse_json_with_repair(retry_text)
-                logger.success(f"✓ Synthesized findings for {ticker} (retry succeeded)")
-                return synthesis, tokens_used + retry_tokens
-            except Exception as retry_e:
-                logger.error(f"Synthesis retry also failed: {retry_e}")
-                return {
-                    "synthesis_narrative": "Error: Failed to generate synthesis narrative. The analysis pipeline encountered a JSON parsing error and could not produce a complete synthesis. Please retry the analysis.",
-                    "key_insights": ["Error parsing synthesis — retry required", "Analysis pipeline failed to generate insights", "Please rerun the analysis for this ticker"],
-                    "risk_factors": ["Analysis pipeline error — results unreliable", "Synthesis generation failed", "Retry required before making investment decisions"],
-                }, 0
+        merged: Dict[str, Any] = {}
+        tokens_total = 0
+        for label, _task, _required in halves:
+            part, part_tokens = results[label]
+            merged.update(part or {})
+            tokens_total += part_tokens
 
-        except Exception as e:
-            logger.error(f"Error synthesizing findings: {e}")
-            return {
-                "synthesis_narrative": "Error: Failed to generate synthesis narrative. The analysis pipeline encountered an unexpected error and could not produce a complete synthesis. Please retry the analysis.",
-                "key_insights": ["Error in synthesis — retry required", "Analysis pipeline failed to generate insights", "Please rerun the analysis for this ticker"],
-                "risk_factors": ["Analysis pipeline error — results unreliable", "Synthesis generation failed", "Retry required before making investment decisions"],
-            }, 0
+        if not merged.get("synthesis_narrative"):
+            merged.setdefault("synthesis_narrative", "")
+            merged.setdefault("key_insights", [])
+            merged.setdefault("risk_factors", [])
+        logger.success(f"✓ Synthesized findings for {ticker} (2 parallel halves)")
+        return merged, tokens_total
 
-    def generate_investment_thesis(
+    def _run_synthesis_half(
         self,
         ticker: str,
-        analysis_date: str,
-        moat_score: float,
-        confidence: float,
-        earnings_momentum_score: float,
-        financial_health_score: float,
-        valuation_score: float,
-        sentiment_score: float,
-        technical_score: float,
-        is_watchlist: bool,
-        synthesis_narrative: str,
-        key_insights: List[str],
-        risk_factors: List[str],
-        rating: str = "HOLD",
-        # Enhanced context
-        fundamentalist_output: Dict[str, Any] = None,
-        news_hound_output: Dict[str, Any] = None,
-        quant_output: Dict[str, Any] = None,
+        prefix: str,
+        task_tail: str,
+        label: str,
+        required_keys: Tuple[str, ...],
     ) -> Tuple[Dict[str, Any], int]:
+        """One half of the synthesis. Retries once on malformed/incomplete JSON.
+
+        A failure is contained to its own half: the other half's output still
+        reaches the report, rather than one bad parse blanking the whole thing.
         """
-        Generate investment thesis with buy/hold/avoid recommendation.
+        def _invoke(extra_instruction: str = "") -> Tuple[str, int]:
+            blocks = [
+                {"type": "text", "text": prefix, "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": task_tail},
+            ]
+            if extra_instruction:
+                blocks.append({"type": "text", "text": extra_instruction})
+            response = self.sonnet.invoke([HumanMessage(content=blocks)])
+            if (response.response_metadata or {}).get("stop_reason") == "max_tokens":
+                logger.warning(f"Synthesis[{label}] truncated at max_tokens for {ticker}")
+            return response.content.strip(), extract_token_usage(response.response_metadata)
 
-        Args:
-            ticker: Stock ticker
-            analysis_date: Analysis date
-            moat_score: Calculated moat score
-            confidence: Confidence level
-            earnings_momentum_score: Earnings momentum component score (v2.0)
-            financial_health_score: Financial health component score
-            valuation_score: Valuation component score (v2.0)
-            sentiment_score: Sentiment component score
-            technical_score: Technical component score
-            is_watchlist: Watchlist candidate flag
-            synthesis_narrative: Synthesis narrative
-            key_insights: Key insights list
-            risk_factors: Risk factors list
-            fundamentalist_output: Optional fundamentalist output for enhanced context
-            news_hound_output: Optional news hound output for enhanced context
-            quant_output: Optional quant output for enhanced context
-
-        Returns:
-            Tuple of (thesis_dict, tokens_used)
-            thesis_dict contains: recommendation, investment_thesis
-        """
-        logger.info(f"Generating investment thesis for {ticker}")
-
-        # Format lists for prompt
-        key_insights_text = "\n".join([f"• {insight}" for insight in key_insights])
-        risk_factors_text = "\n".join([f"• {risk}" for risk in risk_factors])
-
-        # Extract enhanced context if available
-        vgm_profile = "N/A"
-        earnings_signal = "N/A"
-        technical_signal = "N/A"
-        avg_price_target = "N/A"
-        institutional_insider_summary = "N/A"
-        next_catalyst = "N/A"
-
-        if fundamentalist_output:
-            vgm = fundamentalist_output.get("vgm_scores", {})
-            if vgm:
-                v_grade = vgm.get("value_grade", "N/A")
-                g_grade = vgm.get("growth_grade", "N/A")
-                m_grade = vgm.get("momentum_grade", "N/A")
-                vgm_profile = f"V:{v_grade}/G:{g_grade}/M:{m_grade}"
-
-            pt = fundamentalist_output.get("price_target_scenarios", {})
-            if pt:
-                scenarios = pt.get("scenarios", [])
-                base_case = next((s for s in scenarios if s.get("case") == "base"), None)
-                if base_case:
-                    target = base_case.get("target", 0)
-                    upside = base_case.get("upside_pct", 0)
-                    avg_price_target = f"${target:.2f} ({upside:+.1f}%)"
-
-        if news_hound_output:
-            # Schema key is "earnings_estimates" (flat), not "earnings_estimate_revisions"
-            est = news_hound_output.get("earnings_estimates") or news_hound_output.get("earnings_estimate_revisions") or {}
-            if est:
-                direction = est.get("net_revision_direction") or est.get("momentum") or "neutral"
-                earnings_signal = str(direction).upper()
-
-            consensus = news_hound_output.get("analyst_consensus", {})
-            if consensus and (not avg_price_target or avg_price_target == "N/A"):
-                avg = consensus.get("avg_price_target") or 0
-                upside = consensus.get("target_upside_pct")
-                if avg > 0:
-                    upside_str = f" ({upside:+.1f}%)" if upside is not None else ""
-                    avg_price_target = f"${avg:.2f}{upside_str}"
-
-            # institutional_activity is flat; insider data lives under "insider_activity"
-            inst = news_hound_output.get("institutional_activity", {})
-            insider = news_hound_output.get("insider_activity") or news_hound_output.get("insider_trading") or {}
-            inst_trend = inst.get("trend") or "neutral"
-            insider_signal = insider.get("insider_sentiment") or "neutral"
-            institutional_insider_summary = f"Institutional: {inst_trend}, Insider: {insider_signal}"
-
-            upcoming = news_hound_output.get("upcoming_catalysts", {})
-            if upcoming:
-                # Schema key is "catalysts"; "events" is the legacy error-fallback key
-                events = upcoming.get("catalysts") or upcoming.get("events") or []
-                if events:
-                    next_event = events[0]
-                    date = next_event.get("event_date") or next_event.get("date", "TBD")
-                    event_type = next_event.get("event_type") or next_event.get("type", "unknown")
-                    next_catalyst = f"{event_type} on {date}"
-                elif upcoming.get("next_earnings_date"):
-                    next_catalyst = f"Earnings on {upcoming['next_earnings_date']}"
-
-        if quant_output:
-            indicators = quant_output.get("technical_indicators", {})
-            if indicators:
-                signals = indicators.get("entry_exit_signals", {})
-                if signals:
-                    overall = signals.get("overall_signal", "neutral")
-                    conf = signals.get("confidence", 0.5)
-                    technical_signal = f"{overall.upper()} ({conf:.0%})"
-
-        # Build company overview from fundamentalist data
-        company_overview = self._build_company_overview(ticker, fundamentalist_output)
-
-        # Build valuation context explaining the valuation score
-        valuation_context = self._build_valuation_context(valuation_score, fundamentalist_output)
-
-        prompt = INVESTMENT_THESIS_PROMPT.format(
-            ticker=ticker,
-            analysis_date=analysis_date,
-            moat_score=moat_score,
-            model_rating=rating,
-            confidence=confidence,
-            earnings_momentum_score=earnings_momentum_score,
-            financial_health_score=financial_health_score,
-            valuation_score=valuation_score,
-            sentiment_score=sentiment_score,
-            technical_score=technical_score,
-            is_watchlist="YES" if is_watchlist else "NO",
-            synthesis_narrative=synthesis_narrative,
-            key_insights=key_insights_text,
-            risk_factors=risk_factors_text,
-            # Enhanced context
-            company_overview=company_overview,
-            valuation_context=valuation_context,
-            vgm_profile=vgm_profile,
-            earnings_signal=earnings_signal,
-            technical_signal=technical_signal,
-            avg_price_target=avg_price_target,
-            institutional_insider_summary=institutional_insider_summary,
-            next_catalyst=next_catalyst,
-        )
+        tokens_used = 0
+        try:
+            text, tokens_used = _invoke()
+            parsed = self._parse_json_with_repair(text)
+            self._require_synthesis_keys(parsed, text, required_keys)
+            logger.info(f"✓ Synthesis[{label}] complete for {ticker}")
+            return parsed, tokens_used
+        except Exception as e:
+            logger.warning(f"Synthesis[{label}] parse failed for {ticker}, retrying: {e}")
 
         try:
-            response = self.sonnet.invoke(prompt, config={"max_tokens": 4096})
-            response_text = response.content.strip()
-            tokens_used = extract_token_usage(response.response_metadata)
-
-            thesis = self._parse_json_with_repair(response_text)
-
-            logger.success(f"✓ Generated investment thesis for {ticker}")
-            return thesis, tokens_used
-
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse thesis JSON: {e}")
-            logger.debug(f"Response: {response_text[:500]}")
-            return {
-                "recommendation": "HOLD",
-                "investment_thesis": {
-                    "company_overview": "Error: Failed to parse investment thesis JSON",
-                    "recommendation_summary": "HOLD - Error in analysis",
-                    "investment_highlights": ["Error parsing thesis"],
-                    "valuation_signal_analysis": "Error parsing thesis",
-                    "key_risks": ["Error parsing thesis"],
-                    "entry_strategy": "Error parsing thesis"
-                },
-            }, 0
-
+            text, retry_tokens = _invoke(
+                "CRITICAL: Return ONLY the JSON object. Start with { and end with }. "
+                "All string values must use \\n for line breaks — never actual newlines inside strings."
+            )
+            tokens_used += retry_tokens
+            parsed = self._parse_json_with_repair(text)
+            self._require_synthesis_keys(parsed, text, required_keys)
+            logger.success(f"✓ Synthesis[{label}] retry succeeded for {ticker}")
+            return parsed, tokens_used
         except Exception as e:
-            logger.error(f"Error generating investment thesis: {e}")
+            logger.error(f"Synthesis[{label}] failed after retry for {ticker}: {e}")
+
+        if label == "analysis":
             return {
-                "recommendation": "HOLD",
-                "investment_thesis": {
-                    "company_overview": "Error: Failed to generate investment thesis",
-                    "recommendation_summary": "HOLD - Error in analysis",
-                    "investment_highlights": ["Error generating thesis"],
-                    "valuation_signal_analysis": "Error generating thesis",
-                    "key_risks": ["Error generating thesis"],
-                    "entry_strategy": "Error generating thesis"
-                },
-            }, 0
+                "synthesis_narrative": (
+                    "The cross-signal analysis could not be generated for this run. "
+                    "The scores, valuation, and price targets shown elsewhere in this "
+                    "report are computed deterministically and remain valid."
+                ),
+                "key_insights": [],
+                "risk_factors": [],
+            }, tokens_used
+        return {}, tokens_used
 
     def synthesize_etf_findings(
         self,
@@ -615,6 +519,20 @@ Return ONLY the JSON object."""
         # Last resort: return as-is and let json.loads fail with useful error
         return text
 
+    @staticmethod
+    def _require_synthesis_keys(
+        synthesis: dict, response_text: str, required: Tuple[str, ...]
+    ) -> None:
+        """Truncated-but-repairable JSON parses 'successfully' with the tail
+        keys missing — which downstream turns into error placeholders and a
+        phantom HOLD. Treat a structurally incomplete response as a parse
+        failure so the retry path fires."""
+        missing = [k for k in required if not synthesis.get(k)]
+        if missing:
+            raise json.JSONDecodeError(
+                f"synthesis JSON incomplete — missing keys: {missing}", response_text[:80] or "{}", 0
+            )
+
     def _parse_json_with_repair(self, text: str) -> dict:
         """
         Parse JSON from LLM response with automatic repair fallback.
@@ -664,10 +582,18 @@ Return ONLY the JSON object."""
         if debt_to_equity:
             summary_parts.append(f"Debt/Equity: {debt_to_equity:.2f}")
 
-        # ROE (already in percentage form)
-        roe = metrics.get("roe")
-        if roe:
-            summary_parts.append(f"ROE: {roe:.1f}%")
+        # Growth and cash generation (fields that exist on FinancialMetricsOutput)
+        revenue_growth = metrics.get("revenue_growth_yoy")
+        if revenue_growth is not None:
+            summary_parts.append(f"Revenue Growth YoY: {revenue_growth:+.1f}%")
+
+        operating_margin = metrics.get("operating_margin")
+        if operating_margin is not None:
+            summary_parts.append(f"Operating Margin: {operating_margin:.1f}%")
+
+        fcf = metrics.get("free_cash_flow")
+        if fcf is not None:
+            summary_parts.append(f"Free Cash Flow: ${fcf/1e3:.1f}B")
 
         return "\n".join([f"- {part}" for part in summary_parts]) if summary_parts else "No metrics available"
 
@@ -744,100 +670,181 @@ Return ONLY the JSON object."""
         return f"Value: {v_score} ({v_grade}), Growth: {g_score} ({g_grade}), Momentum: {m_score} ({m_grade})"
 
     def _format_moat_breakdown(self, output: Dict[str, Any]) -> str:
-        """Format 8-category moat breakdown."""
-        moat = output.get("enhanced_moat_analysis", {})
-        if not moat or not moat.get("moat_categories"):
+        """Format 8-category moat breakdown (EnhancedMoatBreakdown fields)."""
+        moat = output.get("enhanced_moat") or {}
+        categories = [
+            ("Network Effects", "network_effects"),
+            ("Switching Costs", "switching_costs"),
+            ("Brand Power", "brand_power"),
+            ("Cost Advantages", "cost_advantages"),
+            ("Scale Economies", "scale_economies"),
+            ("Intangible Assets", "intangible_assets"),
+            ("Regulatory Barriers", "regulatory_barriers"),
+            ("Distribution Advantages", "distribution_advantages"),
+        ]
+        lines = [
+            f"• {name}: {moat[key]:.1f}/10"
+            for name, key in categories
+            if moat.get(key)
+        ]
+        if not lines:
             return "Moat analysis not available"
 
-        categories = moat["moat_categories"]
-        lines = []
-        for cat in categories:
-            name = cat.get("name", "Unknown")
-            score = cat.get("score") or 0
-            strength = cat.get("strength", "none")
-            lines.append(f"• {name}: {score:.1f}/10 ({strength})")
-
+        width = moat.get("moat_width", "narrow")
+        durability = moat.get("moat_durability", "medium")
+        lines.append(f"\nMoat Width: {width.upper()}, Durability: {durability.upper()}")
         return "\n".join(lines)
 
     def _format_valuation_summary(self, output: Dict[str, Any]) -> str:
-        """Format valuation metrics."""
-        val = output.get("valuation_analysis", {})
-        if not val or not val.get("metrics"):
+        """Format valuation metrics (ValuationMetrics fields)."""
+        val = output.get("valuation_metrics") or {}
+        multiples = [
+            ("P/E (TTM)", "pe_ratio"),
+            ("Forward P/E", "forward_pe"),
+            ("PEG", "peg_ratio"),
+            ("P/B", "pb_ratio"),
+            ("P/S", "ps_ratio"),
+            ("EV/EBITDA", "ev_ebitda"),
+        ]
+        lines = [
+            f"• {name}: {val[key]:.2f}"
+            for name, key in multiples
+            if val.get(key) is not None
+        ]
+        if not lines:
             return "Valuation metrics not available"
 
-        metrics = val["metrics"]
-        lines = []
-        for m in metrics:
-            name = m.get("metric", "")
-            value = m.get("value", "N/A")
-            vs_sector = m.get("vs_sector_median", "N/A")
-            assessment = m.get("assessment", "neutral")
-            lines.append(f"• {name}: {value} (vs sector: {vs_sector}, {assessment})")
+        sector_pe = val.get("sector_avg_pe")
+        premium = val.get("pe_premium_discount")
+        if sector_pe is not None:
+            premium_str = f" ({premium:+.1f}% vs sector)" if premium is not None else ""
+            lines.append(f"• Sector Avg P/E: {sector_pe:.2f}{premium_str}")
 
-        overall = val.get("overall_valuation", "neutral")
-        lines.append(f"\nOverall Valuation: {overall.upper()}")
+        dividend = val.get("dividend_yield")
+        if dividend:
+            lines.append(f"• Dividend Yield: {dividend:.2f}%")
 
+        category = val.get("valuation_category", "fair")
+        lines.append(f"\nOverall Valuation: {category.upper()}")
         return "\n".join(lines)
 
-    def _format_price_targets(self, output: Dict[str, Any]) -> str:
-        """Format price target scenarios."""
-        pt = output.get("price_target_scenarios", {})
-        if not pt or not pt.get("scenarios"):
-            return "Price targets not available"
-
-        scenarios = pt["scenarios"]
-        current = pt.get("current_price", 0)
+    def _format_price_targets(
+        self,
+        output: Dict[str, Any],
+        dvrg_targets: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Format the intrinsic value band plus the fixed DVRG targets."""
+        pt = output.get("price_targets") or {}
         lines = []
+        current = (output.get("valuation_metrics") or {}).get("current_price")
+        if current:
+            lines.append(f"Current Price: ${current:.2f}")
 
-        for s in scenarios:
-            case = s.get("case", "")
-            target = s.get("target") or 0
-            upside = s.get("upside_pct") or 0
-            prob = s.get("probability") or 0
-            lines.append(f"• {case.upper()}: ${target:.2f} ({upside:+.1f}%) - {prob:.0%} probability")
+        fv_low, fv_mid, fv_high = pt.get("fair_value_low"), pt.get("fair_value_mid"), pt.get("fair_value_high")
+        if fv_low and fv_mid and fv_high:
+            lines.append(
+                f"Intrinsic Value Zone (structural reference, NOT the target): "
+                f"${fv_low:.2f} – ${fv_mid:.2f} – ${fv_high:.2f}"
+            )
 
-        lines.insert(0, f"Current Price: ${current or 0:.2f}")
-        return "\n".join(lines)
+        if dvrg_targets and dvrg_targets.get("base_target"):
+            lines.append(
+                "DVRG 12-MONTH TARGETS — FIXED. Copy these exact numbers into the "
+                "price_targets JSON fields; write the scenario assumptions around them:"
+            )
+            for case in ("bull", "base", "bear"):
+                target = dvrg_targets.get(f"{case}_target")
+                if not target:
+                    continue
+                upside_str = f" ({(target - current) / current * 100:+.1f}%)" if current else ""
+                lines.append(f"• {case.upper()}: ${target:.2f}{upside_str}")
+            if dvrg_targets.get("basis_note"):
+                lines.append(f"Target basis: {dvrg_targets['basis_note']}")
+            lines.append(f"Methodology: {dvrg_targets.get('methodology', 'DVRG Divergence-Weighted')}")
+        elif pt.get("base_target"):
+            for case in ("bull", "base", "bear"):
+                target = pt.get(f"{case}_target")
+                if not target:
+                    continue
+                prob = pt.get(f"{case}_probability") or 0
+                assumptions = pt.get(f"{case}_assumptions") or ""
+                upside_str = f" ({(target - current) / current * 100:+.1f}%)" if current else ""
+                lines.append(f"• {case.upper()}: ${target:.2f}{upside_str} - {prob:.0%} probability. {assumptions}")
+            methodology = pt.get("methodology")
+            if methodology:
+                confidence = pt.get("confidence", "Moderate")
+                lines.append(f"Methodology: {methodology} (valuation confidence: {confidence})")
+
+        return "\n".join(lines) if lines else "Price targets not available"
 
     def _format_peer_comparison(self, output: Dict[str, Any]) -> str:
-        """Format peer competitive position."""
-        peer = output.get("peer_comparison", {})
-        if not peer or not peer.get("rankings"):
+        """Format peer competitive position (PeerComparison fields)."""
+        peer = output.get("peer_comparison") or {}
+        if not peer:
             return "Peer comparison not available"
 
-        rankings = peer["rankings"]
-        competitive_pos = peer.get("competitive_position", "middle-of-pack")
         lines = []
+        peers = peer.get("peers") or []
+        if peers:
+            lines.append(f"Peers: {', '.join(peers[:6])}")
 
-        for r in rankings[:5]:  # Top 5
-            metric = r.get("metric", "")
-            rank = r.get("rank", "N/A")
-            total = r.get("total_peers", "N/A")
-            lines.append(f"• {metric}: #{rank} of {total}")
+        total = len(peers) if peers else None
+        rank_fields = [
+            ("Revenue Growth", "revenue_growth_rank"),
+            ("Profit Margin", "profit_margin_rank"),
+            ("ROIC", "roic_rank"),
+            ("Valuation (1=cheapest)", "valuation_rank"),
+            ("Market Share", "market_share_rank"),
+        ]
+        for name, key in rank_fields:
+            rank = peer.get(key)
+            if rank is not None:
+                of_str = f" of {total}" if total else ""
+                lines.append(f"• {name}: #{rank}{of_str}")
 
+        if not lines:
+            return "Peer comparison not available"
+
+        competitive_pos = peer.get("competitive_position", "challenger")
         lines.append(f"\nCompetitive Position: {competitive_pos.upper()}")
         return "\n".join(lines)
 
     def _format_signal_breakdown(self, output: Dict[str, Any]) -> str:
-        """Format News Hound 7-signal breakdown."""
-        signals = output.get("signal_analysis", {})
-        if not signals or not signals.get("individual_signals"):
-            return "Signal breakdown not available"
-
-        individual = signals["individual_signals"]
-        overall = signals.get("overall_assessment", "neutral")
-
+        """Format News Hound 7-signal overview from the flat NewsHoundOutput fields."""
         lines = []
-        for s in individual:
-            name = s.get("name", "")
-            signal = s.get("signal", "neutral")
-            score = s.get("score") or 5.0
-            confidence = s.get("confidence") or 0.5
-            weight = s.get("weight") or 0.1
-            lines.append(f"• {name}: {signal.upper()} (score: {score:.1f}/10, confidence: {confidence:.0%}, weight: {weight:.0%})")
 
-        lines.insert(0, f"Overall: {overall.upper()}\n")
-        return "\n".join(lines)
+        sentiment = output.get("sentiment_score")
+        if sentiment is not None:
+            lines.append(f"• News Sentiment: {sentiment:.1f}/10")
+
+        est = output.get("earnings_estimates") or {}
+        if est.get("net_revision_direction"):
+            lines.append(f"• Earnings Revisions: {est['net_revision_direction'].upper()}")
+
+        consensus = output.get("analyst_consensus") or {}
+        if consensus.get("consensus_rating"):
+            momentum = consensus.get("rating_momentum", "stable")
+            lines.append(f"• Analyst Consensus: {consensus['consensus_rating'].upper()} (momentum: {momentum})")
+
+        institutional = output.get("institutional_activity") or {}
+        if institutional.get("trend"):
+            lines.append(f"• Institutional Activity: {institutional['trend'].upper()}")
+
+        insider = output.get("insider_activity") or {}
+        if insider.get("insider_score") is not None:
+            buys = insider.get("buy_transactions", 0)
+            sells = insider.get("sell_transactions", 0)
+            lines.append(f"• Insider Activity: {insider['insider_score']:.1f}/10 ({buys} buys / {sells} sells)")
+
+        short = output.get("short_interest") or {}
+        if short.get("squeeze_risk"):
+            lines.append(f"• Short Interest: squeeze risk {short['squeeze_risk'].upper()}")
+
+        dark_pool = output.get("dark_pool_activity") or {}
+        if dark_pool.get("trend"):
+            lines.append(f"• Dark Pool Activity: {dark_pool['trend'].upper()}")
+
+        return "\n".join(lines) if lines else "Signal breakdown not available"
 
     def _format_earnings_revisions(self, output: Dict[str, Any]) -> str:
         """Format earnings estimate revisions (primary signal)."""
@@ -1101,17 +1108,71 @@ Return ONLY the JSON object."""
         return f"POC: ${poc:.2f}, Value Area: ${va_low:.2f}-${va_high:.2f}"
 
     def _format_relative_strength(self, output: Dict[str, Any]) -> str:
-        """Format relative strength vs sector/market."""
+        """Format relative strength AND the absolute market/sector levels.
+
+        The absolute returns were computed and then discarded here, leaving the
+        synthesis with only the differences. That made two very different worlds
+        indistinguishable: a stock up 6% in a +10% market and a stock down 14%
+        in a -10% market both read as "vs Market -4pp". With no way to see that
+        the tape itself was down, a market-wide drawdown got attributed to the
+        company. The levels are now passed through with an explicit attribution
+        note.
+        """
         indicators = output.get("technical_indicators", {})
         rs = indicators.get("relative_strength", {})
 
         if not rs:
             return "N/A"
 
-        vs_sector_3m = rs.get("vs_sector_3m") or 0
-        vs_market_3m = rs.get("vs_market_3m") or 0
+        stock_3m = rs.get("ticker_return_3m")
+        sector_3m = rs.get("sector_return_3m")
+        market_3m = rs.get("market_return_3m")
+        stock_1m = rs.get("ticker_return_1m")
+        market_1m = rs.get("market_return_1m")
+        vs_sector_3m = rs.get("vs_sector_3m")
+        vs_market_3m = rs.get("vs_market_3m")
 
-        return f"vs Sector (3M): {vs_sector_3m:+.1f}pp, vs Market (3M): {vs_market_3m:+.1f}pp"
+        def _pct(v):
+            return f"{v:+.1f}%" if isinstance(v, (int, float)) else "n/a"
+
+        def _pp(v):
+            return f"{v:+.1f}pp" if isinstance(v, (int, float)) else "n/a"
+
+        lines = [
+            f"Absolute 3M returns — Stock: {_pct(stock_3m)} | Sector: {_pct(sector_3m)} | Market (SPY): {_pct(market_3m)}",
+            f"Absolute 1M returns — Stock: {_pct(stock_1m)} | Market (SPY): {_pct(market_1m)}",
+            f"Relative — vs Sector (3M): {_pp(vs_sector_3m)}, vs Market (3M): {_pp(vs_market_3m)}",
+        ]
+
+        # Explicit attribution guidance so a broad drawdown or melt-up is not
+        # narrated as company-specific.
+        if isinstance(market_3m, (int, float)):
+            if market_3m <= -5.0:
+                lines.append(
+                    f"ATTRIBUTION: the broad market is DOWN {abs(market_3m):.1f}% over 3M. Any decline in this "
+                    "stock is partly market-wide — do not attribute the full move to company-specific factors. "
+                    "State plainly how much is market/sector versus idiosyncratic."
+                )
+            elif market_3m >= 5.0:
+                lines.append(
+                    f"ATTRIBUTION: the broad market is UP {market_3m:.1f}% over 3M. A rising share price here is "
+                    "partly beta — do not present a market-wide advance as company-specific strength."
+                )
+            else:
+                lines.append(
+                    f"ATTRIBUTION: the broad market is roughly flat over 3M ({market_3m:+.1f}%), so the stock's "
+                    "move is mostly idiosyncratic."
+                )
+        if isinstance(sector_3m, (int, float)) and isinstance(market_3m, (int, float)):
+            sector_vs_market = sector_3m - market_3m
+            if abs(sector_vs_market) >= 5.0:
+                direction = "outperforming" if sector_vs_market > 0 else "underperforming"
+                lines.append(
+                    f"SECTOR ROTATION: the sector is {direction} the market by {abs(sector_vs_market):.1f}pp over 3M — "
+                    "a sector-level flow, not a company-specific one."
+                )
+
+        return "\n".join(lines)
 
     def _format_entry_exit_signal(self, output: Dict[str, Any]) -> str:
         """Format aggregated entry/exit signal."""

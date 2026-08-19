@@ -50,13 +50,29 @@ export function GrowthQualityClassification({
 
   // ── Sub-metrics ──────────────────────────────────────────────────────────
 
-  // Margin Trend: from dcf_inputs
+  // Margin Trend: the categorical read the valuation actually used. Falls back
+  // to the quarterly gross-margin series for reports saved before dcf_inputs
+  // was serialized, so older analyses stop showing a permanent em dash.
   const marginTrend = fundamentalistOutput?.dcf_inputs?.operating_margin_trend ?? null
   let marginTrendLabel = '—'
-  if (marginTrend) {
-    if (marginTrend === 'expanding') marginTrendLabel = 'Expanding'
-    else if (marginTrend === 'stable') marginTrendLabel = 'Stable'
-    else if (marginTrend === 'contracting') marginTrendLabel = 'Contracting'
+  if (marginTrend === 'expanding') marginTrendLabel = 'Expanding'
+  else if (marginTrend === 'stable') marginTrendLabel = 'Stable'
+  else if (marginTrend === 'contracting') marginTrendLabel = 'Contracting'
+  else {
+    const series = (fundamentalistOutput?.quarterly_trends?.margin_trend ?? []).filter(
+      (m): m is number => typeof m === 'number'
+    )
+    if (series.length >= 2) {
+      // Compare the latest margin against the mean of the earlier quarters;
+      // ±0.5pp of gross margin is the same threshold the backend uses.
+      const latest = series[series.length - 1]
+      const prior = series.slice(0, -1)
+      const priorAvg = prior.reduce((a, b) => a + b, 0) / prior.length
+      const delta = latest - priorAvg
+      if (delta > 0.5) marginTrendLabel = 'Expanding'
+      else if (delta < -0.5) marginTrendLabel = 'Contracting'
+      else marginTrendLabel = 'Stable'
+    }
   }
 
   // FCF Conversion: (free_cash_flow / revenue) * 100

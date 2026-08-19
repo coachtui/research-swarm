@@ -21,6 +21,7 @@ def compute_divergence_overlay(
     initiation_decision: Optional[Dict[str, Any]],
     price_targets: Optional[Dict[str, Any]],
     fundamentalist_output: Optional[Dict[str, Any]],
+    conviction_position: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Compute unified divergence score (0–10) from signal spread, component gap,
@@ -248,17 +249,34 @@ def compute_divergence_overlay(
     if initiation_decision:
         base_alloc = float(initiation_decision.get("starter_allocation_percent") or 0.0)
 
-        # Extract max allocation from diagnostics
+        # Position ceiling this starter tranche is sized against.
+        #
+        # The conviction engine already computes a real max_pct from risk level
+        # and rating. This used to ignore it and re-derive an ESTIMATE from the
+        # quality score instead, so the starter was capped against a different
+        # ceiling than the Final Weight Resolver enforces — two panels in the
+        # same report quietly disagreeing about the same position's limit.
+        # Prefer the real figure; keep the estimate only for runs where
+        # conviction data is absent.
         diagnostics = initiation_decision.get("_diagnostics") or {}
-        quality_score = float(diagnostics.get("quality_score") or 0.0)
-        # Estimate max_pct from quality: high quality → higher max
-        if quality_score >= 8.0:
-            est_max_pct = 10.0
-        elif quality_score >= 6.0:
-            est_max_pct = 8.0
+        real_max_pct = (conviction_position or {}).get("max_pct")
+
+        if real_max_pct and float(real_max_pct) > 0:
+            max_pct = float(real_max_pct)
+            max_pct_source = "conviction_position.max_pct"
         else:
-            est_max_pct = 5.0
-        max_alloc = est_max_pct * 0.40
+            quality_score = float(diagnostics.get("quality_score") or 0.0)
+            if quality_score >= 8.0:
+                max_pct = 10.0
+            elif quality_score >= 6.0:
+                max_pct = 8.0
+            else:
+                max_pct = 5.0
+            max_pct_source = "estimated from quality (no conviction data)"
+
+        # A first tranche is 40% of a full position — that ratio is a separate,
+        # deliberate decision. Only WHAT it is 40% of has changed.
+        max_alloc = max_pct * 0.40
 
         # Apply divergence multiplier
         if divergence_score >= 7.0:
@@ -333,6 +351,11 @@ def compute_divergence_overlay(
         "add_intensity_modifier": add_modifier,
         "deployment_drivers": deployment_drivers,
         "final_allocation": final_allocation,
+        # Provenance: which ceiling the starter tranche was sized against, so a
+        # mismatch with the Final Weight Resolver is visible rather than silent.
+        "starter_ceiling_pct": round(max_alloc, 2),
+        "position_max_pct": round(max_pct, 2) if initiation_decision else None,
+        "position_max_pct_source": max_pct_source if initiation_decision else None,
         # Score transparency — each component with its value, status, and what drove it
         "score_components": score_components,
         "score_coverage": round(_coverage * 100),  # % of components with confirmed data

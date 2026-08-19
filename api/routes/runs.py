@@ -17,18 +17,17 @@ router = APIRouter()
 
 # Keys in full_output that are safe to return on the Starter (snapshot) tier.
 # Everything NOT in this set is stripped before the response leaves the server.
+# These must be keys that actually exist at the top level of ManagerOutput —
+# a previous version listed mostly nonexistent keys, so Starter users received
+# a three-field payload.
 _SNAPSHOT_KEYS = {
     "ticker",
-    "current_price",
-    "fair_value",
     "moat_score",
-    "financial_health_score",
-    "sentiment_score",
-    "signal_divergence",        # surface-level divergence summary only
     "recommendation",
-    "summary",                  # short one-liner summary
-    "ev_summary",               # EV summary (not full engine)
-    "scenarios_basic",
+    "rating",
+    "rating_score",
+    "risk_level",
+    "confidence",
     "previous_analysis_delta",  # longitudinal delta is safe
 }
 
@@ -41,7 +40,24 @@ def _shape_snapshot(full_output: dict) -> dict:
     risk diagnostics, and execution infrastructure. The set of keys exposed
     maps to report.snapshot.read capabilities defined in TIER_CONFIG.
     """
-    return {k: v for k, v in full_output.items() if k in _SNAPSHOT_KEYS}
+    shaped = {k: v for k, v in full_output.items() if k in _SNAPSHOT_KEYS}
+
+    # Lift the headline numbers out of the nested structures they live in —
+    # they are not top-level keys on full_output.
+    di = full_output.get("decision_intelligence") or {}
+    if di.get("current_price"):
+        shaped["current_price"] = di["current_price"]
+
+    from api.lib.verdict import resolve_fair_value
+    fair_value = resolve_fair_value(full_output)
+    if fair_value:
+        shaped["fair_value"] = fair_value
+
+    thesis = full_output.get("investment_thesis")
+    if isinstance(thesis, dict) and thesis.get("recommendation_summary"):
+        shaped["summary"] = thesis["recommendation_summary"]
+
+    return shaped
 
 @router.get("/preview/nvda")
 async def get_nvda_preview():
@@ -162,6 +178,49 @@ async def list_runs(
         offset=offset,
         runs=run_list
     )
+
+@router.get("/runs/{run_id}/report")
+async def get_run_report(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    ent: EntitlementContext = Depends(load_entitlements),
+):
+    """
+    Phase C: serve the persisted AnalysisReport verbatim.
+
+    The report is built once at write time (research_swarm/contracts/builder.py)
+    and stored inside the result's full_output — this endpoint reads it back
+    without any re-derivation. Requires the full-report entitlement.
+    """
+    db = await get_db()
+
+    run = await db.run.find_unique(
+        where={"id": run_id},
+        include={"stockResults": True},
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.userId != user.id and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if not ent.has_flag("report.full.read"):
+        raise HTTPException(status_code=403, detail="Full report requires an upgraded plan")
+
+    for result in run.stockResults or []:
+        full_output = result.fullOutput
+        if isinstance(full_output, str):
+            try:
+                full_output = json.loads(full_output)
+            except (json.JSONDecodeError, ValueError):
+                continue
+        report = (full_output or {}).get("analysis_report")
+        if report:
+            return report
+
+    raise HTTPException(
+        status_code=404,
+        detail="No AnalysisReport stored for this run (analyzed before Phase C)",
+    )
+
 
 @router.get("/runs/{run_id}", response_model=RunResponse)
 async def get_run(

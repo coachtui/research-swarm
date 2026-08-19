@@ -6,6 +6,7 @@ import { TradeSetup } from './TradeSetup'
 import { PortfolioContext } from './PortfolioContext'
 import { PositionSizingCard } from './PositionSizingCard'
 import { FinalWeightResolver } from './FinalWeightResolver'
+import { AllocationSummary } from './AllocationSummary'
 import type { EnhancedTradeSetup, RecommendedStrategy, ConvictionPosition, SignalBreakdown, FairValueCalibration } from '@/types/api'
 
 const STORAGE_KEY = 'dvrg_execution_layer_expanded'
@@ -14,6 +15,8 @@ const VIEW_MODE_KEY = 'dvrg_execution_view_mode'
 interface ExecutionLayerProps {
   ticker: string
   rating: string
+  riskLevel?: string | null
+  starterTranchePct?: number | null
   moatScore: number
   financialHealthScore?: number
   sector?: string
@@ -30,6 +33,8 @@ type ViewMode = 'pm' | 'trader'
 export function ExecutionLayer({
   ticker,
   rating,
+  riskLevel,
+  starterTranchePct,
   moatScore,
   financialHealthScore,
   sector,
@@ -116,6 +121,14 @@ export function ExecutionLayer({
           {/* ── PM View: position sizing / allocation guidance ────────── */}
           {viewMode === 'pm' && (
             <div className="p-5 space-y-4">
+              {/* States the whole sizing funnel up front, so every panel below
+                  reads as its derivation rather than a competing number. */}
+              <AllocationSummary
+                ticker={ticker}
+                signalBreakdown={signalBreakdown}
+                convictionPosition={convictionPosition}
+                starterTranchePct={starterTranchePct}
+              />
               <PortfolioContext
                 ticker={ticker}
                 rating={rating}
@@ -134,6 +147,7 @@ export function ExecutionLayer({
               <FinalWeightResolver
                 ticker={ticker}
                 rating={rating}
+                riskLevel={riskLevel}
                 signalBreakdown={signalBreakdown}
                 convictionPosition={convictionPosition}
               />

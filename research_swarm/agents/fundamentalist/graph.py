@@ -4,6 +4,7 @@ LangGraph workflow for the Fundamentalist agent.
 Orchestrates the analysis pipeline from 10-K fetching to health scoring.
 """
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, Optional
 from langgraph.graph import StateGraph, END
 from research_swarm.logger import logger
@@ -19,8 +20,13 @@ from research_swarm.agents.fundamentalist.models import (
     BusinessModelScoreBreakdown,
     FinancialMetricsOutput,
     BusinessModelOutput,
+    DCFInputs,
 )
 from research_swarm.agents.fundamentalist.blended_valuation import blended_valuation_calculator
+from research_swarm.agents.fundamentalist.capital_efficiency import (
+    compute_roic,
+    quarterly_to_annual_fcf,
+)
 from research_swarm.agents.fundamentalist.fair_value_calibrator import fair_value_calibrator
 
 
@@ -33,10 +39,13 @@ def _compute_roic_wacc_spread_score(
     dcf_inputs: Any,
 ) -> Optional[float]:
     """
-    Score ROIC-WACC spread on a 0-10 scale.
+    Score the return-on-capital spread over cost of capital on a 0-10 scale.
 
-    ROIC proxy: returnOnEquity (ROE) from yfinance — decimal (e.g. 0.15 = 15%).
-    WACC: derived from beta, market cap, debt, and tax rate using CAPM.
+    Two regimes, because the correct pairing differs by business model:
+      - Operating companies: ROIC (unlevered) vs WACC.
+      - Banks/insurers: ROE (levered) vs COST OF EQUITY. Invested capital is
+        not a meaningful concept for a balance sheet where debt is raw
+        material, so ROIC vs WACC would be a category error there.
 
     Spread thresholds (percentage points above/below cost of capital):
       >=10%  → 9.5  Clear structural moat
@@ -49,10 +58,6 @@ def _compute_roic_wacc_spread_score(
 
     +0.5 persistence bonus when margin trend is stable/expanding and spread > 2%.
     """
-    roic = stock_info.get("returnOnEquity")
-    if roic is None:
-        return None
-
     beta = (dcf_inputs.beta or stock_info.get("beta") or 1.0)
     risk_free = dcf_inputs.risk_free_rate / 100.0
     erp = dcf_inputs.equity_risk_premium / 100.0
@@ -61,12 +66,16 @@ def _compute_roic_wacc_spread_score(
     cost_of_equity = risk_free + beta * erp
     cost_of_debt = risk_free + 0.02
 
-    debt = dcf_inputs.total_debt or 0
+    # Capital structure in MILLIONS on both sides. Previously equity was scaled
+    # to dollars (or taken raw from yfinance's marketCap, also dollars) while
+    # debt stayed in millions, so the debt weight was ~1e-6 of its true value
+    # and WACC degenerated to the cost of equity.
+    debt = dcf_inputs.total_debt or 0  # millions
     if dcf_inputs.market_cap_millions and dcf_inputs.market_cap_millions > 0:
-        equity = dcf_inputs.market_cap_millions * 1_000_000
+        equity = dcf_inputs.market_cap_millions
     else:
-        market_cap = stock_info.get("marketCap")
-        equity = market_cap if market_cap else max(debt * 3, 1_000_000_000)
+        market_cap = stock_info.get("marketCap")  # dollars
+        equity = (market_cap / 1_000_000) if market_cap else max(debt * 3, 1_000.0)
 
     total_capital = equity + debt
     equity_weight = equity / total_capital
@@ -75,7 +84,34 @@ def _compute_roic_wacc_spread_score(
     wacc = (equity_weight * cost_of_equity) + (debt_weight * cost_of_debt * (1 - tax_rate))
     wacc = max(0.05, min(wacc, 0.20))
 
-    spread = roic - wacc
+    # Pick the return/hurdle pair that matches the business model.
+    sector = (stock_info.get("sector") or "").strip()
+    is_financial = sector in ("Financial Services", "Financials")
+
+    if is_financial:
+        # Banks and insurers fund themselves with deposits and debt as raw
+        # material, so invested capital is not meaningful. ROE against cost of
+        # equity is the standard read for them.
+        roic = stock_info.get("returnOnEquity")
+        hurdle = cost_of_equity
+        return_label, hurdle_label = "ROE", "cost of equity"
+        method = "ROE vs cost of equity (financials)"
+    else:
+        roic, method = compute_roic(stock_info, tax_rate)
+        hurdle = wacc
+        return_label, hurdle_label = "ROIC", "WACC"
+        if roic is None:
+            # No fallback to ROE here: comparing a levered return to WACC is
+            # what produced the 128%-ROE "moat" readings. Better to report no
+            # score and let the quality formula reweight than to publish a
+            # number that means something else.
+            logger.info(
+                f"ROIC unavailable for {stock_info.get('symbol', 'ticker')} "
+                "(missing revenue/margin/book value) — no capital-efficiency score"
+            )
+            return None
+
+    spread = roic - hurdle
 
     if spread >= 0.10:
         score = 9.5
@@ -96,8 +132,8 @@ def _compute_roic_wacc_spread_score(
         score = min(10.0, score + 0.5)
 
     logger.info(
-        f"ROIC-WACC: ROE={roic*100:.1f}% WACC={wacc*100:.1f}% "
-        f"spread={spread*100:+.1f}% → score={score:.1f}/10"
+        f"Capital efficiency [{method}]: {return_label}={roic*100:.1f}% "
+        f"{hurdle_label}={hurdle*100:.1f}% spread={spread*100:+.1f}% → score={score:.1f}/10"
     )
     return round(score, 1)
 
@@ -459,7 +495,7 @@ def fetch_quarterly_filings_node(state: FundamentalistState) -> FundamentalistSt
     """
     Node 1 (TTM): Fetch data from hybrid provider (SEC Edgar + yfinance).
 
-    NEW: Uses pre-fetched shared_swarm_data if available, falls back to direct fetch.
+    Phase A: consumes only the pre-assembled shared_swarm_data bundle.
 
     Args:
         state: Current workflow state
@@ -635,11 +671,51 @@ def extract_metrics_ttm_node(state: FundamentalistState) -> FundamentalistState:
     state["status"] = "analyzing"
 
     try:
-        quarterly_metrics, ttm_metrics, trends, tokens = analyzer.extract_metrics_quarterly(
-            state["ticker"],
-            state["analysis_period"],
-            state["quarters"],
-            state["parsed_sections_by_quarter"]
+        # Phase B: one cached extraction per filing (keyed by SEC accession
+        # number — zero LLM calls once a filing has ever been extracted),
+        # then deterministic TTM aggregation in Python. Replaces the old
+        # all-quarters mega-prompt that also asked the LLM to do arithmetic.
+        from research_swarm.agents.fundamentalist.filing_extractor import filing_extractor
+        from research_swarm.agents.fundamentalist.ttm_aggregator import aggregate_ttm
+
+        # Each filing is extracted independently (one Haiku call, keyed by
+        # accession number), so the quarters fan out instead of queueing behind
+        # one another — on a cold run this was ~4 sequential calls of 5-7s each.
+        extractions: dict = {}
+        tokens = 0
+        pending = {}
+        for quarter_label in state["quarters"]:
+            filing = (state.get("filings_raw") or {}).get(quarter_label)
+            sections = (state.get("parsed_sections_by_quarter") or {}).get(quarter_label)
+            if not filing or not sections:
+                extractions[quarter_label] = None
+                continue
+            pending[quarter_label] = (filing, sections)
+
+        if pending:
+            with ThreadPoolExecutor(max_workers=min(4, len(pending))) as pool:
+                futures = {
+                    pool.submit(
+                        filing_extractor.extract, state["ticker"], label, filing, sections
+                    ): label
+                    for label, (filing, sections) in pending.items()
+                }
+                for future in as_completed(futures):
+                    label = futures[future]
+                    try:
+                        extraction, call_tokens = future.result()
+                        extractions[label] = extraction
+                        tokens += call_tokens
+                    except Exception as e:
+                        logger.warning(f"Filing extraction failed for {label}: {e}")
+                        extractions[label] = None
+
+        # Preserve the caller's quarter ordering — aggregate_ttm relies on it.
+        extractions = {q: extractions.get(q) for q in state["quarters"]}
+        state["filing_extractions"] = extractions
+
+        quarterly_metrics, ttm_metrics, trends = aggregate_ttm(
+            state["quarters"], extractions
         )
 
         # Store as dicts for state
@@ -736,29 +812,21 @@ def analyze_qualitative_ttm_node(state: FundamentalistState) -> FundamentalistSt
         ttm_metrics = TTMMetrics(**state["ttm_metrics"])
         quarterly_trends = QuarterlyTrends(**state["quarterly_trends"])
 
-        # Fetch supplemental market data to enrich analysis context
-        from research_swarm.data.market_data_client import market_data_client as _mdc
-        key_stats = _mdc.get_key_stats(state["ticker"])
-        supplemental_market_data = {
-            "valuation_metrics": state.get("valuation_metrics"),
-            "key_stats": key_stats,
-        }
+        # Phase B3: deterministic digest of the computed metrics + cached
+        # filing extractions — the Sonnet qualitative call is gone. The
+        # Manager's synthesis writes the interpretive narrative with full
+        # cross-agent context. (This also drops the get_key_stats fetch that
+        # mixed reporting-currency figures into the prompt for ADRs.)
+        from research_swarm.agents.fundamentalist.financial_digest import build_financial_digest
 
-        analysis, tokens = analyzer.analyze_qualitative_ttm(
+        state["financial_analysis"] = build_financial_digest(
             state["ticker"],
             state["analysis_period"],
-            state["quarters"],
-            state["parsed_sections_by_quarter"],
             ttm_metrics,
             quarterly_trends,
-            supplemental_market_data=supplemental_market_data,
+            filing_extractions=state.get("filing_extractions"),
+            valuation_metrics=state.get("valuation_metrics"),
         )
-
-        if not analysis:
-            raise ValueError("analyze_qualitative_ttm returned None")
-
-        state["financial_analysis"] = analysis
-        state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
     except Exception as e:
         logger.error(f"Failed TTM qualitative analysis: {e}")
@@ -865,13 +933,14 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
             state["earnings_momentum_breakdown"] = None
             logger.warning("No earnings data - using neutral momentum (5.0)")
 
-        # Fetch valuation metrics from yfinance (primary), SEC filing data (fallback)
+        # Valuation metrics: prefer the shared-bundle copy fetched once by the
+        # Manager (already in state) — refetching here could value the stock at
+        # a different price than the one Quant/News Hound saw. Fall back to a
+        # direct fetch only when the bundle had nothing.
         from research_swarm.data.market_data_client import market_data_client
 
-        # Always fetch current price independently — more reliable than full valuation
-        current_price = market_data_client.get_current_price(state["ticker"])
-
-        valuation_raw = market_data_client.get_valuation_metrics(state["ticker"])
+        valuation_raw = state.get("valuation_metrics") or market_data_client.get_valuation_metrics(state["ticker"])
+        current_price = (valuation_raw or {}).get("current_price") or market_data_client.get_current_price(state["ticker"])
         if valuation_raw:
             state["valuation_metrics"] = valuation_raw
             valuation_score = market_data_client.calculate_valuation_score(valuation_raw)
@@ -927,19 +996,36 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
             import statistics as _statistics
 
             if state.get("parsed_sections_by_quarter"):
-                # Use most recent quarter's filing for DCF inputs
-                most_recent = list(state["parsed_sections_by_quarter"].keys())[-1]
-                most_recent_sections = state["parsed_sections_by_quarter"][most_recent]
-                combined_text = "\n".join(most_recent_sections.values())[:30000]
-
-                # Extract DCF inputs (one Haiku call)
                 market_data_for_dcf = state.get("valuation_metrics")
-                dcf_inputs, dcf_tokens = enhanced_parser.extract_dcf_inputs(
-                    state["ticker"],
-                    combined_text,
-                    market_data=market_data_for_dcf
-                )
-                state["tokens_used"] = state.get("tokens_used", 0) + dcf_tokens
+
+                # Phase B: DCF inputs come from the annual filing's cached
+                # per-filing extraction (zero LLM calls on warm tickers).
+                dcf_inputs = None
+                extractions = state.get("filing_extractions") or {}
+                for _label in reversed(list(extractions.keys())):  # most recent annual wins
+                    _ext = extractions.get(_label) or {}
+                    if _ext.get("period_type") == "fiscal_year" and _ext.get("dcf"):
+                        from research_swarm.agents.fundamentalist.models import DCFInputs
+                        _valid = DCFInputs.model_fields.keys()
+                        dcf_inputs = DCFInputs(**{
+                            k: v for k, v in _ext["dcf"].items() if k in _valid
+                        })
+                        logger.info(f"✓ DCF inputs from cached filing extraction ({_label})")
+                        break
+
+                if dcf_inputs is None:
+                    # Fallback: legacy one-off Haiku extraction over the most
+                    # recent filing (no annual filing in the TTM window, or its
+                    # extraction failed / carried no DCF data).
+                    most_recent = list(state["parsed_sections_by_quarter"].keys())[-1]
+                    most_recent_sections = state["parsed_sections_by_quarter"][most_recent]
+                    combined_text = "\n".join(most_recent_sections.values())[:30000]
+                    dcf_inputs, dcf_tokens = enhanced_parser.extract_dcf_inputs(
+                        state["ticker"],
+                        combined_text,
+                        market_data=market_data_for_dcf
+                    )
+                    state["tokens_used"] = state.get("tokens_used", 0) + dcf_tokens
 
                 # Supplement DCF inputs with yfinance data not in filing
                 if market_data_for_dcf:
@@ -1019,16 +1105,28 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                                     )
 
                             if _needs_fcf:
-                                _fh = [
+                                _fq = [
                                     r["free_cash_flow"]
                                     for r in _fin_rows_asc
                                     if r.get("free_cash_flow") is not None
                                 ]
-                                if len(_fh) >= 2:
+                                # These rows are QUARTERLY; fcf_history is
+                                # defined as annual and the DCF grows its last
+                                # entry for five years. Fold to trailing-annual
+                                # totals before assigning.
+                                _fh = quarterly_to_annual_fcf(_fq)
+                                if _fh:
                                     dcf_inputs.fcf_history = _fh
                                     logger.info(
                                         f"DCF supplement: {state['ticker']} FCF history "
-                                        f"({len(_fh)} quarters) from financials cache"
+                                        f"({len(_fq)} quarters → {len(_fh)} annual "
+                                        f"totals, latest TTM ${_fh[-1]:,.0f}M) from financials cache"
+                                    )
+                                elif _fq:
+                                    logger.info(
+                                        f"DCF supplement: {state['ticker']} has only "
+                                        f"{len(_fq)} quarters of FCF — fewer than the 4 needed "
+                                        "for an annual total, leaving fcf_history empty"
                                     )
                     except Exception as _fin_exc:
                         logger.warning(
@@ -1076,6 +1174,17 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                     )
                     currency_info = detect_currency_info(state["ticker"], stock_info)
                     stock_info = normalize_stock_info_to_usd(stock_info, currency_info)
+
+                    # Raw yfinance taxonomy — apply the same sector overrides
+                    # get_company_info uses, or WACC's financial-sector check
+                    # and the blended valuation see the wrong sector
+                    from research_swarm.data.market_data_client import MarketDataClient
+                    _sec, _ind = MarketDataClient.effective_sector(
+                        state["ticker"], stock_info.get("sector"), stock_info.get("industry")
+                    )
+                    if _sec is not None:
+                        stock_info = {**stock_info, "sector": _sec,
+                                      "industry": _ind or stock_info.get("industry")}
                     # Store report-transparency metadata
                     state["currency_normalization"] = currency_info.as_report_meta()
                     if currency_info.is_converted:
@@ -1146,6 +1255,22 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                 except Exception as e:
                     logger.debug(f"Could not fetch 10yr yield (^TNX): {e}")
                 # ──────────────────────────────────────────────────────────────────
+
+                # ── Backfill shares outstanding ────────────────────────────────────
+                # The DCF aborts without it, and it is a single LLM-extracted point
+                # estimate that frequently comes back empty — while yfinance carries
+                # the figure directly. NVDA is the case that exposed this: archetype
+                # weighting assigned the DCF 50% (high-growth, DCF-dominant), then
+                # the DCF silently returned None for want of a share count and the
+                # valuation quietly renormalized onto P/E and EV/EBITDA alone.
+                if dcf_inputs and not dcf_inputs.shares_outstanding and stock_info:
+                    _shares = stock_info.get("sharesOutstanding")
+                    if _shares and _shares > 0:
+                        dcf_inputs.shares_outstanding = _shares / 1_000_000  # → millions
+                        logger.info(
+                            f"DCF supplement: {state['ticker']} shares outstanding "
+                            f"{dcf_inputs.shares_outstanding:,.0f}M from yfinance"
+                        )
 
                 # ── Normalize DCF FCF history to USD ───────────────────────────────
                 # dcf_inputs.fcf_history is extracted from SEC filing text by an LLM
@@ -1238,17 +1363,11 @@ def score_business_model_ttm_node(state: FundamentalistState) -> FundamentalistS
                     if roic_wacc is not None:
                         state["roic_wacc_spread_score"] = roic_wacc
 
-                # Also extract structured filing data
-                filing_type = "10-K"
-                if state.get("is_foreign"):
-                    filing_type = "20-F"
-                structured_data, struct_tokens = enhanced_parser.extract_structured_data(
-                    state["ticker"],
-                    combined_text,
-                    filing_type=filing_type
-                )
-                state["structured_filing_data"] = structured_data.dict()
-                state["tokens_used"] = state.get("tokens_used", 0) + struct_tokens
+                # Persist the DCF inputs so downstream consumers can display the
+                # same assumptions the valuation actually used. operating_margin_trend
+                # in particular drives the archetype weighting and the scenario
+                # spread, and the UI reads it — it was computed here and dropped.
+                state["dcf_inputs"] = dcf_inputs.model_dump()
 
         except Exception as e:
             logger.warning(f"DCF/structured extraction failed (non-fatal): {e}")
@@ -1633,7 +1752,6 @@ def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: 
         "analysis_period": "",
         "data_quality": {},
         "is_foreign": None,
-        "structured_filing_data": None,
         "price_targets": None,
         "shared_swarm_data": shared_swarm_data,  # NEW: Pre-fetched data from Manager
     }
@@ -1709,6 +1827,7 @@ def _analyze_company_ttm(ticker: str, quarters: list = None, shared_swarm_data: 
         earnings_momentum_score=final_state.get("earnings_momentum_score", 5.0),
         earnings_momentum_breakdown=final_state.get("earnings_momentum_breakdown"),
         roic_wacc_spread_score=final_state.get("roic_wacc_spread_score"),
+        dcf_inputs=DCFInputs(**final_state["dcf_inputs"]) if final_state.get("dcf_inputs") else None,
         valuation_score=final_state.get("valuation_score", 5.0),
         valuation_metrics=ValuationMetrics(**final_state["valuation_metrics"]) if final_state.get("valuation_metrics") else None,
         price_targets=PriceTargetScenarios(**final_state["price_targets"]) if final_state.get("price_targets") else None,

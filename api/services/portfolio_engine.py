@@ -25,6 +25,7 @@ from typing import Any, Optional
 SIGNAL_MAX_AGE_DAYS = 90  # StockResults older than this are treated as "no signal"
 
 from api.lib.db import get_db
+from api.lib.verdict import resolve_engine_verdict, resolve_fair_value
 
 logger = logging.getLogger(__name__)
 
@@ -126,16 +127,11 @@ def _extract_di_data(full_output: dict) -> dict:
     init_dec = di.get("initiation_decision") or {}
     conviction = di.get("conviction_position") or {}
     dvrg = di.get("divergence_overlay") or {}
-    verdict = (full_output.get("verdict") or "hold").lower()
-
-    fund = full_output.get("fundamentalist_output") or {}
-    valuation = fund.get("valuation") or {}
-    fair_value_raw = (
-        valuation.get("fair_value")
-        or valuation.get("intrinsic_value")
-        or full_output.get("fair_value")
-    )
-    fair_value = float(fair_value_raw) if fair_value_raw else None
+    # Resolved from decision_intelligence.rating via the shared helper (the
+    # previously-read "verdict" / "valuation" keys never existed, hardcoding
+    # every snapshot to hold with no fair value).
+    verdict = resolve_engine_verdict(full_output)
+    fair_value = resolve_fair_value(full_output)
 
     quant = full_output.get("quant_output") or {}
     ti = quant.get("technical_indicators") or {}
@@ -267,7 +263,7 @@ def generate_action_plan(
     # If the report has no decision_intelligence (very old format), fall back minimally
     di_block = full_output.get("decision_intelligence")
     if not di_block:
-        verdict = (full_output.get("verdict") or "hold").lower()
+        verdict = resolve_engine_verdict(full_output)
         if verdict in ("avoid", "sell") and current_alloc > 0.02:
             return [_action(
                 "TRIM_CAP", -current_alloc / 2.0, "immediate", None,

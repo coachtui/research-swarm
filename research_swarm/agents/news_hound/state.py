@@ -17,6 +17,7 @@ class NewsHoundState(TypedDict, total=False):
     # Input fields
     ticker: str  # Stock ticker (e.g., "NVDA")
     days_back: int  # Number of days to look back for news (default 30)
+    analysis_date: str  # Analysis date (YYYY-MM-DD) — anchors catalyst-date rules
 
     # Shared data layer (NEW: eliminates redundant API calls)
     shared_swarm_data: Optional[Dict[str, Any]]  # Pre-fetched data bundle from Manager
@@ -37,6 +38,8 @@ class NewsHoundState(TypedDict, total=False):
     # Sentiment analysis
     sentiment_analysis: Optional[str]  # Nuanced sentiment narrative (2-3 paragraphs)
     sentiment_breakdown: Optional[Dict[str, float]]  # 4 component scores (0-10 each)
+    sentiment_breakdown_raw: Optional[Dict[str, float]]  # Raw breakdown from interpret_news (Phase B)
+    sentiment_confidence_raw: Optional[float]  # Confidence from interpret_news (Phase B)
     sentiment_score: Optional[float]  # Final weighted sentiment score (0-10)
     confidence: Optional[float]  # Confidence level based on article count and quality (0-1)
 

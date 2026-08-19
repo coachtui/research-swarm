@@ -74,12 +74,13 @@ class FundamentalistState(TypedDict, total=False):
 
     # Hybrid provider fields
     is_foreign: Optional[bool]  # Whether ticker is a foreign ADR (20-F/6-K filer)
-    structured_filing_data: Optional[Dict[str, Any]]  # FilingExtraction dict from enhanced parser
+    filing_extractions: Optional[Dict[str, Any]]  # Per-filing extractions keyed by quarter (Phase B)
 
     # DCF valuation
     price_targets: Optional[Dict[str, Any]]  # PriceTargetScenarios dict from DCF calculator
     fair_value_calibration: Optional[Dict[str, Any]]  # FairValueCalibration metadata dict
     roic_wacc_spread_score: Optional[float]  # ROIC-WACC spread scored 0-10 (v3.0 quality score component)
+    dcf_inputs: Optional[Dict[str, Any]]  # DCFInputs dict — the assumptions the valuation ran on
 
     # yfinance fallback data
     yfinance_quarterly_financials: Optional[Dict[str, Any]]  # Structured quarterly financials from yfinance

@@ -207,38 +207,74 @@ async def save_analysis_result(
                 print(f"⚠️  Retry {attempt}/{max_retries}: Re-attempting save...")
                 # Connection is already fresh, just retry the operation
 
-            # Create or update run
+            # Create the run if it does not exist yet, but DO NOT mark it
+            # completed here.
+            #
+            # The run's status is the frontend's polling signal: it stops
+            # polling the moment it sees "completed". Marking the run complete
+            # before writing the StockResult opened a window — everything
+            # between here and the create() below, including DI enrichment,
+            # AnalysisReport construction and a prior-analysis lookup query —
+            # in which the API honestly reported a completed run with zero
+            # results. A poll landing in that window latched onto an empty
+            # result set and rendered "No Results Available" permanently,
+            # because it never polled again. Observed on LYFT
+            # (run 286b16bc): status read at 04:56:47.347, result row written
+            # at 04:56:47.448 — a 101ms window the poller hit exactly.
+            #
+            # The completion update now happens AFTER the result row exists.
             final_status = "completed" if result['status'] == 'completed' else "failed"
             if run_id is None:
                 run = await db.run.create(
                     data={
                         "userId": user_id,
                         "tickers": [ticker],
-                        "status": final_status,
+                        # Intermediate state — flipped to final_status once the
+                        # StockResult is durable.
+                        "status": "running",
                         "totalStocks": 1,
-                        "completedCount": 1 if result['status'] == 'completed' else 0,
-                        "failedCount": 0 if result['status'] == 'completed' else 1,
-                        "progressPercent": 100.0,
+                        "completedCount": 0,
+                        "failedCount": 0,
+                        "progressPercent": 99.0,
                         "totalCostUsd": result.get('cost_usd', 0.0),
                         "quarters": [],
                         "newsDaysBack": 30
                     }
                 )
                 run_id = run.id
-            else:
-                # Update the pre-existing "running" run to completed/failed
-                from datetime import datetime
-                await db.run.update(
-                    where={"id": run_id},
-                    data={
-                        "status": final_status,
-                        "completedAt": datetime.utcnow(),
-                        "progressPercent": 100.0,
-                        "completedCount": 1 if result['status'] == 'completed' else 0,
-                        "failedCount": 0 if result['status'] == 'completed' else 1,
-                        "totalCostUsd": result.get('cost_usd', 0.0),
-                    }
-                )
+
+            # Persist decision intelligence at write time. The delta below and
+            # any consumer of stored results need full_output.decision_intelligence,
+            # which was previously only grafted on at read time (so stored rows
+            # always compared as empty). Enrichment is deterministic, so the
+            # read-time recompute stays consistent with what we store here.
+            if result.get('status') == 'completed' and isinstance(result.get('full_output'), dict):
+                try:
+                    from api.lib.decision_intelligence import enrich_with_decision_intelligence
+                    result['full_output'] = enrich_with_decision_intelligence(
+                        result['full_output'],
+                        result.get('moat_score') or 0.0,
+                    )
+                except Exception as di_err:
+                    logger.warning(f"DI persistence failed (non-critical) for {ticker}: {di_err}")
+
+                # Phase C: build the AnalysisReport contract object from the
+                # enriched output and persist it verbatim inside full_output.
+                # This is the payload the /report endpoint serves and the
+                # frontend types are generated from.
+                try:
+                    from research_swarm.contracts.builder import build_analysis_report
+                    report = build_analysis_report(
+                        result['full_output'],
+                        analysis_id=run_id or "pending",
+                        tokens_used=result.get('tokens_used') or 0,
+                        cost_usd=result.get('cost_usd') or 0.0,
+                        duration_seconds=result.get('processing_time_seconds') or 0.0,
+                    )
+                    if report is not None:
+                        result['full_output']['analysis_report'] = report.model_dump(mode="json")
+                except Exception as report_err:
+                    logger.warning(f"AnalysisReport build failed (non-critical) for {ticker}: {report_err}")
 
             # --- Longitudinal Delta Tracking ---
             # Query for the most recent prior completed analysis by this user for the same ticker.
@@ -574,6 +610,9 @@ async def save_analysis_result(
             stock_result = await db.stockresult.create(
                 data={
                     "runId": run_id,
+                    # userId is required by the prior-analysis lookup that powers
+                    # previous_analysis_delta — omitting it left that feature inert.
+                    "userId": user_id,
                     "ticker": ticker,
                     "status": result['status'],
                     "moatScore": result.get('moat_score'),
@@ -590,6 +629,21 @@ async def save_analysis_result(
                     "processingTimeSeconds": result.get('processing_time_seconds'),
                     "errorMessage": result.get('error_message')
                 }
+            )
+
+            # The result row is durable — only NOW is the run complete. Any
+            # poll before this point correctly saw a run still in progress.
+            from datetime import datetime as _dt
+            await db.run.update(
+                where={"id": run_id},
+                data={
+                    "status": final_status,
+                    "completedAt": _dt.utcnow(),
+                    "progressPercent": 100.0,
+                    "completedCount": 1 if result['status'] == 'completed' else 0,
+                    "failedCount": 0 if result['status'] == 'completed' else 1,
+                    "totalCostUsd": result.get('cost_usd', 0.0),
+                },
             )
 
             # Fetch sector/industry metadata and persist onto the StockResult.

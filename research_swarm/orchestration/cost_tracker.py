@@ -11,19 +11,22 @@ ModelType = Literal["haiku", "sonnet", "opus"]
 class CostTracker:
     """Tracks API costs and token usage."""
 
-    # Per 1K tokens (input/output)
+    # Per 1K tokens (input/output), Anthropic list prices as of 2026-06.
+    # Note: cache reads/writes are priced differently (~0.1x / ~1.25x input);
+    # callers currently fold cache tokens into input tokens, which slightly
+    # overestimates cost once prompt caching is in use.
     PRICING = {
         "haiku": {
-            "input": 0.00025,  # $0.25/M
-            "output": 0.00125,  # $1.25/M
+            "input": 0.001,   # $1.00/M (claude-haiku-4-5)
+            "output": 0.005,  # $5.00/M
         },
         "sonnet": {
             "input": 0.003,  # $3/M
             "output": 0.015,  # $15/M
         },
         "opus": {
-            "input": 0.015,  # $15/M
-            "output": 0.075,  # $75/M
+            "input": 0.005,  # $5/M (claude-opus-5)
+            "output": 0.025,  # $25/M
         },
     }
 

@@ -20,27 +20,37 @@ interface PriceTargetsCardProps {
     bear_probability: number
     bear_assumptions: string
     methodology: string
+    /** DVRG divergence-weighted target provenance (present on new runs) */
+    persistence_probability?: number | null
+    reversion_anchor?: number | null
+    persistence_anchor?: number | null
+    basis_note?: string | null
   }
   currentPrice: number
   ticker: string
   signalBreakdown?: SignalBreakdown
+  /** Server-computed probability-weighted EV from the persisted AnalysisReport */
+  probabilityWeightedEv?: number | null
 }
 
-export function PriceTargetsCard({ priceTargets, currentPrice, signalBreakdown }: PriceTargetsCardProps) {
+export function PriceTargetsCard({ priceTargets, currentPrice, signalBreakdown, probabilityWeightedEv }: PriceTargetsCardProps) {
   const [showProbFramework, setShowProbFramework] = useState(false)
 
   const baseUpside = ((priceTargets.base_target - currentPrice) / currentPrice) * 100
   const bullUpside = ((priceTargets.bull_target - currentPrice) / currentPrice) * 100
   const bearDownside = ((priceTargets.bear_target - currentPrice) / currentPrice) * 100
 
-  // Probability-weighted expected value across all three scenario paths — unchanged
+  // Probability-weighted expected value — Phase D: prefer the server-computed
+  // value from the persisted AnalysisReport (single source); local math only
+  // as a fallback for pre-Phase-C runs.
   const bearW = priceTargets.bear_probability ?? 0.25
   const baseW = priceTargets.base_probability ?? 0.50
   const bullW = priceTargets.bull_probability ?? 0.25
   const probWeightedEV =
-    priceTargets.bear_target * bearW +
-    priceTargets.base_target * baseW +
-    priceTargets.bull_target * bullW
+    probabilityWeightedEv ??
+    (priceTargets.bear_target * bearW +
+      priceTargets.base_target * baseW +
+      priceTargets.bull_target * bullW)
   const evVsCurrent = ((probWeightedEV - currentPrice) / currentPrice) * 100
 
   // Effective EV: stability modifier dampens EV magnitude (instability reduces outcome magnitude, not just confidence)
@@ -127,6 +137,13 @@ export function PriceTargetsCard({ priceTargets, currentPrice, signalBreakdown }
           Scenario weights: heuristic-derived · regime-conditioned reliability
         </span>
       </p>
+
+      {/* DVRG target basis — how the base target bridges intrinsic value and market expectation */}
+      {priceTargets.basis_note && (
+        <p className="text-xs text-text-tertiary mb-4 leading-relaxed border-l-2 border-accent/40 pl-2.5">
+          {priceTargets.basis_note}
+        </p>
+      )}
 
       {/* Probability allocation strip — purely visual, reflects existing weight values */}
       <div className="mb-5">

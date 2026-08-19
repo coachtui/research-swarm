@@ -69,41 +69,67 @@ class QualityScoreBreakdown(BaseModel):
         description="Technical/momentum score from Quant (0-10) — override only"
     )
 
-    def weighted_average(self) -> float:
+    def quality_score(self) -> float:
+        """Business quality: durability and execution, independent of price.
+
+        v4.0 splits quality from valuation. The previous formula blended
+        cheapness (15%) and sentiment (10%) into what it called a quality
+        score, then thresholded the blend as a single axis — so a genuinely
+        excellent business trading at a premium had its quality components
+        fighting its valuation component and could not reach the top tier by
+        construction, while a mediocre business at a fair price landed on
+        roughly the same number. Those two situations call for opposite
+        actions and the scale could not tell them apart.
+
+        Quality now answers only "do we want to own this business?".
+        `valuation` answers "is this the price to own it at?", and
+        `ManagerScorer.determine_rating` reads the pair.
+
+        Weights are the v3.0 quality weights renormalized over the components
+        that survived (25/25/20 of 70 -> 35/35/30), so their relative
+        proportions are unchanged.
         """
-        Calculate weighted quality score.
-
-        Uses v3.0 formula when roic_wacc_spread is available; falls back to
-        redistributed weights when it is not yet populated.
-
-        Returns:
-            float: Quality score (0-10)
-
-        Raises:
-            ValueError: If required components are missing
-        """
-        if self.earnings_momentum is None or self.valuation is None:
+        if self.earnings_momentum is None:
             raise ValueError(
-                "QualityScoreBreakdown requires earnings_momentum and valuation. "
-                f"Got earnings_momentum={self.earnings_momentum}, valuation={self.valuation}"
+                "QualityScoreBreakdown requires earnings_momentum. "
+                f"Got earnings_momentum={self.earnings_momentum}"
             )
 
-        if self.roic_wacc_spread is not None:
-            return (
-                self.roic_wacc_spread * 0.25 +
-                self.financial_health * 0.25 +
-                self.earnings_momentum * 0.20 +
-                self.valuation * 0.15 +
-                self.sentiment_catalysts * 0.10
-            )
+        from research_swarm.agents.manager.score_normalization import (
+            normalize_component,
+            rescale_composite,
+        )
+
+        roic = normalize_component("roic_wacc_spread", self.roic_wacc_spread)
+        health = normalize_component("financial_health", self.financial_health)
+        momentum = normalize_component("earnings_momentum", self.earnings_momentum)
+
+        if roic is not None:
+            composite = roic * 0.35 + health * 0.35 + momentum * 0.30
         else:
-            # Redistribute ROIC weight proportionally until data pipeline is wired
-            return (
-                self.financial_health * 0.30 +
-                self.earnings_momentum * 0.25 +
-                self.valuation * 0.25 +
-                self.sentiment_catalysts * 0.20
-            )
+            # No capital-efficiency read (missing inputs, or a sector where it
+            # is not meaningful): redistribute its weight proportionally.
+            composite = health * 0.55 + momentum * 0.45
+
+        # Averaging shrinks spread — the components are near-uncorrelated in
+        # practice — so put the composite back on the same 2-points-per-sigma
+        # scale the tier thresholds are expressed in.
+        return rescale_composite("quality", composite)
+
+    def normalized_valuation(self) -> float:
+        """Valuation on the same normalized scale as the quality components."""
+        from research_swarm.agents.manager.score_normalization import normalize_component
+
+        return normalize_component("valuation", self.valuation) or 5.0
+
+    def weighted_average(self) -> float:
+        """Deprecated single-axis composite, retained for stored-result reads.
+
+        Kept so reports persisted before the v4.0 split still render. New runs
+        should read `quality_score()` and `valuation` as separate axes; a
+        blended number cannot express "great company, wrong price".
+        """
+        return self.quality_score()
 
 
 class InvestmentThesisStructured(BaseModel):
@@ -202,7 +228,15 @@ class ManagerOutput(BaseModel):
         ...,
         ge=0,
         le=10,
-        description="Final quality score (0-10)"
+        description="Business quality score (0-10), normalized. Price is NOT in it — "
+                    "see normalized_valuation_score for the other rating axis."
+    )
+    normalized_valuation_score: Optional[float] = Field(
+        None,
+        ge=0,
+        le=10,
+        description="Valuation on the same normalized scale (higher = more attractive). "
+                    "Second axis of the rating matrix."
     )
     moat_breakdown: QualityScoreBreakdown = Field(
         ...,
@@ -235,6 +269,10 @@ class ManagerOutput(BaseModel):
     structured_risks: Optional[List[Dict[str, Any]]] = Field(
         None,
         description="Structured risk breakdown with severity/likelihood/impact"
+    )
+    macro_exposure: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Market state plus the macro themes with a concrete channel to this company"
     )
     upgrade_triggers: Optional[List[Dict[str, str]]] = Field(
         None,
@@ -344,15 +382,20 @@ class ManagerOutput(BaseModel):
         Auto-correct flag if it doesn't match moat score.
         """
         from research_swarm.logger import logger
+        from research_swarm.agents.manager.scorer import ManagerScorer
 
-        expected_watchlist = self.moat_score >= 8.0
-        if self.is_watchlist_candidate != expected_watchlist:
+        # The flag now depends on TWO axes (quality high AND price not yet
+        # attractive), so this validator can no longer recompute it from
+        # moat_score alone. It checks the one invariant that holds regardless
+        # of valuation: nothing below the high-quality bar can be a watchlist
+        # candidate. Auto-correcting off a single axis, as this used to, would
+        # silently undo a correct two-axis decision.
+        if self.is_watchlist_candidate and self.moat_score < ManagerScorer.QUALITY_HIGH:
             logger.warning(
-                f"Watchlist candidate flag {self.is_watchlist_candidate} "
-                f"does not match moat score {self.moat_score} "
-                f"(threshold: >= 8.0). Auto-correcting to {expected_watchlist}."
+                f"Watchlist flag set but quality score {self.moat_score:.2f} is below the "
+                f"high-quality bar ({ManagerScorer.QUALITY_HIGH}). Clearing."
             )
-            self.is_watchlist_candidate = expected_watchlist
+            self.is_watchlist_candidate = False
 
         return self
 

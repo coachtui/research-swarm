@@ -27,15 +27,18 @@ interface PMSnapshotCardProps {
   fairValueCalibration?: FairValueCalibration | null
   initiationStatus?: string | null
   signalBreakdown?: SignalBreakdown | null
+  /** Server-computed probability-weighted EV from the persisted AnalysisReport */
+  probabilityWeightedEv?: number | null
 }
 
 // ── Derivation helpers ────────────────────────────────────────────────────────
 
 function deriveStructuralStrength(moatScore: number | null): {
-  label: 'Strong' | 'Moderate' | 'Weak'
+  label: 'Strong' | 'Moderate' | 'Weak' | '—'
   color: string
 } {
-  if (moatScore === null) return { label: 'Weak', color: 'text-text-tertiary' }
+  // Missing data is an honest blank, not a negative signal
+  if (moatScore === null) return { label: '—', color: 'text-text-tertiary' }
   if (moatScore >= 7) return { label: 'Strong', color: 'text-success' }
   if (moatScore >= 5) return { label: 'Moderate', color: 'text-text-secondary' }
   return { label: 'Weak', color: 'text-text-tertiary' }
@@ -91,13 +94,15 @@ function derivePositioningAlignment(flow?: DivergenceOverlay['institutional_flow
 }
 
 function buildSynthesis(
-  structuralStrength: 'Strong' | 'Moderate' | 'Weak',
+  structuralStrength: 'Strong' | 'Moderate' | 'Weak' | '—',
   valuationAlignment: 'Attractive' | 'Fair' | 'Extended',
   positioningEdge: 'Absent' | 'Emerging' | 'Confirmed',
 ): string {
   // Sentence 1 — structural + valuation state
   let s1 = ''
-  if (structuralStrength === 'Strong' && valuationAlignment === 'Attractive') {
+  if (structuralStrength === '—') {
+    s1 = 'Structural quality unavailable — insufficient data.'
+  } else if (structuralStrength === 'Strong' && valuationAlignment === 'Attractive') {
     s1 = 'Structural quality confirmed with meaningful discount to intrinsic estimate.'
   } else if (structuralStrength === 'Strong' && valuationAlignment === 'Fair') {
     s1 = 'Structural quality confirmed with pricing near intrinsic estimate.'
@@ -161,6 +166,7 @@ export function PMSnapshotCard({
   fairValueCalibration,
   initiationStatus,
   signalBreakdown,
+  probabilityWeightedEv,
 }: PMSnapshotCardProps) {
   const [showCapitalEnv, setShowCapitalEnv] = useState(false)
 
@@ -179,7 +185,9 @@ export function PMSnapshotCard({
   const macroRegime = deriveMacroRegime(divergenceOverlay)
   const capitalBias = deriveCapitalBias(initiationStatus)
 
-  // Probability-weighted EV (same logic as PriceTargetsCard — display only)
+  // Probability-weighted EV — Phase D: prefer the server-computed value from
+  // the persisted AnalysisReport (single source); fall back to local math
+  // only for pre-Phase-C runs.
   let evPct: number | null = null
   let rrRatio: number | null = null
   if (priceTargets && currentPrice && currentPrice > 0) {
@@ -187,9 +195,10 @@ export function PMSnapshotCard({
     const baseW = priceTargets.base_probability ?? 0.50
     const bullW = priceTargets.bull_probability ?? 0.25
     const probWeightedEV =
-      priceTargets.bear_target * bearW +
-      priceTargets.base_target * baseW +
-      priceTargets.bull_target * bullW
+      probabilityWeightedEv ??
+      (priceTargets.bear_target * bearW +
+        priceTargets.base_target * baseW +
+        priceTargets.bull_target * bullW)
     const rawEvPct = ((probWeightedEV - currentPrice) / currentPrice) * 100
     const stabilityMod = signalBreakdown?.data_integrity_confidence_factor ?? 1.0
     evPct = rawEvPct * stabilityMod

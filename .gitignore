@@ -27,3 +27,4 @@ Thumbs.db
 # Tier 2 backtest artifacts
 data/backtest/
 reports/backtests/
+scripts/.sector_medians_progress.jsonl

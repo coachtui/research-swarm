@@ -12,6 +12,12 @@ from research_swarm.data.cache import cache
 from research_swarm.data.rate_limiter import rate_limiter
 
 
+# Negative-cache sentinel: "provider had no data" must be cached as a real
+# value. Storing None made every no-data lookup a cache miss (json "null" is
+# falsy), so tickers without e.g. recommendations were refetched on every call.
+_NO_DATA = {"__no_data__": True}
+
+
 class MarketDataClient:
     """Client for market data via yfinance."""
 
@@ -54,6 +60,9 @@ class MarketDataClient:
 
         # Cache for 1 day (markets update daily)
         cached = cache.get("market_hist", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_hist) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached historical data for {ticker}")
             return pd.DataFrame(cached)
@@ -88,6 +97,9 @@ class MarketDataClient:
 
         # Short cache for intraday (~1 hour = 0.04 days)
         cached = cache.get("market_price", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_price) for {cache_key}")
+            return None
         if cached:
             return cached.get("price")
 
@@ -108,13 +120,37 @@ class MarketDataClient:
             logger.error(f"Error fetching price for {ticker}: {e}")
             return None
 
+    # yfinance's taxonomy misfiles some names badly — LYFT and UBER print as
+    # "Technology / Software - Application" while GICS (what S&P, Schwab and
+    # every sector-average table here assume) files them under Industrials.
+    # Override only where the misfiling is documented; extend as found.
+    SECTOR_OVERRIDES = {
+        "LYFT": ("Industrials", "Passenger Ground Transportation"),
+        "UBER": ("Industrials", "Passenger Ground Transportation"),
+    }
+
+    @classmethod
+    def effective_sector(cls, ticker, sector, industry=None):
+        """Resolve (sector, industry) with overrides applied. EVERY sector
+        read must come through here or get_company_info — a raw
+        info.get("sector") silently benchmarks against the wrong sector."""
+        override = cls.SECTOR_OVERRIDES.get((ticker or "").upper())
+        return override if override else (sector, industry)
+
     def get_company_info(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get company info including sector."""
         ticker = ticker.upper()
-        cache_key = f"{ticker}_info"
+        # The suffix versions this payload's shape. Entries cached before
+        # `country` was added would otherwise keep serving a dict without it
+        # for the full TTL, silently disabling macro region matching. Bump the
+        # suffix whenever a field is added here.
+        cache_key = f"{ticker}_info_v3"  # v3: SECTOR_OVERRIDES applied
 
         # Cache company info for 7 days
         cached = cache.get("market_info", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_info) for {cache_key}")
+            return None
         if cached:
             return cached
 
@@ -129,6 +165,7 @@ class MarketDataClient:
                 "name": info.get("shortName", info.get("longName", ticker)),
                 "sector": info.get("sector", "Unknown"),
                 "industry": info.get("industry", "Unknown"),
+                "country": info.get("country"),  # macro exposure: regional bloc mapping
                 "market_cap": info.get("marketCap"),
                 "exchange": info.get("exchange"),
                 "revenueGrowth": info.get("revenueGrowth"),  # Used for Growth score fallback
@@ -137,6 +174,10 @@ class MarketDataClient:
                 "financial_currency": info.get("financialCurrency"),  # reporting currency of statements
                 "quote_type": info.get("quoteType"),               # EQUITY, ETF, etc.
             }
+
+            override = self.SECTOR_OVERRIDES.get(ticker)
+            if override:
+                result["sector"], result["industry"] = override
 
             cache.set("market_info", cache_key, result, ttl_days=7)
             return result
@@ -207,6 +248,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_recommendations", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_recommendations) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached recommendations for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -219,7 +263,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No analyst recommendations for {ticker}")
-                cache.set("market_recommendations", cache_key, None, ttl_days=1)
+                cache.set("market_recommendations", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -253,6 +297,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_earnings", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_earnings) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached earnings history for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -265,7 +312,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No earnings history for {ticker}")
-                cache.set("market_earnings", cache_key, None, ttl_days=1)
+                cache.set("market_earnings", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -299,6 +346,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_price_target", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_price_target) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached price target for {ticker}")
             return cached
@@ -348,6 +398,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_earnings_dates", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_earnings_dates) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached earnings dates for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -360,7 +413,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No earnings dates for {ticker}")
-                cache.set("market_earnings_dates", cache_key, None, ttl_days=1)
+                cache.set("market_earnings_dates", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -393,6 +446,9 @@ class MarketDataClient:
 
         # Cache for 7 days (13F data is quarterly)
         cached = cache.get("market_institutional", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_institutional) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached institutional holders for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -405,7 +461,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No institutional holders data for {ticker}")
-                cache.set("market_institutional", cache_key, None, ttl_days=7)
+                cache.set("market_institutional", cache_key, _NO_DATA, ttl_days=7)
                 return None
 
             # Cache as dict for JSON serialization
@@ -439,6 +495,9 @@ class MarketDataClient:
 
         # Cache for 1 day (insider data updates frequently)
         cached = cache.get("market_insider", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_insider) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached insider transactions for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -451,7 +510,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No insider transactions for {ticker}")
-                cache.set("market_insider", cache_key, None, ttl_days=1)
+                cache.set("market_insider", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -485,6 +544,9 @@ class MarketDataClient:
 
         # Cache for 7 days (short interest reported bi-monthly)
         cached = cache.get("market_short", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_short) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached short interest for {ticker}")
             return cached
@@ -518,6 +580,50 @@ class MarketDataClient:
             logger.error(f"Error fetching short interest for {ticker}: {e}")
             return None
 
+    def get_eps_revisions(self, ticker: str) -> Optional[pd.DataFrame]:
+        """
+        Get analyst EPS estimate revision counts.
+
+        yfinance's `eps_revisions` frame is indexed by period (0q, +1q, 0y, +1y)
+        with `upLast7days`, `upLast30days`, `downLast30days`, `downLast7Days`.
+        This is the actual estimate-revision series — the documented
+        post-earnings-drift anomaly — as opposed to rating upgrades, which are
+        a different signal already captured in the divergence layer.
+
+        Returns:
+            DataFrame indexed by period, or None
+        """
+        ticker = ticker.upper()
+        cache_key = f"{ticker}_eps_revisions"
+
+        cached = cache.get("market_estimates", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (eps_revisions) for {cache_key}")
+            return None
+        if cached:
+            return pd.DataFrame(cached).set_index("period") if cached else None
+
+        try:
+            rate_limiter.wait_if_needed("yfinance")
+            df = yf.Ticker(ticker).eps_revisions
+
+            if df is None or df.empty:
+                logger.warning(f"No EPS revisions for {ticker}")
+                cache.set("market_estimates", cache_key, _NO_DATA, ttl_days=1)
+                return None
+
+            cache.set(
+                "market_estimates",
+                cache_key,
+                df.reset_index().to_dict(orient="list"),
+                ttl_days=1,
+            )
+            return df
+
+        except Exception as e:
+            logger.warning(f"Failed to fetch EPS revisions for {ticker}: {e}")
+            return None
+
     def get_earnings_estimates(self, ticker: str) -> Optional[pd.DataFrame]:
         """
         Get forward earnings estimates.
@@ -533,6 +639,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_estimates", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_estimates) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached earnings estimates for {ticker}")
             return pd.DataFrame(cached) if cached else None
@@ -545,7 +654,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No earnings estimates for {ticker}")
-                cache.set("market_estimates", cache_key, None, ttl_days=1)
+                cache.set("market_estimates", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Cache as dict for JSON serialization
@@ -580,6 +689,9 @@ class MarketDataClient:
 
         # Cache for 1 day
         cached = cache.get("market_upgrades", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_upgrades) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached upgrades/downgrades for {ticker}")
             df = pd.DataFrame(cached)
@@ -597,7 +709,7 @@ class MarketDataClient:
 
             if df is None or df.empty:
                 logger.warning(f"No upgrades/downgrades for {ticker}")
-                cache.set("market_upgrades", cache_key, None, ttl_days=1)
+                cache.set("market_upgrades", cache_key, _NO_DATA, ttl_days=1)
                 return None
 
             # Reset index to make GradeDate a column
@@ -628,33 +740,65 @@ class MarketDataClient:
 
     # Sector median P/E ratios (approximate, updated periodically)
     # Source: historical averages as of early 2026
+    # When the medians below were last measured (scripts/calibrate_sector_medians.py).
+    # Update together with the tables, quarterly.
+    SECTOR_MEDIANS_AS_OF = "Q3 2026"
+
+    # MEASURED 2026-08-17 from the 503 S&P constituents (canonical GICS
+    # sectors, positive trailing multiples only, capped at 500x) — see
+    # scripts/calibrate_sector_medians.py. Refresh quarterly, ~6 weeks into
+    # the quarter, and update SECTOR_MEDIANS_AS_OF with the tables.
     SECTOR_MEDIAN_PE = {
-        "Technology": 28.0,
-        "Healthcare": 22.0,
-        "Financials": 14.0,
-        "Consumer Discretionary": 22.0,
-        "Consumer Staples": 20.0,
-        "Energy": 12.0,
-        "Industrials": 20.0,
-        "Materials": 16.0,
-        "Utilities": 18.0,
-        "Real Estate": 35.0,
-        "Communication Services": 18.0,
+        "Communication Services": 18.8,   # n=19
+        "Consumer Discretionary": 21.2,   # n=45
+        "Consumer Staples": 24.8,   # n=29
+        "Energy": 17.4,   # n=21
+        "Financials": 16.2,   # n=74
+        "Healthcare": 29.8,   # n=53
+        "Industrials": 30.2,   # n=82
+        "Materials": 30.6,   # n=19
+        "Real Estate": 35.8,   # n=30
+        "Technology": 38.2,   # n=69
+        "Utilities": 21.5,   # n=31
     }
 
     SECTOR_MEDIAN_EV_EBITDA = {
-        "Technology": 20.0,
-        "Healthcare": 15.0,
-        "Financials": 10.0,
-        "Consumer Discretionary": 14.0,
-        "Consumer Staples": 14.0,
-        "Energy": 7.0,
-        "Industrials": 13.0,
-        "Materials": 10.0,
-        "Utilities": 12.0,
-        "Real Estate": 18.0,
-        "Communication Services": 12.0,
+        "Communication Services": 12.8,   # n=23
+        "Consumer Discretionary": 15.2,   # n=47
+        "Consumer Staples": 13.0,   # n=34
+        "Energy": 8.4,   # n=21
+        "Financials": 12.4,   # n=44
+        "Healthcare": 15.2,   # n=58
+        "Industrials": 18.3,   # n=82
+        "Materials": 11.7,   # n=25
+        "Real Estate": 18.9,   # n=31
+        "Technology": 23.2,   # n=71
+        "Utilities": 13.4,   # n=31
     }
+
+    # yfinance reports its own sector taxonomy; the multiple tables above are
+    # keyed on GICS names. Four sectors differ, and they cover roughly 30% of
+    # the S&P 500 (every bank/insurer/asset manager, all of consumer
+    # discretionary and staples, and all of materials). Without this mapping
+    # the lookup returns None, which propagates into the valuation engine and
+    # aborts it — so those names silently got no fair value at all.
+    _YF_SECTOR_TO_GICS = {
+        "Financial Services": "Financials",
+        "Consumer Cyclical": "Consumer Discretionary",
+        "Consumer Defensive": "Consumer Staples",
+        "Basic Materials": "Materials",
+    }
+
+    @classmethod
+    def normalize_sector(cls, sector: Optional[str]) -> Optional[str]:
+        """Map a yfinance sector name onto the GICS name used by the multiple
+        tables. Returns None when the sector is missing or unrecognized, so
+        callers can flag the estimate as lacking a sector anchor."""
+        if not sector or sector == "Unknown":
+            return None
+        sector = sector.strip()
+        mapped = cls._YF_SECTOR_TO_GICS.get(sector, sector)
+        return mapped if mapped in cls.SECTOR_MEDIAN_PE else None
 
     def get_valuation_metrics(self, ticker: str) -> Optional[Dict[str, Any]]:
         """
@@ -667,9 +811,12 @@ class MarketDataClient:
             Dict with valuation metrics or None
         """
         ticker = ticker.upper()
-        cache_key = f"{ticker}_valuation"
+        cache_key = f"{ticker}_valuation_v2"  # v2: sector overrides
 
         cached = cache.get("market_valuation", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_valuation) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached valuation metrics for {ticker}")
             return cached
@@ -684,9 +831,16 @@ class MarketDataClient:
                 logger.warning(f"No valuation data for {ticker}")
                 return None
 
-            sector = info.get("sector", "Unknown")
-            sector_avg_pe = self.SECTOR_MEDIAN_PE.get(sector)
-            sector_avg_ev_ebitda = self.SECTOR_MEDIAN_EV_EBITDA.get(sector)
+            sector, _ = self.effective_sector(ticker, info.get("sector", "Unknown"))
+            gics_sector = self.normalize_sector(sector)
+            if gics_sector is None and sector and sector != "Unknown":
+                logger.warning(
+                    f"Unrecognized sector '{sector}' for {ticker} — no sector multiple anchor"
+                )
+            sector_avg_pe = self.SECTOR_MEDIAN_PE.get(gics_sector) if gics_sector else None
+            sector_avg_ev_ebitda = (
+                self.SECTOR_MEDIAN_EV_EBITDA.get(gics_sector) if gics_sector else None
+            )
 
             pe_ratio = info.get("trailingPE")
             pe_premium_discount = None
@@ -751,9 +905,12 @@ class MarketDataClient:
             Dict with key stats or None
         """
         ticker = ticker.upper()
-        cache_key = f"{ticker}_key_stats"
+        cache_key = f"{ticker}_key_stats_v2"  # v2: sector overrides
 
         cached = cache.get("market_key_stats", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_key_stats) for {cache_key}")
+            return None
         if cached:
             return cached
 
@@ -795,9 +952,12 @@ class MarketDataClient:
                 # Shares
                 "shares_outstanding_millions": to_millions(info.get("sharesOutstanding")),
                 "shares_short_pct_float": to_pct(info.get("shortPercentOfFloat")),
-                # Classification
-                "sector": info.get("sector", "Unknown"),
-                "industry": info.get("industry", "Unknown"),
+                # Classification (override-aware)
+                "sector": self.effective_sector(ticker, info.get("sector", "Unknown"),
+                                                info.get("industry", "Unknown"))[0],
+                "industry": self.effective_sector(ticker, info.get("sector", "Unknown"),
+                                                  info.get("industry", "Unknown"))[1]
+                            or info.get("industry", "Unknown"),
             }
 
             cache.set("market_key_stats", cache_key, result, ttl_days=1)
@@ -1024,6 +1184,9 @@ class MarketDataClient:
         cache_key = f"{ticker}_quarterly_financials"
 
         cached = cache.get("market_quarterly_fin", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (market_quarterly_fin) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached quarterly financials for {ticker}")
             return cached
@@ -1137,6 +1300,9 @@ class MarketDataClient:
         cache_key = f"{ticker}_etf_info"
 
         cached = cache.get("etf_profile", cache_key)
+        if isinstance(cached, dict) and cached.get("__no_data__"):
+            logger.debug(f"Negative cache hit (etf_profile) for {cache_key}")
+            return None
         if cached:
             logger.debug(f"Using cached ETF info for {ticker}")
             return cached

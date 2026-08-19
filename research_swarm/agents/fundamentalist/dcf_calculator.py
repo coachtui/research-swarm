@@ -184,17 +184,24 @@ class DCFCalculator:
         # Estimate cost of debt (~risk-free + 1.5-3% spread)
         cost_of_debt = risk_free + 0.02
 
-        # Capital structure weights
-        debt = dcf_inputs.total_debt or 0
+        # Capital structure weights.
+        # BOTH sides must be in the same unit. total_debt and market_cap_millions
+        # are each documented as MILLIONS USD (models.py), but equity used to be
+        # scaled by 1e6 into dollars while debt stayed in millions — making the
+        # debt weight ~1e-6 of its true value. WACC therefore collapsed to the
+        # cost of equity for every company, and the tax shield never applied.
+        # Working in millions throughout.
+        debt = dcf_inputs.total_debt or 0  # millions
 
-        # IMPROVEMENT: Use real market cap if available, else fall back to synthetic proxy
         if dcf_inputs.market_cap_millions and dcf_inputs.market_cap_millions > 0:
-            equity = dcf_inputs.market_cap_millions * 1_000_000  # millions → actual dollars
-            logger.debug(f"WACC using real market cap: ${equity/1e9:.1f}B equity, ${debt/1e9:.1f}B debt")
+            equity = dcf_inputs.market_cap_millions  # millions
+            logger.debug(
+                f"WACC using real market cap: ${equity/1e3:.1f}B equity, ${debt/1e3:.1f}B debt"
+            )
         else:
-            # Fallback: 3x debt proxy or $1B minimum
-            equity = max(debt * 3, 1_000_000_000)
-            logger.debug(f"WACC using synthetic equity proxy: ${equity/1e9:.1f}B")
+            # Fallback: 3x debt proxy or $1B minimum (also in millions)
+            equity = max(debt * 3, 1_000.0)
+            logger.debug(f"WACC using synthetic equity proxy: ${equity/1e3:.1f}B")
 
         total_capital = equity + debt
         equity_weight = equity / total_capital

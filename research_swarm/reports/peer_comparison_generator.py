@@ -55,6 +55,25 @@ PEER_MAP = {
     "GLW": ["II-VI", "COHR", "LITE", "KEYS"],
     "DIS": ["NFLX", "CMCSA", "WBD", "PARA"],
     "NFLX": ["DIS", "CMCSA", "WBD", "ROKU"],
+    # Rideshare / gig / delivery
+    "LYFT": ["UBER", "DASH", "GRAB"],
+    "UBER": ["LYFT", "DASH", "GRAB", "ABNB"],
+    "DASH": ["UBER", "LYFT", "GRAB"],
+    "ABNB": ["BKNG", "EXPE", "UBER", "MAR"],
+    # Fintech / internet mid-caps
+    "PYPL": ["SQ", "V", "MA", "AFRM"],
+    "SQ": ["PYPL", "AFRM", "SOFI", "V"],
+    "COIN": ["HOOD", "SQ", "PYPL", "SCHW"],
+    "HOOD": ["COIN", "SCHW", "SOFI", "IBKR"],
+    "SOFI": ["SQ", "HOOD", "AFRM", "LC"],
+    "SHOP": ["AMZN", "SQ", "PYPL", "WIX"],
+    # Software / data mid-caps
+    "PLTR": ["SNOW", "DDOG", "NOW", "MDB"],
+    "SNOW": ["DDOG", "MDB", "PLTR", "NOW"],
+    "DDOG": ["SNOW", "MDB", "NOW", "DT"],
+    "RBLX": ["EA", "TTWO", "U", "NFLX"],
+    "UAL": ["DAL", "AAL", "LUV", "ALK"],
+    "DAL": ["UAL", "AAL", "LUV", "ALK"],
 }
 
 # Competitive position heuristics by market cap rank within peers
@@ -111,6 +130,7 @@ class PeerComparisonGenerator:
 
             # Get peers from curated map or sector lookup
             peers = self._get_peers(ticker, sector, industry)
+            is_sector_reference = ticker not in PEER_MAP
             if not peers:
                 logger.warning(f"No peers found for {ticker}")
                 return None
@@ -141,6 +161,9 @@ class PeerComparisonGenerator:
                 "sector": sector,
                 "industry": industry,
                 "peers": peers[:4],
+                # True when the list is the generic sector-default set, not
+                # actual competitors — position rank vs megacaps is meaningless
+                "is_sector_reference": is_sector_reference,
                 "competitive_position": competitive_position,
                 "market_share_estimate": None,  # Would need external data
                 "competitive_intensity": competitive_intensity,
@@ -185,7 +208,12 @@ class PeerComparisonGenerator:
             "Communication Services": ["META", "GOOGL", "DIS", "NFLX"],
         }
 
-        peers = sector_peers.get(sector, [])
+        # Same GICS-vs-yfinance taxonomy mismatch as the sector multiple tables:
+        # without normalization, financials/discretionary/staples/materials fall
+        # through to an empty peer list.
+        from research_swarm.data.market_data_client import market_data_client
+
+        peers = sector_peers.get(market_data_client.normalize_sector(sector) or sector, [])
         # Remove self from peers
         peers = [p for p in peers if p != ticker]
         return peers[:4]

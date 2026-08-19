@@ -20,6 +20,7 @@ DVRG Engine Refinements (Phase 2):
 import statistics
 from typing import Optional, Dict, Any, List, Tuple
 from research_swarm.logger import logger
+from research_swarm.agents.fundamentalist.capital_efficiency import compute_roic
 from research_swarm.agents.fundamentalist.models import PriceTargetScenarios, DCFInputs
 
 
@@ -32,6 +33,11 @@ class BlendedValuationCalculator:
     - Quality-adjusted EV/EBITDA: 30%
     - DCF Sanity Check: 20%
     """
+
+    # Confidence base. Set so base + max method bonus (+30) + max input-quality
+    # bonus (+25) == 100 exactly, leaving no headroom above the ceiling for
+    # penalties to be silently absorbed by. See _calculate_confidence_score.
+    BASE_CONFIDENCE = 45
 
     def calculate_fair_value(
         self,
@@ -81,11 +87,16 @@ class BlendedValuationCalculator:
         market_cap = market_cap_millions * 1_000_000 if market_cap_millions else 0
         is_mega_cap = market_cap > 50_000_000_000
 
-        # Sector multiples — track whether they were defaulted
-        sector_pe = valuation_metrics.get("sector_avg_pe", 18.0)
-        sector_ev_ebitda = valuation_metrics.get("sector_avg_ev_ebitda", 12.0)
-        enterprise_value_millions = valuation_metrics.get("enterprise_value_millions")
+        # Sector multiples — track whether they were defaulted.
+        # `.get(key, default)` does NOT rescue a key that is present with value
+        # None, which is exactly what an unresolved sector produces. Coerce
+        # explicitly so a missing anchor degrades to the broad-market default
+        # (and is disclosed) instead of propagating None into the arithmetic
+        # and aborting the whole valuation.
         sector_multiples_defaulted = not valuation_metrics.get("sector_avg_pe")
+        sector_pe = valuation_metrics.get("sector_avg_pe") or 18.0
+        sector_ev_ebitda = valuation_metrics.get("sector_avg_ev_ebitda") or 12.0
+        enterprise_value_millions = valuation_metrics.get("enterprise_value_millions")
 
         # Raw data from stock_info
         ttm_eps = None
@@ -99,7 +110,7 @@ class BlendedValuationCalculator:
         beta = None
 
         # Quality metric inputs (for Part 3 capital efficiency scoring)
-        roic: Optional[float] = None        # returnOnEquity proxy
+        roic: Optional[float] = None        # NOPAT / invested capital
         fcf_margin: Optional[float] = None  # freeCashflow / totalRevenue
         net_debt_ebitda: Optional[float] = None  # (totalDebt - cash) / ebitda
         revenue: Optional[float] = None     # totalRevenue (for excess cash calc, Part 1)
@@ -112,15 +123,30 @@ class BlendedValuationCalculator:
             ebitda = stock_info.get("ebitda")
             shares_outstanding = stock_info.get("sharesOutstanding")
             total_debt = stock_info.get("totalDebt", 0) or 0
-            cash = stock_info.get("cash", 0) or 0
+            # yfinance's .info exposes `totalCash`, not `cash`. Reading the
+            # wrong key made cash zero in every valuation: it understated the
+            # equity bridge, turned net debt into GROSS debt (so net-cash
+            # companies were scored as levered and lost 25 confidence points),
+            # and made the excess-cash adjustment in the EV/EBITDA leg dead code.
+            cash = stock_info.get("totalCash") or stock_info.get("cash") or 0
+            # `capitalExpenditures` is likewise absent from .info; OCF − FCF is
+            # the same quantity and both fields are present.
             capex = stock_info.get("capitalExpenditures")
+            if capex is None:
+                ocf, fcf = stock_info.get("operatingCashflow"), stock_info.get("freeCashflow")
+                if ocf is not None and fcf is not None:
+                    capex = ocf - fcf
             revenue_growth = stock_info.get("revenueGrowth")
             beta = stock_info.get("beta")
 
             # Quality & sector inputs
             revenue = stock_info.get("totalRevenue")
             sector_name = stock_info.get("sector", "") or ""
-            roic = stock_info.get("returnOnEquity")  # ROE as ROIC proxy
+            # Real ROIC (NOPAT / invested capital), not returnOnEquity. ROE is
+            # levered and sits over book equity, so buyback-heavy names posted
+            # 100%+ "ROIC" and pinned this quality score at its ceiling.
+            _tax = (dcf_inputs.effective_tax_rate / 100.0) if (dcf_inputs and dcf_inputs.effective_tax_rate) else 0.21
+            roic, _roic_method = compute_roic(stock_info, _tax)
             if revenue and revenue > 0:
                 free_cf = stock_info.get("freeCashflow")
                 if free_cf is not None:
@@ -141,8 +167,14 @@ class BlendedValuationCalculator:
         if revenue_growth is None and dcf_inputs:
             revenue_growth = (dcf_inputs.revenue_growth_rate or 10.0) / 100.0
 
-        # Debt/cash validity
-        debt_cash_valid = (total_debt is not None) and (cash is not None)
+        # Debt/cash validity — check the SOURCE fields, not the locals above,
+        # which are coerced to 0 and so were unconditionally "valid" (a free
+        # +5 confidence bonus for data that was in fact never read).
+        debt_cash_valid = bool(
+            stock_info
+            and stock_info.get("totalDebt") is not None
+            and (stock_info.get("totalCash") is not None or stock_info.get("cash") is not None)
+        )
 
         # Debt ratio for archetype detection
         debt_ratio = (total_debt / market_cap) if market_cap > 0 and total_debt else 0.0
@@ -563,14 +595,24 @@ class BlendedValuationCalculator:
         """
         Score valuation reliability on a 0–100 scale.
 
-        Starts at 100, adds bonuses for high-quality inputs and available methods,
-        then subtracts penalties for missing data, fallbacks, divergence, and
-        extreme price deviation.
+        Starts at a base, adds bonuses for available methods and high-quality
+        inputs, then subtracts penalties for missing data, fallbacks, method
+        dispersion, and extreme price deviation.
+
+        The base is BASE_CONFIDENCE (45), chosen so that base + every bonus
+        lands exactly on the 100 ceiling. It used to start at 100 with up to
+        +55 of bonuses on top and a `min(100, ...)` applied only at the very
+        end — which meant a well-supported valuation carried 55 points of dead
+        headroom that penalties had to chew through before the score moved at
+        all. A run could report 100/100 "High" while its three methods
+        disagreed by 70% and the model sat 70% away from the market price.
+        Observed live on NVDA: 100/100 held while cross-method deviation went
+        from 5% to 33%. With no headroom, every penalty now registers.
 
         Returns:
             (confidence_score: int, confidence_label: str, uncertainty_drivers: List[str])
         """
-        score = 100
+        score = self.BASE_CONFIDENCE
         drivers: List[str] = []
 
         # ── Method availability bonuses (+10 per valid method, max +30) ──────────
@@ -753,7 +795,7 @@ class BlendedValuationCalculator:
 
     def _calculate_quality_score(
         self,
-        roic: Optional[float],         # returnOnEquity as proxy (0.0–1.0 decimal)
+        roic: Optional[float],         # NOPAT / invested capital (0.0–1.0 decimal)
         fcf_margin: Optional[float],   # freeCashflow/totalRevenue (0.0–1.0 decimal)
         net_debt_ebitda: Optional[float],  # (totalDebt - cash) / ebitda
     ) -> Optional[float]:
@@ -765,7 +807,7 @@ class BlendedValuationCalculator:
         """
         score_items: List[Tuple[float, float]] = []  # (score, weight)
 
-        # ROIC score (returnOnEquity as proxy; higher = better)
+        # ROIC score (NOPAT / invested capital; higher = better)
         if roic is not None:
             roic_pct = roic * 100
             if roic_pct >= 25:
@@ -1349,6 +1391,24 @@ class BlendedValuationCalculator:
         prob_weighted_ev = round(
             bear_target * final_bear_p + base_target_final * final_base_p + bull_target * final_bull_p, 2
         )
+
+        # Degeneracy guard. These scenarios are built symmetrically around the
+        # midpoint (bull = mid*(1+s), bear = mid*(1-s)) and, absent signal
+        # probabilities, weighted 25/50/25 — so the expectation reduces
+        # algebraically to the midpoint itself for EVERY stock:
+        #   0.25(1-s) + 0.50 + 0.25(1+s) == 1.0
+        # Publishing that as a separate "probability-weighted expected value"
+        # implies information the number does not carry, and a downstream
+        # consumer was ranking on it. Report it only when the probabilities
+        # actually skew the distribution; otherwise leave it unset so callers
+        # fall back to the manager's DVRG targets, whose bull/base/bear come
+        # from genuinely different anchors.
+        if abs(prob_weighted_ev - round(fair_value_mid, 2)) < 0.01:
+            logger.debug(
+                "Probability-weighted EV is degenerate (symmetric scenarios, static "
+                "probabilities) — equals fair_value_mid, so it is not reported separately"
+            )
+            prob_weighted_ev = None
 
         return PriceTargetScenarios(
             # Intrinsic value range

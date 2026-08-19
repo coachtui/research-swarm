@@ -46,6 +46,7 @@ import type {
   TrackRecordResponse,
   WeeklySignalPublic,
 } from '@/types/weekly-signals'
+import type { AnalysisReport } from '@/types/report'
 
 class ApiClient {
   private baseUrl: string
@@ -240,6 +241,46 @@ class ApiClient {
 
   async getAnalysis(runId: string): Promise<RunResponse> {
     return this.request(`/api/runs/${runId}`)
+  }
+
+  /**
+   * Phase D: fetch the persisted AnalysisReport (built once at write time,
+   * served verbatim). Returns null for runs analyzed before Phase C or when
+   * the user's tier lacks full-report access — callers fall back to
+   * full_output-derived rendering.
+   */
+  async getAnalysisReport(runId: string): Promise<AnalysisReport | null> {
+    try {
+      return await this.request<AnalysisReport>(`/api/runs/${runId}/report`)
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      if (status === 404 || status === 403) return null
+      throw error
+    }
+  }
+
+  /**
+   * Download the PDF export of a completed run as a Blob.
+   *
+   * Returns binary, so it bypasses the JSON `request()` helper: same auth
+   * header, same proxy/direct URL logic, but the body is read as a blob. The
+   * endpoint enforces ownership and tier-based redaction server-side.
+   */
+  async downloadPdfReport(runId: string): Promise<Blob> {
+    const token = await this._resolveToken()
+    const endpoint = `/api/runs/${runId}/report/pdf`
+    const cleanEndpoint = this.useProxy ? endpoint.replace(/^\/api\//, '/') : endpoint
+    const url = `${this.baseUrl}${cleanEndpoint}`
+
+    const response = await fetch(url, {
+      headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+    })
+    if (!response.ok) {
+      const err = new Error(`PDF export failed (${response.status})`) as Error & { status?: number }
+      err.status = response.status
+      throw err
+    }
+    return response.blob()
   }
 
   /** Public — no auth required. Returns the latest completed NVDA run for the example report. */

@@ -4,7 +4,7 @@ News Aggregation Module.
 Fetches, filters, and deduplicates news articles for analysis.
 """
 import json
-from typing import List, Dict, Set
+from typing import List, Dict, Optional, Set
 from difflib import SequenceMatcher
 from langchain_anthropic import ChatAnthropic
 from research_swarm.logger import logger
@@ -31,13 +31,19 @@ class NewsAggregator:
 
         logger.info("NewsAggregator initialized")
 
-    def fetch_news(self, ticker: str, days_back: int = 30) -> List[NewsArticle]:
+    def fetch_news(
+        self,
+        ticker: str,
+        days_back: int = 30,
+        company_name: Optional[str] = None,
+    ) -> List[NewsArticle]:
         """
         Fetch news articles for a company.
 
         Args:
             ticker: Stock ticker
             days_back: Number of days to look back
+            company_name: Company name for building a precise search query
 
         Returns:
             List of NewsArticle objects (raw, unfiltered)
@@ -45,7 +51,9 @@ class NewsAggregator:
         logger.info(f"Fetching news for {ticker} (last {days_back} days)")
 
         # Fetch from news client (with caching)
-        raw_articles = news_client.get_company_news(ticker, days_back)
+        raw_articles = news_client.get_company_news(
+            ticker, days_back, company_name=company_name
+        )
 
         # Convert to Pydantic models for validation
         validated_articles = []

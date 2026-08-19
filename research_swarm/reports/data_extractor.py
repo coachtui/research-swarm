@@ -126,6 +126,19 @@ def extract_signal_breakdown(news_hound_output: Dict[str, Any]) -> Dict[str, Any
         "analyst_interpretation": interpret_score(analyst_score),
         "institutional_interpretation": interpret_score(institutional_score),
         "insider_interpretation": interpret_score(insider_score),
+        "news_has_data": news_hound_output.get("sentiment_score") is not None,
+        "earnings_has_data": bool(news_hound_output.get("earnings_estimates")),
+        "analyst_has_data": bool(news_hound_output.get("analyst_consensus")),
+        "institutional_has_data": bool(news_hound_output.get("institutional_activity")),
+        "insider_has_data": bool(news_hound_output.get("insider_activity")),
+        # This fallback has no dark pool / technical divergence inputs; emit
+        # neutral defaults so the 7-signal template renders on this shape too
+        "dark_pool_score": 5.0,
+        "dark_pool_interpretation": "⚪ Neutral (no data)",
+        "dark_pool_has_data": False,
+        "tech_divergence_score": 5.0,
+        "tech_divergence_interpretation": "⚪ Neutral (no data)",
+        "tech_divergence_has_data": False,
         "alignment_status": alignment_status,
         "has_divergence": has_divergence,
         "divergence_explanation": divergence_explanation,
@@ -242,6 +255,9 @@ class DataExtractor:
         vgm_scores_raw = fundamentalist.get("vgm_scores", {})
 
         moat_breakdown = {
+            # None (not 0.0) when absent — the template renders the no-ROIC
+            # weighting only when the component is genuinely missing
+            "roic_wacc_spread": moat_breakdown_dict.get("roic_wacc_spread"),
             "earnings_momentum": moat_breakdown_dict.get("earnings_momentum", 0.0),
             "financial_health": moat_breakdown_dict.get("financial_health", 0.0),
             # Use VGM value_score for valuation (more reliable)
@@ -285,7 +301,55 @@ class DataExtractor:
             )
 
         valuation_metrics = fundamentalist.get("valuation_metrics")
-        price_targets = fundamentalist.get("price_targets")
+
+        # The report stamps sector comparators "as of <quarter>", so they must
+        # come from the CURRENT measured tables, not whatever table was
+        # shipped when this run was analyzed. Scores stay as stored — only the
+        # displayed benchmark refreshes.
+        if isinstance(valuation_metrics, dict):
+            from research_swarm.data.market_data_client import MarketDataClient
+
+            _sector, _ = MarketDataClient.effective_sector(
+                result.ticker, (valuation_metrics.get("sector")
+                                or fundamentalist.get("sector")
+                                or output.get("sector")))
+            _gics = MarketDataClient.normalize_sector(_sector)
+            if _gics is None:
+                _info = None
+                try:
+                    from research_swarm.data.market_data_client import market_data_client
+                    _info = market_data_client.get_company_info(result.ticker)
+                except Exception:
+                    pass
+                _gics = MarketDataClient.normalize_sector((_info or {}).get("sector"))
+            if _gics:
+                valuation_metrics = {
+                    **valuation_metrics,
+                    "sector_avg_pe": MarketDataClient.SECTOR_MEDIAN_PE.get(
+                        _gics, valuation_metrics.get("sector_avg_pe")),
+                    "sector_avg_ev_ebitda": MarketDataClient.SECTOR_MEDIAN_EV_EBITDA.get(
+                        _gics, valuation_metrics.get("sector_avg_ev_ebitda")),
+                }
+
+        # Price targets: prefer the manager's DVRG divergence-weighted targets —
+        # the numbers the web report shows. The fundamentalist's scenarios are
+        # the intrinsic band spread around its own midpoint; printing those
+        # while the site shows DVRG targets meant PDF and web disagreed on the
+        # headline numbers. Fair-value band fields ride along from the
+        # fundamentalist dict, which remains the fallback for pre-DVRG runs.
+        fund_targets = fundamentalist.get("price_targets")
+        manager_targets = output.get("price_targets")
+        if isinstance(manager_targets, dict) and manager_targets.get("base_target"):
+            price_targets = dict(manager_targets)
+            for band_key in (
+                "fair_value_low", "fair_value_mid", "fair_value_high",
+                "confidence_score", "confidence",
+            ):
+                if price_targets.get(band_key) is None and fund_targets:
+                    price_targets[band_key] = fund_targets.get(band_key)
+        else:
+            price_targets = fund_targets
+
         peer_comparison = fundamentalist.get("peer_comparison")
 
         # Generate peer comparison if not already provided by fundamentalist
@@ -416,20 +480,18 @@ class DataExtractor:
                     ),
                 }
 
-        # Derive fallback rating from moat_score if manager didn't produce one
+        # Rating: new records persist an already-reconciled rating; for older
+        # records derive + reconcile via the canonical scorer so the PDF can
+        # never disagree with the web badge on thresholds or reconciliation.
+        from research_swarm.agents.manager.scorer import ManagerScorer
+
+        llm_recommendation = output.get("recommendation")
         if not rating and result.moat_score is not None:
-            ms = result.moat_score
-            if ms >= 8.5:
-                rating = "STRONG BUY"
-            elif ms >= 7.0:
-                rating = "BUY"
-            elif ms >= 5.0:
-                rating = "HOLD"
-            elif ms >= 3.5:
-                rating = "SELL"
-            else:
-                rating = "STRONG SELL"
-            rating_score = ms
+            rating, rating_score = ManagerScorer.derive_rating(
+                result.moat_score, llm_recommendation=llm_recommendation
+            )
+        elif rating:
+            rating = ManagerScorer.reconcile_rating(rating, llm_recommendation)
 
         # Derive fallback risk_level from moat and valuation
         if not risk_level:
@@ -658,6 +720,19 @@ class DataExtractor:
                     f"Decision intelligence calculation failed for {result.ticker}: {e}"
                 )
 
+        # v4 rating axes — only meaningful for runs scored after the
+        # quality/valuation split (the axis value is absent on older rows).
+        quality_tier = None
+        valuation_tier = None
+        _val_axis = output.get("normalized_valuation_score")
+        if _val_axis is not None and result.moat_score is not None:
+            try:
+                from research_swarm.agents.manager.scorer import ManagerScorer
+                quality_tier = ManagerScorer._quality_tier(float(result.moat_score))
+                valuation_tier = ManagerScorer._valuation_tier(float(_val_axis))
+            except Exception:
+                pass
+
         return StockReportData(
             ticker=result.ticker,
             moat_score=result.moat_score or 0.0,
@@ -703,6 +778,12 @@ class DataExtractor:
             track_record=track_record,
             valuation_sensitivity=valuation_sensitivity,
             conviction_statement=conviction_statement,
+            macro_exposure=output.get("macro_exposure"),
+            company_name=fundamentalist.get("company_name"),
+            valuation_axis=output.get("normalized_valuation_score"),
+            quality_tier=quality_tier,
+            valuation_tier=valuation_tier,
+            quarterly_metrics=output.get("fundamentalist_output", {}).get("quarterly_metrics"),
             # Decision Intelligence (Phase 1)
             decision_framework=decision_framework,
             enhanced_trade_setup=enhanced_trade_setup,
