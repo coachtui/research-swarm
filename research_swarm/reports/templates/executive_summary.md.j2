@@ -13,16 +13,12 @@ Analyzed **{{ report.total_stocks }}** stocks for {{ report.analysis_period }}. 
 
 {% if stock.rating %}**Rating:** {{ stock.rating }} ({{ "%.1f"|format(stock.rating_score if stock.rating_score else stock.moat_score) }}/10){% if stock.risk_level %} | **Risk Level:** {{ stock.risk_level }}{% endif %}
 
-{% endif %}{{ stock.investment_thesis }}
+{% endif %}{% if stock.investment_thesis %}{{ stock.investment_thesis.recommendation_summary }}
+{% endif %}
 
 **Key Insights:**
-{% for insight in stock.key_insights %}
+{% for insight in stock.key_insights[:3] %}
 - {{ insight }}
-{% endfor %}
-
-**Risk Factors:**
-{% for risk in stock.risk_factors %}
-- {{ risk }}
 {% endfor %}
 
 {% if not loop.last %}---{% endif %}
