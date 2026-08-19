@@ -18,8 +18,6 @@ interface ReportCommandBarProps {
   timestamp: string
   runId: string
   companyName?: string
-  isReadingMode?: boolean
-  onToggleReadingMode?: () => void
   dvrgMode?: string | null
 }
 
@@ -29,8 +27,6 @@ export function ReportCommandBar({
   timestamp,
   runId,
   companyName,
-  isReadingMode,
-  onToggleReadingMode,
   dvrgMode,
 }: ReportCommandBarProps) {
   const hasDvrgMode = !!dvrgMode
@@ -128,19 +124,6 @@ export function ReportCommandBar({
               </span>
               <span className="sm:hidden">PDF</span>
             </button>
-            {onToggleReadingMode && (
-              <button
-                onClick={onToggleReadingMode}
-                className={`text-[10px] font-mono border rounded px-1.5 py-0.5 transition-colors hidden sm:block ${
-                  isReadingMode
-                    ? 'bg-primary/10 text-primary border-primary/30'
-                    : 'text-text-tertiary border-border hover:text-text-secondary'
-                }`}
-                title="Toggle Reading Mode (R)"
-              >
-                {isReadingMode ? 'EXIT' : '[R]'}
-              </button>
-            )}
             <AddToWatchlistButton
               ticker={ticker}
               companyName={companyName}
