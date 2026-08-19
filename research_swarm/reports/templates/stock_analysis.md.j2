@@ -380,7 +380,7 @@ All major signals pointing same direction → high conviction, low uncertainty.
 
 {% if stock.analyst_consensus.avg_price_target %}
 **Price Targets:**
-- Average Target: ${{ "%.2f"|format(stock.analyst_consensus.avg_price_target) }}{% if stock.analyst_consensus.target_upside_pct %} ({{ "%.1f"|format(stock.analyst_consensus.target_upside_pct) }}% upside){% endif %}
+- Average Target: ${{ "%.2f"|format(stock.analyst_consensus.avg_price_target) }}{% if stock.analyst_consensus.target_upside_pct %} ({{ "%.1f"|format(stock.analyst_consensus.target_upside_pct) }}% upside){% endif +%}
 {% if stock.analyst_consensus.high_price_target %}
 - High Target: ${{ "%.2f"|format(stock.analyst_consensus.high_price_target) }}
 {% endif %}
@@ -447,8 +447,8 @@ All major signals pointing same direction → high conviction, low uncertainty.
 
 {% if stock.insider_activity.insider_ownership_pct or stock.insider_activity.ceo_ownership_pct %}
 **Ownership:**
-{% if stock.insider_activity.insider_ownership_pct %}- Total Insider Ownership: {{ "%.2f"|format(stock.insider_activity.insider_ownership_pct) }}%{% endif %}
-{% if stock.insider_activity.ceo_ownership_pct %}- CEO Ownership: {{ "%.2f"|format(stock.insider_activity.ceo_ownership_pct) }}%{% endif %}
+{% if stock.insider_activity.insider_ownership_pct %}- Total Insider Ownership: {{ "%.2f"|format(stock.insider_activity.insider_ownership_pct) }}%{% endif +%}
+{% if stock.insider_activity.ceo_ownership_pct %}- CEO Ownership: {{ "%.2f"|format(stock.insider_activity.ceo_ownership_pct) }}%{% endif +%}
 - Ownership Trend: {{ stock.insider_activity.ownership_trend }}
 {% endif %}
 
@@ -478,14 +478,14 @@ All major signals pointing same direction → high conviction, low uncertainty.
 
 **Guidance Track Record:**
 - Guidance Reliability: {{ stock.management_commentary.guidance_reliability }}
-{% if stock.management_commentary.guidance_last_quarter %}- Last Quarter: {{ stock.management_commentary.guidance_last_quarter }}{% endif %}
-{% if stock.management_commentary.current_guidance %}- Current Guidance: {{ stock.management_commentary.current_guidance }}{% endif %}
-{% if stock.management_commentary.guidance_change %}- Guidance Change: {{ stock.management_commentary.guidance_change }}{% endif %}
+{% if stock.management_commentary.guidance_last_quarter %}- Last Quarter: {{ stock.management_commentary.guidance_last_quarter }}{% endif +%}
+{% if stock.management_commentary.current_guidance %}- Current Guidance: {{ stock.management_commentary.current_guidance }}{% endif +%}
+{% if stock.management_commentary.guidance_change %}- Guidance Change: {{ stock.management_commentary.guidance_change }}{% endif +%}
 
 **Capital Allocation:**
 - Capital Allocation Quality: {{ stock.management_commentary.capital_allocation_quality }}
-{% if stock.management_commentary.capex_discipline %}- CapEx Discipline: {{ stock.management_commentary.capex_discipline }}{% endif %}
-{% if stock.management_commentary.shareholder_returns %}- Shareholder Returns: {{ stock.management_commentary.shareholder_returns }}{% endif %}
+{% if stock.management_commentary.capex_discipline %}- CapEx Discipline: {{ stock.management_commentary.capex_discipline }}{% endif +%}
+{% if stock.management_commentary.shareholder_returns %}- Shareholder Returns: {{ stock.management_commentary.shareholder_returns }}{% endif +%}
 
 **Innovation & Competitive Position:**
 - Innovation Mentions: {{ stock.management_commentary.innovation_mentions }}
