@@ -459,7 +459,8 @@ class NewsAnalyzer:
         recommendations_data: Optional[pd.DataFrame],
         price_targets: Optional[Dict[str, Any]],
         ticker: str,
-        analysis_date: str
+        analysis_date: str,
+        upgrades_downgrades: Optional[pd.DataFrame] = None
     ) -> Tuple[Dict[str, Any], int]:
         """
         Analyze analyst consensus ratings and price targets.
@@ -469,15 +470,14 @@ class NewsAnalyzer:
             price_targets: Dict from get_analyst_price_target()
             ticker: Stock ticker
             analysis_date: Analysis date
+            upgrades_downgrades: DataFrame from get_upgrades_downgrades() with
+                per-action GradeDate/Firm/FromGrade/ToGrade/Action rows
 
         Returns:
             Tuple of (analyst_consensus_dict, tokens_used)
         """
         from research_swarm.agents.news_hound.prompts import ANALYST_CONSENSUS_PROMPT
-        from research_swarm.data.analyst_data_formatter import (
-            format_yf_analyst_recommendations,
-            format_yf_price_targets
-        )
+        from research_swarm.data.analyst_data_formatter import format_yf_price_targets
 
         logger.info(f"Analyzing analyst consensus for {ticker}")
 
@@ -490,12 +490,23 @@ class NewsAnalyzer:
         if price_targets:
             targets_text = format_yf_price_targets(price_targets)
 
+        actions_text = "No recent analyst actions available"
+        if upgrades_downgrades is not None and not upgrades_downgrades.empty:
+            lines = []
+            for _, row in upgrades_downgrades.head(25).iterrows():
+                date = row.get("GradeDate", "")
+                date = str(date)[:10] if pd.notna(date) else "?"
+                from_grade = row.get("FromGrade") if pd.notna(row.get("FromGrade")) else None
+                grade = f"{from_grade} → {row.get('ToGrade', '?')}" if from_grade else str(row.get("ToGrade", "?"))
+                lines.append(f"- {date}: {row.get('Firm', 'Unknown')} — {row.get('Action', '?')} ({grade})")
+            actions_text = "\n".join(lines)
+
         # Build prompt
         prompt = ANALYST_CONSENSUS_PROMPT.format(
             ticker=ticker,
             analysis_date=analysis_date,
             analyst_data=f"{recommendations_text}\n\n**Price Targets:**\n{targets_text}",
-            analyst_news="No recent analyst actions from news"
+            analyst_news=actions_text
         )
 
         try:
@@ -524,11 +535,12 @@ class NewsAnalyzer:
                 "high_price_target": None,
                 "low_price_target": None,
                 "target_upside_pct": None,
-                "upgrades_90d": 0,
-                "downgrades_90d": 0,
-                "new_coverage_90d": 0,
-                "rating_momentum": "neutral",
-                "consensus_confidence": 0.5
+                "upgrades": 0,
+                "downgrades": 0,
+                "new_coverage": 0,
+                "rating_momentum": "stable",
+                "target_trend": "stable",
+                "consensus_confidence": "low"
             }, 0
 
     def analyze_institutional_activity(

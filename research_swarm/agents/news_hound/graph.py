@@ -358,6 +358,7 @@ def analyze_analyst_consensus_node(state: NewsHoundState) -> NewsHoundState:
     state["status"] = "analyzing_consensus"
 
     from research_swarm.data.market_data_client import market_data_client
+    from research_swarm.data.analyst_revision_calculator import calculate_revision_metrics
 
     try:
         # NEW: Get from shared data first, fallback to direct fetch
@@ -373,19 +374,43 @@ def analyze_analyst_consensus_node(state: NewsHoundState) -> NewsHoundState:
             logger.debug("Fetching price targets directly (no shared data)")
             price_targets = market_data_client.get_analyst_price_target(state["ticker"])
 
+        # Upgrades/downgrades: use shared bundle first, fallback to direct fetch
+        upgrades_downgrades = shared_data.get("upgrades_downgrades")
+        if upgrades_downgrades is None:
+            logger.debug("Fetching upgrades/downgrades data for consensus activity")
+            upgrades_downgrades = market_data_client.get_upgrades_downgrades(
+                state["ticker"],
+                days_back=90
+            )
+
         # Analyze with LLM
         result, tokens = analyzer.analyze_analyst_consensus(
             recommendations_data,
             price_targets,
             state["ticker"],
-            state.get("analysis_date", "")
+            state.get("analysis_date", ""),
+            upgrades_downgrades=upgrades_downgrades
         )
+
+        # CRITICAL: Override LLM-generated activity counts with calculated metrics
+        action_metrics = calculate_revision_metrics(upgrades_downgrades)
+        net_actions = action_metrics["upward_revisions"] - action_metrics["downward_revisions"]
+        net_targets = action_metrics["price_target_increases"] - action_metrics["price_target_decreases"]
+        result["upgrades"] = action_metrics["upward_revisions"]
+        result["downgrades"] = action_metrics["downward_revisions"]
+        result["new_coverage"] = action_metrics["new_coverage"]
+        result["rating_momentum"] = "Improving" if net_actions > 0 else ("Deteriorating" if net_actions < 0 else "Stable")
+        result["target_trend"] = "Rising" if net_targets > 0 else ("Falling" if net_targets < 0 else "Stable")
 
         # Store in state
         state["analyst_consensus"] = result
         state["tokens_used"] = state.get("tokens_used", 0) + tokens
 
-        logger.success(f"✓ Analyst consensus analyzed")
+        logger.success(
+            f"✓ Analyst consensus analyzed "
+            f"({action_metrics['upward_revisions']} upgrades, {action_metrics['downward_revisions']} downgrades, "
+            f"{action_metrics['new_coverage']} initiations in 90d)"
+        )
 
     except Exception as e:
         logger.error(f"Error in analyst consensus node: {e}")
