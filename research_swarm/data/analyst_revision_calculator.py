@@ -24,6 +24,7 @@ def calculate_revision_metrics(upgrades_downgrades: pd.DataFrame) -> Dict[str, A
         Dict with:
             - upward_revisions: Count of upgrades
             - downward_revisions: Count of downgrades
+            - new_coverage: Count of coverage initiations
             - net_revision_direction: "Positive", "Negative", or "Neutral"
             - price_target_changes: Count of price target increases
             - avg_price_target_change_pct: Average % change in price targets
@@ -33,6 +34,7 @@ def calculate_revision_metrics(upgrades_downgrades: pd.DataFrame) -> Dict[str, A
         return {
             "upward_revisions": 0,
             "downward_revisions": 0,
+            "new_coverage": 0,
             "net_revision_direction": "Neutral",
             "price_target_increases": 0,
             "price_target_decreases": 0,
@@ -47,14 +49,16 @@ def calculate_revision_metrics(upgrades_downgrades: pd.DataFrame) -> Dict[str, A
         df['GradeDate'] = pd.to_datetime(df['GradeDate'])
         df = df.sort_values('GradeDate', ascending=False)
 
-    # Count upgrades and downgrades
+    # Count upgrades, downgrades, and new coverage initiations
     upward_revisions = 0
     downward_revisions = 0
+    new_coverage = 0
 
     if 'Action' in df.columns:
         action_lower = df['Action'].str.lower()
         upward_revisions = action_lower.str.contains('up', na=False).sum()
         downward_revisions = action_lower.str.contains('down', na=False).sum()
+        new_coverage = action_lower.str.contains('init', na=False).sum()
 
     # Analyze price target changes
     price_target_increases = 0
@@ -124,6 +128,7 @@ def calculate_revision_metrics(upgrades_downgrades: pd.DataFrame) -> Dict[str, A
     return {
         "upward_revisions": int(upward_revisions),
         "downward_revisions": int(downward_revisions),
+        "new_coverage": int(new_coverage),
         "net_revision_direction": net_direction,
         "price_target_increases": int(price_target_increases),
         "price_target_decreases": int(price_target_decreases),

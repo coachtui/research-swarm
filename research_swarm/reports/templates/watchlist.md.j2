@@ -6,7 +6,7 @@
 {% for stock in watchlist_candidates|sort(attribute='moat_score', reverse=True) %}
 ### {{ loop.index }}. {{ stock.ticker }} - {{ "%.1f"|format(stock.moat_score) }}/10
 
-**Investment Thesis:** {{ stock.investment_thesis }}
+{% if stock.investment_thesis %}**Investment Thesis:** {{ stock.investment_thesis.recommendation_summary }}{% endif %}
 
 **Moat Strengths:**
 {% set strengths = [] %}

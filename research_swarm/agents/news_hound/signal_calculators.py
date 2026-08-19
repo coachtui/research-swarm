@@ -133,14 +133,16 @@ def _weighted_rating_score(counts: Dict[str, int]) -> Optional[float]:
 def calculate_analyst_consensus(
     recommendations_data: Optional[pd.DataFrame],
     price_targets: Optional[Dict[str, Any]],
+    upgrades_downgrades: Optional[pd.DataFrame] = None,
 ) -> Dict[str, Any]:
     """Consensus rating distribution, price targets, and rating momentum.
 
     Rating momentum is derived by comparing the current month's weighted
     rating score against the oldest month in the recommendations history —
     something the old prompt asked for but the LLM had no basis to compute.
-    Upgrades/downgrades/new-coverage counts are not derivable from these
-    inputs, so they are reported as 0 rather than hallucinated.
+    Upgrade/downgrade/new-coverage counts and the target trend are counted
+    from the per-action upgrades_downgrades history (yfinance, 90 days);
+    without it they are reported as 0/stable rather than hallucinated.
     """
     counts = {"strong_buy": 0, "buy": 0, "hold": 0, "sell": 0, "strong_sell": 0}
     rating_momentum = "stable"
@@ -202,6 +204,14 @@ def calculate_analyst_consensus(
     else:
         confidence = "low"
 
+    # Recent-activity counts from the per-action history (real data, not
+    # derivable from the ratings-distribution snapshot above)
+    from research_swarm.data.analyst_revision_calculator import calculate_revision_metrics
+
+    action_metrics = calculate_revision_metrics(upgrades_downgrades)
+    net_targets = action_metrics["price_target_increases"] - action_metrics["price_target_decreases"]
+    target_trend = "rising" if net_targets > 0 else ("falling" if net_targets < 0 else "stable")
+
     return {
         **counts,
         "consensus_rating": consensus_rating,
@@ -209,11 +219,11 @@ def calculate_analyst_consensus(
         "high_price_target": pt.get("target_high"),
         "low_price_target": pt.get("target_low"),
         "target_upside_pct": target_upside_pct,
-        "upgrades": 0,
-        "downgrades": 0,
-        "new_coverage": 0,
+        "upgrades": action_metrics["upward_revisions"],
+        "downgrades": action_metrics["downward_revisions"],
+        "new_coverage": action_metrics["new_coverage"],
         "rating_momentum": rating_momentum,
-        "target_trend": "stable",
+        "target_trend": target_trend,
         "consensus_confidence": confidence,
     }
 

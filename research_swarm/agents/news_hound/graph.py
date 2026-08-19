@@ -320,19 +320,26 @@ def analyze_analyst_consensus_node(state: NewsHoundState) -> NewsHoundState:
 
     state["status"] = "analyzing_consensus"
 
-
     try:
         # Phase A: read only from the pre-assembled bundle (no mid-run fetches)
         shared_data = state.get("shared_swarm_data", {})
         recommendations_data = shared_data.get("earnings_data", {}).get("recommendations")
         price_targets = shared_data.get("earnings_data", {}).get("price_target")
+        upgrades_downgrades = shared_data.get("upgrades_downgrades")
 
         # Pure calculation — no LLM (the old Haiku call just copied these
         # numbers into JSON)
         from research_swarm.agents.news_hound.signal_calculators import calculate_analyst_consensus
-        state["analyst_consensus"] = calculate_analyst_consensus(recommendations_data, price_targets)
+        result = calculate_analyst_consensus(
+            recommendations_data, price_targets, upgrades_downgrades
+        )
+        state["analyst_consensus"] = result
 
-        logger.success(f"✓ Analyst consensus analyzed (deterministic)")
+        logger.success(
+            f"✓ Analyst consensus analyzed (deterministic; "
+            f"{result['upgrades']} upgrades, {result['downgrades']} downgrades, "
+            f"{result['new_coverage']} initiations in 90d)"
+        )
 
     except Exception as e:
         logger.error(f"Error in analyst consensus node: {e}")

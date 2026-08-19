@@ -1095,19 +1095,6 @@
 </p>
 {% endif %}
 
-{% if stock.decision_framework %}
-<div class="the-call-box" style="margin-top: 12pt;">
-    <div class="call-header">
-        <span class="call-label">The Call (Reiterated)</span>
-    </div>
-    <p class="one-liner">{{ stock.decision_framework.one_liner }}</p>
-    <p style="font-size: 8pt; color: #4a5568; margin-top: 6pt;">
-        <strong>Current Holders:</strong> {{ stock.decision_framework.current_holders.action }} — {{ stock.decision_framework.current_holders.detail }}<br>
-        <strong>New Buyers:</strong> {{ stock.decision_framework.new_buyers.action }} — {{ stock.decision_framework.new_buyers.detail }}
-    </p>
-</div>
-{% endif %}
-
 {% if stock.track_record %}
 <h3 class="section-subheader">Track Record</h3>
 <p style="font-size: 8pt;">

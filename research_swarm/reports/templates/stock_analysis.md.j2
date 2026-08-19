@@ -81,8 +81,8 @@
 ---
 {% endif %}
 
-{% if stock.enhanced_trade_setup %}
-#### 🎯 Trade Setup Playbook
+{% if stock.enhanced_trade_setup or stock.recommended_strategy %}
+#### 🎯 Trade Setup & Strategy
 
 > *Entry prices reflect the **Execution Discount Zone** — the optimal accumulation range constrained by both the Intrinsic Value Estimate and Market Structure Value Area (volume profile). The Execution Discount Zone sits below the intrinsic midpoint to provide margin of safety against model uncertainty and short-term volatility.*
 
@@ -91,7 +91,23 @@
 
 *{{ stock.conviction_position.conviction_justification }}*
 
+{% elif stock.recommended_strategy %}
+**Position Size:** {{ "%.1f"|format(stock.recommended_strategy.position_sizing.recommended_pct) }}% of portfolio (max {{ "%.1f"|format(stock.recommended_strategy.position_sizing.max_pct) }}%) — {{ stock.recommended_strategy.position_sizing.rationale }}
+
 {% endif %}
+{% if stock.recommended_strategy %}
+**Entry:** ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.low) }} – ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.high) }} (current: ${{ "%.2f"|format(stock.recommended_strategy.entry.current_price) }}) — {{ stock.recommended_strategy.entry.recommendation }}
+
+**Tranched Buying Plan:**
+
+| Phase | Allocation | Target Price |
+|-------|-----------|--------------|
+| Initial | {{ stock.recommended_strategy.entry.tranched_buying.initial_percent }}% | ${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.initial_price) }} |
+| Add-On | {{ stock.recommended_strategy.entry.tranched_buying.add_percent }}% | ${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.add_price) }} |
+| Final | {{ stock.recommended_strategy.entry.tranched_buying.final_percent }}% | ${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.final_price) }} |
+
+{% endif %}
+{% if stock.enhanced_trade_setup %}
 | | {{ stock.enhanced_trade_setup.conservative.label }} | {{ stock.enhanced_trade_setup.aggressive.label }} |
 |---|---|---|
 | **Entry Price** | ${{ "%.2f"|format(stock.enhanced_trade_setup.conservative.entry) }} | ${{ "%.2f"|format(stock.enhanced_trade_setup.aggressive.entry) }} |
@@ -101,6 +117,19 @@
 | **Max Loss (100 shares)** | -${{ "%.0f"|format(stock.enhanced_trade_setup.conservative.max_loss_per_100) }} | -${{ "%.0f"|format(stock.enhanced_trade_setup.aggressive.max_loss_per_100) }} |
 | **Max Gain (100 shares)** | +${{ "%.0f"|format(stock.enhanced_trade_setup.conservative.max_gain_per_100) }} | +${{ "%.0f"|format(stock.enhanced_trade_setup.aggressive.max_gain_per_100) }} |
 
+{% elif stock.recommended_strategy %}
+**Exit Plan:**
+- Target 1: ${{ "%.2f"|format(stock.recommended_strategy.exit.target_1.price) }} (Sell {{ stock.recommended_strategy.exit.target_1.percent }}%)
+- Target 2: ${{ "%.2f"|format(stock.recommended_strategy.exit.target_2.price) }} (Sell {{ stock.recommended_strategy.exit.target_2.percent }}%)
+- Stop Loss: ${{ "%.2f"|format(stock.recommended_strategy.exit.stop_loss) }}
+- Trailing Stop: {{ stock.recommended_strategy.exit.trailing_stop }}
+- Risk/Reward: {{ "%.1f"|format(stock.recommended_strategy.exit.risk_reward_ratio) }}:1
+
+{% endif %}
+{% if stock.recommended_strategy %}
+**Expected Holding Period:** {{ stock.recommended_strategy.exit.holding_period }} | **Expected Returns:** {{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_total) }}% total ({{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_annualized) }}% annualized)
+
+{% endif %}
 ---
 {% endif %}
 
@@ -162,6 +191,10 @@
 - **Smart Money Gap:** {% if (((stock.signal_breakdown.institutional_score + stock.signal_breakdown.insider_score + stock.signal_breakdown.dark_pool_score) / 3) - ((stock.signal_breakdown.news_score + stock.signal_breakdown.analyst_score) / 2))|abs >= 2.0 %}HIGH ({{ "%.1f"|format((((stock.signal_breakdown.institutional_score + stock.signal_breakdown.insider_score + stock.signal_breakdown.dark_pool_score) / 3) - ((stock.signal_breakdown.news_score + stock.signal_breakdown.analyst_score) / 2))|abs) }} points){% else %}Low{% endif %}
 - **Technical vs Fundamental Gap:** {% if (stock.signal_breakdown.tech_divergence_score - ((stock.signal_breakdown.earnings_score + stock.signal_breakdown.analyst_score) / 2))|abs >= 2.0 %}HIGH ({{ "%.1f"|format((stock.signal_breakdown.tech_divergence_score - ((stock.signal_breakdown.earnings_score + stock.signal_breakdown.analyst_score) / 2))|abs) }} points){% else %}Low{% endif %}
 
+{% if include_charts %}
+![{{ stock.ticker }} Signal Comparison](./charts/signals_{{ stock.ticker }}_comparison.png)
+{% endif %}
+
 ---
 {% elif stock.signal_breakdown %}
 #### ⚡ Signal Alignment (7 Signals)
@@ -179,6 +212,10 @@ All major signals pointing same direction → high conviction, low uncertainty.
 | 🌊 Dark Pool Activity | {{ "%.1f"|format(stock.signal_breakdown.dark_pool_score) }}/10 | {{ stock.signal_breakdown.dark_pool_interpretation }} | {% if stock.signal_breakdown.dark_pool_has_data %}✓{% else %}⚠️{% endif %} |
 | 👔 Insider Activity | {{ "%.1f"|format(stock.signal_breakdown.insider_score) }}/10 | {{ stock.signal_breakdown.insider_interpretation }} | {% if stock.signal_breakdown.insider_has_data %}✓{% else %}⚠️{% endif %} |
 | 📈 Technical Divergence | {{ "%.1f"|format(stock.signal_breakdown.tech_divergence_score) }}/10 | {{ stock.signal_breakdown.tech_divergence_interpretation }} | {% if stock.signal_breakdown.tech_divergence_has_data %}✓{% else %}⚠️{% endif %} |
+
+{% if include_charts %}
+![{{ stock.ticker }} Signal Comparison](./charts/signals_{{ stock.ticker }}_comparison.png)
+{% endif %}
 
 ---
 {% endif %}
@@ -200,12 +237,6 @@ All major signals pointing same direction → high conviction, low uncertainty.
 | 🔬 Intangible Assets | {{ "%.1f"|format(stock.enhanced_moat.intangible_assets) }}/10 | {% if stock.enhanced_moat.intangible_assets >= 7 %}Strong IP{% elif stock.enhanced_moat.intangible_assets >= 4 %}Some IP{% else %}Limited IP{% endif %} |
 | 📜 Regulatory Barriers | {{ "%.1f"|format(stock.enhanced_moat.regulatory_barriers) }}/10 | {% if stock.enhanced_moat.regulatory_barriers >= 7 %}Protected{% elif stock.enhanced_moat.regulatory_barriers >= 4 %}Some barriers{% else %}Open{% endif %} |
 | 🚚 Distribution | {{ "%.1f"|format(stock.enhanced_moat.distribution_advantages) }}/10 | {% if stock.enhanced_moat.distribution_advantages >= 7 %}Dominant{% elif stock.enhanced_moat.distribution_advantages >= 4 %}Established{% else %}Limited{% endif %} |
-
----
-{% else %}
-#### 📈 VGM Investment Style Analysis
-
-*VGM (Value/Growth/Momentum) style analysis not available for this ticker.*
 
 ---
 {% endif %}
@@ -240,12 +271,6 @@ All major signals pointing same direction → high conviction, low uncertainty.
 {% endif %}
 
 ---
-{% else %}
-#### 💵 Valuation Analysis
-
-*Valuation metrics not available for this ticker via free data sources.*
-
----
 {% endif %}
 
 {% if stock.price_targets %}
@@ -268,12 +293,6 @@ All major signals pointing same direction → high conviction, low uncertainty.
 {% endif %}
 
 ---
-{% else %}
-#### 🎯 Price Target Scenarios (12-Month)
-
-*Price target scenarios not available for this ticker.*
-
----
 {% endif %}
 
 {% if stock.peer_comparison %}
@@ -288,6 +307,7 @@ All major signals pointing same direction → high conviction, low uncertainty.
 **Peer Companies:** {{ stock.peer_comparison.peers|join(', ') }}
 {% endif %}
 
+{% if stock.peer_comparison.revenue_growth_rank or stock.peer_comparison.profit_margin_rank or stock.peer_comparison.roic_rank or stock.peer_comparison.valuation_rank %}
 **Competitive Rankings:**
 
 | Metric | Rank | Note |
@@ -300,52 +320,10 @@ All major signals pointing same direction → high conviction, low uncertainty.
 {% endif %}
 {% if stock.peer_comparison.valuation_rank %}| Valuation | #{{ stock.peer_comparison.valuation_rank }} | 1 = cheapest |
 {% endif %}
-
----
-{% else %}
-#### 🏆 Peer Comparison & Competitive Position
-
-*Peer comparison data not available for this ticker via free data sources. Premium data sources would provide detailed competitive positioning.*
-
----
-{% endif %}
-
-#### 📡 Signal Breakdown & Divergence Analysis
-
-{% if stock.signal_breakdown %}
-**Overall Sentiment Score:** {{ "%.2f"|format(stock.signal_breakdown.overall_score) }}/10
-
-**Component Signals:**
-
-| Signal | Score | Interpretation |
-|--------|-------|---------------|
-| 📰 News Sentiment | {{ "%.2f"|format(stock.signal_breakdown.news_score) }}/10 | {{ stock.signal_breakdown.news_interpretation }} |
-| 📊 Earnings Revisions | {{ "%.2f"|format(stock.signal_breakdown.earnings_score) }}/10 | {{ stock.signal_breakdown.earnings_interpretation }} |
-| 👔 Analyst Ratings | {{ "%.2f"|format(stock.signal_breakdown.analyst_score) }}/10 | {{ stock.signal_breakdown.analyst_interpretation }} |
-| 🏦 Institutional Activity | {{ "%.2f"|format(stock.signal_breakdown.institutional_score) }}/10 | {{ stock.signal_breakdown.institutional_interpretation }} |
-| 👤 Insider Activity | {{ "%.2f"|format(stock.signal_breakdown.insider_score) }}/10 | {{ stock.signal_breakdown.insider_interpretation }} |
-
-**Signal Alignment:** {{ stock.signal_breakdown.alignment_status }}
-
-{% if stock.signal_breakdown.has_divergence %}
-⚠️  **SIGNAL DIVERGENCE DETECTED:**
-{{ stock.signal_breakdown.divergence_explanation }}
-
-**Interpretation:** {{ stock.signal_breakdown.divergence_recommendation }}
-{% elif "STRONG" in stock.signal_breakdown.alignment_status %}
-✅ **Signal Alignment:** All signals pointing in the same direction - {{ stock.signal_breakdown.direction_consensus }}
-{% else %}
-🔶 **Signal Alignment:** Signals generally aligned with some variation - {{ stock.signal_breakdown.direction_consensus }}
-{% endif %}
-
-{% if include_charts %}
-![{{ stock.ticker }} Signal Comparison](./charts/signals_{{ stock.ticker }}_comparison.png)
-{% endif %}
-{% else %}
-*Signal breakdown data not available*
 {% endif %}
 
 ---
+{% endif %}
 
 {% if stock.earnings_estimates %}
 #### 📈 Earnings Estimate Revisions (PRIMARY SIGNAL)
@@ -384,12 +362,6 @@ All major signals pointing same direction → high conviction, low uncertainty.
 - Analyst Coverage: {{ stock.earnings_estimates.analyst_coverage }} analysts
 - Estimate Dispersion: {{ stock.earnings_estimates.estimate_dispersion }}
 - Agreement Level: {{ "%.0f"|format(stock.earnings_estimates.estimate_agreement * 100) }}%
-
----
-{% else %}
-#### 📈 Earnings Estimate Revisions (PRIMARY SIGNAL)
-
-*Earnings estimate revision data not available. Using proxy signal from analyst recommendation changes.*
 
 ---
 {% endif %}
@@ -644,42 +616,6 @@ All major signals pointing same direction → high conviction, low uncertainty.
 **Most Likely Outcome:** ${{ "%.2f"|format(stock.valuation_sensitivity.most_likely_outcome.price) }} ({{ "%+.1f"|format(stock.valuation_sensitivity.most_likely_outcome.upside_pct) }}% upside)
 
 **Confidence Level:** {{ stock.valuation_sensitivity.confidence_level }}
-
----
-{% endif %}
-
-{% if stock.recommended_strategy %}
-#### 🎯 Recommended Strategy
-
-**Entry Strategy:**
-- Execution Discount Zone: ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.low) }} – ${{ "%.2f"|format(stock.recommended_strategy.entry.ideal_zone.high) }}
-- Current Price: ${{ "%.2f"|format(stock.recommended_strategy.entry.current_price) }}
-- Recommendation: {{ stock.recommended_strategy.entry.recommendation }}
-
-**Tranched Buying Plan:**
-
-| Phase | Allocation | Target Price |
-|-------|-----------|--------------|
-| Initial | {{ stock.recommended_strategy.entry.tranched_buying.initial_percent }}% | ${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.initial_price) }} |
-| Add-On | {{ stock.recommended_strategy.entry.tranched_buying.add_percent }}% | ${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.add_price) }} |
-| Final | {{ stock.recommended_strategy.entry.tranched_buying.final_percent }}% | ${{ "%.2f"|format(stock.recommended_strategy.entry.tranched_buying.final_price) }} |
-
-**Position Sizing:**
-- Recommended: {{ "%.1f"|format(stock.recommended_strategy.position_sizing.recommended_pct) }}% of portfolio
-- Maximum: {{ "%.1f"|format(stock.recommended_strategy.position_sizing.max_pct) }}% of portfolio
-- Rationale: {{ stock.recommended_strategy.position_sizing.rationale }}
-
-**Exit Plan:**
-- Target 1: ${{ "%.2f"|format(stock.recommended_strategy.exit.target_1.price) }} (Sell {{ stock.recommended_strategy.exit.target_1.percent }}%)
-- Target 2: ${{ "%.2f"|format(stock.recommended_strategy.exit.target_2.price) }} (Sell {{ stock.recommended_strategy.exit.target_2.percent }}%)
-- Stop Loss: ${{ "%.2f"|format(stock.recommended_strategy.exit.stop_loss) }}
-- Trailing Stop: {{ stock.recommended_strategy.exit.trailing_stop }}
-
-**Risk/Reward:** {{ "%.1f"|format(stock.recommended_strategy.exit.risk_reward_ratio) }}:1
-
-**Expected Holding Period:** {{ stock.recommended_strategy.exit.holding_period }}
-
-**Expected Returns:** {{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_total) }}% total ({{ "%.1f"|format(stock.recommended_strategy.exit.expected_return_annualized) }}% annualized)
 
 ---
 {% endif %}
