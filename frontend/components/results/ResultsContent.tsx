@@ -272,7 +272,6 @@ export function ResultsContent({
             moatScore={analysisReport?.scores.quality_score ?? moat_score}
             summary={analysisReport?.thesis.headline || full_output?.investment_thesis?.recommendation_summary}
             keyInsights={analysisReport?.thesis.key_insights ?? full_output?.key_insights}
-            synthesisNarrative={analysisReport?.thesis.narrative || full_output?.synthesis_narrative}
           />
 
             {/* ══════════════════════════════════════════════════════════════════
@@ -381,10 +380,13 @@ export function ResultsContent({
           {full_output?.investment_thesis && (
             <CollapsibleSection
               title="Investment Thesis"
-              sublabel="Company overview · Highlights · Key risks · Entry context"
+              sublabel="Company overview · Highlights · Key risks · Entry context · Full synthesis"
               defaultOpen
             >
-              <InvestmentThesisPanel thesis={full_output.investment_thesis} />
+              <InvestmentThesisPanel
+                thesis={full_output.investment_thesis}
+                synthesisNarrative={analysisReport?.thesis.narrative || full_output?.synthesis_narrative}
+              />
             </CollapsibleSection>
           )}
 

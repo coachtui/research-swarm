@@ -1,20 +1,16 @@
 'use client'
 
 // Verdict Header — the headline answer to "what's the call?".
-// Renders the reconciled rating, the manager's key insights, and the full
-// synthesis narrative. Before this component, the report never displayed the
-// rating anywhere, and synthesis_narrative / key_insights (the most expensive
-// LLM outputs in the pipeline) were never rendered at all.
-
-import { useState } from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+// Renders the reconciled rating, the one-line summary, and the manager's key
+// insights — the 15-second read. The long synthesis narrative lives in the
+// Investment Thesis section (it is the raw draft the structured thesis is
+// rewritten from, so showing it here read as a second telling of the thesis).
 
 interface VerdictHeaderProps {
   rating?: string | null
   moatScore?: number | null
   summary?: string | null
   keyInsights?: string[] | null
-  synthesisNarrative?: string | null
 }
 
 const RATING_STYLES: Record<string, { badge: string; label: string }> = {
@@ -30,16 +26,13 @@ export function VerdictHeader({
   moatScore,
   summary,
   keyInsights,
-  synthesisNarrative,
 }: VerdictHeaderProps) {
-  const [showNarrative, setShowNarrative] = useState(false)
-
   const normalized = (rating || '').trim().toUpperCase()
   const style = RATING_STYLES[normalized]
   const insights = (keyInsights || []).filter(Boolean).slice(0, 5)
 
   // Nothing meaningful to show — render nothing rather than an empty shell
-  if (!style && !summary && insights.length === 0 && !synthesisNarrative) return null
+  if (!style && !summary && insights.length === 0) return null
 
   return (
     <div className="rounded-xl border border-border/60 bg-surface/40 overflow-hidden">
@@ -81,24 +74,6 @@ export function VerdictHeader({
           </ul>
         )}
 
-        {/* Full synthesis narrative, collapsed by default */}
-        {synthesisNarrative && (
-          <div className="border-t border-border/40 pt-2">
-            <button
-              type="button"
-              onClick={() => setShowNarrative(s => !s)}
-              className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-text-tertiary hover:text-text-secondary transition-colors"
-            >
-              {showNarrative ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-              Full synthesis
-            </button>
-            {showNarrative && (
-              <p className="mt-2 text-sm text-text-secondary leading-relaxed whitespace-pre-line">
-                {synthesisNarrative}
-              </p>
-            )}
-          </div>
-        )}
       </div>
     </div>
   )

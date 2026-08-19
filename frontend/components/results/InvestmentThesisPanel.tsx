@@ -1,6 +1,7 @@
 'use client'
 
-import { CheckCircle2, AlertTriangle } from 'lucide-react'
+import { useState } from 'react'
+import { CheckCircle2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
 import type { InvestmentThesisStructured } from '@/types/api'
 
 /**
@@ -13,20 +14,50 @@ import type { InvestmentThesisStructured } from '@/types/api'
  *   - Valuation & signal context
  *   - Key risks (bulleted)
  *   - Entry strategy note
+ *   - Full synthesis narrative (collapsed) — the manager's long-form prose the
+ *     structured thesis is rewritten from; lives here so the report has one
+ *     thesis home instead of a second telling in the verdict header
  */
+
+function SynthesisNarrative({ narrative }: { narrative: string }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="border-t border-border/40 pt-3">
+      <button
+        type="button"
+        onClick={() => setShow(s => !s)}
+        className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-text-tertiary hover:text-text-secondary transition-colors"
+      >
+        {show ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        Full synthesis narrative
+      </button>
+      {show && (
+        <p className="mt-2 text-sm text-text-secondary leading-relaxed whitespace-pre-line">
+          {narrative}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function InvestmentThesisPanel({
   thesis,
+  synthesisNarrative,
 }: {
   thesis: InvestmentThesisStructured | string | null | undefined
+  synthesisNarrative?: string | null
 }) {
   if (!thesis) return null
 
   // Legacy plain-string format
   if (typeof thesis === 'string') {
     return (
-      <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
-        {thesis}
-      </p>
+      <div className="space-y-4">
+        <p className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+          {thesis}
+        </p>
+        {synthesisNarrative && <SynthesisNarrative narrative={synthesisNarrative} />}
+      </div>
     )
   }
 
@@ -101,6 +132,9 @@ export function InvestmentThesisPanel({
           </p>
         </div>
       )}
+
+      {/* Full synthesis narrative, collapsed by default */}
+      {synthesisNarrative && <SynthesisNarrative narrative={synthesisNarrative} />}
 
     </div>
   )
