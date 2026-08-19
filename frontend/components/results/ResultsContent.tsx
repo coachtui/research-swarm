@@ -274,6 +274,32 @@ export function ResultsContent({
             keyInsights={analysisReport?.thesis.key_insights ?? full_output?.key_insights}
           />
 
+          {/* Model QA flags — calibration stability warnings and rating/target
+              divergence. Only present when the pipeline raised something.
+              Reports persisted before the flag plumbing fix carry a raw
+              stringified dict here — filter those out rather than render them. */}
+          {(() => {
+            const qaFlags = (analysisReport?.meta?.qa_flags ?? []).filter(
+              f => f.message && !f.message.startsWith('{')
+            )
+            if (qaFlags.length === 0) return null
+            return (
+              <div className="rounded-lg border border-warning/40 bg-warning/5 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-warning mb-1.5">
+                  Model QA Flags
+                </p>
+                <ul className="space-y-1">
+                  {qaFlags.map((f, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-text-secondary">
+                      <span className="text-warning mt-0.5 shrink-0">⚠</span>
+                      <span>{f.message}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })()}
+
             {/* ══════════════════════════════════════════════════════════════════
               PM SNAPSHOT — Persistent top-of-report block
               Answers 7 key questions in under 15 seconds.

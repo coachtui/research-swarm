@@ -424,10 +424,18 @@ def build_analysis_report(
                 summary=(full_output.get("signal_breakdown") or {}).get("divergence_explanation"),
             )
 
-        qa_flags = [
-            QAFlag(code="qa", message=str(flag))
-            for flag in (di.get("report_qa_flags") or full_output.get("report_qa_flags") or [])
-        ]
+        # Flags arrive as plain strings (decision intelligence) or dicts with a
+        # human-readable "message" (manager calibration flags) — never render a
+        # raw dict dump to the reader.
+        qa_flags = []
+        for flag in (di.get("report_qa_flags") or full_output.get("report_qa_flags") or []):
+            if isinstance(flag, dict):
+                qa_flags.append(QAFlag(
+                    code=str(flag.get("type") or "qa"),
+                    message=str(flag.get("message") or flag.get("display_label") or flag.get("type") or "QA review warranted"),
+                ))
+            else:
+                qa_flags.append(QAFlag(code="qa", message=str(flag)))
 
         targets = _build_targets(full_output, di)
         decision = _build_decision(full_output, di)
@@ -454,6 +462,15 @@ def build_analysis_report(
                     message=(
                         f"Rating is {rating} but the base target ${targets.base.target:,.2f} "
                         f"sits {gap_pct:.0f}% above the current price ${targets.current_price:,.2f}"
+                    ),
+                ))
+            elif rating == "HOLD" and abs(gap_pct) > 10:
+                qa_flags.append(QAFlag(
+                    code="rating_target_divergence",
+                    message=(
+                        f"Rating is HOLD but the base target ${targets.base.target:,.2f} sits "
+                        f"{abs(gap_pct):.0f}% {'below' if gap_pct < 0 else 'above'} the "
+                        f"current price ${targets.current_price:,.2f}"
                     ),
                 ))
 
