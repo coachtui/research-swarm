@@ -1,4 +1,5 @@
 """Tests for execution/market_data.py with MarketDataClient mocked."""
+from datetime import date
 from unittest.mock import patch
 
 import numpy as np
@@ -80,3 +81,51 @@ def test_fetch_ohlcv_batch_empty_download_returns_empty():
 
     with patch("yfinance.download", return_value=pd.DataFrame()):
         assert fetch_ohlcv_batch(["AAPL"]) == {}
+
+
+# ── latest_bar_date ─────────────────────────────────────────────────────────
+#
+# The daily cron uses this to answer "is the benchmark close I just fetched
+# actually today's?" — the check that catches a stale cache hit before it is
+# stored as a snapshot's spyClose and fed to the circuit breaker.
+
+def test_latest_bar_date_reads_a_fresh_datetime_index():
+    """The shape a live yfinance fetch returns."""
+    from execution.market_data import latest_bar_date
+
+    df = pd.DataFrame(
+        {"Close": [100.0, 101.0]},
+        index=pd.to_datetime(["2026-08-20", "2026-08-21"]),
+    )
+    assert latest_bar_date(df) == date(2026, 8, 21)
+
+
+def test_latest_bar_date_reads_a_cached_date_column():
+    """The shape a cache hit returns: the index was reset and the date
+    round-tripped through JSON as a string column."""
+    from execution.market_data import latest_bar_date
+
+    df = pd.DataFrame({"Date": ["2026-08-20", "2026-08-21"], "Close": [100.0, 101.0]})
+    assert latest_bar_date(df) == date(2026, 8, 21)
+
+
+def test_latest_bar_date_is_none_when_the_frame_carries_no_date():
+    """A bare RangeIndex means "unknown", never a guess — callers must be able
+    to tell "not today" apart from "cannot tell", and only skip on the former."""
+    from execution.market_data import latest_bar_date
+
+    assert latest_bar_date(pd.DataFrame({"Close": [100.0, 101.0]})) is None
+
+
+def test_latest_bar_date_handles_empty_and_none():
+    from execution.market_data import latest_bar_date
+
+    assert latest_bar_date(None) is None
+    assert latest_bar_date(pd.DataFrame({"Close": []})) is None
+
+
+def test_latest_bar_date_survives_an_unparseable_date_column():
+    from execution.market_data import latest_bar_date
+
+    df = pd.DataFrame({"Date": ["not-a-date"], "Close": [100.0]})
+    assert latest_bar_date(df) is None

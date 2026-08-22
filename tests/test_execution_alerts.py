@@ -24,6 +24,30 @@ async def test_alert_writes_engine_failure_report(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_alert_merges_structured_detail_into_the_body(monkeypatch):
+    """A caller with machine-readable context should not have to choose between
+    alerting and journaling it — that choice is what produced two EngineReport
+    rows for one event."""
+    calls = {}
+
+    async def fake_write_report(report_type, severity, source, title, body, db=None):
+        calls.update(body=body, severity=severity)
+        return "rep_1"
+
+    monkeypatch.setattr(alerts, "write_report", fake_write_report)
+    await alerts.send_failure_alert(
+        "subj", "detail", source="unit",
+        detail={"stage": "sleeve-a-snapshot", "missing": ["AEHR"]},
+    )
+    assert calls["severity"] == "critical"
+    assert calls["body"] == {
+        "detail": "detail",
+        "stage": "sleeve-a-snapshot",
+        "missing": ["AEHR"],
+    }
+
+
+@pytest.mark.asyncio
 async def test_alert_reports_error_when_journal_fails(monkeypatch):
     async def fake_write_report(*a, **k):
         return None

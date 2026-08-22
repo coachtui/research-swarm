@@ -6,6 +6,7 @@ raise OutlookDataError so the weekly job skips the week instead of
 producing an outlook from partial data.
 """
 import logging
+from datetime import date
 from typing import Dict, Iterable, Optional
 
 import pandas as pd
@@ -21,6 +22,30 @@ _MAX_MISSING_ETFS = 3
 
 class OutlookDataError(Exception):
     """Market data too incomplete to produce a trustworthy outlook."""
+
+
+def latest_bar_date(df: Optional[pd.DataFrame]) -> Optional[date]:
+    """Calendar date of the last row of an OHLCV frame, or None when the frame
+    carries no usable date.
+
+    MarketDataClient returns the SAME data in two shapes: a fresh fetch keeps
+    yfinance's DatetimeIndex, while a cache hit is rebuilt from JSON and carries
+    the date as a plain string column instead. A caller that needs to know which
+    session a close belongs to — the daily cron, checking that today's benchmark
+    is actually today's — has to handle both, and must get None rather than a
+    guess when neither shape is present.
+    """
+    if df is None or len(df) == 0:
+        return None
+    columns = getattr(df, "columns", None)
+    if columns is not None and "Date" in columns:
+        try:
+            return pd.to_datetime(df["Date"].iloc[-1]).date()
+        except Exception:  # noqa: BLE001 — an unparseable date is "unknown", not fatal
+            return None
+    if isinstance(df.index, pd.DatetimeIndex):
+        return df.index[-1].date()
+    return None  # RangeIndex and friends carry no date at all
 
 
 def fetch_history_for(tickers: Iterable[str], period: str = "1y") -> Dict[str, pd.Series]:

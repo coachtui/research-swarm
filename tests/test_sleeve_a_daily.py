@@ -336,16 +336,35 @@ def _sleeve_a_state_mocks(monkeypatch, positions_a=None):
 
 
 def _capture_reports(monkeypatch):
+    """Capture the engine journal — BOTH channels.
+
+    An alert is not a separate transport: send_failure_alert is write_report at
+    "critical" severity. It still needs its own patch, because execution.alerts
+    binds write_report at module import, so patching execution.reporting never
+    reaches it — and an unpatched alert would hit the real DB.
+
+    Returns (reports, alerts): every row lands in `reports` as
+    (type, title); the alert subset also lands in `alerts` so a test can assert
+    that something alerted rather than merely journaled.
+    """
+    import execution.alerts as alerts_mod
     import execution.reporting as reporting_mod
 
     reports = []
+    alerts = []
 
     async def fake_write_report(report_type, severity, source, title, body, db=None):
         reports.append((report_type, title))
         return "rep-id"
 
+    async def fake_send_failure_alert(subject, body, source="engine", detail=None):
+        alerts.append(subject)
+        reports.append(("engine_failure", subject))
+        return {"status": "journaled"}
+
     monkeypatch.setattr(reporting_mod, "write_report", fake_write_report)
-    return reports
+    monkeypatch.setattr(alerts_mod, "send_failure_alert", fake_send_failure_alert)
+    return reports, alerts
 
 
 @pytest.mark.asyncio
@@ -360,7 +379,7 @@ async def test_expiry_leaves_cash_untouched(monkeypatch, execution_daily_fn):
 
     _healthy_sleeve_b_mocks(monkeypatch, pd)
     cash_updates = _sleeve_a_state_mocks(monkeypatch)
-    reports = _capture_reports(monkeypatch)
+    reports, _alerts = _capture_reports(monkeypatch)
 
     # Expired yesterday; today's bar never traded through the 20.0 limit.
     order = MagicMock(id="o1", symbol="AEHR", side="buy", qty=100.0,
@@ -404,7 +423,7 @@ async def test_fills_error_does_not_cascade_to_stops(monkeypatch, execution_dail
     pos = types.SimpleNamespace(symbol="AEHR", qty=100.0,
                                 highWaterClose=None, avgEntryPrice=100.0)
     _sleeve_a_state_mocks(monkeypatch, positions_a=[pos])
-    reports = _capture_reports(monkeypatch)
+    reports, _alerts = _capture_reports(monkeypatch)
 
     async def broken_get_open_orders(self):
         raise RuntimeError("transient DB blip")
@@ -446,7 +465,7 @@ async def test_fills_error_does_not_cascade_to_stops(monkeypatch, execution_dail
 @pytest.mark.asyncio
 async def test_missing_bar_skips_snapshot_and_breaker(monkeypatch, execution_daily_fn):
     """A held position with no OHLCV bar must SKIP the day's Sleeve A
-    snapshot (journaling engine_failure) rather than value the holding at 0
+    snapshot (raising an alert) rather than value the holding at 0
     — a zeroed holding understates equity and could falsely trip the -15pp
     breaker. The breaker step then no-ops (it gates on the snapshot)."""
     import pandas as pd
@@ -460,7 +479,7 @@ async def test_missing_bar_skips_snapshot_and_breaker(monkeypatch, execution_dai
     pos = types.SimpleNamespace(symbol="AEHR", qty=100.0,
                                 highWaterClose=105.0, avgEntryPrice=100.0)
     _sleeve_a_state_mocks(monkeypatch, positions_a=[pos])
-    reports = _capture_reports(monkeypatch)
+    reports, _alerts = _capture_reports(monkeypatch)
 
     monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
                         AsyncMock(return_value=[]))
@@ -487,7 +506,9 @@ async def test_missing_bar_skips_snapshot_and_breaker(monkeypatch, execution_dai
     assert a["snapshot"] == {"active": False, "skipped": True, "missing": ["AEHR"]}
     assert a["breaker"] == {"active": False}             # gated on the snapshot
     assert snapshot_calls == ["B"]                       # Sleeve B's snapshot only
-    assert ("engine_failure", "Sleeve A snapshot skipped — missing bars: ['AEHR']") in reports
+    # Alerts, not just journals: a skipped snapshot takes the sleeve's circuit
+    # breaker offline for the day, which nobody notices in a warning row.
+    assert _alerts == ["Sleeve A snapshot skipped — missing bars"]
 
 
 def _reconcile_scenario_mocks(monkeypatch, pd, *, a_engine, broker_positions):
@@ -562,7 +583,7 @@ async def test_sleeve_a_stock_in_broker_never_freezes_sleeve_b(monkeypatch, exec
     status_calls = _reconcile_scenario_mocks(
         monkeypatch, pd, a_engine={"AAPL": 5.0}, broker_positions={"AAPL": 5.0},
     )
-    reports = _capture_reports(monkeypatch)
+    reports, _alerts = _capture_reports(monkeypatch)
 
     result = await execution_daily_fn(_FakeCtx())
 
@@ -582,7 +603,7 @@ async def test_sleeve_a_mismatch_freezes_only_a(monkeypatch, execution_daily_fn)
     status_calls = _reconcile_scenario_mocks(
         monkeypatch, pd, a_engine={"AAPL": 10.0}, broker_positions={"AAPL": 5.0},
     )
-    reports = _capture_reports(monkeypatch)
+    reports, _alerts = _capture_reports(monkeypatch)
 
     result = await execution_daily_fn(_FakeCtx())
 
@@ -714,7 +735,7 @@ async def test_unclaimed_broker_symbol_journals_without_freezing(monkeypatch, ex
         a_engine={"AAPL": 5.0},
         broker_positions={"AAPL": 5.0, "ZZZZ": 3.0},   # ZZZZ: nobody's
     )
-    reports = _capture_reports(monkeypatch)
+    reports, _alerts = _capture_reports(monkeypatch)
 
     result = await execution_daily_fn(_FakeCtx())
 
@@ -744,7 +765,7 @@ async def test_sleeve_a_stops_step_ratchets_but_never_sells(monkeypatch, executi
     pos = types.SimpleNamespace(symbol="NVDA", qty=10.0,
                                 highWaterClose=200.0, avgEntryPrice=100.0)
     _sleeve_a_state_mocks(monkeypatch, positions_a=[pos])
-    reports = _capture_reports(monkeypatch)
+    reports, _alerts = _capture_reports(monkeypatch)
 
     submit_sell_mock = AsyncMock()
     monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "submit_sell", submit_sell_mock)
@@ -777,3 +798,152 @@ async def test_sleeve_a_stops_step_ratchets_but_never_sells(monkeypatch, executi
     upd = shadow_db.engineposition.update.call_args.kwargs
     assert upd["data"] == {"highWaterClose": 200.0, "stopPrice": None}
     assert not any(t == "exit_stop" for t, _ in reports)
+
+
+# ── Benchmark guards on the shared SPY close ────────────────────────────────
+#
+# spyClose is stored on every snapshot and feeds the -15pp circuit breaker for
+# BOTH sleeves, so a benchmark the cron cannot trust must skip the snapshot
+# rather than store a guess. Two distinct failures, two distinct postures.
+
+def _benchmark_returns(monkeypatch, df):
+    """Point MarketDataClient at `df` (or None) AFTER _healthy_sleeve_b_mocks
+    has installed its own healthy fake."""
+    import importlib as _importlib
+
+    mdc_mod = _importlib.import_module("research_swarm.data.market_data_client")
+
+    class _Client:
+        def get_historical_data(self, symbol, period="5d"):
+            return df
+
+    monkeypatch.setattr(mdc_mod, "MarketDataClient", _Client)
+
+
+@pytest.mark.asyncio
+async def test_unavailable_benchmark_skips_snapshot_and_alerts(monkeypatch,
+                                                               execution_daily_fn):
+    """2026-08-19 regression. yfinance rate-limited SPY, MarketDataClient
+    swallowed it and returned None, and `float(df["Close"]...)` raised
+    TypeError inside step 4 of 11 — killing the whole cron, so the breaker,
+    the Sleeve A fills sweep, its reconcile, its stops and its snapshot never
+    ran at all. The fetch failure must now cost exactly the snapshot it broke:
+    no row stored, an alert raised, and every later step still executed."""
+    import pandas as pd
+
+    import api.lib.db as db_mod
+    import execution.broker.shadow_client as shadow_mod
+    import execution.sleeve_service as sleeve_mod
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    _sleeve_a_state_mocks(monkeypatch)
+    reports, alerts = _capture_reports(monkeypatch)
+    _benchmark_returns(monkeypatch, None)
+
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
+                        AsyncMock(return_value=[]))
+
+    snapshot_calls = []
+
+    async def fake_store_snapshot(db, sleeve, snapshot_date, equity, cash,
+                                   positions_value, spy_close):
+        snapshot_calls.append(sleeve)
+    monkeypatch.setattr(sleeve_mod, "store_snapshot", fake_store_snapshot)
+
+    async def fake_get_db():
+        return MagicMock()
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    # The cron completed instead of dying at step 4.
+    assert result["status"] == "snapshot_skipped"
+    assert result["snapshot_skip_reason"] == "benchmark_unavailable"
+    assert snapshot_calls == []                       # neither sleeve valued
+    assert result["breaker_tripped"] is False         # no verdict from a missing leg
+    assert alerts == ["Sleeve B snapshot skipped — benchmark unavailable"]
+    # Sleeve A's own steps still ran; only its snapshot deferred to the
+    # benchmark, and it does not double-alert for the same missing number.
+    assert result["sleeve_a"]["snapshot"] == {
+        "active": False, "skipped": True, "reason": "benchmark_unavailable",
+    }
+
+
+@pytest.mark.asyncio
+async def test_stale_benchmark_skips_snapshot_without_alerting(monkeypatch,
+                                                               execution_daily_fn):
+    """A frame whose last bar predates this run is the 1-day-TTL cache hit that
+    stored the prior session's close on 8 of 31 days. Skip the snapshot — but
+    journal only: a weekday market holiday produces exactly this shape and is
+    not a failure anyone needs paging about."""
+    import pandas as pd
+
+    import api.lib.db as db_mod
+    import execution.broker.shadow_client as shadow_mod
+    import execution.sleeve_service as sleeve_mod
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    _sleeve_a_state_mocks(monkeypatch)
+    reports, alerts = _capture_reports(monkeypatch)
+    _benchmark_returns(monkeypatch, pd.DataFrame(
+        {"Close": [300.0, 310.0]},
+        index=pd.to_datetime(["2020-01-06", "2020-01-07"]),
+    ))
+
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
+                        AsyncMock(return_value=[]))
+
+    snapshot_calls = []
+
+    async def fake_store_snapshot(db, sleeve, snapshot_date, equity, cash,
+                                   positions_value, spy_close):
+        snapshot_calls.append(sleeve)
+    monkeypatch.setattr(sleeve_mod, "store_snapshot", fake_store_snapshot)
+
+    async def fake_get_db():
+        return MagicMock()
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["snapshot_skip_reason"] == "benchmark_stale"
+    assert snapshot_calls == []
+    assert alerts == []                               # journalled, never paged
+    assert any(t == "engine_failure" and "is stale" in title for t, title in reports)
+
+
+@pytest.mark.asyncio
+async def test_dateless_benchmark_frame_is_accepted(monkeypatch, execution_daily_fn):
+    """"Cannot tell which day this is" is not "not today". A frame carrying no
+    date at all must still be stored — refusing it would skip every snapshot
+    over a shape we simply failed to read."""
+    import pandas as pd
+
+    import api.lib.db as db_mod
+    import execution.broker.shadow_client as shadow_mod
+    import execution.sleeve_service as sleeve_mod
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    _sleeve_a_state_mocks(monkeypatch)
+    reports, alerts = _capture_reports(monkeypatch)
+    _benchmark_returns(monkeypatch, pd.DataFrame({"Close": [300.0, 310.0]}))
+
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
+                        AsyncMock(return_value=[]))
+
+    snapshot_calls = []
+
+    async def fake_store_snapshot(db, sleeve, snapshot_date, equity, cash,
+                                   positions_value, spy_close):
+        snapshot_calls.append((sleeve, spy_close))
+    monkeypatch.setattr(sleeve_mod, "store_snapshot", fake_store_snapshot)
+
+    async def fake_get_db():
+        return MagicMock()
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+
+    result = await execution_daily_fn(_FakeCtx())
+
+    assert result["status"] == "ok"
+    assert ("B", 310.0) in snapshot_calls
+    assert alerts == []
