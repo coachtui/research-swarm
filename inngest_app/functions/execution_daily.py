@@ -308,7 +308,12 @@ def _register_inngest_function():
             # the breaker measures sleeve return MINUS SPY return, so a missing
             # leg cannot produce a verdict. Halting on a guess is the one
             # outcome worse than not checking today.
-            if not snap["stored"]:
+            # .get(…, True): Inngest memoizes step results, so a run that
+            # started before this shipped can replay into this code holding the
+            # previous `snapshot` shape, which carried no "stored" key. That
+            # shape only ever existed when the snapshot HAD been stored, so
+            # defaulting to True replays it exactly as it behaved before.
+            if not snap.get("stored", True):
                 return {"tripped": False, "skipped": True, "reason": snap["reason"]}
 
             from api.lib.db import get_db  # noqa: PLC0415
@@ -644,7 +649,7 @@ def _register_inngest_function():
             # Both sleeves benchmark against the SAME SPY close, fetched once in
             # the Sleeve B snapshot above. If that step refused its benchmark,
             # this one has nothing to record against either.
-            if not snap["stored"]:
+            if not snap.get("stored", True):  # replay-safe default, see breaker_check
                 return {"active": False, "skipped": True, "reason": snap["reason"]}
             db = None
             from execution.alerts import send_failure_alert  # noqa: PLC0415
@@ -766,7 +771,7 @@ def _register_inngest_function():
         a_breaker = await step.run("sleeve-a-breaker", sleeve_a_breaker_step)
 
         return {
-            "status": "ok" if snap["stored"] else "snapshot_skipped",
+            "status": "ok" if snap.get("stored", True) else "snapshot_skipped",
             "equity": snap.get("equity"),
             "snapshot_skip_reason": snap.get("reason"),
             "breaker_tripped": breaker["tripped"],

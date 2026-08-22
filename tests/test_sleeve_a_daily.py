@@ -947,3 +947,52 @@ async def test_dateless_benchmark_frame_is_accepted(monkeypatch, execution_daily
     assert result["status"] == "ok"
     assert ("B", 310.0) in snapshot_calls
     assert alerts == []
+
+
+@pytest.mark.asyncio
+async def test_legacy_memoized_snapshot_shape_still_completes(monkeypatch,
+                                                              execution_daily_fn):
+    """Inngest memoizes step results. A run that started before the benchmark
+    guards shipped can replay into this code holding the previous `snapshot`
+    shape — {"equity", "spy_close"}, no "stored" key. That must not KeyError
+    the cron; the old shape only ever existed when the snapshot HAD been
+    stored, so it replays as a normal day."""
+    import pandas as pd
+
+    import api.lib.db as db_mod
+    import execution.broker.shadow_client as shadow_mod
+    import execution.sleeve_service as sleeve_mod
+
+    _healthy_sleeve_b_mocks(monkeypatch, pd)
+    _sleeve_a_state_mocks(monkeypatch)
+    reports, alerts = _capture_reports(monkeypatch)
+
+    monkeypatch.setattr(shadow_mod.ShadowBrokerClient, "get_open_orders",
+                        AsyncMock(return_value=[]))
+
+    async def fake_store_snapshot(db, sleeve, snapshot_date, equity, cash,
+                                   positions_value, spy_close):
+        return None
+    monkeypatch.setattr(sleeve_mod, "store_snapshot", fake_store_snapshot)
+
+    async def fake_get_db():
+        return MagicMock()
+    monkeypatch.setattr(db_mod, "get_db", fake_get_db)
+
+    class _ReplayStep(_FakeStep):
+        """Serve the pre-guard return value for the memoized `snapshot` step."""
+
+        async def run(self, name, fn):
+            if name == "snapshot":
+                self.calls.append(name)
+                return {"equity": 11000.0, "spy_close": 310.0}
+            return await super().run(name, fn)
+
+    ctx = _FakeCtx()
+    ctx.step = _ReplayStep()
+
+    result = await execution_daily_fn(ctx)
+
+    assert result["status"] == "ok"
+    assert result["equity"] == 11000.0
+    assert alerts == []
