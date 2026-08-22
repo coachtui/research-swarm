@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from execution.constants import TRAILING_STOP_ATR_MULT
 
@@ -214,26 +214,82 @@ def _register_inngest_function():
         if recon["mismatches"]:
             return {"status": "frozen", "mismatches": recon["mismatches"]}
 
-        # Step 4: snapshot sleeve equity + SPY benchmark
+        # Step 4: snapshot sleeve equity + SPY benchmark.
+        #
+        # A benchmark we cannot trust must SKIP the snapshot, never store a
+        # guess — the same posture the Sleeve A snapshot below already takes on
+        # missing bars, and for the same reason: spyClose feeds the -15pp
+        # circuit breaker, so a wrong number here can halt a healthy sleeve or
+        # hide a sick one. Two ways it goes wrong, and they are not the same
+        # event:
+        #   unavailable — the provider gave us nothing (2026-08-19: yfinance
+        #     rate-limited SPY, MarketDataClient swallowed it and returned
+        #     None, and `float(df["Close"]...)` raised TypeError, killing the
+        #     whole cron at step 4 of 11). Alert: someone has to look.
+        #   stale — we got a frame, but its last bar predates this run
+        #     (2026-07/08: the 1-day cache TTL expiring on a rolling 24h
+        #     boundary served yesterday's frame on 8 of 31 days). Journal
+        #     only, no alert: a weekday market holiday lands here too and is
+        #     not a failure.
         async def snapshot() -> Dict[str, Any]:
             import asyncio  # noqa: PLC0415
 
             from api.lib.db import get_db  # noqa: PLC0415
+            from execution.alerts import send_failure_alert  # noqa: PLC0415
             from execution.constants import BENCHMARK, SLEEVE_B  # noqa: PLC0415
+            from execution.market_data import latest_bar_date  # noqa: PLC0415
+            from execution.reporting import write_report  # noqa: PLC0415
             from execution.sleeve_service import store_snapshot  # noqa: PLC0415
             from research_swarm.data.market_data_client import MarketDataClient  # noqa: PLC0415
 
-            def spy_close() -> float:
+            def spy_bar() -> Tuple[Optional[float], Optional[str]]:
+                """(close, bar date as ISO string). MarketDataClient converts
+                every provider error into None, so nothing here may subscript
+                the frame before checking it."""
                 df = MarketDataClient().get_historical_data(BENCHMARK, period="5d")
-                return float(df["Close"].dropna().iloc[-1])
+                if df is None or "Close" not in df:
+                    return None, None
+                closes = df["Close"].dropna()
+                if closes.empty:
+                    return None, None
+                bar_date = latest_bar_date(df)
+                return float(closes.iloc[-1]), bar_date.isoformat() if bar_date else None
 
-            spy = await asyncio.to_thread(spy_close)
+            spy, spy_bar_date = await asyncio.to_thread(spy_bar)
+            run_date = datetime.fromisoformat(run_date_iso)
+            run_day = run_date.date().isoformat()
+
+            if spy is None:
+                await send_failure_alert(
+                    "Sleeve B snapshot skipped — benchmark unavailable",
+                    f"No {BENCHMARK} close for {run_day}; the sleeve was not "
+                    "valued and neither circuit breaker ran today. Usually a "
+                    "provider rate limit — check the next run.",
+                    source="execution_daily",
+                    detail={"stage": "snapshot", "benchmark": BENCHMARK,
+                            "run_date": run_day},
+                )
+                return {"stored": False, "reason": "benchmark_unavailable"}
+
+            # Unknown bar date (a frame with neither a DatetimeIndex nor a Date
+            # column) is not evidence of staleness — accept it rather than
+            # skipping every snapshot over a shape we failed to read.
+            if spy_bar_date is not None and spy_bar_date < run_day:
+                await write_report(
+                    "engine_failure", "warning", "execution_daily",
+                    f"Sleeve B snapshot skipped — {BENCHMARK} close is stale "
+                    f"({spy_bar_date}, expected {run_day})",
+                    {"stage": "snapshot", "benchmark": BENCHMARK,
+                     "bar_date": spy_bar_date, "run_date": run_day},
+                )
+                return {"stored": False, "reason": "benchmark_stale",
+                        "bar_date": spy_bar_date}
+
             snap = build_sleeve_snapshot(
                 context["cash"],
                 list(context["engine_positions"].keys()),
                 broker["positions"],
             )
-            run_date = datetime.fromisoformat(run_date_iso)
             snapshot_date = run_date.replace(hour=0, minute=0, second=0, microsecond=0)
             db = await get_db()
             await store_snapshot(
@@ -241,12 +297,25 @@ def _register_inngest_function():
                 equity=snap["equity"], cash=context["cash"],
                 positions_value=snap["positions_value"], spy_close=spy,
             )
-            return {"equity": snap["equity"], "spy_close": spy}
+            return {"stored": True, "equity": snap["equity"], "spy_close": spy,
+                    "bar_date": spy_bar_date}
 
         snap = await step.run("snapshot", snapshot)
 
         # Step 5: circuit breaker (alert only on the active->halted transition)
         async def breaker_check() -> Dict[str, Any]:
+            # No snapshot means no trustworthy equity or benchmark to compare —
+            # the breaker measures sleeve return MINUS SPY return, so a missing
+            # leg cannot produce a verdict. Halting on a guess is the one
+            # outcome worse than not checking today.
+            # .get(…, True): Inngest memoizes step results, so a run that
+            # started before this shipped can replay into this code holding the
+            # previous `snapshot` shape, which carried no "stored" key. That
+            # shape only ever existed when the snapshot HAD been stored, so
+            # defaulting to True replays it exactly as it behaved before.
+            if not snap.get("stored", True):
+                return {"tripped": False, "skipped": True, "reason": snap["reason"]}
+
             from api.lib.db import get_db  # noqa: PLC0415
             from execution.alerts import send_failure_alert  # noqa: PLC0415
             from execution.constants import SLEEVE_B  # noqa: PLC0415
@@ -577,7 +646,13 @@ def _register_inngest_function():
         async def sleeve_a_snapshot_step() -> Dict[str, Any]:
             if not fills["active"]:
                 return {"active": False}
+            # Both sleeves benchmark against the SAME SPY close, fetched once in
+            # the Sleeve B snapshot above. If that step refused its benchmark,
+            # this one has nothing to record against either.
+            if not snap.get("stored", True):  # replay-safe default, see breaker_check
+                return {"active": False, "skipped": True, "reason": snap["reason"]}
             db = None
+            from execution.alerts import send_failure_alert  # noqa: PLC0415
             from execution.reporting import write_report  # noqa: PLC0415
             try:
                 import asyncio  # noqa: PLC0415
@@ -606,11 +681,18 @@ def _register_inngest_function():
                     if s not in ohlcv or ohlcv[s] is None or ohlcv[s].empty
                 ]
                 if missing:
-                    await write_report(
-                        "engine_failure", "warning", "execution_daily",
-                        f"Sleeve A snapshot skipped — missing bars: {missing}",
-                        {"stage": "sleeve-a-snapshot", "missing": missing},
-                        db=db,
+                    # Alert, not just journal: a skipped snapshot silently takes
+                    # the Sleeve A circuit breaker offline for the day (the
+                    # breaker step below gates on this one). On 2026-08-20 that
+                    # went unnoticed because a warning row is only visible to
+                    # someone already reading the feed.
+                    await send_failure_alert(
+                        "Sleeve A snapshot skipped — missing bars",
+                        f"No bars for {', '.join(missing)}; the sleeve was not "
+                        "valued and its circuit breaker did not run today. "
+                        "Usually a provider rate limit — check the next run.",
+                        source="execution_daily",
+                        detail={"stage": "sleeve-a-snapshot", "missing": missing},
                     )
                     return {"active": False, "skipped": True, "missing": missing}
 
@@ -689,7 +771,10 @@ def _register_inngest_function():
         a_breaker = await step.run("sleeve-a-breaker", sleeve_a_breaker_step)
 
         return {
-            "status": "ok", "equity": snap["equity"], "breaker_tripped": breaker["tripped"],
+            "status": "ok" if snap.get("stored", True) else "snapshot_skipped",
+            "equity": snap.get("equity"),
+            "snapshot_skip_reason": snap.get("reason"),
+            "breaker_tripped": breaker["tripped"],
             "sleeve_a": {
                 "active": fills["active"], "reconcile": a_recon, "fills": fills,
                 "stops": stops, "snapshot": a_snap, "breaker": a_breaker,

@@ -3,6 +3,7 @@ Market data client using yfinance.
 Free API, no key required. Rate limited to be respectful.
 """
 import math
+from datetime import datetime, timezone
 
 import yfinance as yf
 import pandas as pd
@@ -56,7 +57,16 @@ class MarketDataClient:
             DataFrame with OHLCV data or None
         """
         ticker = ticker.upper()
-        cache_key = f"{ticker}_hist_{period}"
+        # Date-scoped key. A daily bar frame is only valid for the UTC day it
+        # was fetched on, but a plain `{ticker}_hist_{period}` key with a
+        # 1-day TTL expires on a ROLLING 24h boundary — so a caller that runs
+        # a few seconds earlier than it did yesterday still gets a hit and
+        # reads yesterday's frame. The 21:15 UTC execution cron did exactly
+        # that on 8 of 31 days in Jul-Aug 2026, storing the prior session's
+        # SPY close as today's benchmark and biasing the circuit breaker.
+        # Keying on the UTC date makes the first fetch of each day a
+        # guaranteed miss; the TTL below then just reaps the row.
+        cache_key = f"{ticker}_hist_{period}_{datetime.now(timezone.utc):%Y-%m-%d}"
 
         # Cache for 1 day (markets update daily)
         cached = cache.get("market_hist", cache_key)
