@@ -6,8 +6,10 @@ raise OutlookDataError so the weekly job skips the week instead of
 producing an outlook from partial data.
 """
 import logging
+import random
+import time
 from datetime import date
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, List, Optional
 
 import pandas as pd
 
@@ -18,6 +20,13 @@ from execution.constants import BENCHMARK, EQUAL_WEIGHT, SECTOR_ETFS, VIX
 logger = logging.getLogger(__name__)
 
 _MAX_MISSING_ETFS = 3
+
+# Seconds to wait between OHLCV download attempts; len(...) + 1 = total attempts.
+# Yahoo's 429 cleared in ~33s on 2026-08-20 (the SPY fetch failed at 21:15:46 and
+# succeeded at 21:16:19), so a ladder topping out around half a minute is the
+# shape that recovers. Every caller is a cron step running off the event loop,
+# so the wait costs latency nobody is waiting on.
+_OHLCV_RETRY_BACKOFF = (5.0, 20.0)
 
 
 class OutlookDataError(Exception):
@@ -114,14 +123,10 @@ def fetch_closes_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, 
     return out
 
 
-def fetch_ohlcv_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, pd.DataFrame]:
-    """Batched OHLCV download. Returns {ticker: DataFrame[Open,High,Low,Close,Volume]}.
-    Tickers with no data are omitted — callers treat absence as 'skip this name'."""
+def _download_ohlcv(symbols: List[str], period: str) -> Dict[str, pd.DataFrame]:
+    """One yf.download attempt. Empty result == nothing usable came back."""
     import yfinance as yf  # noqa: PLC0415 — heavy import stays local
 
-    symbols = list(dict.fromkeys(t.upper() for t in tickers if t))
-    if not symbols:
-        return {}
     try:
         raw = yf.download(
             tickers=" ".join(symbols), period=period, interval="1d",
@@ -146,6 +151,44 @@ def fetch_ohlcv_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, p
         except (KeyError, IndexError):  # one bad ticker must not sink the batch
             continue
     return out
+
+
+def fetch_ohlcv_batch(tickers: Iterable[str], period: str = "1y") -> Dict[str, pd.DataFrame]:
+    """Batched OHLCV download. Returns {ticker: DataFrame[Open,High,Low,Close,Volume]}.
+    Tickers with no data are omitted — callers treat absence as 'skip this name'.
+
+    Retries ONLY a completely empty result. That is the rate-limit signature:
+    yfinance answers a 429 by logging "N Failed downloads" and handing back an
+    empty frame WITHOUT raising, so the except above never fires and the whole
+    batch vanishes at once — which is how every Sleeve A holding lost its bar on
+    2026-08-20 and the day's snapshot was skipped. A batch that returns some
+    names is a different event: one delisted or misspelled ticker among ten, and
+    making that pay the backoff on every run would be a pointless tax.
+    """
+    symbols = list(dict.fromkeys(t.upper() for t in tickers if t))
+    if not symbols:
+        return {}
+
+    for pause in (*_OHLCV_RETRY_BACKOFF, None):
+        out = _download_ohlcv(symbols, period)
+        if out:
+            return out
+        if pause is None:
+            break
+        # Jitter so the daily cron's three back-to-back batches (fills, stops,
+        # snapshot) do not retry in lockstep against a provider already saying no.
+        delay = pause + random.uniform(0.0, pause * 0.25)
+        logger.warning(
+            "fetch_ohlcv_batch: no data for any of %d symbols — retrying in %.1fs",
+            len(symbols), delay,
+        )
+        time.sleep(delay)
+
+    logger.error(
+        "fetch_ohlcv_batch: no data for any of %d symbols after %d attempts (%s)",
+        len(symbols), len(_OHLCV_RETRY_BACKOFF) + 1, ", ".join(symbols[:10]),
+    )
+    return {}
 
 
 def fetch_weekly_closes(tickers: Iterable[str], period: str = "5y") -> Dict[str, pd.Series]:
