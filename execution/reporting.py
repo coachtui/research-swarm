@@ -22,6 +22,11 @@ REPORT_TYPES = frozenset({
     "dca_add", "review_trigger", "thesis_reduce",
     # Thesis-first entry redesign (2026-07-27)
     "thesis_memo", "study_digest", "entry_rejected",
+    # Quarterly sleeve review (2026-08-23) — body carries {quarter, report_url,
+    # report_title}; the /admin Quarterlies tab joins it onto the computed
+    # rollup, because a link to a written review is the one fact the snapshot
+    # series cannot produce.
+    "quarterly_review",
 })
 SEVERITIES = frozenset({"info", "warning", "critical"})
 

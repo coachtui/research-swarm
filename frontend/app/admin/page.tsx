@@ -17,6 +17,7 @@ import { WatchlistView } from '@/components/dashboard/WatchlistView'
 import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
 import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
 import { PortfolioSeedForm } from '@/components/portfolio/PortfolioSeedForm'
+import { QuarterliesPanel } from '@/components/autopilot/QuarterliesPanel'
 import { ActionsTab } from '@/components/portfolio/ActionsTab'
 import { HoldingsTab } from '@/components/portfolio/HoldingsTab'
 import { usePortfolio } from '@/lib/hooks/usePortfolio'
@@ -96,6 +97,7 @@ function AdminContent() {
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
             <TabsTrigger value="revenue">Revenue</TabsTrigger>
             <TabsTrigger value="outlook">Outlook</TabsTrigger>
+            <TabsTrigger value="quarterlies">Quarterlies</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="analyses">Analyses</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
@@ -134,6 +136,10 @@ function AdminContent() {
                 <WeeklyBatchPanel />
               </TabsContent>
             </Tabs>
+          </TabsContent>
+
+          <TabsContent value="quarterlies">
+            <QuarterliesPanel />
           </TabsContent>
 
           <TabsContent value="users">

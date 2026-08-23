@@ -62,5 +62,8 @@ def test_report_type_vocabulary_matches_spec():
         "dca_add", "review_trigger", "thesis_reduce",
         # Thesis-first entry redesign (2026-07-27)
         "thesis_memo", "study_digest", "entry_rejected",
+        # Quarterly sleeve review (2026-08-23) — body carries
+        # {quarter, report_url, report_title}
+        "quarterly_review",
     })
     assert SEVERITIES == frozenset({"info", "warning", "critical"})
