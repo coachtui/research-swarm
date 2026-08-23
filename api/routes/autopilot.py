@@ -139,6 +139,66 @@ async def get_engine_reports(
     return [engine_report_row_to_response(r) for r in rows]
 
 
+# ── Quarterly sleeve reviews ────────────────────────────────────────────────
+
+
+class QuarterlySleeveResponse(BaseModel):
+    """One sleeve's result inside one quarter."""
+    sleeve: str
+    start_equity: float
+    end_equity: float
+    return_pct: Optional[float]
+    excess_pct: Optional[float]
+    snapshots: int
+
+
+class QuarterlyReviewResponse(BaseModel):
+    """One calendar quarter of sleeve performance, plus its written review."""
+    quarter: str
+    period_start: str
+    period_end: str
+    complete: bool
+    trading_days: int
+    benchmark_return_pct: Optional[float]
+    benchmark_start: float
+    benchmark_end: float
+    sleeves: List[QuarterlySleeveResponse]
+    report_url: Optional[str]
+    report_title: Optional[str]
+
+
+@router.get("/autopilot/quarterlies", response_model=List[QuarterlyReviewResponse])
+async def get_quarterlies(admin: User = Depends(require_admin)):
+    """Quarter-by-quarter sleeve performance, oldest first.
+
+    Every number is recomputed from SleeveSnapshot on each request rather than
+    stored, so a correction to that series flows straight through instead of
+    leaving a stale aggregate behind. The only thing joined in is the link to
+    each quarter's written review, which lives in the EngineReport journal
+    because it is the one fact the snapshots cannot produce.
+    """
+    from execution.quarterly_review import (  # noqa: PLC0415
+        SnapshotPoint, attach_reports, build_quarterly_reviews,
+    )
+
+    db = await get_db()
+    rows = await db.sleevesnapshot.find_many(order={"snapshotDate": "asc"})
+    quarters = build_quarterly_reviews(
+        SnapshotPoint(
+            day=r.snapshotDate.date(), sleeve=r.sleeve,
+            equity=r.equity, spy_close=r.spyClose,
+        )
+        for r in rows
+    )
+    reviews = await db.enginereport.find_many(
+        where={"type": "quarterly_review"},
+        order={"createdAt": "desc"},
+        take=100,
+    )
+    attach_reports(quarters, [r.body or {} for r in reviews])
+    return [QuarterlyReviewResponse(**q) for q in quarters]
+
+
 # ── Monday batch audit trail ────────────────────────────────────────────────
 
 class WeeklyBatchRunSummary(BaseModel):

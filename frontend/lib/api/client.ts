@@ -40,6 +40,7 @@ import type {
   ExecuteActionResponse,
   CancelActionResponse,
   UpdateCashResponse,
+  QuarterlyReview,
 } from '@/types/api'
 import type {
   LeaderboardResponse,
@@ -412,6 +413,10 @@ class ApiClient {
     if (params?.limit) q.set('limit', String(params.limit))
     const suffix = q.toString() ? `?${q.toString()}` : ''
     return this.request(`/api/autopilot/reports${suffix}`)
+  }
+
+  async getQuarterlies(): Promise<QuarterlyReview[]> {
+    return this.request('/api/autopilot/quarterlies')
   }
 
   async getWeek(week?: string): Promise<WeekResponse> {

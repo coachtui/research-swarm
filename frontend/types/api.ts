@@ -1168,6 +1168,29 @@ export interface EngineReportEntry {
   body: Record<string, unknown>
 }
 
+export interface QuarterlySleeveResult {
+  sleeve: string
+  start_equity: number
+  end_equity: number
+  return_pct: number | null
+  excess_pct: number | null
+  snapshots: number
+}
+
+export interface QuarterlyReview {
+  quarter: string
+  period_start: string
+  period_end: string
+  complete: boolean
+  trading_days: number
+  benchmark_return_pct: number | null
+  benchmark_start: number
+  benchmark_end: number
+  sleeves: QuarterlySleeveResult[]
+  report_url: string | null
+  report_title: string | null
+}
+
 export interface MarketOutlookResponse {
   id: string
   run_date: string

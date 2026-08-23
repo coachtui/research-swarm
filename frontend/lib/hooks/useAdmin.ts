@@ -11,6 +11,7 @@ import type {
   WeekResponse,
   WeeklyBatchRunSummary,
   WeeklyBatchRunDetail,
+  QuarterlyReview,
 } from '@/types/api'
 
 // Query keys
@@ -23,6 +24,7 @@ export const adminKeys = {
   analyses: (limit?: number, ticker?: string) => [...adminKeys.all, 'analyses', limit, ticker] as const,
   outlook: () => [...adminKeys.all, 'outlook'] as const,
   engineReports: (type?: string) => [...adminKeys.all, 'engineReports', type ?? 'all'] as const,
+  quarterlies: () => [...adminKeys.all, 'quarterlies'] as const,
   batchRuns: () => [...adminKeys.all, 'batchRuns'] as const,
   batchRunDetail: (runDate?: string) => [...adminKeys.all, 'batchRunDetail', runDate ?? 'latest'] as const,
 }
@@ -102,6 +104,19 @@ export function useEngineReports(type?: string) {
     queryKey: adminKeys.engineReports(type),
     queryFn: () => apiClient.getEngineReports({ type, limit: 50 }),
     staleTime: 1000 * 60 * 5,
+  })
+}
+
+/**
+ * Quarter-by-quarter sleeve performance, oldest first, with each quarter's
+ * written review linked. Recomputed server-side from SleeveSnapshot on every
+ * request, so a correction to the snapshot series shows up here immediately.
+ */
+export function useQuarterlies() {
+  return useQuery<QuarterlyReview[]>({
+    queryKey: adminKeys.quarterlies(),
+    queryFn: () => apiClient.getQuarterlies(),
+    staleTime: 1000 * 60 * 30,
   })
 }
 

@@ -589,3 +589,108 @@ class TestGetBatchRunDetailEndpoint:
             resp = TestClient(app).get("/api/autopilot/batch-runs/detail")
         assert resp.status_code == 404
         assert resp.json()["detail"] == "No batch run available yet"
+
+
+# ── Quarterly sleeve reviews ────────────────────────────────────────────────
+
+def _snap_row(day, sleeve, equity, spy):
+    """A fake Prisma SleeveSnapshot row (camelCase attrs)."""
+    return SimpleNamespace(
+        snapshotDate=datetime(day.year, day.month, day.day, tzinfo=timezone.utc),
+        sleeve=sleeve, equity=equity, cash=0.0, positionsValue=equity, spyClose=spy,
+    )
+
+
+def _quarterlies_app(snapshots, reviews=()):
+    app = _make_app()
+    app.dependency_overrides[require_admin] = lambda: MagicMock(is_admin=True)
+    mock_db = MagicMock()
+    mock_db.sleevesnapshot.find_many = AsyncMock(return_value=list(snapshots))
+    mock_db.enginereport.find_many = AsyncMock(
+        return_value=[SimpleNamespace(body=b) for b in reviews]
+    )
+    return app, mock_db
+
+
+class TestQuarterliesEndpoint:
+    def test_rolls_snapshots_up_by_quarter(self):
+        from datetime import date
+
+        app, mock_db = _quarterlies_app([
+            _snap_row(date(2026, 7, 10), "A", 70000.0, 700.0),
+            _snap_row(date(2026, 7, 10), "B", 30000.0, 700.0),
+            _snap_row(date(2026, 8, 21), "A", 69300.0, 707.0),
+            _snap_row(date(2026, 8, 21), "B", 30600.0, 707.0),
+        ])
+        with patch("api.routes.autopilot.get_db",
+                   new_callable=AsyncMock, return_value=mock_db):
+            resp = TestClient(app).get("/api/autopilot/quarterlies")
+
+        assert resp.status_code == 200
+        [q] = resp.json()
+        assert q["quarter"] == "2026-Q3"
+        assert q["period_start"] == "2026-07-10"
+        assert q["period_end"] == "2026-08-21"
+        assert q["benchmark_return_pct"] == 1.0
+        assert q["trading_days"] == 2
+        by = {s["sleeve"]: s for s in q["sleeves"]}
+        assert by["A"]["return_pct"] == -1.0 and by["A"]["excess_pct"] == -2.0
+        assert by["B"]["return_pct"] == 2.0 and by["B"]["excess_pct"] == 1.0
+
+    def test_joins_the_written_review_onto_its_quarter(self):
+        from datetime import date
+
+        app, mock_db = _quarterlies_app(
+            [_snap_row(date(2026, 7, 10), "A", 100.0, 700.0),
+             _snap_row(date(2026, 8, 21), "A", 101.0, 707.0)],
+            reviews=[{"quarter": "2026-Q3",
+                      "report_url": "https://claude.ai/code/artifact/abc",
+                      "report_title": "Sleeve Review Q3 2026"}],
+        )
+        with patch("api.routes.autopilot.get_db",
+                   new_callable=AsyncMock, return_value=mock_db):
+            resp = TestClient(app).get("/api/autopilot/quarterlies")
+
+        [q] = resp.json()
+        assert q["report_url"] == "https://claude.ai/code/artifact/abc"
+        assert q["report_title"] == "Sleeve Review Q3 2026"
+
+    def test_a_quarter_without_a_review_still_lists_with_a_null_link(self):
+        """The rollup is derived from snapshots; a missing write-up must not
+        hide the quarter's numbers."""
+        from datetime import date
+
+        app, mock_db = _quarterlies_app(
+            [_snap_row(date(2026, 7, 10), "A", 100.0, 700.0),
+             _snap_row(date(2026, 8, 21), "A", 101.0, 707.0)],
+        )
+        with patch("api.routes.autopilot.get_db",
+                   new_callable=AsyncMock, return_value=mock_db):
+            resp = TestClient(app).get("/api/autopilot/quarterlies")
+
+        [q] = resp.json()
+        assert q["report_url"] is None
+        assert q["sleeves"][0]["return_pct"] == 1.0
+
+    def test_no_snapshots_is_an_empty_list_not_an_error(self):
+        app, mock_db = _quarterlies_app([])
+        with patch("api.routes.autopilot.get_db",
+                   new_callable=AsyncMock, return_value=mock_db):
+            resp = TestClient(app).get("/api/autopilot/quarterlies")
+
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_requires_admin(self):
+        """No override installed — the dependency must reject the request."""
+        from datetime import date
+
+        app = _make_app()
+        mock_db = MagicMock()
+        mock_db.sleevesnapshot.find_many = AsyncMock(
+            return_value=[_snap_row(date(2026, 7, 10), "A", 100.0, 700.0)])
+        with patch("api.routes.autopilot.get_db",
+                   new_callable=AsyncMock, return_value=mock_db):
+            resp = TestClient(app).get("/api/autopilot/quarterlies")
+
+        assert resp.status_code in (401, 403, 422)
