@@ -18,9 +18,9 @@ VALID = {"adv": 5e6, "market_cap": 5e8, "price": 20.0, "validated_at": "2026-07-
 def test_reason_monthly_uses_web_search_model(monkeypatch):
     seen = {}
 
-    def fake_llm(model, prompt, use_web_search=False, max_uses=8):
+    def fake_llm(model, prompt, use_web_search=False, max_uses=8, max_tokens=None):
         seen.update(model=model, use_web_search=use_web_search, max_uses=max_uses,
-                    prompt=prompt)
+                    prompt=prompt, max_tokens=max_tokens)
         return RAW
 
     out = discovery.reason_monthly({"active_themes": [], "retired_themes": [],
@@ -32,6 +32,10 @@ def test_reason_monthly_uses_web_search_model(monkeypatch):
     assert seen["model"] == "claude-sonnet-5"
     assert seen["use_web_search"] is True and seen["max_uses"] == 8
     assert "demand chain" in seen["prompt"].lower()
+    # 2026-10-01: the pass died at the 16k default ("truncated at max_tokens").
+    # The monthly call must carry the explicit 32k budget the memo/study use.
+    from execution.constants import THEME_REASONING_MAX_TOKENS
+    assert seen["max_tokens"] == THEME_REASONING_MAX_TOKENS == 32768
 
 
 class _FakeBlock:
@@ -46,14 +50,28 @@ class _FakeResponse:
         self.stop_reason = stop_reason
 
 
+class _FakeStream:
+    def __init__(self, response):
+        self._response = response
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get_final_message(self):
+        return self._response
+
+
 class _FakeMessages:
     def __init__(self, response):
         self._response = response
         self.kwargs = None
 
-    def create(self, **kwargs):
+    def stream(self, **kwargs):
         self.kwargs = kwargs
-        return self._response
+        return _FakeStream(self._response)
 
 
 class _FakeClient:
@@ -408,3 +426,82 @@ async def test_apply_delta_returns_diagnostics_for_the_inngest_output(monkeypatc
     assert summary["deltas_returned"] == 0
     assert summary["proposed_adds"] == 0
     assert summary["proposed_removes"] == 0
+
+
+def test_parse_and_validate_monthly_blocks_vetoed_without_a_lookup(monkeypatch):
+    """A name the entry screen disqualified (ATKR: pending Prysmian cash deal)
+    must not reach validation at all — no network call — and must land as a
+    failed validation so plan_monthly_actions rejects it, with the reason
+    journaled via `skipped`."""
+    looked_up = []
+
+    def fake_validate(tickers, tradable=None):
+        looked_up.extend(tickers)
+        return {t: VALID for t in tickers}
+
+    monkeypatch.setattr(discovery, "validate_tickers", fake_validate)
+    bundle = discovery.parse_and_validate_monthly(
+        RAW, blocked={"t0gt": "acquired by X for cash"})
+    assert "T0GT" not in looked_up and len(looked_up) == 5
+    assert bundle["validation"]["T0GT"] is None
+    assert all(bundle["validation"][f"T{i}GT"] == VALID for i in range(1, 6))
+    assert any("T0GT" in s and "vetoed" in s for s in bundle["skipped"])
+
+
+def test_parse_and_validate_delta_blocks_vetoed(monkeypatch):
+    monkeypatch.setattr(delta_mod, "validate_tickers",
+                        lambda tickers, tradable=None: {t: VALID for t in tickers})
+    raw = ('{"themes": [{"slug": "grid", "add": [{"ticker": "ATKR", "exposure": "x", '
+           '"confidence": 0.9}, {"ticker": "PWR", "exposure": "y", "confidence": 0.9}]}]}')
+    bundle = delta_mod.parse_and_validate_delta(raw, blocked={"ATKR": "cash deal"})
+    assert bundle["validation"]["ATKR"] is None
+    assert bundle["validation"]["PWR"] == VALID
+    assert any("ATKR" in s for s in bundle["skipped"])
+
+
+class _Reports:
+    def __init__(self, rows):
+        self._rows = rows
+        self.where = None
+
+    async def find_many(self, **kwargs):
+        self.where = kwargs.get("where") or {}
+        return self._rows
+
+
+@pytest.mark.asyncio
+async def test_prior_hypotheses_dedupe_and_bound(monkeypatch):
+    """The pass gets its own earlier next_constraints back, newest first, one
+    row per distinct hypothesis text, bounded — never forgotten, never spammed."""
+    from datetime import datetime, timezone
+    mk = lambda text, day, **extra: _Row(  # noqa: E731
+        body={"hypothesis": text, "candidates": ["X"], **extra},
+        createdAt=datetime(2026, 9, day, tzinfo=timezone.utc))
+    rows = [mk("BESS binds next", 1, leading_indicators=["a"]),
+            mk("BESS binds next", 1),                      # same month, same text
+            mk("water rights bind", 1, falsification="rain"),
+            mk("BESS binds next", 1), mk("HALEU binds", 1)]  # Aug restatement dupes
+    reports = _Reports(rows)
+
+    class Db:
+        enginereport = reports
+
+    out = await discovery._prior_hypotheses(Db())
+    assert [h["hypothesis"] for h in out] == ["BESS binds next", "water rights bind",
+                                             "HALEU binds"]
+    assert out[0]["first_seen"] == "2026-09-01" and out[0]["leading_indicators"] == ["a"]
+    assert out[1]["falsification"] == "rain"
+    assert reports.where["title"] == {"startswith": "next-constraint hypothesis"}
+    assert reports.where["source"] == discovery.SOURCE
+
+
+@pytest.mark.asyncio
+async def test_prior_hypotheses_degrade_to_empty_on_db_failure():
+    class Boom:
+        async def find_many(self, **kwargs):
+            raise RuntimeError("db down")
+
+    class Db:
+        enginereport = Boom()
+
+    assert await discovery._prior_hypotheses(Db()) == []

@@ -267,3 +267,151 @@ async def test_apply_update_missing_slug_journals_and_batch_continues(reports):
     assert out["applied"] == 1
     assert out["reports"] == 2  # missing-target report + theme_retired report
     assert any(c[0] == "update" for c in db.themebasket.calls)
+
+
+# ── Veto feedback (2026-10-02) ───────────────────────────────────────────────
+# The entry disqualifier was a dead end: ATKR was vetoed every Monday from
+# 2026-08-17 (pending Prysmian cash deal) yet stayed a grid-transmission
+# constituent, so the screen re-ranked it, the memo re-planned it and the
+# engine paid to veto it again. A CONFIRMED veto must remove the name and keep
+# it out of the theme passes.
+
+class _Obj:
+    def __init__(self, **attrs):
+        self.__dict__.update(attrs)
+
+
+class _Constituents:
+    def __init__(self, rows):
+        self.rows = rows
+        self.updates = []
+
+    async def find_many(self, **kwargs):
+        where = kwargs.get("where") or {}
+        return [r for r in self.rows
+                if r.ticker == where.get("ticker") and r.status == where.get("status")]
+
+    async def update_many(self, **kwargs):
+        self.updates.append(kwargs)
+
+
+@pytest.mark.asyncio
+async def test_veto_constituent_removes_from_every_active_theme_and_journals(monkeypatch):
+    reports = []
+
+    async def fake_write_report(t, sev, src, title, body, db=None):
+        reports.append((t, sev, src, title, body))
+        return "rep"
+
+    monkeypatch.setattr(lifecycle, "write_report", fake_write_report)
+    rows = [
+        _Obj(themeId="g", ticker="ATKR", status="active",
+             theme=_Obj(slug="grid-transmission", status="active")),
+        _Obj(themeId="d", ticker="ATKR", status="active",
+             theme=_Obj(slug="dc-energy", status="active")),
+        _Obj(themeId="r", ticker="ATKR", status="active",
+             theme=_Obj(slug="space", status="retired")),   # retired basket: untouched
+    ]
+    cons = _Constituents(rows)
+
+    class Db:
+        themeconstituent = cons
+
+    removed = await lifecycle.veto_constituent(
+        Db(), "atkr", "acquired by Prysmian for $95 cash", "sleeve_a_funnel")
+    assert removed == ["grid-transmission", "dc-energy"]
+    assert len(cons.updates) == 2
+    assert all(u["data"]["status"] == "removed" and u["data"]["removedAt"]
+               for u in cons.updates)
+    assert all(u["where"]["ticker"] == "ATKR" for u in cons.updates)
+    assert [r[0] for r in reports] == ["membership_change", "membership_change"]
+    body = reports[0][4]
+    assert body["vetoed"] is True and body["removed"] == ["ATKR"]
+    assert body["reason"].startswith("acquired") and body["slug"] == "grid-transmission"
+    assert reports[0][2] == "sleeve_a_funnel"
+
+
+@pytest.mark.asyncio
+async def test_veto_constituent_no_membership_is_a_quiet_noop(monkeypatch):
+    calls = []
+
+    async def fake_write_report(*a, **k):
+        calls.append(a)
+
+    monkeypatch.setattr(lifecycle, "write_report", fake_write_report)
+
+    class Db:
+        themeconstituent = _Constituents([])
+
+    assert await lifecycle.veto_constituent(Db(), "ZZZZ", "r", "s") == []
+    assert calls == []
+
+
+class _ReportRows:
+    def __init__(self, rows):
+        self.rows = rows
+        self.where = None
+
+    async def find_many(self, **kwargs):
+        self.where = kwargs.get("where")
+        return self.rows
+
+
+@pytest.mark.asyncio
+async def test_load_vetoed_tickers_reads_only_vetoed_membership_changes():
+    rows = [
+        _Obj(body={"slug": "g", "removed": ["ATKR"], "vetoed": True, "reason": "cash deal"}),
+        _Obj(body={"slug": "g", "removed": ["SMCI"], "added": []}),         # ordinary delta
+        _Obj(body={"slug": "d", "removed": ["atkr"], "vetoed": True, "reason": "older"}),
+        _Obj(body=None),
+    ]
+    reports = _ReportRows(rows)
+
+    class Db:
+        enginereport = reports
+
+    out = await lifecycle.load_vetoed_tickers(Db(), days=180)
+    assert out == {"ATKR": "cash deal"}            # newest reason wins, upper-cased
+    assert reports.where["type"] == "membership_change"
+    assert "gte" in reports.where["createdAt"]
+
+
+@pytest.mark.asyncio
+async def test_load_vetoed_tickers_degrades_to_empty():
+    class Boom:
+        async def find_many(self, **kwargs):
+            raise RuntimeError("db down")
+
+    class Db:
+        enginereport = Boom()
+
+    assert await lifecycle.load_vetoed_tickers(Db()) == {}
+
+
+def test_apply_block_list_forces_failed_validation_and_explains():
+    skipped = ["already here"]
+    validation = {"PWR": VALID}
+    out = lifecycle.apply_block_list(["ATKR", "PWR", "atkr"], validation,
+                                     {"ATKR": "cash deal"}, skipped)
+    assert out["ATKR"] is None and out["PWR"] == VALID
+    assert skipped == ["already here", "ATKR: blocked — vetoed by entry screen (cash deal)"]
+    # no block list → untouched
+    assert lifecycle.apply_block_list(["PWR"], {"PWR": VALID}, None, []) == {"PWR": VALID}
+
+
+def test_blocked_add_is_rejected_by_the_monthly_planner():
+    """End to end at the planning layer: a blocked ticker is a failed
+    validation, so a keep that restates it drops it (remove) and an add that
+    needs it loses a slot."""
+    current = [{"slug": "grid", "status": "active", "confidence": 0.7,
+                "constituents": [{"ticker": "ATKR", "status": "active"},
+                                 {"ticker": "PWR", "status": "active"}]}]
+    proposal = {"slug": "grid", "action": "keep", "thesis": "t", "confidence": 0.7,
+                "metadata": {}, "constituents": [
+                    {"ticker": "ATKR", "exposure": "x", "confidence": 0.9},
+                    {"ticker": "PWR", "exposure": "x", "confidence": 0.9}]}
+    validation = lifecycle.apply_block_list(
+        ["ATKR", "PWR"], {"ATKR": VALID, "PWR": VALID}, {"ATKR": "deal"}, [])
+    plan = plan_monthly_actions(current, [proposal], validation)
+    upd = plan["actions"][0]
+    assert upd["kind"] == "update_theme" and upd["remove"] == ["ATKR"] and upd["add"] == []

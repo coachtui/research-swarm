@@ -5,7 +5,9 @@ from typing import Any, Dict
 from execution.constants import THEME_DELTA_MODEL, THEME_DELTA_WEB_SEARCH_MAX_USES
 from execution.reporting import write_report
 from execution.themes.discovery import _call_llm, _current_theme_state
-from execution.themes.lifecycle import apply_actions, plan_delta_actions
+from execution.themes.lifecycle import (
+    apply_actions, apply_block_list, load_vetoed_tickers, plan_delta_actions,
+)
 from execution.themes.parser import parse_delta_response
 from execution.themes.prompts import build_delta_prompt
 from execution.themes.validation import validate_tickers
@@ -19,7 +21,7 @@ async def gather_delta_context(db) -> Dict[str, Any]:
     themes = await _current_theme_state(db, include_retired=False)
     active = [{**t, "constituents": [c for c in t["constituents"] if c["status"] == "active"]}
               for t in themes]
-    return {"active_themes": active}
+    return {"active_themes": active, "vetoed": await load_vetoed_tickers(db)}
 
 
 def reason_delta(context: Dict[str, Any], llm_call=None) -> str:
@@ -32,12 +34,18 @@ def reason_delta(context: Dict[str, Any], llm_call=None) -> str:
                 max_uses=THEME_DELTA_WEB_SEARCH_MAX_USES)
 
 
-def parse_and_validate_delta(raw: str, tradable=None) -> Dict[str, Any]:
+def parse_and_validate_delta(raw: str, tradable=None, blocked=None) -> Dict[str, Any]:
+    """`blocked` is {TICKER: reason} from load_vetoed_tickers — see the monthly
+    pass; a vetoed symbol is rejected like a failed validation."""
     parsed = parse_delta_response(raw)
+    skipped = list(parsed["skipped"])
     tickers = [c["ticker"] for t in parsed["themes"] for c in t.get("add", [])]
-    validation = validate_tickers(tickers, tradable=tradable) if tickers else {}
+    blocked = {str(k).upper(): v for k, v in (blocked or {}).items()}
+    to_check = [t for t in tickers if str(t).strip().upper() not in blocked]
+    validation = validate_tickers(to_check, tradable=tradable) if to_check else {}
+    validation = apply_block_list(tickers, validation, blocked, skipped)
     return {"deltas": parsed["themes"], "validation": validation,
-            "skipped": parsed["skipped"]}
+            "skipped": skipped}
 
 
 async def apply_delta(db, bundle: Dict[str, Any]) -> Dict[str, Any]:

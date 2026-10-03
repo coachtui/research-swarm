@@ -240,3 +240,36 @@ def test_exit_plan_is_optional_at_entry():
     be guarded; the exit posture can be decided when it becomes a winner."""
     plan = {k: v for k, v in PLAN.items() if k != "exit_plan"}
     validate_plan(plan)
+
+
+# ── Units (2026-10-02) ───────────────────────────────────────────────────────
+# The prompt said "size_pct"; the model answered in fractions (0.4/0.3/0.3) and
+# every memo position plan from 2026-09-07 on was dropped with "ladder sizes
+# total 1%, must total 100". Fractions summing to 1 mean the same thing.
+
+def test_fraction_ladder_is_normalised_to_percent():
+    plan = {**PLAN, "ladder": [
+        {"price": 800.0, "size_pct": 0.4, "why": "a"},
+        {"price": 700.0, "size_pct": 0.3, "why": "b"},
+        {"price": 600.0, "size_pct": 0.3, "why": "c"},
+    ]}
+    out = validate_plan(plan)
+    assert [r["size_pct"] for r in out["ladder"]] == [40.0, 30.0, 30.0]
+    assert [r["size_pct"] for r in plan["ladder"]] == [0.4, 0.3, 0.3]  # input untouched
+    assert out["thesis_break"] == PLAN["thesis_break"]
+
+
+def test_fraction_ladder_sizes_rungs_like_the_percent_form():
+    pct = {**PLAN, "ladder": [{"price": 800.0, "size_pct": 50, "why": "a"},
+                             {"price": 700.0, "size_pct": 50, "why": "b"}]}
+    frac = {**PLAN, "ladder": [{"price": 800.0, "size_pct": 0.5, "why": "a"},
+                              {"price": 700.0, "size_pct": 0.5, "why": "b"}]}
+    a = desired_rung_orders(pct, current_price=900.0, held_qty=0, sleeve_equity=100_000.0)
+    b = desired_rung_orders(frac, current_price=900.0, held_qty=0, sleeve_equity=100_000.0)
+    assert a == b and len(a) == 2
+
+
+def test_ladder_that_is_neither_percent_nor_fraction_still_refused():
+    bad = {**PLAN, "ladder": [{"price": 800.0, "size_pct": 0.3, "why": "x"}]}
+    with pytest.raises(PlanError, match="100"):
+        validate_plan(bad)

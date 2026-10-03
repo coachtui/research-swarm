@@ -80,8 +80,23 @@ def _themes_block(themes: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _vetoed_block(vetoed: Dict[str, str]) -> str:
+    if not vetoed:
+        return "none"
+    return "\n".join(f"- {t}: {r or 'disqualified by the entry screen'}"
+                     for t, r in sorted(vetoed.items()))
+
+
+def _hypotheses_block(hyps: List[Dict[str, Any]]) -> str:
+    if not hyps:
+        return "none yet"
+    return json.dumps(hyps)
+
+
 def build_monthly_prompt(context: Dict[str, Any]) -> str:
     research = context.get("research") or {}
+    vetoed = context.get("vetoed") or {}
+    prior = context.get("prior_hypotheses") or []
     rankings = context.get("latest_rankings")
     retired = context.get("retired_themes") or []
     book = context.get("method_rulebook") or {}
@@ -106,6 +121,18 @@ the public-company CONSTITUENTS with material exposure to each.
 ## Retired themes (reactivate only with new evidence)
 {json.dumps(retired) if retired else "none"}
 
+## Disqualified names — never propose these (the entry screen confirmed a
+## pending acquisition, going concern, fraud, or delisting; they are rejected
+## automatically and waste a constituent slot)
+{_vetoed_block(vetoed)}
+
+## Your prior forward hypotheses (what YOU said would bind next, by month)
+{_hypotheses_block(prior)}
+Account for every one of them in this month's "next_constraints": if its
+leading indicators have CONFIRMED, graduate it — propose it as a theme now;
+if still pending, restate it with what you checked; if falsified, drop it
+and say why in the hypothesis text. A hypothesis must never just vanish.
+
 ## Latest theme rankings (relative strength vs SPY, if available)
 {json.dumps(rankings) if rankings else "none yet"}
 
@@ -129,8 +156,16 @@ the public-company CONSTITUENTS with material exposure to each.
   there, the consensus gap, and 2-4 leading indicators to watch (put these
   in metadata).
 - "keep" themes: restate the full constituent list you want (it replaces the
-  current one). "retire": say why (priced in, constraint resolved, thesis
+  current one). A keep is NOT a restatement: re-search every kept theme for
+  names that are not on its list yet — new listings, spin-offs, pure-plays
+  the first pass missed, suppliers one link further down — and add the ones
+  that qualify. Returning the identical list for every theme means you did
+  not search. "retire": say why (priced in, constraint resolved, thesis
   broken).
+- A NEW theme must list at least {MIN_THEME_CONSTITUENTS + 3} candidate
+  constituents, because validation rejects stale or renamed tickers and a
+  theme with fewer than {MIN_THEME_CONSTITUENTS} survivors cannot activate.
+  One bad symbol must not kill a good theme.
 
 Respond with ONLY a JSON object, no other text:
 {{
@@ -160,12 +195,17 @@ Respond with ONLY a JSON object, no other text:
 
 
 def build_delta_prompt(context: Dict[str, Any]) -> str:
+    vetoed = context.get("vetoed") or {}
     return f"""You maintain the constituent lists of a systematic fund's theme baskets.
 This is the WEEKLY DELTA pass: propose constituent additions/removals only.
 Do NOT propose new themes and do NOT touch theme-level fields.
 
 ## Active themes and current constituents
 {_themes_block(context.get("active_themes") or [])}
+
+## Disqualified names — never propose these (confirmed acquisition, going
+## concern, fraud, or delisting; additions are rejected automatically)
+{_vetoed_block(vetoed)}
 
 ## Rules
 - Suggest a change only when you have a concrete reason (new listing, lost

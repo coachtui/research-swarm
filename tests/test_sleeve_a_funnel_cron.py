@@ -2506,3 +2506,49 @@ def test_ensure_sleeve_a_exports_avg_prices_for_the_memo_book():
         out = _run(saf._ensure_sleeve_a(MagicMock(), NOW))
     assert out["positions"] == {"MU": 10.0, "NOB": 4.0}
     assert out["avg_prices"] == {"MU": 100.0}
+
+
+# ── Veto feedback (2026-10-02) ───────────────────────────────────────────────
+
+def test_confirmed_veto_removes_the_name_from_its_themes():
+    """ATKR was vetoed every Monday from 2026-08-17 and stayed a constituent.
+    A CONFIRMED (checked) veto must call veto_constituent with the screen's
+    reason so the name leaves the universe; the order is still refused."""
+    sink = _ReportSink()
+    veto = {"disqualified": True, "checked": True,
+            "reason": "Atkore agreed to be acquired by Prysmian for $95 cash."}
+    feedback = AsyncMock(return_value=["grid-transmission"])
+    with patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink), \
+         patch("execution.themes.lifecycle.veto_constituent", new=feedback):
+        placed, client = _handshake([_planned("ATKR")], {"ATKR": _memo_screen("ATKR")},
+                                    screen_out=veto)
+    assert placed == [] and not client.submit_limit_buy.called
+    feedback.assert_awaited_once()
+    args = feedback.await_args.args
+    assert args[1] == "ATKR" and args[2].startswith("Atkore") and args[3] == "sleeve_a_funnel"
+    assert sink.count("exit_sell_verdict") == 1
+    assert sink.count("engine_failure") == 0
+
+
+def test_veto_feedback_failure_is_journaled_never_raised():
+    sink = _ReportSink()
+    veto = {"disqualified": True, "checked": True, "reason": "going concern"}
+    with patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink), \
+         patch("execution.themes.lifecycle.veto_constituent",
+               new=AsyncMock(side_effect=RuntimeError("db down"))):
+        placed, _ = _handshake([_planned("BE")], {"BE": _memo_screen()}, screen_out=veto)
+    assert placed == []
+    assert sink.count("exit_sell_verdict") == 1
+    assert sink.count("engine_failure") == 1
+
+
+def test_clean_screen_never_touches_theme_membership():
+    feedback = AsyncMock()
+    with patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=AsyncMock()), \
+         patch("execution.themes.lifecycle.veto_constituent", new=feedback):
+        placed, _ = _handshake([_planned()], {"BE": _memo_screen()})
+    assert len(placed) == 1
+    feedback.assert_not_awaited()

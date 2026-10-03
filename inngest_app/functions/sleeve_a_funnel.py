@@ -480,6 +480,23 @@ async def _handshake_and_enter(
                            f"{sym}: memo entry vetoed — {screen_out.get('reason')}",
                            {"symbol": sym, "reason": screen_out.get("reason"),
                             "slug": entry.get("slug")})
+            # 2) Feed the veto back. A CONFIRMED finding (checked=True) means
+            #    the name must leave its theme baskets, or the screen re-ranks
+            #    it, the memo re-plans it and we pay to veto it again next week
+            #    (ATKR, every Monday from 2026-08-17). Guarded: a failed
+            #    removal is journaled, never a raised cron.
+            if screen_out.get("checked"):
+                try:
+                    from execution.themes.lifecycle import veto_constituent  # noqa: PLC0415
+                    removed_from = await veto_constituent(
+                        db, sym, str(screen_out.get("reason") or ""), _SOURCE)
+                    if removed_from:
+                        logger.info("funnel: %s vetoed — removed from %s", sym, removed_from)
+                except Exception:  # noqa: BLE001
+                    logger.exception("funnel: veto feedback failed for %s", sym)
+                    await _journal(db, "engine_failure", "warning",
+                                   f"{sym}: veto feedback failed — name stays a constituent",
+                                   {"symbol": sym, "slug": entry.get("slug")})
             continue
         if not screen_out.get("checked"):
             await _journal(db, "engine_failure", "warning",

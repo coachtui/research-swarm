@@ -66,6 +66,14 @@ def validate_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
 
     if prices != sorted(prices, reverse=True):
         raise PlanError("ladder prices must descend — you buy lower, not higher")
+    # The prompt asks for percentages, the model often answers in fractions
+    # (0.4/0.3/0.3). Both say the same thing; refusing the fraction form
+    # dropped every position plan for weeks. Normalise to percent so every
+    # consumer (rung sizing divides by 100, the review renders "%") agrees.
+    if abs(total - 1.0) <= 0.01 and all(float(r["size_pct"]) <= 1.0 for r in ladder):
+        ladder = [{**r, "size_pct": float(r["size_pct"]) * 100.0} for r in ladder]
+        plan = {**plan, "ladder": ladder}
+        total = 100.0
     if abs(total - 100.0) > 0.01:
         raise PlanError(f"ladder sizes total {total:g}%, must total 100")
 
@@ -124,7 +132,7 @@ def desired_rung_orders(
     if thesis_broken:
         return []   # every unfilled rung dies with the thesis
 
-    validate_plan(plan)
+    plan = validate_plan(plan)
     target_notional = float(plan["target_weight"]) * float(sleeve_equity)
     if target_notional <= 0 or current_price <= 0:
         return []
