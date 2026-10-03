@@ -11,10 +11,8 @@ import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
 import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
 import { MarketOutlookPanel } from '@/components/autopilot/MarketOutlookPanel'
 import { EngineJournalPanel } from '@/components/autopilot/EngineJournalPanel'
-import { WeeklyBatchPanel } from '@/components/autopilot/WeeklyBatchPanel'
 import { WeekPanel } from '@/components/autopilot/WeekPanel'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
-import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
 import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
 import { PortfolioSeedForm } from '@/components/portfolio/PortfolioSeedForm'
 import { QuarterliesPanel } from '@/components/autopilot/QuarterliesPanel'
@@ -101,7 +99,6 @@ function AdminContent() {
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="analyses">Analyses</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
-            <TabsTrigger value="deployment">Deployment</TabsTrigger>
             <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
           </TabsList>
 
@@ -121,21 +118,13 @@ function AdminContent() {
           </TabsContent>
 
           <TabsContent value="outlook">
-            <Tabs defaultValue="sunday" className="space-y-4">
-              <TabsList>
-                <TabsTrigger value="sunday">Sunday Outlook</TabsTrigger>
-                <TabsTrigger value="monday">Monday Batch</TabsTrigger>
-              </TabsList>
-              <TabsContent value="sunday">
-                <div className="space-y-6">
-                  <MarketOutlookPanel />
-                  <EngineJournalPanel />
-                </div>
-              </TabsContent>
-              <TabsContent value="monday">
-                <WeeklyBatchPanel />
-              </TabsContent>
-            </Tabs>
+            {/* Sunday outlook only. The Monday batch list and the deployment
+                scorer were removed 2026-10-02: no decision read them and the
+                owner was interpreting lists instead of reading decisions. */}
+            <div className="space-y-6">
+              <MarketOutlookPanel />
+              <EngineJournalPanel />
+            </div>
           </TabsContent>
 
           <TabsContent value="quarterlies">
@@ -152,10 +141,6 @@ function AdminContent() {
 
           <TabsContent value="watchlist">
             <WatchlistView />
-          </TabsContent>
-
-          <TabsContent value="deployment">
-            <StructuralDeploymentUpdate adminMode />
           </TabsContent>
 
           <TabsContent value="portfolio">
