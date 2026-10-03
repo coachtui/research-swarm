@@ -1108,6 +1108,9 @@ export interface IndustryRotationFlag {
   industry: string
   direction: 'into' | 'out_of'
   rank_change: number
+  /** First consecutive weekly outlook in which this flag held (ISO date). */
+  since?: string | null
+  weeks?: number | null
 }
 
 export interface SizeStyleLeg {
@@ -1145,6 +1148,24 @@ export interface ThemeRotationFlag {
   theme: string
   direction: 'into' | 'out_of'
   rank_change: number
+  since?: string | null
+  weeks?: number | null
+}
+
+export interface ThemeConstituent {
+  ticker: string
+  exposure: string
+  confidence: number | null
+  held: boolean
+  added_at?: string | null
+}
+
+export interface ThemeMeta {
+  name: string
+  stage: string | null
+  thesis: string
+  confidence: number | null
+  created_at?: string | null
 }
 
 export interface ThemeMissing {
@@ -1211,6 +1232,8 @@ export interface MarketOutlookResponse {
   theme_rotations: ThemeRotationFlag[] | null
   theme_missing: ThemeMissing[] | null
   theme_history: Record<string, ThemeHistoryPoint[]> | null
+  theme_constituents?: Record<string, ThemeConstituent[]> | null
+  theme_meta?: Record<string, ThemeMeta> | null
 }
 
 // ─── Autopilot weekly batch run (Monday funnel audit, admin) ──────────────
@@ -1961,7 +1984,14 @@ export interface WeekPosition {
   } | null
 }
 
-export type WeekOutcome = 'not_placed' | 'exited' | 'passed_on'
+export type WeekOutcome =
+  | 'not_placed'
+  | 'placed'
+  | 'vetoed'
+  | 'rejected'
+  | 'deferred'
+  | 'exited'
+  | 'passed_on'
 
 export interface WeekAction {
   ticker: string
@@ -1971,6 +2001,42 @@ export interface WeekAction {
   role: string | null
   conviction: number | null
   reconsider_if?: string | null
+  /** The memo's case for the name, kept when the engine's outcome replaces `reason`. */
+  why_now?: string | null
+}
+
+export interface WeekTheme {
+  slug: string
+  name: string
+  stage: string | null
+  confidence: number | null
+  rank_1m: number | null
+  rank_3m: number | null
+  rank_change: number | null
+  score: number | null
+  flag: 'into' | 'out_of' | null
+  since: string | null
+  weeks: number | null
+  constituents: ThemeConstituent[]
+  history: ThemeHistoryPoint[]
+}
+
+export type WeekChangeKind = 'membership' | 'theme' | 'hypothesis' | 'veto' | 'failure' | 'validation'
+
+export interface WeekChange {
+  date: string
+  kind: WeekChangeKind
+  title: string
+  detail: string | null
+  severity: 'info' | 'warning' | 'critical' | string
+}
+
+export interface WeekHypothesis {
+  first_seen: string | null
+  hypothesis: string
+  candidates: string[]
+  leading_indicators: string[]
+  falsification: string | null
 }
 
 export interface WeekThesis {
@@ -2000,4 +2066,7 @@ export interface WeekResponse {
   open_orders: WeekOpenOrder[]
   actions: WeekAction[]
   market_view?: string | null
+  themes_ranked?: WeekTheme[]
+  changes?: WeekChange[]
+  hypotheses?: WeekHypothesis[]
 }

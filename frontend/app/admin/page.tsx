@@ -91,7 +91,7 @@ function AdminContent() {
 
       {/* Content */}
       <main className="container mx-auto px-4 py-8">
-        <Tabs defaultValue="metrics" className="space-y-6">
+        <Tabs defaultValue="week" className="space-y-6">
           <TabsList>
             <TabsTrigger value="week">This Week</TabsTrigger>
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
