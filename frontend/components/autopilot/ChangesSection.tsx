@@ -2,7 +2,7 @@
 
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { formatDate } from '@/lib/utils/formatting'
+import { formatDay } from '@/lib/utils/formatting'
 import type { WeekChange } from '@/types/api'
 
 const KIND_LABEL: Record<string, string> = {
@@ -44,7 +44,7 @@ export function ChangesSection({ changes }: { changes: WeekChange[] }) {
                 className="py-2 border-b border-hairline last:border-b-0 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm"
               >
                 <span className="font-mono text-xs text-text-tertiary tabular-nums w-16 shrink-0">
-                  {formatDate(c.date)}
+                  {formatDay(c.date)}
                 </span>
                 <span className={`h-2 w-2 rounded-full shrink-0 self-center ${SEVERITY_DOT[c.severity] ?? SEVERITY_DOT.info}`} />
                 <Badge variant="secondary" className="text-[0.62rem]">{KIND_LABEL[c.kind] ?? c.kind}</Badge>

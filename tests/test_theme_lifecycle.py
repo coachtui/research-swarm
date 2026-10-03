@@ -331,22 +331,6 @@ async def test_veto_constituent_removes_from_every_active_theme_and_journals(mon
     assert reports[0][2] == "sleeve_a_funnel"
 
 
-@pytest.mark.asyncio
-async def test_veto_constituent_no_membership_is_a_quiet_noop(monkeypatch):
-    calls = []
-
-    async def fake_write_report(*a, **k):
-        calls.append(a)
-
-    monkeypatch.setattr(lifecycle, "write_report", fake_write_report)
-
-    class Db:
-        themeconstituent = _Constituents([])
-
-    assert await lifecycle.veto_constituent(Db(), "ZZZZ", "r", "s") == []
-    assert calls == []
-
-
 class _ReportRows:
     def __init__(self, rows):
         self.rows = rows
@@ -415,3 +399,26 @@ def test_blocked_add_is_rejected_by_the_monthly_planner():
     plan = plan_monthly_actions(current, [proposal], validation)
     upd = plan["actions"][0]
     assert upd["kind"] == "update_theme" and upd["remove"] == ["ATKR"] and upd["add"] == []
+
+
+@pytest.mark.asyncio
+async def test_veto_constituent_records_a_veto_even_with_no_basket(monkeypatch):
+    """A watchlist or held name sits in no basket but re-enters the memo's
+    candidates weekly; the veto must still land where load_vetoed_tickers
+    looks, or the engine pays to re-veto it every Monday."""
+    reports = []
+
+    async def fake_write_report(t, sev, src, title, body, db=None):
+        reports.append((t, title, body))
+        return "rep"
+
+    monkeypatch.setattr(lifecycle, "write_report", fake_write_report)
+
+    class Db:
+        themeconstituent = _Constituents([])
+
+    assert await lifecycle.veto_constituent(Db(), "HOOD", "going concern", "sleeve_a_funnel") == []
+    assert len(reports) == 1
+    t, title, body = reports[0]
+    assert t == "membership_change" and body["vetoed"] is True and body["removed"] == ["HOOD"]
+    assert body["slug"] is None and "no active basket" in title

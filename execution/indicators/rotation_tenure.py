@@ -11,6 +11,7 @@ Pure: takes already-loaded rows, returns plain dicts. No DB, no pandas.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 HistoryRow = Tuple[str, List[Dict[str, Any]]]  # (run_date ISO, rankings list)
@@ -77,9 +78,22 @@ def history_from_outlook_rows(rows: Iterable[Any], field: str) -> List[HistoryRo
     for `field` ("themeRankings" or "industryRankings"). Rows whose blob is
     missing or malformed contribute an empty list, which ends any streak."""
     out: List[HistoryRow] = []
+    seen_weeks = set()
     for row in rows:
         run = getattr(row, "runDate", None)
-        day = run.date().isoformat() if hasattr(run, "date") else str(run)[:10]
+        d = run.date() if hasattr(run, "date") else None
+        day = d.isoformat() if d else str(run)[:10]
+        # One row per outlook week: the cron runs Sunday 20:00 UTC and writes
+        # a new row on EVERY run, so a Monday rerun must not count as an extra
+        # week of tenure. Weeks start on Sunday to match. Rows are newest-
+        # first, so the first row seen for a week is the one kept.
+        if d is not None:
+            wk = (d - timedelta(days=(d.weekday() + 1) % 7)).isoformat()
+        else:
+            wk = day
+        if wk in seen_weeks:
+            continue
+        seen_weeks.add(wk)
         blob = getattr(row, field, None)
         rankings = blob.get("rankings") if isinstance(blob, dict) else None
         out.append((day, rankings if isinstance(rankings, list) else []))

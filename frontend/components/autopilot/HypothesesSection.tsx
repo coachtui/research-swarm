@@ -1,7 +1,7 @@
 'use client'
 
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { formatDate } from '@/lib/utils/formatting'
+import { formatDay } from '@/lib/utils/formatting'
 import type { WeekHypothesis } from '@/types/api'
 
 /** The monthly pass's forward hypotheses: what it thinks binds next. These
@@ -23,7 +23,7 @@ export function HypothesesSection({ hypotheses }: { hypotheses: WeekHypothesis[]
               <p className="text-sm text-text-primary max-w-[75ch]">{h.hypothesis}</p>
               {h.first_seen && (
                 <span className="ml-auto font-mono text-xs text-text-tertiary shrink-0">
-                  since {formatDate(h.first_seen)}
+                  since {formatDay(h.first_seen)}
                 </span>
               )}
             </div>

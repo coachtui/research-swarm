@@ -70,7 +70,7 @@ class MarketOutlookResponse(BaseModel):
 
 # --- Pure helpers (tested directly) ────────────────────────────────────────
 
-_CITE_RE = re.compile(r"[<(]cite[^>]*>|</cite>", re.IGNORECASE)
+_CITE_RE = re.compile(r'[<(]cite\s+index="[^"]*"\s*>|</cite>', re.IGNORECASE)
 
 
 def strip_cites(text: Optional[str]) -> Optional[str]:
@@ -595,6 +595,13 @@ def merge_week_journal(actions: List[WeekAction], journal_rows: Iterable[Any],
         if kind == "vetoed" and "vetoed" not in title:
             continue
         body = getattr(r, "body", None) or {}
+        # The planner journals a verb CORRECTION ("memo said 'add' for a new
+        # name — read as 'enter'") under entry_rejected too; the order still
+        # proceeds, so it must not read as a rejection.
+        if kind == "rejected" and (
+                "read as" in title
+                or (isinstance(body, dict) and "from" in body and "to" in body)):
+            continue
         sym = (body.get("symbol") if isinstance(body, dict) else None) or title.split(":", 1)[0]
         sym = str(sym).strip().upper()
         if not sym or sym in held:
@@ -608,7 +615,9 @@ def merge_week_journal(actions: List[WeekAction], journal_rows: Iterable[Any],
     seen = set()
     for a in actions:
         hit = best.get(a.ticker.upper())
-        if hit and hit[0] > _OUTCOME_RANK.get(a.outcome, 0):
+        # A name the memo considered and PASSED ON under one theme is not the
+        # same decision as the entry it authorised under another — leave it.
+        if hit and a.outcome != "passed_on" and hit[0] > _OUTCOME_RANK.get(a.outcome, 0):
             a = a.model_copy(update={"outcome": hit[1], "reason": hit[2],
                                      "why_now": a.why_now or a.reason,
                                      "slug": a.slug or hit[3]})

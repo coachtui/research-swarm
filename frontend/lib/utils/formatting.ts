@@ -68,6 +68,20 @@ export function formatDate(date: string | Date): string {
 }
 
 /**
+ * Format a date-only string ("2026-09-27") as that calendar day.
+ *
+ * `new Date("2026-09-27")` is UTC midnight, which formats as the 26th anywhere
+ * west of Greenwich. The engine's "since" dates, change dates and hypothesis
+ * dates are all date-only, so they go through here.
+ */
+export function formatDay(day: string | null | undefined): string {
+  if (!day) return '—'
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(day)
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(day)
+  return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric' }).format(d)
+}
+
+/**
  * Format date with time
  */
 export function formatDateTime(date: string | Date): string {

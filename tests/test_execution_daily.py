@@ -378,7 +378,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import inngest_app.functions.execution_daily as xd
 
-_PLAN = {"ladder": [{"price": 340.0, "size_pct": 0.5, "why": "r"}],
+_PLAN = {"ladder": [{"price": 340.0, "size_pct": 100, "why": "r"}],
          "thesis_break": "capex cut", "exit_plan": None}
 
 

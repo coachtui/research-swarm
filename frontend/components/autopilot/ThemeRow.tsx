@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { formatDate } from '@/lib/utils/formatting'
+import { formatDay } from '@/lib/utils/formatting'
 import type { ThemeConstituent, ThemeHistoryPoint } from '@/types/api'
 
 /**
@@ -43,7 +43,7 @@ export function flagLabel(
   const verb = flag === 'into' ? 'rotating in' : 'rotating out'
   if (!since) return verb
   const span = weeks && weeks > 1 ? ` · ${weeks} wks` : ''
-  return `${verb} since ${formatDate(since)}${span}`
+  return `${verb} since ${formatDay(since)}${span}`
 }
 
 export function ThemeSparkline({ points }: { points: ThemeHistoryPoint[] }) {

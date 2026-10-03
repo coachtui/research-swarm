@@ -190,3 +190,26 @@ def test_veto_reason_is_cleaned_before_it_reaches_the_page():
     rows = [_jrow("exit_sell_verdict", "ATKR: memo entry vetoed — x", symbol="ATKR",
                   reason='(cite index="1-1">Prysmian cash deal</cite> caps upside')]
     assert merge_week_journal([], rows)[0].reason == "Prysmian cash deal caps upside"
+
+
+def test_merge_week_journal_ignores_planner_verb_corrections():
+    """The planner journals "memo said 'add' for a new name — read as 'enter'"
+    under entry_rejected and then PLACES the order. That is not a rejection."""
+    rows = [_jrow("entry_rejected", "FN: memo said 'add' for a new name — read as 'enter'",
+                  ticker="FN", **{"from": "add", "to": "enter"}),
+            _jrow("entry_order", "FN: shadow buy 10 @ 100", symbol="FN")]
+    out = merge_week_journal([], rows)
+    assert [(a.ticker, a.outcome) for a in out] == [("FN", "placed")]
+
+
+def test_merge_week_journal_never_upgrades_a_passed_on_row():
+    memo = [WeekAction(ticker="X", slug="a", outcome="passed_on", reason="too extended"),
+            WeekAction(ticker="X", slug="b", outcome="not_placed", reason="case")]
+    rows = [_jrow("exit_sell_verdict", "X: memo entry vetoed — deal", symbol="X", reason="deal")]
+    out = merge_week_journal(memo, rows)
+    assert [(a.slug, a.outcome) for a in out] == [("a", "passed_on"), ("b", "vetoed")]
+
+
+def test_strip_cites_leaves_ordinary_parentheses_alone():
+    s = "Margins (cited in the 10-K) grew; peers > 30% and rising"
+    assert strip_cites(s) == s

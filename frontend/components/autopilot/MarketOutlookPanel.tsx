@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMarketOutlook } from '@/lib/hooks/useAdmin'
-import { formatDate, formatPercent } from '@/lib/utils/formatting'
+import { formatDate, formatDay, formatPercent } from '@/lib/utils/formatting'
 import { AlertTriangle } from 'lucide-react'
 import { ThemeRow } from './ThemeRow'
 import type {
@@ -67,7 +67,7 @@ function sizeStyleLabel(tag: SizeStyle['tag']): string {
 function sinceSuffix(flag: { since?: string | null; weeks?: number | null }): string {
   if (!flag.since) return ''
   const span = flag.weeks && flag.weeks > 1 ? `, ${flag.weeks} weeks` : ', new this week'
-  return ` — since ${formatDate(flag.since)}${span}`
+  return ` — since ${formatDay(flag.since)}${span}`
 }
 
 function industryRotationLabel(flag: IndustryRotationFlag): string {

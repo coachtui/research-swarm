@@ -505,3 +505,28 @@ async def test_prior_hypotheses_degrade_to_empty_on_db_failure():
         enginereport = Boom()
 
     assert await discovery._prior_hypotheses(Db()) == []
+
+
+@pytest.mark.asyncio
+async def test_prior_hypotheses_first_seen_is_the_oldest_and_lists_are_coerced():
+    from datetime import datetime, timezone
+    mk = lambda text, day, **extra: _Row(  # noqa: E731
+        body={"hypothesis": text, **extra},
+        createdAt=datetime(2026, 9 if day > 15 else 10, day % 15 or 1, tzinfo=timezone.utc))
+    rows = [  # newest first, as the query returns them
+        _Row(body={"hypothesis": "BESS binds", "candidates": "FLNC", "leading_indicators": None},
+             createdAt=datetime(2026, 10, 1, tzinfo=timezone.utc)),
+        _Row(body={"hypothesis": "BESS binds", "candidates": ["FLNC", "TSLA"]},
+             createdAt=datetime(2026, 9, 1, tzinfo=timezone.utc)),
+        _Row(body={"hypothesis": "BESS binds"}, createdAt=datetime(2026, 8, 1, tzinfo=timezone.utc)),
+    ]
+
+    class Db:
+        enginereport = _Reports(rows)
+
+    out = await discovery._prior_hypotheses(Db())
+    assert len(out) == 1
+    h = out[0]
+    assert h["first_seen"] == "2026-08-01"            # oldest appearance, not newest
+    assert h["candidates"] == ["FLNC"]                # latest wording, coerced to a list
+    assert h["leading_indicators"] == []              # None → []

@@ -133,22 +133,34 @@ async def _prior_hypotheses(db, days: int = _PRIOR_HYPOTHESIS_DAYS) -> list:
     except Exception:  # noqa: BLE001
         logger.exception("gather_monthly_context: prior hypotheses unavailable")
         return []
-    out, seen = [], set()
+    def _strs(v) -> list:
+        if isinstance(v, str):
+            v = [v]
+        return [str(x) for x in v if x] if isinstance(v, list) else []
+
+    # Newest-first: the first row per text carries the latest wording; every
+    # later (older) row only pushes first_seen back. Capped AFTER dedup so a
+    # restated hypothesis cannot crowd an older one out.
+    out: list = []
+    by_text: Dict[str, dict] = {}
     for r in rows:
         body = getattr(r, "body", None) or {}
         text = str(body.get("hypothesis") or "").strip() if isinstance(body, dict) else ""
-        if not text or text in seen:
+        if not text:
             continue
-        seen.add(text)
         created = getattr(r, "createdAt", None)
-        out.append({"first_seen": created.date().isoformat() if created else None,
-                    "hypothesis": text,
-                    "candidates": body.get("candidates") or [],
-                    "leading_indicators": body.get("leading_indicators") or [],
-                    "falsification": body.get("falsification")})
-        if len(out) >= _PRIOR_HYPOTHESIS_MAX:
-            break
-    return out
+        day = created.date().isoformat() if created else None
+        h = by_text.get(text)
+        if h is None:
+            h = {"first_seen": day, "hypothesis": text,
+                 "candidates": _strs(body.get("candidates")),
+                 "leading_indicators": _strs(body.get("leading_indicators")),
+                 "falsification": body.get("falsification") if isinstance(body.get("falsification"), str) else None}
+            by_text[text] = h
+            out.append(h)
+        elif day and (h["first_seen"] is None or day < h["first_seen"]):
+            h["first_seen"] = day
+    return out[:_PRIOR_HYPOTHESIS_MAX]
 
 
 def reason_monthly(context: Dict[str, Any], llm_call=None) -> str:

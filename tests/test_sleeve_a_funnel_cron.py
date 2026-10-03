@@ -1644,7 +1644,7 @@ def test_at_market_entry_prices_at_last_close_with_one_week_ttl():
 
 # ── Phase C: the order journal carries the plan and its price math ───────────
 
-_PLAN = {"ladder": [{"price": 340.0, "size_pct": 0.5, "why": "first rung"}],
+_PLAN = {"ladder": [{"price": 340.0, "size_pct": 100, "why": "first rung"}],
          "thesis_break": "capex guidance cut two quarters running",
          "exit_plan": {"posture": "let_run", "why": "constraint intact"}}
 
@@ -2552,3 +2552,27 @@ def test_clean_screen_never_touches_theme_membership():
         placed, _ = _handshake([_planned()], {"BE": _memo_screen()})
     assert len(placed) == 1
     feedback.assert_not_awaited()
+
+
+def test_already_vetoed_name_skips_the_paid_screen():
+    """A name on the block list is refused from the record — no disqualifier
+    call, no order, one journal row saying why."""
+    sink = _ReportSink()
+    screen = AsyncMock(return_value=CLEAN_SCREEN)
+    client = MagicMock()
+    client.submit_limit_buy = AsyncMock()
+    with patch.object(saf, "check_disqualifiers", new=screen), \
+         patch.object(saf, "_latest_full_signal_id", new=AsyncMock(return_value=None)), \
+         patch.object(saf, "write_report", new=sink), \
+         patch("execution.themes.lifecycle.load_vetoed_tickers",
+               new=AsyncMock(return_value={"ATKR": "Prysmian cash deal"})):
+        placed = _run(saf._handshake_and_enter(
+            MagicMock(), client, planned_entries=[_planned("ATKR"), _planned("BE")],
+            screen_by_symbol={"ATKR": _memo_screen("ATKR"), "BE": _memo_screen()},
+            run_date=NOW, sleeve_equity=100_000.0, deployable=100_000.0,
+            cash_available=100_000.0, holdings=[], sector_by_symbol={},
+            other_sleeve_sector_notional={}, allow_buys=True, step=None))
+    assert [p["symbol"] for p in placed] == ["BE"]
+    assert screen.await_count == 1 and screen.await_args.args[0] == "BE"
+    assert sink.count("exit_sell_verdict") == 1
+    assert "previously disqualified" in sink.titles[sink.types.index("exit_sell_verdict")]

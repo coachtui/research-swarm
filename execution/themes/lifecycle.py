@@ -337,6 +337,15 @@ async def veto_constituent(db, ticker: str, reason: str, source: str) -> List[st
             {"slug": theme.slug, "added": [], "removed": [sym],
              "vetoed": True, "reason": reason}, db=db)
         slugs.append(theme.slug)
+    if not slugs:
+        # Watchlist or held names sit in no basket, yet they re-enter the
+        # memo's candidate list every week. Record the veto anyway so
+        # load_vetoed_tickers blocks them too.
+        await write_report(
+            "membership_change", "warning", source,
+            f"veto recorded: {sym} (no active basket)",
+            {"slug": None, "added": [], "removed": [sym],
+             "vetoed": True, "reason": reason}, db=db)
     return slugs
 
 

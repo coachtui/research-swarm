@@ -68,3 +68,17 @@ def test_history_from_outlook_rows_reduces_prisma_rows():
     assert h == [("2026-09-27", [_row("neo", 5)]), ("2026-09-20", [])]
     # the None blob ends any streak
     assert rotation_tenure(h, "slug", 5)["neo"]["weeks"] == 1
+
+
+def test_history_keeps_one_row_per_outlook_week_so_reruns_do_not_add_tenure():
+    rows = [
+        SimpleNamespace(runDate=datetime(2026, 9, 28, 9, tzinfo=timezone.utc),   # Monday rerun
+                        themeRankings={"rankings": [_row("neo", 5)]}),
+        SimpleNamespace(runDate=datetime(2026, 9, 27, 20, tzinfo=timezone.utc),  # the Sunday run itself
+                        themeRankings={"rankings": [_row("neo", 5)]}),
+        SimpleNamespace(runDate=datetime(2026, 9, 20, 20, tzinfo=timezone.utc),
+                        themeRankings={"rankings": [_row("neo", 5)]}),
+    ]
+    h = history_from_outlook_rows(rows, "themeRankings")
+    assert [d for d, _ in h] == ["2026-09-28", "2026-09-20"]
+    assert rotation_tenure(h, "slug", 5)["neo"]["weeks"] == 2

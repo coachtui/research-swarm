@@ -446,11 +446,30 @@ async def _handshake_and_enter(
     # otherwise each be checked against a fresh baseline and jointly bust 35%.
     running_holdings: List[Dict[str, Any]] = list(holdings)
 
+    # Names a CONFIRMED veto already removed this season (watchlist and held
+    # names re-enter the memo's candidate list every week regardless). Skip
+    # the paid disqualifier for them — the answer is on record. Degrades to
+    # an empty set on any failure.
+    try:
+        from execution.themes.lifecycle import load_vetoed_tickers  # noqa: PLC0415
+        already_vetoed = await load_vetoed_tickers(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("funnel: block list unavailable — screening every entry")
+        already_vetoed = {}
+
     for entry in planned_entries:
         sym = entry.get("ticker")
         if not sym:
             continue
         screen = screen_by_symbol.get(sym) or {}
+
+        prior = already_vetoed.get(str(sym).upper())
+        if prior is not None:
+            await _journal(db, "exit_sell_verdict", "info",
+                           f"{sym}: memo entry vetoed — previously disqualified: {prior}",
+                           {"symbol": sym, "reason": f"previously disqualified: {prior}",
+                            "slug": entry.get("slug"), "prior_veto": True})
+            continue
 
         # 1) Disqualifier screen (spec §4) — VETO-ONLY, on positive evidence.
         #    This replaced a full swarm run whose ONLY consumed output was
