@@ -10,7 +10,7 @@ DB touchpoint. Rules (spec):
 - every applied action becomes an EngineReport entry (the veto surface)
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from execution.constants import (
@@ -18,6 +18,7 @@ from execution.constants import (
     MAX_ACTIVE_THEMES,
     MAX_THEME_CONSTITUENTS,
     MIN_THEME_CONSTITUENTS,
+    THEME_VETO_BLOCK_DAYS,
 )
 from execution.reporting import write_report
 
@@ -303,3 +304,85 @@ async def apply_actions(db, actions: List[Dict], source: str) -> Dict[str, int]:
 
 def source_kind(source: str) -> str:
     return {"theme_delta_weekly": "delta"}.get(source, "reasoning")
+
+
+# ── Veto feedback ────────────────────────────────────────────────────────────
+# The entry disqualifier (execution/funnel/disqualify.py) is veto-only and
+# used to be a dead end: a CONFIRMED finding blocked one order and nothing
+# else. The name stayed a constituent, the momentum screen re-ranked it on the
+# very price action the deal created, the memo re-planned it, and the engine
+# paid to veto it again — ATKR, every week from 2026-08-17 (Prysmian cash
+# deal). These two functions close the loop: remove the name from its baskets
+# and keep it out of the theme passes for THEME_VETO_BLOCK_DAYS.
+
+async def veto_constituent(db, ticker: str, reason: str, source: str) -> List[str]:
+    """Remove `ticker` from every ACTIVE theme it sits in, journaling each as a
+    `membership_change` row with vetoed=True + the screen's reason. Returns the
+    slugs it was removed from. Raises on DB failure — the funnel caller guards."""
+    sym = ticker.strip().upper()
+    now = datetime.now(timezone.utc)
+    rows = await db.themeconstituent.find_many(
+        where={"ticker": sym, "status": "active"}, include={"theme": True})
+    slugs: List[str] = []
+    for row in rows:
+        theme = getattr(row, "theme", None)
+        if theme is None or getattr(theme, "status", None) != "active":
+            continue
+        await db.themeconstituent.update_many(
+            where={"themeId": row.themeId, "ticker": sym, "status": "active"},
+            data={"status": "removed", "removedAt": now})
+        await write_report(
+            "membership_change", "warning", source,
+            f"membership change: {theme.slug} (-{sym}, vetoed)",
+            {"slug": theme.slug, "added": [], "removed": [sym],
+             "vetoed": True, "reason": reason}, db=db)
+        slugs.append(theme.slug)
+    if not slugs:
+        # Watchlist or held names sit in no basket, yet they re-enter the
+        # memo's candidate list every week. Record the veto anyway so
+        # load_vetoed_tickers blocks them too.
+        await write_report(
+            "membership_change", "warning", source,
+            f"veto recorded: {sym} (no active basket)",
+            {"slug": None, "added": [], "removed": [sym],
+             "vetoed": True, "reason": reason}, db=db)
+    return slugs
+
+
+async def load_vetoed_tickers(db, days: int = THEME_VETO_BLOCK_DAYS) -> Dict[str, str]:
+    """{TICKER: reason} for names a confirmed veto removed within `days`.
+
+    prisma-client-py has no Json path filter, so fetch the membership_change
+    rows for the window and match in Python. Empty on any failure — the theme
+    passes degrade to 'no block list', matching the engine's outage posture."""
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        rows = await db.enginereport.find_many(
+            where={"type": "membership_change", "createdAt": {"gte": cutoff}},
+            order={"createdAt": "desc"})
+    except Exception:  # noqa: BLE001
+        logger.exception("load_vetoed_tickers: lookup failed — no block list")
+        return {}
+    out: Dict[str, str] = {}
+    for r in rows:
+        body = getattr(r, "body", None) or {}
+        if not isinstance(body, dict) or not body.get("vetoed"):
+            continue
+        for t in body.get("removed") or []:
+            out.setdefault(str(t).strip().upper(), str(body.get("reason") or ""))
+    return out
+
+
+def apply_block_list(
+    tickers: List[str], validation: Dict[str, Optional[Dict]],
+    blocked: Optional[Dict[str, str]], skipped: List[str],
+) -> Dict[str, Optional[Dict]]:
+    """Force validation=None for blocked symbols so the planners reject them
+    exactly as a failed lookup, and record why in `skipped`. Pure."""
+    if not blocked:
+        return validation
+    for sym in dict.fromkeys(str(t).strip().upper() for t in tickers):
+        if sym in blocked:
+            validation[sym] = None
+            skipped.append(f"{sym}: blocked — vetoed by entry screen ({blocked[sym]})")
+    return validation

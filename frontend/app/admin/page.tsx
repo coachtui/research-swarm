@@ -11,16 +11,9 @@ import { AdminAnalysisTable } from '@/components/admin/AdminAnalysisTable'
 import { AdminRevenueCharts } from '@/components/admin/AdminRevenueCharts'
 import { MarketOutlookPanel } from '@/components/autopilot/MarketOutlookPanel'
 import { EngineJournalPanel } from '@/components/autopilot/EngineJournalPanel'
-import { WeeklyBatchPanel } from '@/components/autopilot/WeeklyBatchPanel'
 import { WeekPanel } from '@/components/autopilot/WeekPanel'
 import { WatchlistView } from '@/components/dashboard/WatchlistView'
-import { StructuralDeploymentUpdate } from '@/components/deployment/StructuralDeploymentUpdate'
-import { PortfolioOverview } from '@/components/portfolio/PortfolioOverview'
-import { PortfolioSeedForm } from '@/components/portfolio/PortfolioSeedForm'
 import { QuarterliesPanel } from '@/components/autopilot/QuarterliesPanel'
-import { ActionsTab } from '@/components/portfolio/ActionsTab'
-import { HoldingsTab } from '@/components/portfolio/HoldingsTab'
-import { usePortfolio } from '@/lib/hooks/usePortfolio'
 import { Shield, AlertCircle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { apiClient } from '@/lib/api/client'
@@ -50,8 +43,6 @@ export default function AdminPage() {
 function AdminContent() {
   const { data: metrics, isLoading, error } = useAdminMetrics()
   const { data: costs, isLoading: costsLoading } = useAdminCosts()
-  const { data: portfolioData } = usePortfolio()
-  const portfolio = portfolioData?.portfolios?.[0] || null
 
   // Access denied if not admin
   if (error && (error as any).status === 403) {
@@ -91,7 +82,7 @@ function AdminContent() {
 
       {/* Content */}
       <main className="container mx-auto px-4 py-8">
-        <Tabs defaultValue="metrics" className="space-y-6">
+        <Tabs defaultValue="week" className="space-y-6">
           <TabsList>
             <TabsTrigger value="week">This Week</TabsTrigger>
             <TabsTrigger value="metrics">Metrics</TabsTrigger>
@@ -101,8 +92,6 @@ function AdminContent() {
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="analyses">Analyses</TabsTrigger>
             <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
-            <TabsTrigger value="deployment">Deployment</TabsTrigger>
-            <TabsTrigger value="portfolio">Portfolio</TabsTrigger>
           </TabsList>
 
           <TabsContent value="week">
@@ -121,21 +110,13 @@ function AdminContent() {
           </TabsContent>
 
           <TabsContent value="outlook">
-            <Tabs defaultValue="sunday" className="space-y-4">
-              <TabsList>
-                <TabsTrigger value="sunday">Sunday Outlook</TabsTrigger>
-                <TabsTrigger value="monday">Monday Batch</TabsTrigger>
-              </TabsList>
-              <TabsContent value="sunday">
-                <div className="space-y-6">
-                  <MarketOutlookPanel />
-                  <EngineJournalPanel />
-                </div>
-              </TabsContent>
-              <TabsContent value="monday">
-                <WeeklyBatchPanel />
-              </TabsContent>
-            </Tabs>
+            {/* Sunday outlook only. The Monday batch list and the deployment
+                scorer were removed 2026-10-02: no decision read them and the
+                owner was interpreting lists instead of reading decisions. */}
+            <div className="space-y-6">
+              <MarketOutlookPanel />
+              <EngineJournalPanel />
+            </div>
           </TabsContent>
 
           <TabsContent value="quarterlies">
@@ -154,36 +135,10 @@ function AdminContent() {
             <WatchlistView />
           </TabsContent>
 
-          <TabsContent value="deployment">
-            <StructuralDeploymentUpdate adminMode />
-          </TabsContent>
-
-          <TabsContent value="portfolio">
-            <Tabs defaultValue="overview" className="space-y-4">
-              <TabsList>
-                <TabsTrigger value="overview">Portfolio</TabsTrigger>
-                <TabsTrigger value="actions">Actions</TabsTrigger>
-                <TabsTrigger value="holdings">
-                  Holdings {portfolio ? `(${portfolio.position_count})` : ''}
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="overview">
-                {portfolio
-                  ? <PortfolioOverview portfolioId={portfolio.id} userTier="trader" />
-                  : <PortfolioSeedForm />}
-              </TabsContent>
-              <TabsContent value="actions">
-                {portfolio
-                  ? <ActionsTab portfolioId={portfolio.id} />
-                  : <div className="text-center py-12 text-sm text-text-tertiary">Create a portfolio first.</div>}
-              </TabsContent>
-              <TabsContent value="holdings">
-                {portfolio
-                  ? <HoldingsTab portfolioId={portfolio.id} />
-                  : <div className="text-center py-12 text-sm text-text-tertiary">Create a portfolio first.</div>}
-              </TabsContent>
-            </Tabs>
-          </TabsContent>
+          {/* The hand-entered Portfolio tab was removed 2026-10-02. The book —
+              positions as the broker holds them, grouped by thesis, with the
+              memo's reasoning — lives on This Week. The subscriber portfolio
+              feature on /dashboard is unchanged. */}
         </Tabs>
       </main>
     </div>

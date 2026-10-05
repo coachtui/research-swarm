@@ -186,7 +186,7 @@ Respond with ONLY a JSON object, no other text:
         "classification": "core" | "trade",
         "target_weight": <fraction of sleeve equity at FULL size, e.g. 0.09>,
         "ladder": [
-          {{"price": <ABSOLUTE price>, "size_pct": <share of full size>,
+          {{"price": <ABSOLUTE price>, "size_pct": <PERCENT of full size, e.g. 40 — rungs sum to 100>,
             "why": "<why THIS level>"}}
         ],
         "thesis_break": "<the CONDITION that kills this, not a price>",

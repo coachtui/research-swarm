@@ -89,6 +89,14 @@ THEME_HISTORY_WEEKS = 12            # sparkline series length (current membershi
 THEME_REASONING_MODEL = "claude-sonnet-5"
 THEME_DELTA_MODEL = "claude-haiku-4-5"
 THEME_WEB_SEARCH_MAX_USES = 8
+# Output budget for the monthly reasoning call. 16k truncated the 2026-10-01
+# pass (7 kept themes + a new one + citations + 8 search turns all count
+# against one budget); the memo and study passes already run at 32k.
+THEME_REASONING_MAX_TOKENS = 32768
+# How long a disqualifier veto keeps a name out of the theme passes. Long
+# enough to outlast a pending acquisition; a broken thesis that heals can be
+# re-proposed with evidence after this window.
+THEME_VETO_BLOCK_DAYS = 180
 THEME_DELTA_WEB_SEARCH_MAX_USES = 4  # verification budget only, not research
 
 # ── Phase 3C: Sleeve A funnel + small-cap guardrails (SHADOW MODE) ──────────

@@ -8,13 +8,18 @@ import logging
 import os
 from typing import Any, Dict
 
+from datetime import datetime, timedelta, timezone
+
 from execution.constants import (
+    THEME_REASONING_MAX_TOKENS,
     THEME_REASONING_MODEL,
     THEME_WEB_SEARCH_MAX_USES,
 )
 from execution.reporting import write_report
 from execution.research_feed import get_research_context
-from execution.themes.lifecycle import apply_actions, plan_monthly_actions
+from execution.themes.lifecycle import (
+    apply_actions, apply_block_list, load_vetoed_tickers, plan_monthly_actions,
+)
 from execution.themes.parser import parse_monthly_response
 from execution.themes.prompts import build_monthly_prompt
 from execution.themes.validation import validate_tickers
@@ -97,24 +102,87 @@ async def gather_monthly_context(db) -> Dict[str, Any]:
     from execution.thesis.ledger import load_rulebook  # noqa: PLC0415
     rulebook = await load_rulebook(db)
 
+    # The pass must see its own history or it only ever restates the list it
+    # was shown: the names the entry screen has disqualified (never re-propose)
+    # and the forward hypotheses it journaled in earlier months (graduate,
+    # restate, or kill — never silently forget).
+    vetoed = await load_vetoed_tickers(db)
+    prior_hypotheses = await _prior_hypotheses(db)
+
     return {"active_themes": active, "retired_themes": retired,
             "latest_rankings": latest_rankings, "research": research,
-            "method_rulebook": rulebook}
+            "method_rulebook": rulebook, "vetoed": vetoed,
+            "prior_hypotheses": prior_hypotheses}
+
+
+_PRIOR_HYPOTHESIS_DAYS = 120
+_PRIOR_HYPOTHESIS_MAX = 9
+
+
+async def _prior_hypotheses(db, days: int = _PRIOR_HYPOTHESIS_DAYS) -> list:
+    """Newest-first next-constraint hypotheses this pass journaled earlier
+    (EngineReport theme_proposal rows titled 'next-constraint hypothesis: …'),
+    deduplicated on hypothesis text. Empty on any failure."""
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        rows = await db.enginereport.find_many(
+            where={"type": "theme_proposal", "source": SOURCE,
+                   "title": {"startswith": "next-constraint hypothesis"},
+                   "createdAt": {"gte": cutoff}},
+            order={"createdAt": "desc"})
+    except Exception:  # noqa: BLE001
+        logger.exception("gather_monthly_context: prior hypotheses unavailable")
+        return []
+    def _strs(v) -> list:
+        if isinstance(v, str):
+            v = [v]
+        return [str(x) for x in v if x] if isinstance(v, list) else []
+
+    # Newest-first: the first row per text carries the latest wording; every
+    # later (older) row only pushes first_seen back. Capped AFTER dedup so a
+    # restated hypothesis cannot crowd an older one out.
+    out: list = []
+    by_text: Dict[str, dict] = {}
+    for r in rows:
+        body = getattr(r, "body", None) or {}
+        text = str(body.get("hypothesis") or "").strip() if isinstance(body, dict) else ""
+        if not text:
+            continue
+        created = getattr(r, "createdAt", None)
+        day = created.date().isoformat() if created else None
+        h = by_text.get(text)
+        if h is None:
+            h = {"first_seen": day, "hypothesis": text,
+                 "candidates": _strs(body.get("candidates")),
+                 "leading_indicators": _strs(body.get("leading_indicators")),
+                 "falsification": body.get("falsification") if isinstance(body.get("falsification"), str) else None}
+            by_text[text] = h
+            out.append(h)
+        elif day and (h["first_seen"] is None or day < h["first_seen"]):
+            h["first_seen"] = day
+    return out[:_PRIOR_HYPOTHESIS_MAX]
 
 
 def reason_monthly(context: Dict[str, Any], llm_call=None) -> str:
     call = llm_call or _call_llm
     prompt = build_monthly_prompt(context)
     return call(THEME_REASONING_MODEL, prompt, use_web_search=True,
-                max_uses=THEME_WEB_SEARCH_MAX_USES)
+                max_uses=THEME_WEB_SEARCH_MAX_USES,
+                max_tokens=THEME_REASONING_MAX_TOKENS)
 
 
-def parse_and_validate_monthly(raw: str, tradable=None) -> Dict[str, Any]:
+def parse_and_validate_monthly(raw: str, tradable=None, blocked=None) -> Dict[str, Any]:
+    """`blocked` is {TICKER: reason} from load_vetoed_tickers — those symbols
+    skip the network lookup and are rejected like a failed validation."""
     parsed = parse_monthly_response(raw)
+    skipped = list(parsed["skipped"])
     tickers = [c["ticker"] for p in parsed["themes"] for c in p["constituents"]]
-    validation = validate_tickers(tickers, tradable=tradable) if tickers else {}
+    blocked = {str(k).upper(): v for k, v in (blocked or {}).items()}
+    to_check = [t for t in tickers if str(t).strip().upper() not in blocked]
+    validation = validate_tickers(to_check, tradable=tradable) if to_check else {}
+    validation = apply_block_list(tickers, validation, blocked, skipped)
     return {"proposals": parsed["themes"], "validation": validation,
-            "skipped": parsed["skipped"],
+            "skipped": skipped,
             "next_constraints": parsed["next_constraints"]}
 
 

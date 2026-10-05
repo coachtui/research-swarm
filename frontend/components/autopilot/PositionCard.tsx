@@ -35,7 +35,7 @@ function Ladder({ plan, current }: { plan: NonNullable<WeekPosition['plan']>; cu
       {rungs.map((r, i) => (
         <div key={i} className="flex flex-wrap items-baseline gap-x-2 text-sm">
           <span className="font-mono tabular-nums">{money(r.price)}</span>
-          <span className="text-xs text-muted-foreground">×{(r.size_pct * 100).toFixed(0)}%</span>
+          <span className="text-xs text-muted-foreground">×{r.size_pct.toFixed(0)}%</span>
           {current >= r.price ? (
             <Badge variant="secondary" className="text-[0.6rem]">below current</Badge>
           ) : (

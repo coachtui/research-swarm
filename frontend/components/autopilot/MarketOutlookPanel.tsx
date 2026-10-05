@@ -3,15 +3,15 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useMarketOutlook } from '@/lib/hooks/useAdmin'
-import { formatDate, formatPercent } from '@/lib/utils/formatting'
+import { formatDate, formatDay, formatPercent } from '@/lib/utils/formatting'
 import { AlertTriangle } from 'lucide-react'
+import { ThemeRow } from './ThemeRow'
 import type {
   IndustryRotationFlag,
   MarketOutlookResponse,
   RotationFlag,
   SectorRanking,
   SizeStyle,
-  ThemeHistoryPoint,
   ThemeRotationFlag,
 } from '@/types/api'
 
@@ -64,32 +64,24 @@ function sizeStyleLabel(tag: SizeStyle['tag']): string {
     .join(' ')
 }
 
+function sinceSuffix(flag: { since?: string | null; weeks?: number | null }): string {
+  if (!flag.since) return ''
+  const span = flag.weeks && flag.weeks > 1 ? `, ${flag.weeks} weeks` : ', new this week'
+  return ` — since ${formatDay(flag.since)}${span}`
+}
+
 function industryRotationLabel(flag: IndustryRotationFlag): string {
-  return flag.direction === 'into'
+  const base = flag.direction === 'into'
     ? `Rotation into ${flag.industry} (${flag.etf})`
     : `Rotation out of ${flag.industry} (${flag.etf})`
+  return base + sinceSuffix(flag)
 }
 
 function themeRotationLabel(flag: ThemeRotationFlag): string {
-  return flag.direction === 'into'
-    ? `Rotation into ${flag.theme} (${flag.etf})`
-    : `Rotation out of ${flag.theme} (${flag.etf})`
-}
-
-function ThemeSparkline({ points }: { points: ThemeHistoryPoint[] }) {
-  if (points.length < 2) return null
-  const scores = points.map((p) => p.score)
-  const min = Math.min(...scores)
-  const max = Math.max(...scores)
-  const span = max - min || 1
-  const coords = points
-    .map((p, i) => `${(i / (points.length - 1)) * 60},${18 - ((p.score - min) / span) * 16}`)
-    .join(' ')
-  return (
-    <svg width="60" height="20" className="text-primary shrink-0" aria-hidden="true">
-      <polyline points={coords} fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  )
+  const base = flag.direction === 'into'
+    ? `Rotation into ${flag.theme}`
+    : `Rotation out of ${flag.theme}`
+  return base + sinceSuffix(flag)
 }
 
 export function MarketOutlookPanel() {
@@ -156,7 +148,12 @@ function MarketOutlookContent({ outlook }: { outlook: MarketOutlookResponse }) {
     theme_rotations,
     theme_missing,
     theme_history,
+    theme_constituents,
+    theme_meta,
   } = outlook
+
+  // tenure per theme slug, from the dated rotation flags
+  const themeTenure = new Map((theme_rotations ?? []).map((f) => [f.etf, f]))
 
   const regimeVariant = REGIME_BADGE_VARIANT[regime] ?? 'secondary'
 
@@ -390,27 +387,32 @@ function MarketOutlookContent({ outlook }: { outlook: MarketOutlookResponse }) {
             <CardTitle>Leading Themes</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="space-y-2">
-              {theme_rankings.map((t, i) => (
-                <div key={t.slug} className="flex items-center justify-between gap-3 text-sm">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-text-secondary w-5 shrink-0">{i + 1}.</span>
-                    <span className="text-text-primary truncate">{t.theme}</span>
-                    <span className="text-text-tertiary text-xs shrink-0">
-                      {t.constituent_count} names
-                    </span>
-                    {t.rank_change >= 5 && <Badge variant="success">rotating in</Badge>}
-                    {t.rank_change <= -5 && <Badge variant="error">rotating out</Badge>}
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <ThemeSparkline points={theme_history?.[t.slug] ?? []} />
-                    <span className="tabular-nums text-text-secondary">
-                      {t.score >= 0 ? '+' : ''}
-                      {t.score.toFixed(4)}
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <p className="text-xs text-text-tertiary">
+              Click a theme for its names. &ldquo;Rotating in&rdquo; means the 1-month rank beats the 3-month rank by
+              5 or more; it is dated from the first consecutive Sunday it held.
+            </p>
+            <div>
+              {theme_rankings.map((t, i) => {
+                const tenure = themeTenure.get(t.slug)
+                const flag = t.rank_change >= 5 ? 'into' : t.rank_change <= -5 ? 'out_of' : null
+                return (
+                  <ThemeRow
+                    key={t.slug}
+                    rank={i + 1}
+                    slug={t.slug}
+                    name={theme_meta?.[t.slug]?.name ?? t.theme}
+                    stage={theme_meta?.[t.slug]?.stage}
+                    rankChange={t.rank_change}
+                    score={t.score}
+                    flag={flag}
+                    since={tenure?.since ?? null}
+                    weeks={tenure?.weeks ?? null}
+                    constituents={theme_constituents?.[t.slug] ?? []}
+                    history={theme_history?.[t.slug] ?? []}
+                    thesis={theme_meta?.[t.slug]?.thesis ?? null}
+                  />
+                )
+              })}
             </div>
             {theme_rotations && theme_rotations.length > 0 && (
               <ul className="space-y-1">

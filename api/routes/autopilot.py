@@ -7,8 +7,9 @@ follow later.
 """
 
 import logging
-from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+import re
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -20,6 +21,16 @@ from execution.outlook_service import get_latest_outlook
 from execution.batch_run_service import (
     get_batch_run, get_latest_batch_run, list_batch_runs,
 )
+from execution.constants import (
+    INDUSTRY_ROTATION_MIN_RANK_GAIN, THEME_ROTATION_MIN_RANK_GAIN,
+)
+from execution.indicators.rotation_tenure import (
+    annotate_rotations, history_from_outlook_rows, rotation_tenure,
+)
+
+# Weeks of MarketOutlook history to walk when dating a rotation flag. A flag
+# older than this reads "26+ weeks", which is already the answer.
+_TENURE_HISTORY_WEEKS = 26
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -50,9 +61,66 @@ class MarketOutlookResponse(BaseModel):
     theme_rotations: Optional[List[dict]] = None
     theme_missing: Optional[List[dict]] = None
     theme_history: Optional[dict] = None
+    # 2026-10-02: the names behind each ranked theme, and whether we hold them.
+    # {slug: [{ticker, exposure, confidence, held}]}; None when unavailable.
+    theme_constituents: Optional[Dict[str, List[dict]]] = None
+    # {slug: {name, stage, thesis, confidence}}
+    theme_meta: Optional[Dict[str, dict]] = None
 
 
 # --- Pure helpers (tested directly) ────────────────────────────────────────
+
+_CITE_RE = re.compile(r'[<(]cite\s+index="[^"]*"\s*>|</cite>', re.IGNORECASE)
+
+
+def strip_cites(text: Optional[str]) -> Optional[str]:
+    """Remove the web-search citation markup (`<cite index="..">`, the
+    half-escaped `(cite index="..">` form, and `</cite>`) that Sonnet leaves in
+    theses and veto reasons. Prose only; the page is not a citation viewer."""
+    if not isinstance(text, str):
+        return text
+    return re.sub(r"\s{2,}", " ", _CITE_RE.sub("", text)).strip()
+
+
+async def _theme_constituent_map(db) -> Tuple[Dict[str, List[dict]], Dict[str, dict]]:
+    """Active constituents of active baskets, flagged `held` when Sleeve A's
+    engine book carries the symbol. ({slug: [...]}, {slug: meta}). Empty on
+    failure — the page renders without the expansion rather than failing."""
+    try:
+        baskets = await db.themebasket.find_many(
+            where={"status": "active"}, include={"constituents": True})
+        held = {p.symbol for p in await db.engineposition.find_many(where={"sleeve": "A"})}
+    except Exception:  # noqa: BLE001
+        logger.exception("outlook: theme constituents unavailable")
+        return {}, {}
+    cons: Dict[str, List[dict]] = {}
+    meta: Dict[str, dict] = {}
+    for b in baskets:
+        rows = [c for c in (b.constituents or []) if c.status == "active"]
+        rows.sort(key=lambda c: (-(c.confidence or 0.0), c.ticker))
+        cons[b.slug] = [{"ticker": c.ticker, "exposure": strip_cites(c.exposure),
+                         "confidence": c.confidence, "held": c.ticker in held,
+                         "added_at": c.addedAt.date().isoformat() if getattr(c, "addedAt", None) else None}
+                        for c in rows]
+        meta[b.slug] = {"name": b.name, "stage": getattr(b, "stage", None),
+                        "thesis": strip_cites(b.thesis), "confidence": b.confidence,
+                        "created_at": b.createdAt.date().isoformat() if getattr(b, "createdAt", None) else None}
+    return cons, meta
+
+
+async def _rotation_tenures(db) -> Tuple[Dict[str, dict], Dict[str, dict]]:
+    """(theme tenure by slug, industry tenure by etf) from stored history."""
+    try:
+        rows = await db.marketoutlook.find_many(
+            order={"runDate": "desc"}, take=_TENURE_HISTORY_WEEKS)
+    except Exception:  # noqa: BLE001
+        logger.exception("outlook: history unavailable — rotations undated")
+        return {}, {}
+    themes = rotation_tenure(history_from_outlook_rows(rows, "themeRankings"),
+                             "slug", THEME_ROTATION_MIN_RANK_GAIN)
+    industries = rotation_tenure(history_from_outlook_rows(rows, "industryRankings"),
+                                 "etf", INDUSTRY_ROTATION_MIN_RANK_GAIN)
+    return themes, industries
 
 def outlook_row_to_response(row) -> MarketOutlookResponse:
     """Map a Prisma MarketOutlook row (camelCase) to MarketOutlookResponse (snake_case)."""
@@ -95,7 +163,12 @@ async def get_outlook(admin: User = Depends(require_admin)):
     if row is None:
         raise HTTPException(status_code=404, detail="No outlook available yet")
 
-    return outlook_row_to_response(row)
+    resp = outlook_row_to_response(row)
+    theme_tenure, industry_tenure = await _rotation_tenures(db)
+    resp.theme_rotations = annotate_rotations(resp.theme_rotations, theme_tenure, key="etf")
+    resp.industry_rotations = annotate_rotations(resp.industry_rotations, industry_tenure, key="etf")
+    resp.theme_constituents, resp.theme_meta = await _theme_constituent_map(db)
+    return resp
 
 
 class EngineReportResponse(BaseModel):
@@ -419,11 +492,40 @@ class WeekAction(BaseModel):
     """Something the memo decided that did NOT become a held position."""
     ticker: str
     slug: Optional[str] = None
-    outcome: str            # placed | vetoed | rejected | blocked | passed_on
+    # not_placed | placed | vetoed | rejected | deferred | exited | passed_on
+    outcome: str
     reason: Optional[str] = None
     role: Optional[str] = None
     conviction: Optional[float] = None
     reconsider_if: Optional[str] = None
+    why_now: Optional[str] = None          # the memo's case, kept when the
+                                            # engine's outcome replaces `reason`
+
+
+class WeekTheme(BaseModel):
+    """One ranked theme with its tenure and the names behind it."""
+    slug: str
+    name: str
+    stage: Optional[str] = None
+    confidence: Optional[float] = None
+    rank_1m: Optional[int] = None
+    rank_3m: Optional[int] = None
+    rank_change: Optional[int] = None
+    score: Optional[float] = None
+    flag: Optional[str] = None            # into | out_of | None
+    since: Optional[str] = None           # first consecutive week the flag held
+    weeks: Optional[int] = None
+    constituents: List[dict] = []         # {ticker, exposure, confidence, held, added_at}
+    history: List[dict] = []              # {weeks_ago, score, rank}
+
+
+class WeekChange(BaseModel):
+    """Something that changed in the engine's state this week."""
+    date: str
+    kind: str          # membership | theme | hypothesis | veto | failure | validation
+    title: str
+    detail: Optional[str] = None
+    severity: str = "info"
 
 
 class WeekThesis(BaseModel):
@@ -444,6 +546,183 @@ class WeekResponse(BaseModel):
     positions: List[WeekPosition] = []
     open_orders: List[dict] = []
     actions: List[WeekAction] = []
+    # 2026-10-02: the page became the weekly decision view.
+    themes_ranked: List[WeekTheme] = []
+    changes: List[WeekChange] = []
+    hypotheses: List[dict] = []
+
+
+# Engine outcomes outrank the memo's intent: a name the memo authorised that
+# the funnel then vetoed must read "vetoed", not "authorised, not placed".
+_OUTCOME_RANK = {"vetoed": 5, "rejected": 4, "deferred": 3, "placed": 2,
+                 "exited": 1, "not_placed": 0, "passed_on": 0}
+
+_JOURNAL_OUTCOME = {"exit_sell_verdict": "vetoed", "entry_rejected": "rejected",
+                    "entry_deferred": "deferred", "entry_order": "placed"}
+
+
+def _journal_reason(row) -> Optional[str]:
+    body = getattr(row, "body", None) or {}
+    if isinstance(body, dict):
+        for k in ("reason", "notes"):
+            v = body.get(k)
+            if isinstance(v, list):
+                v = "; ".join(str(x) for x in v)
+            if isinstance(v, str) and v.strip():
+                return strip_cites(v)
+    title = str(getattr(row, "title", "") or "")
+    return strip_cites(title.split("—", 1)[1]) if "—" in title else (title or None)
+
+
+def merge_week_journal(actions: List[WeekAction], journal_rows: Iterable[Any],
+                       held: Optional[set] = None) -> List[WeekAction]:
+    """Overlay the funnel's journal for the week onto the memo's actions.
+
+    `journal_rows` are EngineReport rows (any order) of the entry/veto types.
+    For each symbol the strongest outcome wins (_OUTCOME_RANK); a vetoed row
+    only counts when its title says the entry was vetoed (the same type is
+    reused for position exits). A symbol the journal names that the memo did
+    not list (a replay, a manual run) is added so nothing the engine did is
+    hidden. Symbols the broker now holds are left alone — they are positions,
+    not decisions pending."""
+    held = held or set()
+    best: Dict[str, Tuple[int, str, Optional[str], Optional[str]]] = {}
+    for r in journal_rows:
+        kind = _JOURNAL_OUTCOME.get(getattr(r, "type", None))
+        if kind is None:
+            continue
+        title = str(getattr(r, "title", "") or "")
+        if kind == "vetoed" and "vetoed" not in title:
+            continue
+        body = getattr(r, "body", None) or {}
+        # The planner journals a verb CORRECTION ("memo said 'add' for a new
+        # name — read as 'enter'") under entry_rejected too; the order still
+        # proceeds, so it must not read as a rejection.
+        if kind == "rejected" and (
+                "read as" in title
+                or (isinstance(body, dict) and "from" in body and "to" in body)):
+            continue
+        sym = (body.get("symbol") if isinstance(body, dict) else None) or title.split(":", 1)[0]
+        sym = str(sym).strip().upper()
+        if not sym or sym in held:
+            continue
+        rank = _OUTCOME_RANK[kind]
+        if sym not in best or rank > best[sym][0]:
+            slug = body.get("slug") if isinstance(body, dict) else None
+            best[sym] = (rank, kind, _journal_reason(r), slug)
+
+    out: List[WeekAction] = []
+    seen = set()
+    for a in actions:
+        hit = best.get(a.ticker.upper())
+        # A name the memo considered and PASSED ON under one theme is not the
+        # same decision as the entry it authorised under another — leave it.
+        if hit and a.outcome != "passed_on" and hit[0] > _OUTCOME_RANK.get(a.outcome, 0):
+            a = a.model_copy(update={"outcome": hit[1], "reason": hit[2],
+                                     "why_now": a.why_now or a.reason,
+                                     "slug": a.slug or hit[3]})
+        seen.add(a.ticker.upper())
+        out.append(a)
+    for sym, (_, kind, reason, slug) in best.items():
+        if sym not in seen:
+            out.append(WeekAction(ticker=sym, slug=slug, outcome=kind, reason=reason))
+    return out
+
+
+_CHANGE_TYPES = ("membership_change", "theme_retired", "theme_proposal",
+                 "validation_failure", "engine_failure")
+
+
+def week_changes(rows: Iterable[Any]) -> List[WeekChange]:
+    """Typed, dated list of what moved in the engine's state. Rows are
+    EngineReport rows for the window; routine 'theme updated' restatements are
+    dropped unless they carried a membership diff, so the list is changes,
+    not activity."""
+    out: List[WeekChange] = []
+    for r in rows:
+        t = getattr(r, "type", None)
+        if t not in _CHANGE_TYPES:
+            continue
+        title = str(getattr(r, "title", "") or "")
+        body = getattr(r, "body", None) or {}
+        body = body if isinstance(body, dict) else {}
+        created = getattr(r, "createdAt", None)
+        day = created.date().isoformat() if hasattr(created, "date") else str(created)[:10]
+        sev = getattr(r, "severity", "info") or "info"
+        detail: Optional[str] = None
+        if t == "membership_change":
+            kind = "veto" if body.get("vetoed") else "membership"
+            added = ", ".join(c.get("ticker", "?") if isinstance(c, dict) else str(c)
+                              for c in body.get("added") or [])
+            removed = ", ".join(str(c) for c in body.get("removed") or [])
+            bits = [f"+{added}" if added else "", f"−{removed}" if removed else ""]
+            detail = " ".join(b for b in bits if b) or None
+            if body.get("reason"):
+                detail = f"{detail or ''} {body['reason']}".strip()
+        elif t == "theme_retired":
+            kind, detail = "theme", body.get("reason")
+        elif t == "theme_proposal":
+            if title.startswith("next-constraint hypothesis"):
+                kind, detail = "hypothesis", body.get("hypothesis")
+            elif title.startswith("theme activated"):
+                kind, detail = "theme", (body.get("thesis") or "")[:240] or None
+            elif title.startswith("theme updated"):
+                if not (body.get("added") or body.get("removed")):
+                    continue
+                kind = "membership"
+                added = ", ".join(c.get("ticker", "?") for c in body.get("added") or [])
+                removed = ", ".join(str(c) for c in body.get("removed") or [])
+                detail = " ".join(b for b in (f"+{added}" if added else "",
+                                              f"−{removed}" if removed else "") if b)
+            else:
+                kind, detail = "theme", body.get("detail")
+        elif t == "validation_failure":
+            kind = "validation"
+            sk = body.get("skipped") or []
+            ft = body.get("failed_tickers") or []
+            detail = "; ".join([*map(str, sk), *(f"{x} failed validation" for x in ft)]) or None
+        else:
+            kind, detail = "failure", (body.get("detail") or body.get("stage"))
+            if isinstance(detail, str):
+                detail = detail[:240]
+        out.append(WeekChange(date=day, kind=kind, title=title, detail=detail,
+                              severity=str(sev)))
+    out.sort(key=lambda c: c.date, reverse=True)
+    return out
+
+
+def rank_themes_for_week(outlook, tenure: Dict[str, dict],
+                         constituents: Dict[str, List[dict]],
+                         meta: Dict[str, dict]) -> List[WeekTheme]:
+    """Join the latest outlook's theme rankings with tenure, constituents and
+    basket meta. Active baskets the outlook could not rank (too few index-
+    eligible names) are appended unranked so they do not vanish."""
+    blob = getattr(outlook, "themeRankings", None) if outlook else None
+    blob = blob if isinstance(blob, dict) else {}
+    rankings = blob.get("rankings") or []
+    history = blob.get("history") or {}
+    out: List[WeekTheme] = []
+    seen = set()
+    for r in rankings:
+        slug = r.get("slug") or r.get("etf")
+        if not slug:
+            continue
+        seen.add(slug)
+        t = tenure.get(slug) or {}
+        m = meta.get(slug) or {}
+        out.append(WeekTheme(
+            slug=slug, name=m.get("name") or r.get("theme") or slug,
+            stage=m.get("stage"), confidence=m.get("confidence", r.get("confidence")),
+            rank_1m=r.get("rank_1m"), rank_3m=r.get("rank_3m"),
+            rank_change=r.get("rank_change"), score=r.get("score"),
+            flag=t.get("direction"), since=t.get("since"), weeks=t.get("weeks"),
+            constituents=constituents.get(slug, []), history=history.get(slug, [])))
+    for slug, m in meta.items():
+        if slug not in seen:
+            out.append(WeekTheme(slug=slug, name=m.get("name") or slug, stage=m.get("stage"),
+                                 confidence=m.get("confidence"),
+                                 constituents=constituents.get(slug, [])))
+    return out
 
 
 async def _week_memo_rows(db, week: str) -> List[Any]:
@@ -599,7 +878,33 @@ async def get_week(week: Optional[str] = None, admin: User = Depends(require_adm
             ticker=ticker, slug=a.get("slug"),
             outcome="exited" if a.get("action") == "exit" else "not_placed",
             reason=a.get("why_now"), role=a.get("role"),
-            conviction=a.get("conviction")))
+            conviction=a.get("conviction"), why_now=a.get("why_now")))
+
+    # The engine's side of the story for the same week: what it vetoed,
+    # deferred, rejected or placed, and what changed in its state.
+    try:
+        week_start = datetime.fromisoformat(week)
+    except ValueError:
+        week_start = datetime.combine(date.today(), datetime.min.time())
+    window = {"gte": week_start - timedelta(days=1), "lt": week_start + timedelta(days=7)}
+    journal_rows = await db.enginereport.find_many(
+        where={"createdAt": window,
+               "type": {"in": [*_JOURNAL_OUTCOME.keys(), *_CHANGE_TYPES]}},
+        order={"createdAt": "desc"}, take=500)
+    actions = merge_week_journal(
+        actions, [r for r in journal_rows if r.type in _JOURNAL_OUTCOME], held)
+    changes = week_changes(journal_rows)
+
+    theme_tenure, _ = await _rotation_tenures(db)
+    constituents, meta = await _theme_constituent_map(db)
+    themes_ranked = rank_themes_for_week(outlook, theme_tenure, constituents, meta)
+
+    try:
+        from execution.themes.discovery import _prior_hypotheses  # noqa: PLC0415
+        hypotheses = await _prior_hypotheses(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("week view: hypotheses unavailable")
+        hypotheses = []
 
     return WeekResponse(
         week=week,
@@ -610,4 +915,5 @@ async def get_week(week: Optional[str] = None, admin: User = Depends(require_adm
         broker_ok=bool(snap.get("ok")),
         theses=theses, positions=positions,
         open_orders=snap.get("orders", []), actions=actions,
+        themes_ranked=themes_ranked, changes=changes, hypotheses=hypotheses,
     )

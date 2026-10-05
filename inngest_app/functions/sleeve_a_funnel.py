@@ -446,11 +446,30 @@ async def _handshake_and_enter(
     # otherwise each be checked against a fresh baseline and jointly bust 35%.
     running_holdings: List[Dict[str, Any]] = list(holdings)
 
+    # Names a CONFIRMED veto already removed this season (watchlist and held
+    # names re-enter the memo's candidate list every week regardless). Skip
+    # the paid disqualifier for them — the answer is on record. Degrades to
+    # an empty set on any failure.
+    try:
+        from execution.themes.lifecycle import load_vetoed_tickers  # noqa: PLC0415
+        already_vetoed = await load_vetoed_tickers(db)
+    except Exception:  # noqa: BLE001
+        logger.exception("funnel: block list unavailable — screening every entry")
+        already_vetoed = {}
+
     for entry in planned_entries:
         sym = entry.get("ticker")
         if not sym:
             continue
         screen = screen_by_symbol.get(sym) or {}
+
+        prior = already_vetoed.get(str(sym).upper())
+        if prior is not None:
+            await _journal(db, "exit_sell_verdict", "info",
+                           f"{sym}: memo entry vetoed — previously disqualified: {prior}",
+                           {"symbol": sym, "reason": f"previously disqualified: {prior}",
+                            "slug": entry.get("slug"), "prior_veto": True})
+            continue
 
         # 1) Disqualifier screen (spec §4) — VETO-ONLY, on positive evidence.
         #    This replaced a full swarm run whose ONLY consumed output was
@@ -480,6 +499,23 @@ async def _handshake_and_enter(
                            f"{sym}: memo entry vetoed — {screen_out.get('reason')}",
                            {"symbol": sym, "reason": screen_out.get("reason"),
                             "slug": entry.get("slug")})
+            # 2) Feed the veto back. A CONFIRMED finding (checked=True) means
+            #    the name must leave its theme baskets, or the screen re-ranks
+            #    it, the memo re-plans it and we pay to veto it again next week
+            #    (ATKR, every Monday from 2026-08-17). Guarded: a failed
+            #    removal is journaled, never a raised cron.
+            if screen_out.get("checked"):
+                try:
+                    from execution.themes.lifecycle import veto_constituent  # noqa: PLC0415
+                    removed_from = await veto_constituent(
+                        db, sym, str(screen_out.get("reason") or ""), _SOURCE)
+                    if removed_from:
+                        logger.info("funnel: %s vetoed — removed from %s", sym, removed_from)
+                except Exception:  # noqa: BLE001
+                    logger.exception("funnel: veto feedback failed for %s", sym)
+                    await _journal(db, "engine_failure", "warning",
+                                   f"{sym}: veto feedback failed — name stays a constituent",
+                                   {"symbol": sym, "slug": entry.get("slug")})
             continue
         if not screen_out.get("checked"):
             await _journal(db, "engine_failure", "warning",

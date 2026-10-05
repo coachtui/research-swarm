@@ -378,7 +378,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import inngest_app.functions.execution_daily as xd
 
-_PLAN = {"ladder": [{"price": 340.0, "size_pct": 0.5, "why": "r"}],
+_PLAN = {"ladder": [{"price": 340.0, "size_pct": 100, "why": "r"}],
          "thesis_break": "capex cut", "exit_plan": None}
 
 
@@ -427,3 +427,12 @@ def test_provenance_still_never_raises():
     db.engineposition.update = AsyncMock(side_effect=RuntimeError("db down"))
     asyncio.run(xd._persist_position_provenance(
         db, _order(journal={"position_plan": _PLAN})))   # must not raise
+
+
+
+def test_unit_conviction_normalises_the_old_0_100_scale():
+    from inngest_app.functions.execution_daily import unit_conviction
+    assert unit_conviction(55.77) == 0.5577
+    assert unit_conviction(0.62) == 0.62
+    assert unit_conviction(1.0) == 1.0
+    assert unit_conviction("61.58") == 0.6158

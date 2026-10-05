@@ -77,7 +77,8 @@ def _register_inngest_function():
 
             db = await get_db()
             tradable = await alpaca_tradable_symbols(db)
-            return parse_and_validate_delta(raw, tradable=tradable)
+            return parse_and_validate_delta(raw, tradable=tradable,
+                                            blocked=context.get("vetoed") or {})
 
         bundle = await step.run("parse-validate", parse_validate)
 
