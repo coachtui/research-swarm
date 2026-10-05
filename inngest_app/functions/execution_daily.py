@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 
 # ── Pure helpers (unit-tested) ───────────────────────────────────────────────
 
+
+def unit_conviction(value) -> float:
+    """Conviction on the memo's 0–1 scale, whatever the journal carried.
+
+    The three July 2026 positions (LRCX, MU, NVDA) were stored on the old
+    0–100 formula scale and sat beside 0–1 values for a quarter — flagged in
+    both sleeve reviews. The rows were repaired on 2026-10-05; this keeps a
+    pre-redesign journal from ever reintroducing the split."""
+    v = float(value)
+    return round(v / 100.0, 4) if v > 1.0 else v
+
 def build_sleeve_snapshot(
     state_cash: float,
     engine_symbols: List[str],
@@ -70,7 +81,7 @@ async def _persist_position_provenance(db, order: Any) -> None:
             data["sourceTags"] = Json(tags)
         conviction = journal.get("convictionScore")
         if conviction is not None:
-            data["convictionScore"] = float(conviction)
+            data["convictionScore"] = unit_conviction(conviction)
         report_ref = journal.get("reportRef")
         if report_ref is not None:
             data["reportRef"] = report_ref
